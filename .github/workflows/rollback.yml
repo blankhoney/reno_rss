@@ -1,0 +1,40 @@
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Target environment (staging or prod)"
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+      image_tag:
+        description: "Git SHA or semver tag to roll back to"
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    name: Rollback ${{ inputs.env }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.env == 'prod' && 'production' || 'staging' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Execute rollback
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          TARGET_ENV: ${{ inputs.env }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          echo "$SSH_KEY" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no \
+            "$VPS_USER@$VPS_HOST" \
+            "cd /opt/myrss/app && bash infra/scripts/rollback.sh $TARGET_ENV $IMAGE_TAG"

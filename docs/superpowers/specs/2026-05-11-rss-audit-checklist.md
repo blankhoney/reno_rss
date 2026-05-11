@@ -64,17 +64,17 @@
 
 | ID | 检查项 | 风险级别 | 结果 | 证据 | 备注 |
 |---|---|---|---|---|---|
-| BKP-01 | `miniflux` 与 `scoring` 每日逻辑备份执行成功 | Medium |  |  |  |
+| BKP-01 | `miniflux` 与 `scoring` 每日逻辑备份执行成功 | Medium |  |  | Ref: [backup-restore.md](../../runbooks/backup-restore.md) |
 | BKP-02 | 本地 7 天 + 异地 30 天保留策略已配置 | Medium |  |  |  |
-| BKP-03 | 至少一次临时恢复演练成功（含评分续跑验证） | Medium |  |  |  |
+| BKP-03 | 至少一次临时恢复演练成功（含评分续跑验证） | Medium |  |  | Ref: [backup-restore.md](../../runbooks/backup-restore.md#restore) |
 
 ### 3.6 CI/CD 与回滚（Medium）
 
 | ID | 检查项 | 风险级别 | 结果 | 证据 | 备注 |
 |---|---|---|---|---|---|
-| CICD-01 | PR 必须通过 lint/test/security scan 才可合并 | Medium |  |  |  |
+| CICD-01 | PR 必须通过 lint/test/security scan 才可合并 | Medium |  |  | Ref: `.github/workflows/ci.yml` |
 | CICD-02 | `main/develop` 分支保护生效（禁止直接 push，`main` 要求 Code Owner review） | Medium |  |  | GitHub repo settings 截图 |
-| CICD-03 | 生产部署支持按 tag 回滚并验证健康检查（内部 `readyz` 探针） | Medium |  |  |  |
+| CICD-03 | 生产部署支持按 tag 回滚并验证健康检查（内部 `readyz` 探针） | Medium |  |  | Ref: [rollback.md](../../runbooks/rollback.md) |
 | CICD-04 | `deploy-prod.yml` job 配置 `environment: production`，GitHub Environment 保护规则已启用 | Medium |  |  | GitHub Environments 配置截图 |
 | CICD-05 | CI 使用的 `trivy-action` 版本 ≥ 0.35.0（低于该版本存在已知供应链风险） | Medium |  |  | `.github/workflows/ci.yml` 片段 |
 
@@ -123,3 +123,43 @@
 - High 风险遗留项（若有）：
 - Medium 风险遗留项（若有）：
 - 下次复审时间：
+
+## 7. 生产前演练清单（Task 9）
+
+以下步骤在每次 prod 发布前执行，执行后于本文件"本次执行记录"中留档：
+
+### Staging → Prod 演练流程
+
+```bash
+# Step 1: staging 端到端验证
+bash infra/scripts/deploy.sh staging <new-tag>
+curl -I https://staging-reader.<domain>    # Expected: 302 → auth.domain
+# 手动登录 staging-reader 确认 Miniflux 可用
+
+# Step 2: prod 部署
+bash infra/scripts/deploy.sh prod <new-tag>
+docker compose -p myrss-prod \
+  -f infra/compose/docker-compose.base.yml \
+  exec -T miniflux wget -qO- http://127.0.0.1:8080/readyz   # Expected: OK
+
+# Step 3: 可控回滚演练（至少每次大版本执行一次）
+bash infra/scripts/rollback.sh prod <old-tag>
+docker compose -p myrss-prod \
+  -f infra/compose/docker-compose.base.yml \
+  exec -T miniflux wget -qO- http://127.0.0.1:8080/readyz   # Expected: OK after rollback
+```
+
+### 审计清单 Go / No-Go 判定
+
+```bash
+# 扫描所有 High 项是否为 PASS
+rg "High.*PASS|PASS.*High" docs/superpowers/specs/2026-05-11-rss-audit-checklist.md -n
+# 确认无 FAIL 的 High 项
+rg "High.*FAIL|FAIL.*High" docs/superpowers/specs/2026-05-11-rss-audit-checklist.md -n
+```
+
+### 事故响应参考
+
+- 部署失败 → [rollback.md](../../runbooks/rollback.md)
+- 数据丢失 → [backup-restore.md](../../runbooks/backup-restore.md)
+- 服务异常 → [incident.md](../../runbooks/incident.md)

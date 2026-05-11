@@ -308,3 +308,148 @@ iptables：操作系统内核防火墙，ACCEPT 表示系统不拦截。
 - Authelia rate limiting 基于 IP 还是账号？能不能自定义配置？
 - TOTP 和短信验证码有什么区别？为什么 TOTP 更安全？
 - 云安全组和防火墙哪个先生效？流量的完整路径是什么？
+
+---
+
+## Task 4: Scorer Worker 骨架（TDD 最小闭环）
+
+### 做了什么
+用 TDD 流程创建了评分 Worker 的最小可运行版本：
+1. 先写 `tests/test_scoring.py`（含 5 个测试，覆盖 payload 结构、类型、边界条件）
+2. 运行测试 → 确认 FAIL（`ModuleNotFoundError`）
+3. 实现 `src/scoring.py`（基于内容长度的启发式评分）
+4. 运行测试 → 全部 PASS
+
+还创建了：
+- `src/miniflux_client.py`：通过 Miniflux REST API 拉取条目
+- `src/main.py`：调度主循环（fetch → snapshot → score → sleep）
+- `Dockerfile`：Python 3.12-slim 镜像
+- `pyproject.toml`：项目依赖与工具配置
+
+### 为什么先写失败测试（TDD）
+先写 test 能在实现前明确接口契约（payload 的 key 必须是哪些）。
+如果先写代码，测试往往会迁就实现细节，掩盖设计问题。
+"先见证失败"确保测试本身是有效的，而不是一个永远为绿的摆设。
+
+### 评分 Worker 的 payload 字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `score` | int (0-100) | 基于内容长度的得分（后续换 LLM） |
+| `tags` | list[str] | 从标题提取的关键词 |
+| `reason` | str | 得分理由（length= + hash=） |
+| `model_version` | str | 模型版本号 |
+| `model_provider` | str | 提供方（baseline / openai 等） |
+| `model_name` | str | 模型名称 |
+| `prompt_version` | str | Prompt 版本 |
+| `confidence` | float | 置信度 0-1 |
+| `scoring_status` | str | success / error |
+| `error_message` | str / None | 错误信息 |
+
+### 如何在新服务器复现
+```bash
+cd apps/scorer-worker
+pip install -e ".[dev]"
+pytest tests/test_scoring.py -v   # 应该 5 passed
+```
+
+### 可以追问的问题
+- `pyproject.toml` 和 `requirements.txt` 有什么区别？什么时候用哪个？
+- `[build-system]` 里的 `build-backend` 是做什么的？
+- TDD 的 Red-Green-Refactor 循环是什么意思？
+
+---
+
+## Task 5: 评分库 schema 与幂等写入
+
+### 做了什么
+创建了评分数据库的完整 schema 和 repository 层：
+1. `sql/001_init_scoring.sql`：5 张表，全部 `CREATE TABLE IF NOT EXISTS`
+2. `src/repository.py`：`upsert_snapshot` + `upsert_score`，使用 `ON CONFLICT … DO UPDATE`
+3. `tests/test_repository.py`：6 个测试，用 Mock DB 连接验证 SQL 和提交行为
+
+### 5 张表的职责
+
+| 表 | 职责 |
+|----|------|
+| `items_snapshot` | 从 Miniflux 拉取的条目快照（去重键：tenant + entry_id） |
+| `item_scores` | 评分结果（去重键：tenant + entry_id + content_hash + model_version） |
+| `scoring_jobs` | 批次运行记录（审计 / 幂等） |
+| `export_cursor` | 增量导出游标（避免重复处理） |
+| `feed_health` | 每个 Feed 的健康状态追踪 |
+
+### 为什么用 ON CONFLICT + DO UPDATE（Upsert）
+如果同一条 RSS 条目被评分 3 次（网络重试、Worker 重启等），
+普通 INSERT 会报唯一约束冲突并中断；
+ON CONFLICT DO UPDATE 会用最新值覆盖，`scored_at` 更新为 NOW()。
+结果：数据库里只有一条记录，且是最新评分，不产生脏数据。
+
+### 为什么用 Mock 而不是真实 DB 做测试
+单元测试不应依赖外部服务（PostgreSQL）。
+用 `unittest.mock.MagicMock` 模拟连接和游标，验证：
+- SQL 是否被调用了（execute 调用次数）
+- SQL 是否包含 ON CONFLICT 子句
+- tags 是否被序列化成 JSON 字符串
+这类测试速度快、无副作用，可在 CI 里无 DB 运行。
+
+### 如何在新服务器复现
+```bash
+cd apps/scorer-worker
+pytest tests/test_repository.py -v   # 应该 6 passed
+```
+
+---
+
+## Task 7: GitHub Actions CI/CD
+
+### 做了什么
+创建了 4 个 workflow + CODEOWNERS + PR 模板：
+- `ci.yml`：PR 时触发，依次 ruff lint → pytest → compose validate → Trivy 扫描
+- `deploy-staging.yml`：push develop 分支自动部署 staging
+- `deploy-prod.yml`：手动触发，需通过 `production` Environment 审批
+- `rollback.yml`：手动触发，支持 staging/prod 双环境回滚
+
+### `environment: production` 的作用
+GitHub Actions Environment 是一个保护层：
+可配置"需要指定人员批准才能运行"，把手动部署变成需要审批的流程。
+防止误触 workflow_dispatch 直接推 prod。
+
+### CODEOWNERS 的作用
+列出高风险目录的 owner（`infra/`, `.github/workflows/`, `apps/scorer-worker/`）。
+配合分支保护的"Require review from Code Owners"，使高风险改动不能自合 PR。
+
+### Trivy 版本为何必须 ≥ 0.35.0
+审计清单 CICD-05：低于该版本存在供应链安全风险。
+使用固定版本（`@0.35.0`）而非 `@latest`，避免 action 本身被恶意更新替换。
+
+### 可以追问的问题
+- workflow_dispatch 和 push 触发器有什么区别？
+- GitHub Environment 保护规则怎么在 UI 里设置？
+- Trivy 扫描的 CRITICAL/HIGH 是 CVE 级别吗？
+
+---
+
+## Task 8 + 9: Runbooks 与生产前演练清单
+
+### 做了什么
+创建了 4 个运维手册（`docs/runbooks/`）：
+- `deploy.md`：部署流程 + API Key 轮换步骤
+- `rollback.md`：何时回滚、如何识别 last-known-good、验证命令
+- `backup-restore.md`：备份命令、restore 流程、验证方式、pg_dump 格式说明
+- `incident.md`：P1/P2/P3 分级、诊断 playbook、常见故障处理、上报流程
+
+在审计清单中补了 runbook 互相引用（BKP-01/03, CICD-03）和 Task 9 生产前演练清单。
+
+### 为什么 Runbook 比文档里的步骤更重要
+没有 runbook 时，事故恢复会卡在：
+1. 不知道该先看哪个服务的日志
+2. 忘记回滚命令的参数顺序
+3. 不知道回滚后如何验证是否成功
+有了 runbook，凌晨 3 点出现故障，照着执行就能恢复，不需要依赖记忆。
+
+### 演练过的回滚 vs 只写在文档里的回滚
+"演练过"意味着你知道：
+- 命令在当前服务器路径下能执行
+- rollback.sh 参数顺序是对的
+- 回滚后健康检查 URL 是可达的
+仅写在文档里的回滚，第一次真正执行时往往会发现路径错误、权限问题、或者健康检查失败。
