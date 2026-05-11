@@ -10,7 +10,7 @@ services:
       - ../authelia/users_database.yml:/config/users_database.yml:ro
       - authelia_data:/config   # 存储 SQLite、2FA 设备注册信息
     environment:
-      # secret 通过文件注入，不明文写在这里
+      DOMAIN: ${DOMAIN}          # 供 configuration.yml 模板 {{ env "DOMAIN" }} 使用
       AUTHELIA_SESSION_SECRET_FILE: /run/secrets/authelia_session_secret
       AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /run/secrets/authelia_storage_encryption_key
     secrets:
