@@ -101,6 +101,43 @@ key 丢失 = 数据库变成乱码 = 所有用户要重新注册 2FA。
 
 ---
 
+## Task 6：运维脚本（deploy / rollback / backup / restore）
+
+### 做了什么
+- `deploy.sh`：先确保 edge 网络存在，启动 Caddy，再启动对应环境后端
+- `rollback.sh`：复用 deploy.sh，用旧 tag 重新部署即为回滚
+- `backup.sh`：docker exec 进 PG 容器跑 pg_dump，生成校验和
+- `restore.sh`：验证校验和 → 停服 → pg_restore → 重启服务
+
+### 关键概念
+
+**为什么回滚 = 重新 deploy 旧版本**
+容器是无状态的，镜像 tag 决定版本。
+"回滚"不需要特殊操作，用旧 tag 跑一次 deploy 就完成了。
+数据库数据不受影响（volume 独立于容器生命周期）。
+
+**pg_dump -Fc 是什么格式**
+`-Fc` 是 PostgreSQL 的"自定义格式"（custom format），自带压缩。
+比 SQL 文本格式小很多，也只能用 `pg_restore` 恢复（不能直接 psql < dump）。
+
+**为什么备份要生成 sha256**
+备份文件可能在传输、存储过程中损坏（bit rot、磁盘错误）。
+sha256 是一种指纹，文件内容变了指纹就变。
+恢复前 `sha256sum --check checksums.txt` 能立刻发现文件损坏，
+避免用坏的备份恢复后才发现数据丢失。
+
+**restore.sh 为什么要先停服**
+如果 Miniflux 还在写数据库，恢复过程中可能产生写冲突，
+导致恢复后数据不一致。先停服再恢复，是标准做法。
+
+### 可以在学习 session 里追问的问题
+- `set -euo pipefail` 四个选项各是什么意思？
+- `docker exec -i` 的 `-i` 是什么？为什么 backup 用 `exec`，restore 用 `exec -i`？
+- pg_dump 和 pg_dumpall 有什么区别？
+- 为什么 rollback 不需要专门备份？什么情况下回滚会有风险？
+
+---
+
 ## Task 3：PostgreSQL 初始化 + Miniflux 配置
 
-> 待补充
+> 已在 Task 2 中一并完成（infra/postgres/init/001-create-databases.sh 已创建）
