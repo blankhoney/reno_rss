@@ -138,6 +138,60 @@ sha256 是一种指纹，文件内容变了指纹就变。
 
 ---
 
+## 服务器初始化（首次部署前置步骤）
+
+### 做了什么
+- 在 VPS 创建 `/opt/myrss/secrets/` 目录，写入两个 Authelia secret 文件
+- 在 Porkbun 配置四条 DNS A 记录，全部指向 VPS IP
+- git clone 仓库到 `/opt/myrss/app`，复制 `.env.example` 为 `.env` 并填写真实值
+- 用 Docker 生成 argon2id 密码哈希，写入 `users_database.yml`
+
+### 关键概念
+
+**为什么 secret 用文件而不是环境变量**
+环境变量在 Linux 下可以被同主机上其他进程读取（`/proc/<pid>/environ`）。
+文件可以设置权限 `chmod 600`，只有特定用户可读，安全边界更清晰。
+Docker secrets（`--secret` 参数）把文件挂载到容器内 `/run/secrets/`，
+应用只在需要时读取，读完就可以关闭文件句柄。
+
+**为什么 DNS 要在启动 Caddy 前就配好**
+Caddy 启动时立即向 Let's Encrypt 发起证书申请（ACME HTTP-01 challenge）。
+Let's Encrypt 会用 HTTP 访问你的域名来验证你拥有它。
+如果 DNS 还没指向你的 VPS，Let's Encrypt 访问不到，申请失败。
+Caddy 会重试，但每次失败都消耗 Let's Encrypt 的速率限额
+（同一域名每周最多失败 5 次，超过需等一周）。
+
+**argon2id 哈希是怎么生成的**
+```bash
+docker run --rm authelia/authelia:latest \
+  authelia crypto hash generate argon2 --password 'YOUR_PASSWORD'
+```
+输出格式：`$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>`
+- `m=65536`：使用 64MB 内存计算（让暴力破解更贵）
+- `t=3`：迭代 3 次
+- `p=4`：4 线程并行
+这些参数让每次哈希计算需要约 0.5 秒 + 64MB 内存，
+攻击者暴力穷举 100 亿个密码需要几十年和大量内存。
+
+**openssl rand -hex 32 生成了什么**
+`openssl rand` 从系统安全随机源（`/dev/urandom`）读取随机字节。
+`-hex 32` 表示 32 字节，输出为 64 个十六进制字符。
+这比任何人工想的密码都强，不可预测，不可暴力破解。
+
+**.env 里两个密码必须一致的地方**
+`POSTGRES_MINIFLUX_PASSWORD` 和 `MINIFLUX_DATABASE_URL` 里的密码必须完全相同。
+前者是 PostgreSQL 初始化时设置的密码，后者是 Miniflux 连接时用的密码。
+如果不一致，Miniflux 启动时会报 `password authentication failed`。
+
+### 可以在学习 session 里追问的问题
+- ACME HTTP-01 challenge 是怎么工作的？Let's Encrypt 如何证明你拥有域名？
+- `/proc/<pid>/environ` 是什么？为什么环境变量可以被其他进程读到？
+- `chmod 700` 和 `chmod 600` 有什么区别？
+- argon2id 和 argon2i、argon2d 有什么区别？为什么选 argon2id？
+- DNS TTL 设 300 是什么意思？为什么调试阶段设小一点？
+
+---
+
 ## Task 3：PostgreSQL 初始化 + Miniflux 配置
 
 > 已在 Task 2 中一并完成（infra/postgres/init/001-create-databases.sh 已创建）
