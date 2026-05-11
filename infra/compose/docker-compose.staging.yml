@@ -1,0 +1,26 @@
+# 预发环境覆盖层
+# 用途：给 staging 后端服务设置不同别名，与 prod 共享同一个 Caddy 但路由隔离
+services:
+  miniflux:
+    environment:
+      BASE_URL: https://staging-reader.${DOMAIN}   # staging 的外部访问地址
+    networks:
+      app:
+        aliases:
+          - miniflux-staging
+      data: {}
+
+  authelia:
+    networks:
+      app:
+        aliases:
+          - authelia-staging
+
+  postgres:
+    networks:
+      data: {}
+
+  scorer-worker:
+    networks:
+      app: {}
+      data: {}

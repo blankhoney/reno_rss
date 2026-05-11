@@ -1,0 +1,84 @@
+# 后端服务公共定义
+# 不可直接启动，需与 staging.yml 或 prod.yml 叠加使用：
+# docker compose -p myrss-<env> -f docker-compose.base.yml -f docker-compose.<env>.yml up -d
+services:
+  authelia:
+    image: authelia/authelia:latest
+    restart: unless-stopped
+    volumes:
+      - ../authelia/configuration.yml:/config/configuration.yml:ro
+      - ../authelia/users_database.yml:/config/users_database.yml:ro
+      - authelia_data:/config   # 存储 SQLite、2FA 设备注册信息
+    environment:
+      # secret 通过文件注入，不明文写在这里
+      AUTHELIA_SESSION_SECRET_FILE: /run/secrets/authelia_session_secret
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /run/secrets/authelia_storage_encryption_key
+    secrets:
+      - authelia_session_secret
+      - authelia_storage_encryption_key
+    networks:
+      - app          # Caddy 通过 app 网络访问 Authelia
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      # 这两个变量传给初始化脚本用，postgres 镜像本身不认识它们
+      POSTGRES_MINIFLUX_PASSWORD: ${POSTGRES_MINIFLUX_PASSWORD}
+      POSTGRES_SCORING_PASSWORD: ${POSTGRES_SCORING_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # 初始化脚本：只在数据目录为空时运行一次，创建 miniflux/scoring 用户和数据库
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - data         # 只在 data 网络，Caddy 无法访问
+
+  miniflux:
+    image: miniflux/miniflux:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: ${MINIFLUX_DATABASE_URL}
+      RUN_MIGRATIONS: "1"        # 首次启动自动建表，后续无害
+      CREATE_ADMIN: "1"          # 首次启动创建管理员账号
+      ADMIN_USERNAME: ${MINIFLUX_ADMIN}
+      ADMIN_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD}
+      BASE_URL: https://reader.${DOMAIN}   # 影响链接生成和 cookie path
+      LISTEN_ADDR: 0.0.0.0:8080            # 容器内监听全部接口，让 Caddy 能访问到
+    networks:
+      - app          # Caddy 通过 app 网络访问 Miniflux
+      - data         # Miniflux 通过 data 网络访问 PostgreSQL
+
+  scorer-worker:
+    build:
+      context: ../../apps/scorer-worker
+    restart: unless-stopped
+    environment:
+      MINIFLUX_API_BASE_URL: ${MINIFLUX_API_BASE_URL}
+      MINIFLUX_API_KEY: ${MINIFLUX_API_KEY}
+      SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
+      SCORER_INTERVAL_SECONDS: ${SCORER_INTERVAL_SECONDS}
+      SCORER_TENANT_ID: ${SCORER_TENANT_ID}
+    networks:
+      - app          # 访问 Miniflux API
+      - data         # 写入 scoring 数据库
+
+networks:
+  app:
+    name: myrss-app   # 与 edge compose 共享同一个网络，名称必须一致
+    external: true    # 这个网络由 docker-compose.edge.yml 创建，这里只是引用
+  data:
+    driver: bridge    # 内部网络，不对外暴露
+
+volumes:
+  postgres_data:
+  authelia_data:
+
+secrets:
+  authelia_session_secret:
+    file: /opt/myrss/secrets/authelia_session_secret   # 服务器上的文件路径
+  authelia_storage_encryption_key:
+    file: /opt/myrss/secrets/authelia_storage_encryption_key

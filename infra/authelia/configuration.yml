@@ -1,0 +1,74 @@
+---
+# Authelia 配置文件
+# 敏感字段（session secret、encryption key）通过 _FILE 环境变量注入，不在此文件中出现
+
+# ─── 服务器 ───────────────────────────────────
+server:
+  host: 0.0.0.0
+  port: 9091
+
+# ─── 日志 ─────────────────────────────────────
+log:
+  level: info
+
+# ─── 用户目录 ──────────────────────────────────
+# 使用本地文件存储用户，适合个人/小团队
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+    # 使用 argon2id 哈希算法，比 bcrypt 更安全
+    password:
+      algorithm: argon2id
+
+# ─── 多因素认证 ────────────────────────────────
+totp:
+  issuer: my_rss   # 出现在 Google Authenticator / Aegis 里的名称
+
+webauthn:
+  disable: false   # 允许 Passkey（硬件密钥、Touch ID 等）
+
+# ─── 访问控制 ──────────────────────────────────
+# default_policy: deny 表示"没有明确 allow 规则的请求，全部拒绝"
+# 必须配合下面的 rules，否则所有请求都会被拒绝（包括合法用户）
+access_control:
+  default_policy: deny
+  rules:
+    # 阅读入口：要求二因子认证（用户名密码 + TOTP 或 Passkey）
+    - domain:
+        - "reader.{{env \"DOMAIN\"}}"
+        - "staging-reader.{{env \"DOMAIN\"}}"
+      policy: two_factor
+
+# ─── Session 管理 ──────────────────────────────
+session:
+  name: authelia_session
+  same_site: lax
+
+  # secret 从文件读取，文件路径由环境变量 AUTHELIA_SESSION_SECRET_FILE 指定
+  # 见 docker-compose.base.yml 中的 secrets 配置
+
+  inactivity: 30m      # 无操作 30 分钟后过期
+  expiration: 8h       # 单次 session 最长 8 小时
+  remember_me: 7d      # 勾选"记住我"后保持 7 天
+
+  cookies:
+    - domain: "{{env \"DOMAIN\"}}"
+      authelia_url: "https://auth.{{env \"DOMAIN\"}}"
+      default_redirection_url: "https://reader.{{env \"DOMAIN\"}}"
+
+# ─── 存储 ─────────────────────────────────────
+storage:
+  # encryption_key 从文件读取，由环境变量 AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE 指定
+  # 这个 key 加密 SQLite 里的 2FA 注册信息，丢失后用户须重新注册 2FA
+  local:
+    path: /config/db.sqlite3
+
+# ─── 通知 ─────────────────────────────────────
+# Authelia 发送 TOTP 重置、密码重置邮件时使用
+notifier:
+  smtp:
+    username: "{{env \"SMTP_USER\"}}"
+    # password 通过 AUTHELIA_NOTIFIER_SMTP_PASSWORD 环境变量注入
+    host: "{{env \"SMTP_HOST\"}}"
+    port: "{{env \"SMTP_PORT\"}}"
+    sender: "Authelia <{{env \"SMTP_USER\"}}>"

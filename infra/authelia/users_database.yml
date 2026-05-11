@@ -1,0 +1,20 @@
+---
+# Authelia 本地用户数据库
+# ⚠️  密码必须是 argon2id 哈希值，不能写明文
+#
+# 生成哈希命令：
+#   docker run --rm authelia/authelia:latest \
+#     authelia crypto hash generate argon2 --password 'YOUR_PASSWORD'
+#
+# 然后把输出的哈希值替换下面的 $argon2id$... 占位符
+
+users:
+  admin:
+    disabled: false
+    displayname: "Admin"
+    # 替换为真实哈希值，格式示例：
+    # $argon2id$v=19$m=65536,t=3,p=4$abc123...$xyz456...
+    password: "$argon2id$REPLACE_WITH_GENERATED_HASH"
+    email: "admin@example.com"   # 替换为你的真实邮箱（用于接收验证码）
+    groups:
+      - admins

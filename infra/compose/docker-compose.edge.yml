@@ -1,0 +1,25 @@
+# 共享边缘入口：整台 VPS 只启动一次
+# 启动命令：docker compose -p myrss-edge -f infra/compose/docker-compose.edge.yml up -d
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 支持
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data         # 证书缓存，重建容器不丢证书
+      - caddy_config:/config     # Caddy 运行时配置
+    networks:
+      - app                      # 通过此网络访问后端服务别名
+
+networks:
+  app:
+    name: myrss-app              # 全局共享网络，prod/staging 后端也接入这个网络
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,54 @@
+# Caddyfile — 全站路由规则
+# 变量 {$DOMAIN} 在运行时从环境变量 DOMAIN 读取
+# 例：reader.{$DOMAIN} → reader.example.com
+
+# ─────────────────────────────────────────────
+# 生产环境
+# ─────────────────────────────────────────────
+
+reader.{$DOMAIN} {
+    # /healthz 不走认证，供容器内部健康探针使用
+    # 注意：这个路径对公网可见，但只返回 Miniflux 存活状态，无敏感信息
+    handle /healthz {
+        reverse_proxy miniflux-prod:8080
+    }
+
+    # 其他所有请求先经过 Authelia 认证
+    handle {
+        # 1. 把请求转发给 Authelia，问"这个用户登录了吗？"
+        # 2. Authelia 返回 200 → 继续；返回 401/302 → 重定向到登录页
+        forward_auth authelia-prod:9091 {
+            uri /api/authz/forward-auth
+            # 把 Authelia 认证后的用户信息透传给 Miniflux（备用，当前未启用 Auth Proxy）
+            copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+        }
+        reverse_proxy miniflux-prod:8080
+    }
+}
+
+auth.{$DOMAIN} {
+    # 认证入口直接反代到 Authelia，不需要再过认证
+    reverse_proxy authelia-prod:9091
+}
+
+# ─────────────────────────────────────────────
+# 预发环境（结构与 prod 完全相同，别名不同）
+# ─────────────────────────────────────────────
+
+staging-reader.{$DOMAIN} {
+    handle /healthz {
+        reverse_proxy miniflux-staging:8080
+    }
+
+    handle {
+        forward_auth authelia-staging:9091 {
+            uri /api/authz/forward-auth
+            copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+        }
+        reverse_proxy miniflux-staging:8080
+    }
+}
+
+staging-auth.{$DOMAIN} {
+    reverse_proxy authelia-staging:9091
+}

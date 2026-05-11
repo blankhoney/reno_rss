@@ -1,0 +1,24 @@
+# 生产环境覆盖层
+# 用途：给 prod 后端服务设置网络别名，让 Caddy 能用 miniflux-prod/authelia-prod 找到它们
+services:
+  miniflux:
+    networks:
+      app:
+        aliases:
+          - miniflux-prod    # Caddyfile 里 reverse_proxy miniflux-prod:8080 指的就是这里
+      data: {}
+
+  authelia:
+    networks:
+      app:
+        aliases:
+          - authelia-prod    # Caddyfile 里 forward_auth authelia-prod:9091 指的就是这里
+
+  postgres:
+    networks:
+      data: {}
+
+  scorer-worker:
+    networks:
+      app: {}
+      data: {}
