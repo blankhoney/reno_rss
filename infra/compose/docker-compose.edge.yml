@@ -8,6 +8,8 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"   # HTTP/3 支持
+    environment:
+      DOMAIN: ${DOMAIN}          # 注入到容器，供 Caddyfile {$DOMAIN} 使用
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data         # 证书缓存，重建容器不丢证书
