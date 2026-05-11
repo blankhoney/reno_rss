@@ -56,6 +56,7 @@ services:
     build:
       context: ../../apps/scorer-worker
     restart: unless-stopped
+    profiles: [worker]    # 默认不启动，Task 4 完成后用 --profile worker 启用
     environment:
       MINIFLUX_API_BASE_URL: ${MINIFLUX_API_BASE_URL}
       MINIFLUX_API_KEY: ${MINIFLUX_API_KEY}
