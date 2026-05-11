@@ -6,6 +6,8 @@ log:
   level: info
 
 authentication_backend:
+  password_reset:
+    disable: true     # MVP: 禁用密码重置，避免 jwt_secret 依赖
   file:
     path: /config/users_database.yml
     password:
