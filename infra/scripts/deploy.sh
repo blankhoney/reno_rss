@@ -27,6 +27,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 echo "🚀 开始部署：ENV=$ENV  TAG=$TAG"
 echo "   仓库根目录：$REPO_ROOT"
 
+# ── Step 0：生成 Authelia 配置文件（envsubst 替换域名等变量）──
+# 从 .env 加载变量，envsubst 把 ${DOMAIN} 替换为真实值
+set -a; source "$REPO_ROOT/.env"; set +a
+envsubst < "$REPO_ROOT/infra/authelia/configuration.yml.tmpl" \
+    > "$REPO_ROOT/infra/authelia/configuration.yml"
+echo "📝 Authelia 配置已生成"
+
 # ── Step 1：确保共享 edge 网络存在 ──────────────────────────
 # edge 网络由 docker-compose.edge.yml 创建，prod/staging 共用
 # 如果已经存在，docker network create 会报错，用 || true 忽略

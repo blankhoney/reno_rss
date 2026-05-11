@@ -1,12 +1,11 @@
-真实环境变量（含密码），绝不入库
+# generated from infra/authelia/configuration.yml.tmpl by deploy.sh
+infra/authelia/configuration.yml
+
 .env
 .env.*
 !.env.example
 
-# Docker 数据卷挂载目录（如果本地有）
 data/
 backup/
 
-# 系统文件
 .DS_Store
-.cursor
