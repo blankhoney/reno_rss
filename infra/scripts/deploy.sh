@@ -38,6 +38,7 @@ docker network create myrss-app 2>/dev/null || true
 echo "📡 更新 edge 入口（Caddy）..."
 IMAGE_TAG="$TAG" docker compose \
     -p "myrss-edge" \
+    --env-file "$REPO_ROOT/.env" \
     -f "$REPO_ROOT/infra/compose/docker-compose.edge.yml" \
     up -d --remove-orphans
 
