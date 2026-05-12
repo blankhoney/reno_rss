@@ -5,6 +5,7 @@ const envSchema = z.object({
   MINIFLUX_USERNAME: z.string().min(1),
   MINIFLUX_PASSWORD: z.string().min(1),
   SCORING_DATABASE_URL: z.string().min(1),
+  READER_MINIFLUX_USER_ID: z.coerce.number().int().positive(),
   READER_TENANT_ID: z.string().default("default"),
   MINIMAX_API_KEY: z.string().optional(),
   MINIMAX_BASE_URL: z.string().url().optional(),

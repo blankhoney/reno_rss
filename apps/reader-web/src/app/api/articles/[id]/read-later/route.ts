@@ -23,20 +23,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (body === null || typeof body !== "object") {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
   const rec = body as Record<string, unknown>;
-  const minifluxUserIdRaw = rec.minifluxUserId;
-  const minifluxUserId = Number(minifluxUserIdRaw);
-  if (
-    minifluxUserIdRaw === undefined ||
-    !Number.isFinite(minifluxUserId) ||
-    !Number.isInteger(minifluxUserId) ||
-    minifluxUserId <= 0
-  ) {
-    return NextResponse.json({ error: "Invalid minifluxUserId" }, { status: 400 });
+  const keys = Object.keys(rec);
+  if (keys.length !== 1 || keys[0] !== "readLater") {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
   const { readLater } = rec;
@@ -46,6 +40,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const config = getConfig();
   const pool = getPool();
-  await upsertReadLater(pool, config.READER_TENANT_ID, minifluxUserId, minifluxEntryId, readLater);
+  await upsertReadLater(
+    pool,
+    config.READER_TENANT_ID,
+    config.READER_MINIFLUX_USER_ID,
+    minifluxEntryId,
+    readLater,
+  );
   return NextResponse.json({ ok: true });
 }
