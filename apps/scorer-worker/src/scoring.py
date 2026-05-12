@@ -1,23 +1,26 @@
-"""
-Baseline scoring module.
-
-Scoring strategy: length-based heuristic.
-- Score is derived from combined title+content length, capped at 100.
-- Tags are keyword-extracted from title words (simple split).
-- This is intentionally trivial; replace with an LLM call in a later phase.
-"""
+"""Scoring module backed by Minimax with a baseline fallback."""
 
 from __future__ import annotations
 
 import hashlib
+import json
+from typing import Any
+
+import httpx
+
+from llm_client import LLMClientError, MinimaxLLMClient
 
 _MODEL_PROVIDER = "baseline"
 _MODEL_NAME = "length-baseline"
 _MODEL_VERSION = "0.1.0"
-_PROMPT_VERSION = "none"
+_PROMPT_VERSION = "rss-score-v1"
+_LLM_MODEL_PROVIDER = "minimax"
+_MAX_TAGS = 3
+_MAX_REASON_LENGTH = 240
+_MAX_CONTENT_CHARS = 6000
 
 
-def score_entry(entry: dict) -> dict:
+def score_entry(entry: dict, llm_client: MinimaxLLMClient | None = None) -> dict:
     """
     Score a single Miniflux entry dict.
 
@@ -32,19 +35,30 @@ def score_entry(entry: dict) -> dict:
     combined = (title + " " + content).strip()
 
     if not combined:
-        return {
-            "score": 0,
-            "tags": [],
-            "reason": "empty content",
-            "model_version": _MODEL_VERSION,
-            "model_provider": _MODEL_PROVIDER,
-            "model_name": _MODEL_NAME,
-            "prompt_version": _PROMPT_VERSION,
-            "confidence": 0.0,
-            "scoring_status": "error",
-            "error_message": "title and content are both empty",
-        }
+        return _baseline_payload(title, combined, "title and content are both empty")
 
+    client = llm_client or MinimaxLLMClient()
+    try:
+        result = _parse_llm_json(client.chat_completion(_build_messages(title, content)))
+    except Exception as exc:  # noqa: BLE001
+        return _baseline_payload(title, combined, _format_error(exc))
+
+    model_name = getattr(client, "model", "unknown")
+    return {
+        "score": result["score"],
+        "tags": result["tags"],
+        "reason": result["reason"],
+        "model_version": f"{_LLM_MODEL_PROVIDER}:{model_name}:{_PROMPT_VERSION}",
+        "model_provider": _LLM_MODEL_PROVIDER,
+        "model_name": model_name,
+        "prompt_version": _PROMPT_VERSION,
+        "confidence": result["confidence"],
+        "scoring_status": "success",
+        "error_message": None,
+    }
+
+
+def _baseline_payload(title: str, combined: str, error_message: str | None) -> dict:
     # Length-based score: every 50 chars = 1 point, capped at 100
     raw_score = min(100, len(combined) // 50)
 
@@ -56,12 +70,94 @@ def score_entry(entry: dict) -> dict:
     return {
         "score": raw_score,
         "tags": tags,
-        "reason": f"length={len(combined)} hash={content_hash}",
+        "reason": _trim_reason(f"length={len(combined)} hash={content_hash}"),
         "model_version": _MODEL_VERSION,
         "model_provider": _MODEL_PROVIDER,
         "model_name": _MODEL_NAME,
         "prompt_version": _PROMPT_VERSION,
         "confidence": round(min(1.0, len(combined) / 500), 3),
-        "scoring_status": "success",
-        "error_message": None,
+        "scoring_status": "error" if error_message else "success",
+        "error_message": error_message,
     }
+
+
+def _build_messages(title: str, content: str) -> list[dict[str, str]]:
+    clipped_content = content[:_MAX_CONTENT_CHARS]
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You score RSS entries for a personal reading digest. "
+                "Return strict JSON only, with keys: score, tags, reason, confidence. "
+                "score must be 0-100, tags must be short strings, confidence must be 0.0-1.0."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Title:\n{title}\n\n"
+                f"Content:\n{clipped_content}\n\n"
+                "JSON response only."
+            ),
+        },
+    ]
+
+
+def _parse_llm_json(raw: str) -> dict[str, Any]:
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid llm json") from exc
+
+    score = _clamp_int(data.get("score"), minimum=0, maximum=100)
+    tags = _normalize_tags(data.get("tags"))
+    reason = _trim_reason(str(data.get("reason") or "No reason provided."))
+    confidence = _clamp_float(data.get("confidence"), minimum=0.0, maximum=1.0)
+    return {
+        "score": score,
+        "tags": tags,
+        "reason": reason,
+        "confidence": confidence,
+    }
+
+
+def _normalize_tags(raw_tags: Any) -> list[str]:
+    if not isinstance(raw_tags, list):
+        return []
+    tags: list[str] = []
+    for tag in raw_tags:
+        normalized = str(tag).strip().lower()
+        if normalized and normalized not in tags:
+            tags.append(normalized[:32])
+        if len(tags) >= _MAX_TAGS:
+            break
+    return tags
+
+
+def _trim_reason(reason: str) -> str:
+    clean = " ".join(reason.split())
+    return clean[:_MAX_REASON_LENGTH]
+
+
+def _clamp_int(value: Any, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = minimum
+    return max(minimum, min(maximum, parsed))
+
+
+def _clamp_float(value: Any, minimum: float, maximum: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = minimum
+    return round(max(minimum, min(maximum, parsed)), 3)
+
+
+def _format_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout while calling llm provider"
+    if isinstance(exc, LLMClientError) and exc.status_code:
+        return f"llm provider HTTP {exc.status_code}: {exc}"
+    return str(exc)[:_MAX_REASON_LENGTH]

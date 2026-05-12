@@ -81,3 +81,57 @@ def upsert_score(conn: psycopg2.extensions.connection, row: dict) -> None:
             serialized,
         )
     conn.commit()
+
+
+def create_digest(conn: psycopg2.extensions.connection, row: dict) -> int:
+    """Create or update one digest batch and return its id."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO digests (
+                tenant_id, window_start, window_end, title, summary,
+                model_provider, model_name, model_version, prompt_version, status
+            ) VALUES (
+                %(tenant_id)s, %(window_start)s, %(window_end)s, %(title)s, %(summary)s,
+                %(model_provider)s, %(model_name)s, %(model_version)s, %(prompt_version)s,
+                %(status)s
+            )
+            ON CONFLICT (tenant_id, window_start, window_end, prompt_version)
+            DO UPDATE SET
+                title          = EXCLUDED.title,
+                summary        = EXCLUDED.summary,
+                model_provider = EXCLUDED.model_provider,
+                model_name     = EXCLUDED.model_name,
+                model_version  = EXCLUDED.model_version,
+                status         = EXCLUDED.status
+            RETURNING id;
+            """,
+            row,
+        )
+        digest_id = cur.fetchone()[0]
+    conn.commit()
+    return digest_id
+
+
+def upsert_digest_item(conn: psycopg2.extensions.connection, row: dict) -> None:
+    """Insert or update an item selected for a digest."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO digest_items (
+                digest_id, tenant_id, miniflux_entry_id, rank, score, title, url, reason
+            ) VALUES (
+                %(digest_id)s, %(tenant_id)s, %(miniflux_entry_id)s, %(rank)s,
+                %(score)s, %(title)s, %(url)s, %(reason)s
+            )
+            ON CONFLICT (digest_id, tenant_id, miniflux_entry_id)
+            DO UPDATE SET
+                rank   = EXCLUDED.rank,
+                score  = EXCLUDED.score,
+                title  = EXCLUDED.title,
+                url    = EXCLUDED.url,
+                reason = EXCLUDED.reason;
+            """,
+            row,
+        )
+    conn.commit()

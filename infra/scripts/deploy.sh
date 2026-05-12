@@ -14,7 +14,9 @@ set -euo pipefail
 # shell 环境变量优先级高于 --env-file，清除可能被外部工具（如 pi agent）污染的变量
 # 确保 docker compose 从 --env-file 读取真实值，而不是残留的占位符
 unset MINIFLUX_API_KEY MINIFLUX_ADMIN_PASSWORD POSTGRES_SUPERUSER_PASSWORD \
-      POSTGRES_MINIFLUX_PASSWORD POSTGRES_SCORING_PASSWORD SMTP_PASSWORD
+      POSTGRES_MINIFLUX_PASSWORD POSTGRES_SCORING_PASSWORD SMTP_PASSWORD \
+      MINIMAX_API_KEY MINIMAX_BASE_URL MINIMAX_MODEL LLM_TIMEOUT_SECONDS \
+      DIGEST_MIN_SCORE DIGEST_MAX_ITEMS
 
 ENV="${1:?必须提供环境名，例如 staging 或 prod}"
 TAG="${2:?必须提供镜像 tag，例如 v1.2.3}"

@@ -15,14 +15,19 @@
 | 1 | Task 1：仓库骨架与 Compose 分层 | 已记录 | 仓库内 compose 实际路径见该节 |
 | 2 | Task 2：Caddy + Authelia 入口认证 | 已记录 | 含 PG init 脚本创建 |
 | 3 | Task 3：PostgreSQL + Miniflux | 并入 Task 2 | 初始化脚本已在 Task 2 落地 |
-| 4 | 补充：首次部署前置（VPS / DNS / Secret） | 已记录 | 上机前动手清单，不等同于计划里的「Task 4」 |
-| 5 | Task 6：运维脚本 | 已记录 | 与计划 **Task 6** 对齐 |
+| 4 | 补充：首次部署前置（VPS / DNS / Secret） | 已记录 | 上机前动手清单；**编号≠计划 Task 4** |
+| 5 | 首次部署排障记录 | 已记录 | 真机常见问题：`--env-file`、DOMAIN、安全组、Authelia 等 |
+| 6 | Task 6：运维脚本 | 已记录 | deploy / rollback / backup / restore |
+| 7 | Task 4：Scorer Worker 骨架（TDD） | 已记录 | 与计划 **Task 4** 对齐；`apps/scorer-worker` |
+| 8 | Task 5：评分库 schema 与幂等写入 | 已记录 | 与计划 **Task 5** 对齐；SQL + repository 测试 |
+| 9 | Task 7：GitHub Actions CI/CD | 已记录 | 与计划 **Task 7** 对齐；workflows + CODEOWNERS |
+| 10 | Task 8 + 9：Runbooks 与演练清单 | 已记录 | `docs/runbooks/`；与计划 **Task 8/9** 对齐 |
 
 ### 下一步可以学什么（新开 session 时从这里选）
 
-1. **若优先「真机跑通」**：按「补充：首次部署前置」在 VPS 上起 edge + 某一环境，用浏览器验证 `reader` / `auth` 与证书；再对照 `Caddyfile` 理解每条路由。
-2. **若按 MVP 计划推进编码**：打开实现计划，进入 **Task 4（TDD 最小闭环）**——与「本笔记补充章」不是同一个编号，避免混谈。
-3. **若优先自动化**：计划中的 **Task 7（CI/CD）** 与 **Task 8（Runbook）**。
+1. **若优先「真机跑通」**：按「补充：首次部署前置」起 edge + 环境；遇错对照「首次部署排障记录」；再对照 `infra/caddy/Caddyfile` 理解路由。
+2. **若巩固 Worker 与数据层**：按顺序读 **Task 4**（TDD 与 payload）→ **Task 5**（表结构、`ON CONFLICT`、Mock 测试）。
+3. **若巩固发布与事故响应**：读 **Task 7**（CI、审批、Trivy）→ **Task 8+9**（runbook、演练）；与 **Task 6** 脚本、`docs/runbooks/` 交叉对照。
 
 ---
 
@@ -429,6 +434,75 @@ GitHub Actions Environment 是一个保护层：
 
 ---
 
+## 审计修复：NET-02 / SEC-04 / BKP-02
+
+### 做了什么
+
+- **NET-02**：在 VPS 上配置 SSH 密钥登录（Ed25519），并禁用密码登录（`PasswordAuthentication no`）
+- **SEC-04**：在 Miniflux 创建低权限用户 `scorer-worker`，生成专属 API Key，替换原来的 admin key；同时修复了 `deploy.sh` 中 shell 环境变量污染 docker compose 的问题
+- **BKP-02**：在 `backup.sh` 末尾加入 7 天保留策略，自动清理过期备份目录
+
+### 关键概念
+
+**SSH 密钥认证 vs 密码认证**
+密码登录每天面对全球几千次暴力破解尝试。密钥认证使用非对称加密：私钥只在你本机，服务器只存公钥。没有私钥，公钥毫无用处。禁用密码登录后，暴力破解攻击面归零。
+
+**passphrase 和服务器密码是两回事**
+`Enter passphrase for key '...'` 是在解锁本机私钥文件（本地操作，服务器看不到）。`root@x.x.x.x's password:` 才是服务器账号密码（网络传输，可被截获）。两者都出现"输密码"但含义完全不同。
+
+**最小权限原则（Principle of Least Privilege）**
+Scorer Worker 只需要读取文章，不需要增删订阅源或管理用户。给它 admin key 意味着：如果 Worker 容器被攻破，攻击者获得完整的 Miniflux 控制权。换成只读账号的 key，攻破 Worker 顶多泄露文章列表。
+
+**shell 环境变量优先级高于 `--env-file`**
+Docker Compose 解析变量的优先级：`shell env` > `--env-file` > compose 文件默认值。
+如果 shell 里已有 `MINIFLUX_API_KEY=change_me`（被 pi agent 从 `.env.example` 注入），`--env-file .env` 里的正确值就会被忽略。解决方案：在 `deploy.sh` 开头 `unset` 所有敏感变量，让 `--env-file` 生效。
+
+**`find -mtime +7` 清理逻辑**
+`-mtime +7` 匹配"修改时间超过 7 天"的目录。`-maxdepth 1 -mindepth 1` 限定只看 `backup/` 的直接子目录，防止误删深层文件。`-print` 在删除前先打印路径，方便日志审计。
+
+### 可以在学习 session 里追问的问题
+
+- `ssh-keygen -t ed25519` 和 `-t rsa` 有什么区别？为什么 Ed25519 更推荐？
+- Docker Compose 变量替换的完整优先级顺序是什么？
+- `find` 命令的 `-mtime` / `-ctime` / `-atime` 分别是什么时间？
+- Miniflux API Key 存在数据库哪张表里？
+
+---
+
+## Miniflux 首个订阅源抓取验证
+
+### 做了什么
+
+在生产环境的 Miniflux 页面里添加了第一个测试 RSS 源，并确认能抓取到文章。这个结果说明 Miniflux 服务、PostgreSQL 持久化、容器出站网络、Caddy/Authelia 入口认证都已经能配合工作。
+随后在 Worker 容器内分别请求 `/v1/me` 和 `/v1/entries`，确认 API Key 有效、Docker 内网可达、Miniflux 已返回 unread entry。最后重建 scorer-worker，让它立即跑一轮，确认没有再出现 401。
+
+### 关键概念
+
+**RSS 阅读器不是搜索引擎**
+Miniflux 不会自动抓取全网内容。它只会抓取你主动添加的 RSS/Atom 订阅源，所以“系统开始工作”的第一步是添加 feed，而不是修改 Worker。
+
+**手动刷新 vs 后台轮询**
+手动刷新适合验证单个订阅源是否可用；后台轮询由 Miniflux 的调度器定期执行，默认约每 60 分钟检查一批订阅源。生产环境里不需要一直手动刷新，但首次接入时手动刷新能快速判断网络和 feed URL 是否正常。
+
+**Unread entries 是 Worker 的输入**
+当前 Scorer Worker 查询的是 Miniflux API 里的 unread entries。只有 Miniflux 抓到了未读文章，Worker 才可能从之前的 `Fetched 0 entries` 变成抓到真实条目。
+
+**用最小接口分层定位问题**
+遇到 `/v1/entries` 返回 401 时，不应直接重启服务。先测 `/v1/me`：如果 `/v1/me` 也 401，说明 key 本身无效；如果 `/v1/me` 是 200，再测 `/v1/entries`，就能区分“认证问题”和“具体查询问题”。
+
+**Worker 启动即执行一轮**
+当前 scorer-worker 启动时会先执行一次抓取，然后再按 `SCORER_INTERVAL_SECONDS` 间隔循环。重建容器是一种手动触发立即验证的方式，不需要等下一小时。
+
+### 可以在学习 session 里追问的问题
+
+- RSS、Atom、网页 URL 三者有什么区别？为什么网页首页不一定能直接订阅？
+- Miniflux 的后台轮询频率在哪里配置？
+- 为什么 Worker 只读 unread entries，而不是全部历史文章？
+- 为什么用 `/v1/me` 可以判断 API Key 是否有效？
+- Docker 容器里访问 `http://miniflux:8080` 和 VPS 上访问 `localhost:8080` 有什么区别？
+
+---
+
 ## Task 8 + 9: Runbooks 与生产前演练清单
 
 ### 做了什么
@@ -453,3 +527,39 @@ GitHub Actions Environment 是一个保护层：
 - rollback.sh 参数顺序是对的
 - 回滚后健康检查 URL 是可达的
 仅写在文档里的回滚，第一次真正执行时往往会发现路径错误、权限问题、或者健康检查失败。
+
+---
+
+## Minimax LLM 评分与 Digest 入库
+
+### 做了什么
+
+新增了 Minimax LLM client，并把 `score_entry()` 从纯长度评分升级为“优先调用 LLM、失败时 fallback 到 baseline”的结构。当前阶段已经验证：模型返回严格 JSON 时会写入 Minimax 评分字段；模型超时、401 或返回非 JSON 时，Worker 不会整轮崩掉。
+
+### 关键概念
+
+**LLM API client 是什么**
+API client 是项目里专门负责“怎么调用外部服务”的小模块。业务代码只关心“给我一个评分结果”，而不需要到处重复写 URL、Header、timeout、HTTP 错误处理。
+
+**为什么要结构化 JSON 输出**
+自然语言回答适合人读，但数据库和程序需要稳定字段。要求模型只返回 `score`、`tags`、`reason`、`confidence` 这类 JSON 字段，后续才能校验分数范围、限制 tag 数量，并安全写入 `item_scores`。
+
+**fallback 为什么重要**
+LLM 是外部依赖，可能因为网络、额度、API key、模型输出格式等原因失败。fallback 让 Worker 至少能保存 baseline 分数和错误状态，不会因为一篇文章失败就中断整轮抓取。
+
+**为什么 digest 先入库**
+第一版先把 digest 写进 scoring 数据库，而不是直接做邮件或 Web UI，是为了先固定“哪些文章值得读”的结果。后续无论要做网页、邮件、Telegram 推送，都是从同一张表读取，不需要重新跑 LLM 或重新扫日志。
+
+**为什么要唯一约束和 `ON CONFLICT`**
+Worker 重启、网络抖动或部署重试都可能让同一轮 digest 再跑一次。唯一约束定义“什么算同一份 digest”，`ON CONFLICT` 定义重复时怎么更新，避免数据库里出现多份内容相同的脏数据。
+
+**API key 为什么不能进 Git**
+Minimax API key 相当于外部服务的密码，泄露后别人可以用你的额度发请求。仓库里的 `.env.example` 只能写 `change_me` 这种占位值，真实 key 只放 VPS 的 `.env`，并且部署日志不能打印出来。
+
+### 可以在学习 session 里追问的问题
+
+- OpenAI-compatible API 是什么？为什么 Minimax 可以用 `/v1/chat/completions` 这种接口形状？
+- `timeout` 和 HTTP 401 分别代表什么问题？
+- 为什么模型输出 JSON 后还要在本地做二次校验？
+- 数据库里的唯一约束和应用代码里的去重有什么区别？
+- 如果 API key 不小心提交到了 Git，为什么“删掉再提交”还不够？

@@ -9,11 +9,11 @@ and conn.commit() is always called.
 import sys
 import os
 import json
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from repository import upsert_score, upsert_snapshot  # noqa: E402
+from repository import create_digest, upsert_digest_item, upsert_score, upsert_snapshot  # noqa: E402
 
 
 def _make_conn():
@@ -161,3 +161,53 @@ def test_upsert_score_idempotent_called_twice():
     upsert_score(conn, row)
     assert cur.execute.call_count == 2
     assert conn.commit.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# digest tests
+# ---------------------------------------------------------------------------
+def test_create_digest_uses_on_conflict_and_returns_id():
+    conn, cur = _make_conn()
+    cur.fetchone.return_value = (123,)
+    row = {
+        "tenant_id": "default",
+        "window_start": "2026-05-12T00:00:00Z",
+        "window_end": "2026-05-12T01:00:00Z",
+        "title": "Top RSS items",
+        "summary": "2 items selected",
+        "model_provider": "minimax",
+        "model_name": "MiniMax-M2.7",
+        "model_version": "minimax:MiniMax-M2.7:rss-score-v1",
+        "prompt_version": "rss-score-v1",
+        "status": "success",
+    }
+
+    digest_id = create_digest(conn, row)
+
+    assert digest_id == 123
+    sql_called = cur.execute.call_args[0][0]
+    assert "ON CONFLICT" in sql_called
+    assert "DO UPDATE SET" in sql_called
+    assert "RETURNING id" in sql_called
+    conn.commit.assert_called_once()
+
+
+def test_upsert_digest_item_uses_on_conflict():
+    conn, cur = _make_conn()
+    row = {
+        "digest_id": 123,
+        "tenant_id": "default",
+        "miniflux_entry_id": 42,
+        "rank": 1,
+        "score": 91,
+        "title": "Important",
+        "url": "https://example.com/item",
+        "reason": "High signal.",
+    }
+
+    upsert_digest_item(conn, row)
+
+    sql_called = cur.execute.call_args[0][0]
+    assert "ON CONFLICT" in sql_called
+    assert "DO UPDATE SET" in sql_called
+    conn.commit.assert_called_once()
