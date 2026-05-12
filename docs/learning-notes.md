@@ -177,6 +177,31 @@ Miniflux 的价值是稳定 RSS 后端，不是复杂阅读体验。直接改它
 
 ---
 
+## 计划：AI 阅读工作台实现拆解
+
+### 做了什么
+
+把 AI 阅读工作台拆成可逐步验证的 implementation plan：先升级评分 schema 和多维评分，再建立 reader-web 的数据契约，最后实现页面、状态操作、Agent、部署配置和验证。
+
+### 关键概念
+
+**为什么数据契约先行**
+前端页面依赖文章、分数、状态和模块排序。如果先画 UI，再改评分结构，很容易返工。先把 `dimension_scores`、`reader_entry_states`、文章 API 和类型定义清楚，UI 才有稳定输入。
+
+**为什么每个任务都要能测试和提交**
+这个功能跨度大，包含 Python worker、Next.js、PostgreSQL、Docker Compose 和 Caddy。小任务 + 测试 + 提交可以让错误停在局部，避免最后一次性排查所有问题。
+
+**为什么 Agent 放到后段实现**
+Agent 依赖文章正文、评分理由、选中文字和流式 API。只有阅读页面与文章数据稳定后，Agent 的上下文才可靠。
+
+### 可以在学习 session 里追问的问题
+
+- 什么叫“数据契约”？为什么它比 UI 更早确定？
+- 为什么大型功能要拆成多个可提交任务？
+- TDD 在前端 API 和数据库 schema 里怎么用？
+
+---
+
 ## Task 3：PostgreSQL 初始化 + Miniflux 配置
 
 > 与计划 **Task 3** 对齐（实现计划里仍有更细的 Miniflux/Worker 配置与自测问题）。
