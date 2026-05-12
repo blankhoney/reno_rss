@@ -38,3 +38,9 @@ echo "  ✅ checksums.txt"
 echo "✅ 备份完成：$BACKUP_DIR"
 echo "   文件大小："
 du -sh "$BACKUP_DIR"/*
+
+# 清理 7 天前的旧备份（按目录修改时间判断）
+echo "🧹 清理 7 天前的旧备份..."
+find ./backup -maxdepth 1 -mindepth 1 -type d -mtime +7 -print -exec rm -rf {} +
+echo "✅ 清理完成，当前保留备份："
+ls ./backup/
