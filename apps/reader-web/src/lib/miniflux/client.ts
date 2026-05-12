@@ -1,5 +1,15 @@
 import type { ArticleStatus } from "@/lib/articles/types";
 
+/**
+ * This module is intended for the Node.js server runtime only: HTTP Basic credentials
+ * are encoded with Buffer. Do not bundle or import into Edge Middleware / Edge routes.
+ *
+ * Consumers can assert `MINIFLUX_HTTP_CLIENT_RUNTIME === "nodejs"` when wiring server code.
+ */
+export const MINIFLUX_HTTP_CLIENT_RUNTIME = "nodejs" as const;
+
+export const DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS = 10_000;
+
 type EntryFilter = {
   status?: ArticleStatus | "all";
   limit?: number;
@@ -28,8 +38,18 @@ export type MinifluxEntry = {
   };
 };
 
+/**
+ * Builds the `Authorization` header value for HTTP Basic authentication (requires Node Buffer).
+ */
+export function buildMinifluxBasicAuthorizationHeader(username: string, password: string): string {
+  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+}
+
 export function buildEntriesUrl(baseUrl: string, filter: EntryFilter): URL {
-  const url = new URL("/v1/entries", baseUrl.replace(/\/$/, ""));
+  const url = new URL(baseUrl.replace(/\/$/, ""));
+  const trimmedPath = url.pathname.replace(/\/+$/, "") || "";
+  url.pathname = trimmedPath === "" ? "/v1/entries" : `${trimmedPath}/v1/entries`;
+
   if (filter.status && filter.status !== "all") url.searchParams.set("status", filter.status);
   if (filter.starred !== undefined) url.searchParams.set("starred", String(filter.starred));
   if (filter.categoryId !== undefined) url.searchParams.set("category_id", String(filter.categoryId));
@@ -67,9 +87,10 @@ export class MinifluxClient {
   async getEntries(filter: EntryFilter): Promise<ReturnType<typeof normalizeMinifluxEntry>[]> {
     const response = await fetch(buildEntriesUrl(this.baseUrl, filter), {
       headers: {
-        Authorization: `Basic ${Buffer.from(`${this.username}:${this.password}`).toString("base64")}`,
+        Authorization: buildMinifluxBasicAuthorizationHeader(this.username, this.password),
       },
       cache: "no-store",
+      signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
       throw new Error(`Miniflux entries request failed: ${response.status}`);
