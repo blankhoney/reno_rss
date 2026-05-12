@@ -12,15 +12,25 @@ export type ModuleId =
   | "product"
   | "security";
 
+function lastReadAtSortKey(lastReadAt: string | null): number {
+  if (lastReadAt == null || lastReadAt === "") return 0;
+  const ms = Date.parse(lastReadAt);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 export function sortArticlesForModule(articles: Article[], moduleId: ModuleId): Article[] {
   return [...articles].sort((a, b) => scoreForModule(b, moduleId) - scoreForModule(a, moduleId));
 }
 
 export function scoreForModule(article: Article, moduleId: ModuleId): number {
+  if (moduleId === "read") {
+    return lastReadAtSortKey(article.lastReadAt);
+  }
   const score = article.score;
   if (!score) return 0;
   switch (moduleId) {
     case "technical":
+    case "ai":
       return score.dimensions.technical_value;
     case "business":
       return score.dimensions.business_value;
