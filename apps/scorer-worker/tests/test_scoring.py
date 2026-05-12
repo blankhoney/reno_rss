@@ -120,7 +120,7 @@ def test_score_entry_task2_dimensions_json_success():
         {
             "overall": 86,
             **expected_dims,
-            "tags": ["FOO", "Bar", "BAZ", "fourth_ignored"],
+            "tags": ["AI", "Agent", "Engineering", "Extra"],
             "reason": "  Trimmed outer whitespace here. ",
             "confidence": 90,
         }
@@ -140,7 +140,7 @@ def test_score_entry_task2_dimensions_json_success():
 
     assert payload["score"] == 86
     assert payload["dimension_scores"] == expected_dims
-    assert payload["tags"] == ["foo", "bar", "baz"]
+    assert payload["tags"] == ["ai", "agent", "engineering"]
     assert payload["reason"] == "Trimmed outer whitespace here."
     assert payload["confidence"] == 0.9
     assert payload["prompt_version"] == "rss-score-v2"
