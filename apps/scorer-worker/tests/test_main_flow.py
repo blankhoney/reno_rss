@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 def _load_main(monkeypatch):
     monkeypatch.setenv("MINIFLUX_API_BASE_URL", "http://miniflux:8080")
-    monkeypatch.setenv("MINIFLUX_API_KEY", "test_key")
+    monkeypatch.setenv("MINIFLUX_USERNAME", "testuser")
+    monkeypatch.setenv("MINIFLUX_PASSWORD", "testpass")
     monkeypatch.setenv("SCORING_DATABASE_URL", "postgres://scoring:test@postgres:5432/scoring")
     monkeypatch.setenv("SCORER_TENANT_ID", "default")
     monkeypatch.setenv("DIGEST_MIN_SCORE", "70")

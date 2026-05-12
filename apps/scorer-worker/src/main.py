@@ -27,7 +27,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 MINIFLUX_API_BASE_URL = os.environ["MINIFLUX_API_BASE_URL"]
-MINIFLUX_API_KEY = os.environ["MINIFLUX_API_KEY"]
+MINIFLUX_USERNAME = os.environ["MINIFLUX_USERNAME"]
+MINIFLUX_PASSWORD = os.environ["MINIFLUX_PASSWORD"]
 SCORING_DATABASE_URL = os.environ["SCORING_DATABASE_URL"]
 SCORER_INTERVAL_SECONDS = int(os.getenv("SCORER_INTERVAL_SECONDS", "3600"))
 SCORER_TENANT_ID = os.getenv("SCORER_TENANT_ID", "default")
@@ -37,7 +38,7 @@ DIGEST_MAX_ITEMS = int(os.getenv("DIGEST_MAX_ITEMS", "10"))
 
 def run_once(conn: psycopg2.extensions.connection) -> None:
     window_start = datetime.now(UTC)
-    client = MinifluxClient(MINIFLUX_API_BASE_URL, MINIFLUX_API_KEY)
+    client = MinifluxClient(MINIFLUX_API_BASE_URL, MINIFLUX_USERNAME, MINIFLUX_PASSWORD)
     entries = client.get_recent_entries()
     log.info("Fetched %d entries from Miniflux", len(entries))
 
