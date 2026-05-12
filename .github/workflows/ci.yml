@@ -29,7 +29,9 @@ jobs:
 
       - name: Validate Compose config
         run: |
+          cp .env.example .env
           docker compose \
+            --env-file .env \
             -f infra/compose/docker-compose.base.yml \
             config > /dev/null
 
