@@ -13,8 +13,17 @@ from llm_client import LLMClientError, MinimaxLLMClient
 _MODEL_PROVIDER = "baseline"
 _MODEL_NAME = "length-baseline"
 _MODEL_VERSION = "0.1.0"
-_PROMPT_VERSION = "rss-score-v1"
+_PROMPT_VERSION = "rss-score-v2"
 _LLM_MODEL_PROVIDER = "minimax"
+_DIMENSION_KEYS = (
+    "importance",
+    "usefulness",
+    "timeliness",
+    "depth",
+    "technical_value",
+    "business_value",
+    "trend_value",
+)
 _MAX_TAGS = 3
 _MAX_REASON_LENGTH = 240
 _MAX_CONTENT_CHARS = 6000
@@ -46,6 +55,7 @@ def score_entry(entry: dict, llm_client: MinimaxLLMClient | None = None) -> dict
     model_name = getattr(client, "model", "unknown")
     return {
         "score": result["score"],
+        "dimension_scores": result["dimension_scores"],
         "tags": result["tags"],
         "reason": result["reason"],
         "model_version": f"{_LLM_MODEL_PROVIDER}:{model_name}:{_PROMPT_VERSION}",
@@ -69,6 +79,7 @@ def _baseline_payload(title: str, combined: str, error_message: str | None) -> d
 
     return {
         "score": raw_score,
+        "dimension_scores": {key: raw_score for key in _DIMENSION_KEYS},
         "tags": tags,
         "reason": _trim_reason(f"length={len(combined)} hash={content_hash}"),
         "model_version": _MODEL_VERSION,
@@ -88,8 +99,12 @@ def _build_messages(title: str, content: str) -> list[dict[str, str]]:
             "role": "system",
             "content": (
                 "You score RSS entries for a personal reading digest. "
-                "Return strict JSON only, with keys: score, tags, reason, confidence. "
-                "score must be 0-100, tags must be short strings, confidence must be 0.0-1.0."
+                "Return strict JSON only (no markdown fences, no comments, no text outside JSON). "
+                "The JSON object must include keys: overall, importance, usefulness, timeliness, "
+                "depth, technical_value, business_value, trend_value, tags, reason, confidence. "
+                "All of overall, importance, usefulness, timeliness, depth, technical_value, "
+                "business_value, trend_value, and confidence must be integers from 0 to 100. "
+                "tags must be a JSON array of short strings. reason must be a string."
             ),
         },
         {
@@ -109,12 +124,19 @@ def _parse_llm_json(raw: str) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise ValueError("invalid llm json") from exc
 
-    score = _clamp_int(data.get("score"), minimum=0, maximum=100)
+    overall_raw = data.get("overall")
+    if overall_raw is None:
+        overall_raw = data.get("score")
+    score = _clamp_int(overall_raw, minimum=0, maximum=100)
+
+    dimension_scores = {key: _clamp_int(data.get(key), minimum=0, maximum=100) for key in _DIMENSION_KEYS}
+
     tags = _normalize_tags(data.get("tags"))
     reason = _trim_reason(str(data.get("reason") or "No reason provided."))
-    confidence = _clamp_float(data.get("confidence"), minimum=0.0, maximum=1.0)
+    confidence = _parse_confidence(data.get("confidence"))
     return {
         "score": score,
+        "dimension_scores": dimension_scores,
         "tags": tags,
         "reason": reason,
         "confidence": confidence,
@@ -139,20 +161,22 @@ def _trim_reason(reason: str) -> str:
     return clean[:_MAX_REASON_LENGTH]
 
 
+def _parse_confidence(value: Any) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return round(0.0, 3)
+    if parsed > 1.0:
+        parsed = parsed / 100.0
+    return round(max(0.0, min(1.0, parsed)), 3)
+
+
 def _clamp_int(value: Any, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         parsed = minimum
     return max(minimum, min(maximum, parsed))
-
-
-def _clamp_float(value: Any, minimum: float, maximum: float) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        parsed = minimum
-    return round(max(minimum, min(maximum, parsed)), 3)
 
 
 def _format_error(exc: Exception) -> str:

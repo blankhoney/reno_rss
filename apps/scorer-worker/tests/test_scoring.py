@@ -5,8 +5,9 @@ This test MUST fail before scoring.py is implemented,
 and PASS after the baseline implementation is complete.
 """
 
-import sys
+import json
 import os
+import sys
 import httpx
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -17,6 +18,7 @@ from scoring import score_entry  # noqa: E402
 
 REQUIRED_KEYS = {
     "score",
+    "dimension_scores",
     "tags",
     "reason",
     "model_version",
@@ -27,6 +29,17 @@ REQUIRED_KEYS = {
     "scoring_status",
     "error_message",
 }
+
+
+DIMENSION_KEYS = (
+    "importance",
+    "usefulness",
+    "timeliness",
+    "depth",
+    "technical_value",
+    "business_value",
+    "trend_value",
+)
 
 
 def test_score_payload_shape():
@@ -86,9 +99,75 @@ def test_score_entry_uses_minimax_json_response():
     assert payload["confidence"] == 0.82
     assert payload["model_provider"] == "minimax"
     assert payload["model_name"] == "MiniMax-M2.7"
-    assert payload["prompt_version"] == "rss-score-v1"
+    assert payload["prompt_version"] == "rss-score-v2"
     assert payload["scoring_status"] == "success"
     assert payload["error_message"] is None
+    assert payload["dimension_scores"] == {k: 0 for k in DIMENSION_KEYS}
+
+
+def test_score_entry_task2_dimensions_json_success():
+    """LLM returns v2 shape: overall + seven dimensions + tags/reason/confidence."""
+    expected_dims = {
+        "importance": 70,
+        "usefulness": 71,
+        "timeliness": 72,
+        "depth": 73,
+        "technical_value": 74,
+        "business_value": 75,
+        "trend_value": 76,
+    }
+    llm_body = json.dumps(
+        {
+            "overall": 86,
+            **expected_dims,
+            "tags": ["FOO", "Bar", "BAZ", "fourth_ignored"],
+            "reason": "  Trimmed outer whitespace here. ",
+            "confidence": 90,
+        }
+    )
+
+    class FakeLLMClientTask2Ok:
+        model = "MiniMax-M2.7-task2"
+
+        def chat_completion(self, messages):
+            assert messages
+            return llm_body
+
+    payload = score_entry(
+        {"id": 601, "title": "task2", "content": "body"},
+        llm_client=FakeLLMClientTask2Ok(),
+    )
+
+    assert payload["score"] == 86
+    assert payload["dimension_scores"] == expected_dims
+    assert payload["tags"] == ["foo", "bar", "baz"]
+    assert payload["reason"] == "Trimmed outer whitespace here."
+    assert payload["confidence"] == 0.9
+    assert payload["prompt_version"] == "rss-score-v2"
+    assert payload["scoring_status"] == "success"
+
+
+def test_score_entry_task2_fallback_error_baseline_dimensions():
+    """Broken LLM yields error baseline with score 10 for 500-char body and key dims at 10."""
+    body_500 = "x" * 500
+
+    class FakeLLMClientTask2Broken:
+        model = "broken"
+
+        def chat_completion(self, messages):
+            return "not valid json {{{"
+
+    payload = score_entry(
+        {"id": 602, "title": "", "content": body_500},
+        llm_client=FakeLLMClientTask2Broken(),
+    )
+
+    assert payload["scoring_status"] == "error"
+    assert payload["score"] == 10
+    dims = payload["dimension_scores"]
+    assert dims["importance"] == 10
+    assert dims["technical_value"] == 10
+    assert dims["business_value"] == 10
 
 
 def test_score_entry_falls_back_on_non_json_response():
