@@ -7,5 +7,6 @@ infra/authelia/configuration.yml
 
 data/
 backup/
+.worktrees/
 
 .DS_Store
