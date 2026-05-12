@@ -11,9 +11,30 @@ import os
 import json
 from unittest.mock import MagicMock
 
+import psycopg2
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from repository import create_digest, upsert_digest_item, upsert_score, upsert_snapshot  # noqa: E402
+from repository import (  # noqa: E402
+    create_digest,
+    upsert_digest_item,
+    upsert_score,
+    upsert_snapshot,
+)
+
+
+@pytest.fixture
+def db_conn():
+    """Real Postgres connection for integration tests (skipped when URL unset, e.g. CI)."""
+    url = os.environ.get("SCORING_DATABASE_URL")
+    if not url:
+        pytest.skip("SCORING_DATABASE_URL not set — integration test needs Postgres")
+    conn = psycopg2.connect(url)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _make_conn():
@@ -161,6 +182,53 @@ def test_upsert_score_idempotent_called_twice():
     upsert_score(conn, row)
     assert cur.execute.call_count == 2
     assert conn.commit.call_count == 2
+
+
+def test_upsert_score_persists_dimension_scores(db_conn):
+    from repository import init_schema, upsert_score
+
+    init_schema(db_conn)
+    row = {
+        "tenant_id": "default",
+        "miniflux_entry_id": 123,
+        "content_hash": "hash-123",
+        "score": 86,
+        "dimension_scores": {
+            "importance": 90,
+            "usefulness": 78,
+            "timeliness": 84,
+            "depth": 72,
+            "technical_value": 92,
+            "business_value": 48,
+            "trend_value": 80,
+        },
+        "tags": ["ai", "agent"],
+        "reason": "High technical value for an AI reader.",
+        "model_version": "minimax:test:rss-score-v2",
+        "model_provider": "minimax",
+        "model_name": "test-model",
+        "prompt_version": "rss-score-v2",
+        "confidence": 0.91,
+        "scoring_status": "success",
+        "error_message": None,
+    }
+
+    upsert_score(db_conn, row)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT score, dimension_scores
+            FROM item_scores
+            WHERE tenant_id = %s AND miniflux_entry_id = %s
+            """,
+            ("default", 123),
+        )
+        score, dimension_scores = cur.fetchone()
+
+    assert score == 86
+    assert dimension_scores["technical_value"] == 92
+    assert dimension_scores["business_value"] == 48
 
 
 # ---------------------------------------------------------------------------
