@@ -52,3 +52,12 @@ staging-reader.{$DOMAIN} {
 staging-auth.{$DOMAIN} {
     reverse_proxy authelia-staging:9091
 }
+
+# ─────────────────────────────────────────────
+# 博客
+# ─────────────────────────────────────────────
+
+blog.blankhoney.xyz {
+    encode zstd gzip
+    reverse_proxy brianstorm-web:3000
+}
