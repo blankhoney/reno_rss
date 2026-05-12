@@ -261,6 +261,32 @@ reader-web 的首页现在在服务器侧读取 article API，用户打开页面
 
 ---
 
+## Task：AI 阅读工作台 Task 9 写操作 API
+
+### 做了什么
+
+新增了标记已读、收藏、稍后读和基础订阅源管理 API。已读和收藏写回 Miniflux；稍后读写入 reader-web 自己的 `reader_entry_states` 表；订阅源查看、添加、删除、刷新通过 Miniflux API 完成。
+
+### 关键概念
+
+**状态归属**
+已读和收藏是 Miniflux 原生状态，所以写回 Miniflux。稍后读是新前端自己的状态，所以写入 scoring 数据库里的 reader 表。这样每种状态都放在最合适的系统里。
+
+**身份边界**
+read-later 不能信任浏览器传来的 `minifluxUserId`。第一版是单用户，所以由服务端 `READER_MINIFLUX_USER_ID` 配置决定写入哪个 Miniflux 用户的状态，避免客户端伪造其他用户 id。
+
+**Bookmark 与 Star**
+Miniflux API 里“收藏/星标”的接口是 `PUT /v1/entries/{id}/bookmark`。前端可以叫 star，但后端要按 Miniflux 的 bookmark endpoint 调用。
+
+### 可以在学习 session 里追问的问题
+
+- 为什么服务端不能信任请求体里的用户 id？
+- 为什么 read-later 不直接写进 Miniflux？
+- 什么时候 API 应该返回 400，什么时候应该返回 500 或 502？
+- Miniflux 的 bookmark 和我们 UI 里的 star 是什么关系？
+
+---
+
 ## Task 3：PostgreSQL 初始化 + Miniflux 配置
 
 > 与计划 **Task 3** 对齐（实现计划里仍有更细的 Miniflux/Worker 配置与自测问题）。
