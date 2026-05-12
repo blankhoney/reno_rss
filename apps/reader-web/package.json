@@ -1,0 +1,27 @@
+{
+  "name": "reader-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --test --import tsx 'src/**/*.test.ts'",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@types/pg": "latest",
+    "next": "latest",
+    "pg": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}
