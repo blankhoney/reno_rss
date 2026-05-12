@@ -102,8 +102,10 @@ def _build_messages(title: str, content: str) -> list[dict[str, str]]:
                 "Return strict JSON only (no markdown fences, no comments, no text outside JSON). "
                 "The JSON object must include keys: overall, importance, usefulness, timeliness, "
                 "depth, technical_value, business_value, trend_value, tags, reason, confidence. "
-                "All of overall, importance, usefulness, timeliness, depth, technical_value, "
-                "business_value, trend_value, and confidence must be integers from 0 to 100. "
+                "overall and the seven dimension keys (importance, usefulness, timeliness, depth, "
+                "technical_value, business_value, trend_value) must be integers from 0 to 100. "
+                "confidence may be a float from 0.0 to 1.0 or a number from 0 to 100; values above 1 "
+                "are treated as a 0-100 scale and normalized to 0.0-1.0. "
                 "tags must be a JSON array of short strings. reason must be a string."
             ),
         },
