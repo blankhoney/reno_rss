@@ -1,22 +1,87 @@
-export default function HomePage() {
+import { headers } from "next/headers";
+
+import type { Article } from "@/lib/articles/types";
+import { ArticleList } from "@/components/ArticleList";
+import { ArticleReader } from "@/components/ArticleReader";
+import { ModuleSidebar } from "@/components/ModuleSidebar";
+
+function normalizeModule(raw: string | string[] | undefined): string {
+  if (typeof raw === "string" && raw !== "") return raw;
+  return "unread";
+}
+
+function parseArticleId(raw: string | string[] | undefined): number | null {
+  const v = typeof raw === "string" ? raw : undefined;
+  if (!v) return null;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function resolveRequestOrigin(): Promise<string> {
+  const headerList = await headers();
+  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
+  const proto = headerList.get("x-forwarded-proto") ?? "http";
+  if (host != null && host !== "") {
+    return `${proto}://${host}`;
+  }
+  return "http://127.0.0.1:3000";
+}
+
+async function fetchArticlesList(module: string): Promise<Article[]> {
+  try {
+    const origin = await resolveRequestOrigin();
+    const res = await fetch(`${origin}/api/articles?module=${encodeURIComponent(module)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { articles?: unknown };
+    const list = body.articles;
+    return Array.isArray(list) ? (list as Article[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchArticleById(id: number): Promise<Article | null> {
+  try {
+    const origin = await resolveRequestOrigin();
+    const res = await fetch(`${origin}/api/articles/${id}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { article?: Article | null };
+    return body.article ?? null;
+  } catch {
+    return null;
+  }
+}
+
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function HomePage({ searchParams }: PageProps) {
+  const sp = (await searchParams) ?? {};
+  const currentModule = normalizeModule(sp.module);
+  const selectedId = parseArticleId(sp.article);
+
+  const articles = await fetchArticlesList(currentModule);
+
+  let selectedArticle: Article | null = null;
+  if (selectedId != null) {
+    selectedArticle = articles.find((a) => a.id === selectedId) ?? null;
+    if (selectedArticle == null) {
+      selectedArticle = await fetchArticleById(selectedId);
+    }
+  }
+
   return (
-    <main className="shell">
-      <aside className="sidebar">
-        <strong>AI Reader</strong>
-        <nav>
-          <a href="#unread">未读</a>
-          <a href="#saved">收藏</a>
-          <a href="#later">稍后读</a>
-        </nav>
-      </aside>
-      <section className="listPane">
-        <h1>阅读工作台</h1>
-        <p>文章列表会在 API 接通后显示在这里。</p>
-      </section>
-      <article className="readerPane">
-        <h2>站内阅读</h2>
-        <p>选择文章后，这里展示正文、分数和当前文章 Agent。</p>
-      </article>
+    <main className="workbench">
+      <ModuleSidebar currentModule={currentModule} />
+      <ArticleList
+        articles={articles}
+        currentModule={currentModule}
+        selectedArticleId={selectedId}
+      />
+      <ArticleReader article={selectedArticle} />
     </main>
   );
 }

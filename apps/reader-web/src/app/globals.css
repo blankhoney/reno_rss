@@ -5,6 +5,8 @@
   --bg: #f8fafc;
   --panel: #ffffff;
   --text: #111827;
+  --accent: #2563eb;
+  --accent-muted: rgba(37, 99, 235, 0.12);
 }
 
 * {
@@ -15,7 +17,13 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 a {
@@ -23,40 +31,306 @@ a {
   text-decoration: none;
 }
 
-.shell {
+button {
+  font: inherit;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.workbench {
   display: grid;
   grid-template-columns: 220px minmax(320px, 420px) minmax(0, 1fr);
   min-height: 100vh;
 }
 
-.sidebar,
-.listPane,
-.readerPane {
+.moduleSidebar {
   background: var(--panel);
   border-right: 1px solid var(--border);
   padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.sidebar nav {
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 1.05rem;
+}
+
+.moduleNav {
   display: grid;
-  gap: 10px;
-  margin-top: 24px;
+  gap: 8px;
 }
 
-.listPane p,
-.readerPane p {
+.moduleNavLink {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.moduleNavLink:hover {
+  background: var(--bg);
+}
+
+.moduleNavLinkActive {
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.articleListPane {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100vh;
+}
+
+.articleListHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.articleListTitle {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.articleSortSelect {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.articleList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+}
+
+.articleCard {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--panel);
+}
+
+.articleCard:hover {
+  border-color: #cbd5e1;
+}
+
+.articleCardActive {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-muted);
+}
+
+.articleCardMeta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.articleFeed {
+  font-weight: 600;
+}
+
+.articleCategory {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.articleCardTitle {
+  margin-top: 8px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.articleCardScores {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scoreBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.scoreBadge strong {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.articleReaderPane {
+  background: var(--panel);
+  padding: 20px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.readerEmpty {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 28px;
+  color: var(--muted);
+}
+
+.readerEmptyTitle {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.readerEmptyHint {
+  margin: 0;
+}
+
+.readerToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.readerToolbarBtn,
+.readerToolbarBtnPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.readerToolbarBtnPrimary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.readerToolbarBtnPrimary:hover {
+  filter: brightness(1.03);
+}
+
+.readerToolbarBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.readerTitle {
+  margin: 12px 0 0;
+  font-size: 1.35rem;
+  line-height: 1.35;
+}
+
+.scoreSection {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--bg);
+}
+
+.scoreGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scoreReason {
+  margin: 12px 0 0;
+  color: var(--text);
+  line-height: 1.55;
+  font-size: 0.95rem;
+}
+
+.scoreReasonLabel {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.articleContent.content {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  line-height: 1.7;
+}
+
+.articleContent img,
+.content img {
+  max-width: 100%;
+  height: auto;
+}
+
+.articleContent pre,
+.content pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.articleContent blockquote,
+.content blockquote {
+  margin: 0 0 1em;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
   color: var(--muted);
 }
 
 @media (max-width: 900px) {
-  .shell {
+  .workbench {
     grid-template-columns: 1fr;
   }
 
-  .sidebar,
-  .listPane,
-  .readerPane {
+  .moduleSidebar,
+  .articleListPane,
+  .articleReaderPane {
     border-right: 0;
     border-bottom: 1px solid var(--border);
+    min-height: unset;
   }
 }
