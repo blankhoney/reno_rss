@@ -13,7 +13,9 @@ services:
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data         # 证书缓存，重建容器不丢证书
-      - caddy_config:/config     # Caddy 运行时配置
+      - caddy_config:/config
+      - /srv/caddy-conf.d:/etc/caddy/conf.d:ro
+      - /srv/caddy-conf.d:/etc/caddy/conf.d:ro
     networks:
       - app                      # 通过此网络访问后端服务别名
 
