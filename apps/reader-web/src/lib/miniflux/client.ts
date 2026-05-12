@@ -174,10 +174,10 @@ export class MinifluxClient {
     }
   }
 
-  /** Toggles starred state (Miniflux v2: `PUT /v1/entries/{id}/star`). */
+  /** Toggles entry bookmark (Miniflux: `PUT /v1/entries/{id}/bookmark`). */
   async toggleBookmark(entryId: number): Promise<void> {
     const response = await fetch(
-      buildMinifluxApiUrl(this.baseUrl, `v1/entries/${entryId}/star`).toString(),
+      buildMinifluxApiUrl(this.baseUrl, `v1/entries/${entryId}/bookmark`).toString(),
       {
         method: "PUT",
         headers: this.authJsonHeaders(),

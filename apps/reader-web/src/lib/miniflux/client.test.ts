@@ -47,6 +47,26 @@ test("parseArticlesListLimitParam defaults and clamps", () => {
   assert.equal(parseArticlesListLimitParam("-3"), 1);
 });
 
+test("toggleBookmark uses PUT /v1/entries/{id}/bookmark", async () => {
+  let capturedUrl = "";
+  let capturedMethod: string | undefined;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    capturedUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    capturedMethod = init?.method;
+    return Promise.resolve(new Response(null, { status: 204 }));
+  }) as typeof fetch;
+
+  try {
+    const client = new MinifluxClient("http://localhost:8181", "u", "p");
+    await client.toggleBookmark(42);
+    assert.match(capturedUrl, /\/v1\/entries\/42\/bookmark(?:\?|$)/);
+    assert.equal(capturedMethod, "PUT");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("getEntry returns null on 404", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (() => Promise.resolve(new Response(null, { status: 404 }))) as typeof fetch;
