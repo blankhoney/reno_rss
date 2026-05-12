@@ -9,7 +9,7 @@ const MODULES: { id: string; label: string }[] = [
   { id: "ai", label: "AI" },
   { id: "product", label: "产品" },
   { id: "security", label: "安全" },
-  { id: "feeds", label: "订阅" },
+  { id: "feeds", label: "订阅源管理" },
 ];
 
 export function ModuleSidebar({ currentModule }: { currentModule: string }) {
@@ -18,6 +18,18 @@ export function ModuleSidebar({ currentModule }: { currentModule: string }) {
       <div className="brand">AI Reader</div>
       <nav className="moduleNav" aria-label="阅读模块">
         {MODULES.map((m) => {
+          if (m.id === "feeds") {
+            return (
+              <span
+                key={m.id}
+                className="moduleNavLink moduleNavLinkComingSoon"
+                aria-disabled="true"
+                aria-label={`${m.label}，即将推出`}
+              >
+                {m.label}
+              </span>
+            );
+          }
           const active = currentModule === m.id;
           return (
             <a
