@@ -1,4 +1,5 @@
 import type { ArticleStatus } from "@/lib/articles/types";
+import { getConfig } from "@/lib/config";
 
 /**
  * This module is intended for the Node.js server runtime only: HTTP Basic credentials
@@ -49,10 +50,20 @@ export function buildMinifluxBasicAuthorizationHeader(username: string, password
   return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
 }
 
-export function buildEntriesUrl(baseUrl: string, filter: EntryFilter): URL {
+/**
+ * Joins MINIFLUX base URL path prefix with a Miniflux API suffix (for example `"v1/feeds"`).
+ * Preserves reverse-proxy base path behavior fixed in Task 5.
+ */
+export function buildMinifluxApiUrl(baseUrl: string, relativePath: string): URL {
+  const cleanSuffix = relativePath.replace(/^\/+/, "");
   const url = new URL(baseUrl.replace(/\/$/, ""));
   const trimmedPath = url.pathname.replace(/\/+$/, "") || "";
-  url.pathname = trimmedPath === "" ? "/v1/entries" : `${trimmedPath}/v1/entries`;
+  url.pathname = trimmedPath === "" ? `/${cleanSuffix}` : `${trimmedPath}/${cleanSuffix}`;
+  return url;
+}
+
+export function buildEntriesUrl(baseUrl: string, filter: EntryFilter): URL {
+  const url = buildMinifluxApiUrl(baseUrl, "v1/entries");
 
   if (filter.status && filter.status !== "all") url.searchParams.set("status", filter.status);
   if (filter.starred !== undefined) url.searchParams.set("starred", String(filter.starred));
@@ -65,11 +76,7 @@ export function buildEntriesUrl(baseUrl: string, filter: EntryFilter): URL {
 }
 
 export function buildEntryUrl(baseUrl: string, entryId: number): URL {
-  const url = new URL(baseUrl.replace(/\/$/, ""));
-  const trimmedPath = url.pathname.replace(/\/+$/, "") || "";
-  url.pathname =
-    trimmedPath === "" ? `/v1/entries/${entryId}` : `${trimmedPath}/v1/entries/${entryId}`;
-  return url;
+  return buildMinifluxApiUrl(baseUrl, `v1/entries/${entryId}`);
 }
 
 /**
@@ -111,6 +118,13 @@ export class MinifluxClient {
     private readonly password: string,
   ) {}
 
+  private authJsonHeaders(): HeadersInit {
+    return {
+      Authorization: buildMinifluxBasicAuthorizationHeader(this.username, this.password),
+      "Content-Type": "application/json",
+    };
+  }
+
   async getEntries(filter: EntryFilter): Promise<ReturnType<typeof normalizeMinifluxEntry>[]> {
     const response = await fetch(buildEntriesUrl(this.baseUrl, filter), {
       headers: {
@@ -146,4 +160,98 @@ export class MinifluxClient {
     const data = (await response.json()) as MinifluxEntry;
     return normalizeMinifluxEntry(data);
   }
+
+  async updateEntries(entryIds: number[], status: "read" | "unread" | "removed"): Promise<void> {
+    const response = await fetch(buildMinifluxApiUrl(this.baseUrl, "v1/entries").toString(), {
+      method: "PUT",
+      headers: this.authJsonHeaders(),
+      body: JSON.stringify({ entry_ids: entryIds, status }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`Miniflux update entries failed: ${response.status}`);
+    }
+  }
+
+  /** Toggles starred state (Miniflux v2: `PUT /v1/entries/{id}/star`). */
+  async toggleBookmark(entryId: number): Promise<void> {
+    const response = await fetch(
+      buildMinifluxApiUrl(this.baseUrl, `v1/entries/${entryId}/star`).toString(),
+      {
+        method: "PUT",
+        headers: this.authJsonHeaders(),
+        cache: "no-store",
+        signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Miniflux toggle bookmark failed: ${response.status}`);
+    }
+  }
+
+  /** Returns feeds as decoded JSON (typically an array of feed objects). */
+  async getFeeds(): Promise<unknown> {
+    const response = await fetch(buildMinifluxApiUrl(this.baseUrl, "v1/feeds").toString(), {
+      headers: {
+        Authorization: buildMinifluxBasicAuthorizationHeader(this.username, this.password),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`Miniflux get feeds failed: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async createFeed(feedUrl: string, categoryId: number): Promise<number> {
+    const response = await fetch(buildMinifluxApiUrl(this.baseUrl, "v1/feeds").toString(), {
+      method: "POST",
+      headers: this.authJsonHeaders(),
+      body: JSON.stringify({ feed_url: feedUrl, category_id: categoryId }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`Miniflux create feed failed: ${response.status}`);
+    }
+    const data = (await response.json()) as { feed_id?: number };
+    if (typeof data.feed_id !== "number" || !Number.isFinite(data.feed_id)) {
+      throw new Error("Miniflux create feed: missing feed_id");
+    }
+    return data.feed_id;
+  }
+
+  async deleteFeed(feedId: number): Promise<void> {
+    const response = await fetch(buildMinifluxApiUrl(this.baseUrl, `v1/feeds/${feedId}`).toString(), {
+      method: "DELETE",
+      headers: this.authJsonHeaders(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`Miniflux delete feed failed: ${response.status}`);
+    }
+  }
+
+  async refreshFeed(feedId: number): Promise<void> {
+    const response = await fetch(
+      buildMinifluxApiUrl(this.baseUrl, `v1/feeds/${feedId}/refresh`).toString(),
+      {
+        method: "PUT",
+        headers: this.authJsonHeaders(),
+        cache: "no-store",
+        signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Miniflux refresh feed failed: ${response.status}`);
+    }
+  }
+}
+
+export function getMinifluxClient(): MinifluxClient {
+  const config = getConfig();
+  return new MinifluxClient(config.MINIFLUX_API_BASE_URL, config.MINIFLUX_USERNAME, config.MINIFLUX_PASSWORD);
 }

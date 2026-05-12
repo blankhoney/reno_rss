@@ -77,6 +77,22 @@ export function setReadLaterSql(input: {
   };
 }
 
+export async function upsertReadLater(
+  pool: Pool,
+  tenantId: string,
+  minifluxUserId: number,
+  minifluxEntryId: number,
+  readLater: boolean,
+): Promise<void> {
+  const { text, values } = setReadLaterSql({
+    tenantId,
+    minifluxUserId,
+    minifluxEntryId,
+    readLater,
+  });
+  await pool.query(text, values);
+}
+
 function scoredAtIsoOrNull(scoredAt: string | Date | null): string | null {
   if (scoredAt == null) return null;
   const date = scoredAt instanceof Date ? scoredAt : new Date(scoredAt);
