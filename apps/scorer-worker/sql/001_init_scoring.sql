@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS item_scores (
     miniflux_entry_id  BIGINT      NOT NULL,
     content_hash       TEXT        NOT NULL,
     score              INT         NOT NULL,
+    dimension_scores   JSONB       NOT NULL DEFAULT '{}'::jsonb,
     tags               JSONB       NOT NULL,
     reason             TEXT        NOT NULL,
     model_version      TEXT        NOT NULL,
@@ -32,6 +33,9 @@ CREATE TABLE IF NOT EXISTS item_scores (
     scored_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (tenant_id, miniflux_entry_id, content_hash, model_version)
 );
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS dimension_scores JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- Tracks batch scoring job runs for audit / idempotency
 CREATE TABLE IF NOT EXISTS scoring_jobs (

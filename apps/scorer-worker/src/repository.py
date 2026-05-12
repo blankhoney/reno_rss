@@ -53,30 +53,35 @@ def upsert_score(conn: psycopg2.extensions.connection, row: dict) -> None:
     serialized = dict(row)
     if isinstance(serialized.get("tags"), list):
         serialized["tags"] = json.dumps(serialized["tags"])
+    if isinstance(serialized.get("dimension_scores"), dict):
+        serialized["dimension_scores"] = json.dumps(serialized["dimension_scores"])
+    if not serialized.get("dimension_scores"):
+        serialized["dimension_scores"] = json.dumps({})
 
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO item_scores (
                 tenant_id, miniflux_entry_id, content_hash,
-                score, tags, reason, model_version,
+                score, dimension_scores, tags, reason, model_version,
                 model_provider, model_name, prompt_version,
                 confidence, scoring_status, error_message
             ) VALUES (
                 %(tenant_id)s, %(miniflux_entry_id)s, %(content_hash)s,
-                %(score)s, %(tags)s::jsonb, %(reason)s, %(model_version)s,
+                %(score)s, %(dimension_scores)s::jsonb, %(tags)s::jsonb, %(reason)s, %(model_version)s,
                 %(model_provider)s, %(model_name)s, %(prompt_version)s,
                 %(confidence)s, %(scoring_status)s, %(error_message)s
             )
             ON CONFLICT (tenant_id, miniflux_entry_id, content_hash, model_version)
             DO UPDATE SET
-                score          = EXCLUDED.score,
-                tags           = EXCLUDED.tags,
-                reason         = EXCLUDED.reason,
-                confidence     = EXCLUDED.confidence,
-                scoring_status = EXCLUDED.scoring_status,
-                error_message  = EXCLUDED.error_message,
-                scored_at      = NOW();
+                score            = EXCLUDED.score,
+                dimension_scores = EXCLUDED.dimension_scores,
+                tags             = EXCLUDED.tags,
+                reason           = EXCLUDED.reason,
+                confidence       = EXCLUDED.confidence,
+                scoring_status   = EXCLUDED.scoring_status,
+                error_message    = EXCLUDED.error_message,
+                scored_at        = NOW();
             """,
             serialized,
         )
