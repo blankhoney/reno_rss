@@ -42,8 +42,13 @@ storage:
   local:
     path: /config/db.sqlite3
 
-# MVP: 验证码写到文件而非发邮件
-# 查看: docker exec myrss-prod-authelia-1 cat /config/notification.txt
 notifier:
-  filesystem:
-    filename: /config/notification.txt
+  smtp:
+    host: ${SMTP_HOST}
+    port: ${SMTP_PORT}
+    username: ${SMTP_USER}
+    password: ${SMTP_PASSWORD}
+    sender: "my_rss <${SMTP_SENDER}>"
+    # Resend 使用标准 STARTTLS，tls.skip_verify 保持 false
+    tls:
+      skip_verify: false
