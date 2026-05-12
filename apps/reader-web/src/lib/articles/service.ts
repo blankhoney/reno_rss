@@ -1,3 +1,4 @@
+import type { ArticleScore } from "@/lib/scoring/repository";
 import type { Article } from "./types";
 
 export type ModuleId =
@@ -43,4 +44,22 @@ export function scoreForModule(article: Article, moduleId: ModuleId): number {
     default:
       return score.overall;
   }
+}
+
+type MinifluxArticle = Omit<Article, "score" | "readLater" | "lastReadAt">;
+
+export function mergeArticleData(
+  articles: MinifluxArticle[],
+  scores: Map<number, ArticleScore>,
+  states: Map<number, { readLater: boolean; lastReadAt: string | null }>,
+): Article[] {
+  return articles.map((article) => {
+    const state = states.get(article.id);
+    return {
+      ...article,
+      score: scores.get(article.id) ?? null,
+      readLater: state?.readLater ?? false,
+      lastReadAt: state?.lastReadAt ?? null,
+    };
+  });
 }

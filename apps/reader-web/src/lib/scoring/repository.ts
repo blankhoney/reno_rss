@@ -1,3 +1,5 @@
+import type { Pool } from "pg";
+
 export type DimensionKey =
   | "importance"
   | "usefulness"
@@ -98,4 +100,54 @@ function normalizeTags(value: ScoreRow["tags"]): string[] {
     }
   }
   return [];
+}
+
+export async function getScoresByEntryIds(
+  pool: Pool,
+  tenantId: string,
+  entryIds: number[],
+): Promise<Map<number, ArticleScore>> {
+  if (entryIds.length === 0) return new Map();
+  const result = await pool.query(
+    `
+      SELECT DISTINCT ON (miniflux_entry_id)
+        miniflux_entry_id, score, dimension_scores, tags, reason, scored_at
+      FROM item_scores
+      WHERE tenant_id = $1
+        AND miniflux_entry_id = ANY($2::bigint[])
+      ORDER BY miniflux_entry_id, scored_at DESC
+    `,
+    [tenantId, entryIds],
+  );
+  return new Map(
+    result.rows.map((row) => [Number(row.miniflux_entry_id), toArticleScore(row as ScoreRow)]),
+  );
+}
+
+export async function getReaderStatesByEntryIds(
+  pool: Pool,
+  tenantId: string,
+  minifluxUserId: number,
+  entryIds: number[],
+): Promise<Map<number, { readLater: boolean; lastReadAt: string | null }>> {
+  if (entryIds.length === 0) return new Map();
+  const result = await pool.query(
+    `
+      SELECT miniflux_entry_id, read_later, last_read_at
+      FROM reader_entry_states
+      WHERE tenant_id = $1
+        AND miniflux_user_id = $2
+        AND miniflux_entry_id = ANY($3::bigint[])
+    `,
+    [tenantId, minifluxUserId, entryIds],
+  );
+  return new Map(
+    result.rows.map((row) => [
+      Number(row.miniflux_entry_id),
+      {
+        readLater: Boolean(row.read_later),
+        lastReadAt: scoredAtIsoOrNull(row.last_read_at as string | Date | null),
+      },
+    ]),
+  );
 }
