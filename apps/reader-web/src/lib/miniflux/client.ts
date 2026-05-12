@@ -10,6 +10,10 @@ export const MINIFLUX_HTTP_CLIENT_RUNTIME = "nodejs" as const;
 
 export const DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS = 10_000;
 
+export const DEFAULT_ARTICLES_LIST_LIMIT = 50;
+export const MIN_ARTICLES_LIST_LIMIT = 1;
+export const MAX_ARTICLES_LIST_LIMIT = 100;
+
 type EntryFilter = {
   status?: ArticleStatus | "all";
   limit?: number;
@@ -60,6 +64,29 @@ export function buildEntriesUrl(baseUrl: string, filter: EntryFilter): URL {
   return url;
 }
 
+export function buildEntryUrl(baseUrl: string, entryId: number): URL {
+  const url = new URL(baseUrl.replace(/\/$/, ""));
+  const trimmedPath = url.pathname.replace(/\/+$/, "") || "";
+  url.pathname =
+    trimmedPath === "" ? `/v1/entries/${entryId}` : `${trimmedPath}/v1/entries/${entryId}`;
+  return url;
+}
+
+/**
+ * Parses the articles list `limit` query param: default 50, non-integers fall back to default,
+ * integers are clamped to {@link MIN_ARTICLES_LIST_LIMIT}..{@link MAX_ARTICLES_LIST_LIMIT}.
+ */
+export function parseArticlesListLimitParam(value: string | null): number {
+  if (value === null || value === "") {
+    return DEFAULT_ARTICLES_LIST_LIMIT;
+  }
+  const n = Number(value);
+  if (!Number.isInteger(n)) {
+    return DEFAULT_ARTICLES_LIST_LIMIT;
+  }
+  return Math.min(MAX_ARTICLES_LIST_LIMIT, Math.max(MIN_ARTICLES_LIST_LIMIT, n));
+}
+
 export function normalizeMinifluxEntry(entry: MinifluxEntry) {
   return {
     id: entry.id,
@@ -97,5 +124,26 @@ export class MinifluxClient {
     }
     const data = (await response.json()) as { entries?: MinifluxEntry[] };
     return (data.entries ?? []).map(normalizeMinifluxEntry);
+  }
+
+  /**
+   * Fetches a single entry by id. Returns `null` when Miniflux responds with 404.
+   */
+  async getEntry(entryId: number): Promise<ReturnType<typeof normalizeMinifluxEntry> | null> {
+    const response = await fetch(buildEntryUrl(this.baseUrl, entryId).toString(), {
+      headers: {
+        Authorization: buildMinifluxBasicAuthorizationHeader(this.username, this.password),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
+    });
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`Miniflux entry request failed: ${response.status}`);
+    }
+    const data = (await response.json()) as MinifluxEntry;
+    return normalizeMinifluxEntry(data);
   }
 }

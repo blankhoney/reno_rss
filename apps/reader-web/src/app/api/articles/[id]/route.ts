@@ -5,8 +5,6 @@ import { MinifluxClient } from "@/lib/miniflux/client";
 import { getPool } from "@/lib/scoring/db";
 import { getReaderStatesByEntryIds, getScoresByEntryIds } from "@/lib/scoring/repository";
 
-const DETAIL_ENTRY_FETCH_LIMIT = 500;
-
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: idParam } = await params;
   const id = Number(idParam);
@@ -21,11 +19,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     config.MINIFLUX_PASSWORD,
   );
 
-  const baseArticles = await miniflux.getEntries({
-    status: "all",
-    limit: DETAIL_ENTRY_FETCH_LIMIT,
-  });
-  const article = baseArticles.find((a) => a.id === id);
+  const article = await miniflux.getEntry(id);
   if (!article) {
     return NextResponse.json({ error: "Article not found" }, { status: 404 });
   }

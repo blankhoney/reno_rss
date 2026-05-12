@@ -1,17 +1,43 @@
 import type { ArticleScore } from "@/lib/scoring/repository";
 import type { Article } from "./types";
 
-export type ModuleId =
-  | "unread"
-  | "read"
-  | "starred"
-  | "read-later"
-  | "technical"
-  | "business"
-  | "trend"
-  | "ai"
-  | "product"
-  | "security";
+export const MODULE_IDS = [
+  "unread",
+  "read",
+  "starred",
+  "read-later",
+  "technical",
+  "business",
+  "trend",
+  "ai",
+  "product",
+  "security",
+] as const;
+
+export type ModuleId = (typeof MODULE_IDS)[number];
+
+const MODULE_ID_SET: ReadonlySet<string> = new Set(MODULE_IDS);
+
+export function isModuleId(value: string): value is ModuleId {
+  return MODULE_ID_SET.has(value);
+}
+
+/**
+ * Resolves `module` for GET /api/articles. Absent `module` defaults to `"unread"`.
+ * When the client sends `module` but the value is empty or unknown, returns `{ ok: false }`.
+ */
+export function resolveArticlesListModuleId(
+  hasModuleParam: boolean,
+  rawModule: string | null,
+): { ok: true; moduleId: ModuleId } | { ok: false } {
+  if (!hasModuleParam) {
+    return { ok: true, moduleId: "unread" };
+  }
+  if (rawModule === null || rawModule === "" || !isModuleId(rawModule)) {
+    return { ok: false };
+  }
+  return { ok: true, moduleId: rawModule };
+}
 
 function lastReadAtSortKey(lastReadAt: string | null): number {
   if (lastReadAt == null || lastReadAt === "") return 0;

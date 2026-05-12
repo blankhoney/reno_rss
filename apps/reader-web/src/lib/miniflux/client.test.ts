@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DEFAULT_ARTICLES_LIST_LIMIT,
+  MAX_ARTICLES_LIST_LIMIT,
   MINIFLUX_HTTP_CLIENT_RUNTIME,
   buildEntriesUrl,
+  buildEntryUrl,
   buildMinifluxBasicAuthorizationHeader,
   normalizeMinifluxEntry,
   MinifluxClient,
+  parseArticlesListLimitParam,
 } from "./client";
 
 test("MINIFLUX_HTTP_CLIENT_RUNTIME is Node.js", () => {
@@ -19,6 +23,40 @@ test("buildEntriesUrl preserves base URL path prefix", () => {
     url.toString(),
     "https://host/rss/miniflux/v1/entries?limit=2&offset=0&order=published_at&direction=desc",
   );
+});
+
+test("buildEntryUrl preserves base URL path prefix", () => {
+  const url = buildEntryUrl("https://host/rss/miniflux", 888);
+
+  assert.equal(url.toString(), "https://host/rss/miniflux/v1/entries/888");
+});
+
+test("buildEntryUrl uses root path when base has no pathname", () => {
+  assert.equal(buildEntryUrl("http://miniflux:8080", 1).pathname, "/v1/entries/1");
+});
+
+test("parseArticlesListLimitParam defaults and clamps", () => {
+  assert.equal(parseArticlesListLimitParam(null), DEFAULT_ARTICLES_LIST_LIMIT);
+  assert.equal(parseArticlesListLimitParam(""), DEFAULT_ARTICLES_LIST_LIMIT);
+  assert.equal(parseArticlesListLimitParam("not-a-number"), DEFAULT_ARTICLES_LIST_LIMIT);
+  assert.equal(parseArticlesListLimitParam("12.5"), DEFAULT_ARTICLES_LIST_LIMIT);
+  assert.equal(parseArticlesListLimitParam("1"), 1);
+  assert.equal(parseArticlesListLimitParam("100"), MAX_ARTICLES_LIST_LIMIT);
+  assert.equal(parseArticlesListLimitParam("101"), MAX_ARTICLES_LIST_LIMIT);
+  assert.equal(parseArticlesListLimitParam("0"), 1);
+  assert.equal(parseArticlesListLimitParam("-3"), 1);
+});
+
+test("getEntry returns null on 404", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response(null, { status: 404 }))) as typeof fetch;
+  try {
+    const client = new MinifluxClient("http://localhost:8181", "u", "p");
+    const entry = await client.getEntry(999);
+    assert.equal(entry, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("buildEntriesUrl includes status, order and pagination", () => {

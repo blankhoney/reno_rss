@@ -1,15 +1,22 @@
 import { NextResponse } from "next/server";
-import { mergeArticleData, sortArticlesForModule, type ModuleId } from "@/lib/articles/service";
+import { mergeArticleData, resolveArticlesListModuleId, sortArticlesForModule } from "@/lib/articles/service";
 import { getConfig } from "@/lib/config";
-import { MinifluxClient } from "@/lib/miniflux/client";
+import { MinifluxClient, parseArticlesListLimitParam } from "@/lib/miniflux/client";
 import { getPool } from "@/lib/scoring/db";
 import { getReaderStatesByEntryIds, getScoresByEntryIds } from "@/lib/scoring/repository";
 
 export async function GET(request: Request) {
   const config = getConfig();
   const url = new URL(request.url);
-  const moduleId = (url.searchParams.get("module") ?? "unread") as ModuleId;
-  const limit = Number(url.searchParams.get("limit") ?? 50);
+  const moduleResolution = resolveArticlesListModuleId(
+    url.searchParams.has("module"),
+    url.searchParams.get("module"),
+  );
+  if (!moduleResolution.ok) {
+    return NextResponse.json({ error: "Invalid module" }, { status: 400 });
+  }
+  const moduleId = moduleResolution.moduleId;
+  const limit = parseArticlesListLimitParam(url.searchParams.get("limit"));
   const status = moduleId === "read" ? "read" : "unread";
   const starred = moduleId === "starred" ? true : undefined;
 
