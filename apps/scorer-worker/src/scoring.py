@@ -13,11 +13,21 @@ from llm_client import LLMClientError, MinimaxLLMClient
 _MODEL_PROVIDER = "baseline"
 _MODEL_NAME = "length-baseline"
 _MODEL_VERSION = "0.1.0"
-_PROMPT_VERSION = "rss-score-v1"
+_PROMPT_VERSION = "rss-score-v2"
 _LLM_MODEL_PROVIDER = "minimax"
 _MAX_TAGS = 3
 _MAX_REASON_LENGTH = 240
 _MAX_CONTENT_CHARS = 6000
+
+_DIMENSION_KEYS = (
+    "importance",
+    "usefulness",
+    "timeliness",
+    "depth",
+    "technical_value",
+    "business_value",
+    "trend_value",
+)
 
 
 def score_entry(entry: dict, llm_client: MinimaxLLMClient | None = None) -> dict:
@@ -46,6 +56,7 @@ def score_entry(entry: dict, llm_client: MinimaxLLMClient | None = None) -> dict
     model_name = getattr(client, "model", "unknown")
     return {
         "score": result["score"],
+        "dimension_scores": result["dimension_scores"],
         "tags": result["tags"],
         "reason": result["reason"],
         "model_version": f"{_LLM_MODEL_PROVIDER}:{model_name}:{_PROMPT_VERSION}",
@@ -67,8 +78,11 @@ def _baseline_payload(title: str, combined: str, error_message: str | None) -> d
 
     content_hash = hashlib.sha256(combined.encode()).hexdigest()[:16]
 
+    dimension_scores = {key: raw_score for key in _DIMENSION_KEYS}
+
     return {
         "score": raw_score,
+        "dimension_scores": dimension_scores,
         "tags": tags,
         "reason": _trim_reason(f"length={len(combined)} hash={content_hash}"),
         "model_version": _MODEL_VERSION,
@@ -87,9 +101,12 @@ def _build_messages(title: str, content: str) -> list[dict[str, str]]:
         {
             "role": "system",
             "content": (
-                "You score RSS entries for a personal reading digest. "
-                "Return strict JSON only, with keys: score, tags, reason, confidence. "
-                "score must be 0-100, tags must be short strings, confidence must be 0.0-1.0."
+                "You score RSS entries for a personal AI reading workspace. "
+                "Return strict JSON only with keys: overall, importance, usefulness, "
+                "timeliness, depth, technical_value, business_value, trend_value, "
+                "tags, reason, confidence. All score fields must be integers from 0 to 100. "
+                "tags must be short strings. confidence must be 0.0 to 1.0. "
+                "Do not include markdown, comments, or any text outside the JSON object."
             ),
         },
         {
@@ -109,12 +126,25 @@ def _parse_llm_json(raw: str) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise ValueError("invalid llm json") from exc
 
-    score = _clamp_int(data.get("score"), minimum=0, maximum=100)
+    overall = _clamp_int(
+        data.get("overall", data.get("score")),
+        minimum=0,
+        maximum=100,
+    )
+    dimension_scores = {
+        key: (
+            _clamp_int(data.get(key), minimum=0, maximum=100)
+            if key in data
+            else overall
+        )
+        for key in _DIMENSION_KEYS
+    }
     tags = _normalize_tags(data.get("tags"))
     reason = _trim_reason(str(data.get("reason") or "No reason provided."))
     confidence = _clamp_float(data.get("confidence"), minimum=0.0, maximum=1.0)
     return {
-        "score": score,
+        "score": overall,
+        "dimension_scores": dimension_scores,
         "tags": tags,
         "reason": reason,
         "confidence": confidence,

@@ -17,6 +17,7 @@ from scoring import score_entry  # noqa: E402
 
 REQUIRED_KEYS = {
     "score",
+    "dimension_scores",
     "tags",
     "reason",
     "model_version",
@@ -70,6 +71,70 @@ class FakeLLMClient:
         return self.content
 
 
+class FakeMultiDimensionalLLMClient:
+    """Returns full v2-shaped JSON; separate from FakeLLMClient(content=..., exc=...)."""
+
+    model = "test-model"
+
+    def chat_completion(self, messages):
+        assert messages
+        return """
+        {
+          "overall": 86,
+          "importance": 90,
+          "usefulness": 78,
+          "timeliness": 84,
+          "depth": 72,
+          "technical_value": 92,
+          "business_value": 48,
+          "trend_value": 80,
+          "tags": ["AI", "Agent", "Engineering", "Extra"],
+          "reason": "Useful for building an AI assisted RSS reader.",
+          "confidence": 0.91
+        }
+        """
+
+
+def test_score_entry_returns_dimension_scores_from_llm():
+    payload = score_entry(
+        {"id": 1, "title": "Agent reading", "content": "Long article about AI agents."},
+        llm_client=FakeMultiDimensionalLLMClient(),
+    )
+
+    assert payload["score"] == 86
+    assert payload["dimension_scores"] == {
+        "importance": 90,
+        "usefulness": 78,
+        "timeliness": 84,
+        "depth": 72,
+        "technical_value": 92,
+        "business_value": 48,
+        "trend_value": 80,
+    }
+    assert payload["tags"] == ["ai", "agent", "engineering"]
+    assert payload["prompt_version"] == "rss-score-v2"
+
+
+class BrokenLLMClient:
+    model = "broken-model"
+
+    def chat_completion(self, messages):
+        raise RuntimeError("provider unavailable")
+
+
+def test_score_entry_fallback_includes_dimension_scores():
+    payload = score_entry(
+        {"id": 1, "title": "Fallback", "content": "x" * 500},
+        llm_client=BrokenLLMClient(),
+    )
+
+    assert payload["scoring_status"] == "error"
+    assert payload["score"] == 10
+    assert payload["dimension_scores"]["importance"] == 10
+    assert payload["dimension_scores"]["technical_value"] == 10
+    assert payload["dimension_scores"]["business_value"] == 10
+
+
 def test_score_entry_uses_minimax_json_response():
     payload = score_entry(
         {"id": 6, "title": "AI news", "content": "important model release"},
@@ -86,9 +151,20 @@ def test_score_entry_uses_minimax_json_response():
     assert payload["confidence"] == 0.82
     assert payload["model_provider"] == "minimax"
     assert payload["model_name"] == "MiniMax-M2.7"
-    assert payload["prompt_version"] == "rss-score-v1"
+    assert payload["prompt_version"] == "rss-score-v2"
     assert payload["scoring_status"] == "success"
     assert payload["error_message"] is None
+    assert isinstance(payload["dimension_scores"], dict)
+    for key in (
+        "importance",
+        "usefulness",
+        "timeliness",
+        "depth",
+        "technical_value",
+        "business_value",
+        "trend_value",
+    ):
+        assert payload["dimension_scores"][key] == 88
 
 
 def test_score_entry_falls_back_on_non_json_response():
