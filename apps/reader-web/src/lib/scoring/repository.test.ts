@@ -31,3 +31,15 @@ test("toArticleScore normalizes legacy rows without dimension_scores", () => {
   assert.equal(score.dimensions.technical_value, 71);
   assert.deepEqual(score.tags, ["ai"]);
 });
+
+test("toArticleScore maps invalid scored_at to null without throwing", () => {
+  const score = toArticleScore({
+    score: 50,
+    dimension_scores: {},
+    tags: [],
+    reason: "",
+    scored_at: "not-a-valid-date",
+  });
+
+  assert.equal(score.scoredAt, null);
+});

@@ -45,7 +45,7 @@ export function toArticleScore(row: ScoreRow): ArticleScore {
     dimensions,
     tags: normalizeTags(row.tags),
     reason: row.reason ?? "",
-    scoredAt: row.scored_at ? new Date(row.scored_at).toISOString() : null,
+    scoredAt: scoredAtIsoOrNull(row.scored_at),
   };
 }
 
@@ -73,6 +73,12 @@ export function setReadLaterSql(input: {
       input.readLater,
     ],
   };
+}
+
+function scoredAtIsoOrNull(scoredAt: string | Date | null): string | null {
+  if (scoredAt == null) return null;
+  const date = scoredAt instanceof Date ? scoredAt : new Date(scoredAt);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function clampScore(value: unknown): number {
