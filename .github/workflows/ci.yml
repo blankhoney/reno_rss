@@ -27,6 +27,24 @@ jobs:
         working-directory: apps/scorer-worker
         run: pytest tests/ -q
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/reader-web/package-lock.json
+
+      - name: Install reader-web dependencies
+        working-directory: apps/reader-web
+        run: npm ci
+
+      - name: Reader web tests
+        working-directory: apps/reader-web
+        run: npm test
+
+      - name: Reader web build
+        working-directory: apps/reader-web
+        run: npm run build
+
       - name: Validate Compose config
         run: |
           cp .env.example .env
