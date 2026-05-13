@@ -1,4 +1,5 @@
 import type { ArticleScore } from "@/lib/scoring/repository";
+import sanitizeHtml from "sanitize-html";
 import type { Article } from "./types";
 
 export const MODULE_IDS = [
@@ -95,6 +96,18 @@ export function scoreForModule(article: Article, moduleId: ModuleId): number {
 
 type MinifluxArticle = Omit<Article, "score" | "readLater" | "lastReadAt">;
 
+export function sanitizeArticleHtml(html: string): string {
+  return sanitizeHtml(html, {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img"]),
+    allowedAttributes: {
+      ...sanitizeHtml.defaults.allowedAttributes,
+      a: ["href", "name", "target", "rel"],
+      img: ["src", "alt", "title", "width", "height", "loading"],
+    },
+    allowedSchemes: ["http", "https", "mailto"],
+  });
+}
+
 export function mergeArticleData(
   articles: MinifluxArticle[],
   scores: Map<number, ArticleScore>,
@@ -104,6 +117,7 @@ export function mergeArticleData(
     const state = states.get(article.id);
     return {
       ...article,
+      contentHtml: sanitizeArticleHtml(article.contentHtml),
       score: scores.get(article.id) ?? null,
       readLater: state?.readLater ?? false,
       lastReadAt: state?.lastReadAt ?? null,

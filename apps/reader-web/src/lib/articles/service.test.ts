@@ -6,6 +6,7 @@ import {
   minifluxEntryFilterForModule,
   MODULE_IDS,
   resolveArticlesListModuleId,
+  sanitizeArticleHtml,
   sortArticlesForModule,
 } from "./service";
 
@@ -93,4 +94,11 @@ test("read module sorts by most recent lastReadAt", () => {
     "read",
   );
   assert.deepEqual(sorted.map((item) => item.id), [2, 1]);
+});
+
+test("sanitizeArticleHtml removes script tags and inline event handlers", () => {
+  const html = sanitizeArticleHtml('<p onclick="bad()">Hi</p><script>alert(1)</script>');
+  assert.equal(html.includes("<script"), false);
+  assert.equal(html.includes("onclick"), false);
+  assert.match(html, /Hi/);
 });
