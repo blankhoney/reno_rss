@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
-import { mergeArticleData, resolveArticlesListModuleId, sortArticlesForModule } from "@/lib/articles/service";
+import {
+  filterArticlesForModule,
+  mergeArticleData,
+  minifluxEntryFilterForModule,
+  resolveArticlesListModuleId,
+  sortArticlesForModule,
+} from "@/lib/articles/service";
 import { getConfig } from "@/lib/config";
 import { MinifluxClient, parseArticlesListLimitParam } from "@/lib/miniflux/client";
 import { getPool } from "@/lib/scoring/db";
-import { getReaderStatesByEntryIds, getScoresByEntryIds } from "@/lib/scoring/repository";
+import {
+  type ArticleScore,
+  getReaderStatesByEntryIds,
+  getScoresByEntryIds,
+} from "@/lib/scoring/repository";
 
 export async function GET(request: Request) {
   const config = getConfig();
@@ -17,24 +27,30 @@ export async function GET(request: Request) {
   }
   const moduleId = moduleResolution.moduleId;
   const limit = parseArticlesListLimitParam(url.searchParams.get("limit"));
-  const status = moduleId === "read" ? "read" : "unread";
-  const starred = moduleId === "starred" ? true : undefined;
 
   const miniflux = new MinifluxClient(
     config.MINIFLUX_API_BASE_URL,
     config.MINIFLUX_USERNAME,
     config.MINIFLUX_PASSWORD,
   );
-  const baseArticles = await miniflux.getEntries({ status, starred, limit });
+  const minifluxFilter = minifluxEntryFilterForModule(moduleId, limit);
+  const baseArticles = await miniflux.getEntries(minifluxFilter);
   const entryIds = baseArticles.map((article) => article.id);
   const minifluxUserId = baseArticles[0]?.userId ?? 0;
-  const pool = getPool();
-  const [scores, states] = await Promise.all([
-    getScoresByEntryIds(pool, config.READER_TENANT_ID, entryIds),
-    getReaderStatesByEntryIds(pool, config.READER_TENANT_ID, minifluxUserId, entryIds),
-  ]);
+  let scores = new Map<number, ArticleScore>();
+  let states = new Map<number, { readLater: boolean; lastReadAt: string | null }>();
+  try {
+    const pool = getPool();
+    [scores, states] = await Promise.all([
+      getScoresByEntryIds(pool, config.READER_TENANT_ID, entryIds),
+      getReaderStatesByEntryIds(pool, config.READER_TENANT_ID, minifluxUserId, entryIds),
+    ]);
+  } catch {
+    scores = new Map();
+    states = new Map();
+  }
   const articles = sortArticlesForModule(
-    mergeArticleData(baseArticles, scores, states),
+    filterArticlesForModule(mergeArticleData(baseArticles, scores, states), moduleId),
     moduleId,
   );
 

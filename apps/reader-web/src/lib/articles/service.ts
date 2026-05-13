@@ -49,6 +49,27 @@ export function sortArticlesForModule(articles: Article[], moduleId: ModuleId): 
   return [...articles].sort((a, b) => scoreForModule(b, moduleId) - scoreForModule(a, moduleId));
 }
 
+export type MinifluxEntryModuleFilter = {
+  status: "read" | "unread" | "all";
+  starred?: boolean;
+  limit: number;
+};
+
+export function minifluxEntryFilterForModule(
+  moduleId: ModuleId,
+  limit: number,
+): MinifluxEntryModuleFilter {
+  if (moduleId === "read") return { status: "read", starred: undefined, limit };
+  if (moduleId === "starred") return { status: "all", starred: true, limit };
+  if (moduleId === "read-later") return { status: "all", starred: undefined, limit };
+  return { status: "unread", starred: undefined, limit };
+}
+
+export function filterArticlesForModule(articles: Article[], moduleId: ModuleId): Article[] {
+  if (moduleId === "read-later") return articles.filter((article) => article.readLater);
+  return articles;
+}
+
 export function scoreForModule(article: Article, moduleId: ModuleId): number {
   if (moduleId === "read") {
     return lastReadAtSortKey(article.lastReadAt);

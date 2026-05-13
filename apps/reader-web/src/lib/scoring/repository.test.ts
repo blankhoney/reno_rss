@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { setReadLaterSql, toArticleScore } from "./repository";
+import { markReadSql, setReadLaterSql, toArticleScore } from "./repository";
 
 test("setReadLaterSql builds an idempotent upsert", () => {
   const query = setReadLaterSql({
@@ -42,4 +42,19 @@ test("toArticleScore maps invalid scored_at to null without throwing", () => {
   });
 
   assert.equal(score.scoredAt, null);
+});
+
+test("markReadSql upserts last_read_at without changing read_later", () => {
+  const query = markReadSql({
+    tenantId: "default",
+    minifluxUserId: 7,
+    minifluxEntryId: 42,
+  });
+
+  assert.equal(query.values[0], "default");
+  assert.equal(query.values[1], 7);
+  assert.equal(query.values[2], 42);
+  assert.match(query.text, /last_read_at/);
+  assert.match(query.text, /ON CONFLICT/);
+  assert.doesNotMatch(query.text, /read_later\s*=/);
 });

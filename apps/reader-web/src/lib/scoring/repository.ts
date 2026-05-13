@@ -93,6 +93,36 @@ export async function upsertReadLater(
   await pool.query(text, values);
 }
 
+export function markReadSql(input: {
+  tenantId: string;
+  minifluxUserId: number;
+  minifluxEntryId: number;
+}) {
+  return {
+    text: `
+      INSERT INTO reader_entry_states (
+        tenant_id, miniflux_user_id, miniflux_entry_id, last_read_at, updated_at
+      )
+      VALUES ($1, $2, $3, NOW(), NOW())
+      ON CONFLICT (tenant_id, miniflux_user_id, miniflux_entry_id)
+      DO UPDATE SET
+        last_read_at = NOW(),
+        updated_at = NOW()
+    `,
+    values: [input.tenantId, input.minifluxUserId, input.minifluxEntryId],
+  };
+}
+
+export async function markRead(
+  pool: Pool,
+  tenantId: string,
+  minifluxUserId: number,
+  minifluxEntryId: number,
+): Promise<void> {
+  const { text, values } = markReadSql({ tenantId, minifluxUserId, minifluxEntryId });
+  await pool.query(text, values);
+}
+
 function scoredAtIsoOrNull(scoredAt: string | Date | null): string | null {
   if (scoredAt == null) return null;
   const date = scoredAt instanceof Date ? scoredAt : new Date(scoredAt);
