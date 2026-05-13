@@ -10,3 +10,14 @@ backup/
 .worktrees/
 
 .DS_Store
+
+# Python generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Next.js generated files
+node_modules/
+.next/
