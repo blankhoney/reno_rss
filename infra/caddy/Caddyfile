@@ -51,7 +51,7 @@ staging-reader.{$DOMAIN} {
     }
 
     handle {
-        forward_auth authelia-staging:9091 {
+        forward_auth authelia-prod:9091 {
             uri /api/authz/forward-auth
             copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
         }
@@ -60,12 +60,12 @@ staging-reader.{$DOMAIN} {
 }
 
 staging-auth.{$DOMAIN} {
-    reverse_proxy authelia-staging:9091
+    reverse_proxy authelia-prod:9091
 }
 
 staging-ai-reader.{$DOMAIN} {
     handle {
-        forward_auth authelia-staging:9091 {
+        forward_auth authelia-prod:9091 {
             uri /api/authz/forward-auth
             copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
         }
