@@ -1,5 +1,6 @@
 import { buildArticleAgentMessages, shouldUseWebSearch } from "@/lib/agent/prompt";
 import { streamMinimaxChat } from "@/lib/agent/minimax";
+import { parseArticleAgentRequest } from "@/lib/agent/request";
 import { searchWeb } from "@/lib/agent/webSearch";
 import { getConfig } from "@/lib/config";
 
@@ -16,61 +17,23 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (parsed === null || typeof parsed !== "object") {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  const parsedRequest = parseArticleAgentRequest(parsed);
+  if (!parsedRequest.ok) {
+    return Response.json({ error: parsedRequest.error }, { status: 400 });
   }
-
-  const body = parsed as Record<string, unknown>;
-  const question = body.question;
-
-  if (typeof question !== "string" || question.trim().length === 0) {
-    return Response.json({ error: "Missing or invalid question" }, { status: 400 });
-  }
-
-  const articleRaw = body.article;
-  if (articleRaw === null || typeof articleRaw !== "object") {
-    return Response.json({ error: "Missing or invalid article" }, { status: 400 });
-  }
-
-  const article = articleRaw as Record<string, unknown>;
-  const title = article.title;
-  const urlField = article.url;
-  const contentText = article.contentText;
-  const scoreReason = article.scoreReason;
-  const tagsUnknown = article.tags;
-
-  if (
-    typeof title !== "string" ||
-    title.trim().length === 0 ||
-    typeof urlField !== "string" ||
-    urlField.trim().length === 0 ||
-    typeof contentText !== "string" ||
-    typeof scoreReason !== "string" ||
-    !Array.isArray(tagsUnknown) ||
-    !tagsUnknown.every((t) => typeof t === "string")
-  ) {
-    return Response.json({ error: "Invalid article payload" }, { status: 400 });
-  }
-
-  const selectedText =
-    typeof body.selectedText === "string" && body.selectedText.trim().length > 0
-      ? body.selectedText
-      : undefined;
-
-  const tags = tagsUnknown as string[];
-
-  const queryForSearch = `${question} ${title}`;
+  const { question, article, selectedText } = parsedRequest.value;
+  const queryForSearch = `${question} ${article.title}`;
 
   const searchResults = shouldUseWebSearch(question) ? await searchWeb(queryForSearch) : [];
 
   const messages = buildArticleAgentMessages({
     question,
     article: {
-      title,
-      url: urlField,
-      contentText,
-      scoreReason,
-      tags,
+      title: article.title,
+      url: article.url,
+      contentText: article.contentText,
+      scoreReason: article.scoreReason,
+      tags: article.tags,
     },
     selectedText,
     searchResults,

@@ -751,3 +751,37 @@ VPS agent 不应一上来改文件、重启服务或打印 `.env`。先收集证
 - Caddy 的 `validate`、`adapt`、`reload` 分别检查什么？
 - Docker Compose 的展开配置为什么比直接看 yml 更可靠？
 - 为什么 secret 一旦贴进聊天记录就应该轮换？
+
+---
+
+## Reader Web Staging 阻塞修复
+
+### 做了什么
+
+修复了进入 AI Reader staging 前的几个阻塞点：
+- 阅读页 Server Component 不再通过公网 origin 自调用 `/api/articles`，改为直接复用服务端文章查询逻辑读取 Miniflux 和 scoring。
+- 文章列表、文章详情、稍后读和最近阅读统一使用 `READER_MINIFLUX_USER_ID` 读取 reader state，避免写入和读取使用不同用户 id。
+- Agent API 增加服务端输入长度限制，限制 `question`、`selectedText` 和 `contentText`，避免认证用户把接口当成无上限 LLM 代理。
+- 部署脚本在更新 staging/prod 后端服务时增加 `--build`，确保 `reader-web` 这种 build-context 服务在代码更新后重建镜像。
+
+### 关键概念
+
+**Server Component 不应该绕公网网关调用自己**
+在 Authelia 保护的站点里，服务端如果 fetch `https://staging-ai-reader.../api/articles`，请求会重新经过 Caddy 和 Authelia。这个请求没有浏览器登录态，容易被认证网关拦截，导致页面首屏文章列表为空。服务端页面已经在同一个 Next.js 进程里，应该直接调用本地查询函数。
+
+**reader state 的 user id 必须读写一致**
+稍后读和最近阅读是按 `tenant_id + miniflux_user_id + entry_id` 存的。如果写入时使用配置里的 `READER_MINIFLUX_USER_ID`，读取时却使用文章里的 user id 或列表首篇文章 user id，就会出现“写入成功但读不回来”。
+
+**前端限制不能替代服务端限制**
+Agent 面板可以在浏览器里截断内容，但任何认证用户都能直接 POST API。服务端必须自己限制输入长度，尤其是会转发给 LLM 的 `contentText` 和 `selectedText`。
+
+**build-context 服务部署时要重建**
+`reader-web` 不是纯拉远端镜像的服务，而是在 VPS 上由 Compose build context 构建。只执行 `docker compose up -d` 可能继续复用旧镜像；部署脚本需要带 `--build`，否则代码已经拉取但容器仍运行旧版本。
+
+### 可以在学习 session 里追问的问题
+
+- Next.js Server Component 和 API Route 在同一应用里各自适合承担什么职责？
+- 为什么 Authelia 会影响服务端自调用，而不会影响进程内函数调用？
+- `READER_MINIFLUX_USER_ID` 和 Miniflux entry 自带 `user_id` 分别代表什么？
+- LLM API 的服务端输入上限应该如何按成本和体验权衡？
+- `docker compose up --build` 和单独 `docker compose build` 有什么区别？

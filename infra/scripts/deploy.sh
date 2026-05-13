@@ -64,6 +64,6 @@ IMAGE_TAG="$TAG" docker compose \
     -p "myrss-${ENV}" \
     -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
     -f "$REPO_ROOT/infra/compose/docker-compose.${ENV}.yml" \
-    up -d --remove-orphans
+    up -d --build --remove-orphans
 
 echo "✅ 部署完成：$ENV @ $TAG"

@@ -1,9 +1,10 @@
-import { headers } from "next/headers";
-
 import type { Article } from "@/lib/articles/types";
 import { ArticleList } from "@/components/ArticleList";
 import { ArticleReader } from "@/components/ArticleReader";
 import { ModuleSidebar } from "@/components/ModuleSidebar";
+import { resolveArticlesListModuleId } from "@/lib/articles/service";
+import { getArticleForReader, listArticlesForModule } from "@/lib/articles/server";
+import { DEFAULT_ARTICLES_LIST_LIMIT } from "@/lib/miniflux/client";
 
 function normalizeModule(raw: string | string[] | undefined): string {
   if (typeof raw === "string" && raw !== "") return raw;
@@ -17,41 +18,16 @@ function parseArticleId(raw: string | string[] | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-async function resolveRequestOrigin(): Promise<string> {
-  const headerList = await headers();
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
-  const proto = headerList.get("x-forwarded-proto") ?? "http";
-  if (host != null && host !== "") {
-    return `${proto}://${host}`;
-  }
-  return "http://127.0.0.1:3000";
-}
-
 async function fetchArticlesList(module: string): Promise<Article[]> {
-  try {
-    const origin = await resolveRequestOrigin();
-    const res = await fetch(`${origin}/api/articles?module=${encodeURIComponent(module)}`, {
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const body = (await res.json()) as { articles?: unknown };
-    const list = body.articles;
-    return Array.isArray(list) ? (list as Article[]) : [];
-  } catch {
+  const moduleResolution = resolveArticlesListModuleId(true, module);
+  if (!moduleResolution.ok) {
     return [];
   }
+  return listArticlesForModule(moduleResolution.moduleId, DEFAULT_ARTICLES_LIST_LIMIT);
 }
 
 async function fetchArticleById(id: number): Promise<Article | null> {
-  try {
-    const origin = await resolveRequestOrigin();
-    const res = await fetch(`${origin}/api/articles/${id}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { article?: Article | null };
-    return body.article ?? null;
-  } catch {
-    return null;
-  }
+  return getArticleForReader(id);
 }
 
 type PageProps = {
