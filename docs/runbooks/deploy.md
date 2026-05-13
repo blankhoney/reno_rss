@@ -50,6 +50,13 @@ docker ps --format "table {{.Names}}\t{{.Status}}" | grep myrss-prod
 ```
 Expected: all containers show `Up ... (healthy)` or `Up ...`
 
+## VPS agent diagnostics
+
+When local Codex cannot inspect VPS-only state, use
+[vps-agent-diagnostics.md](./vps-agent-diagnostics.md) to collect a redacted,
+read-only diagnosis from the VPS agent before changing deployment files or
+restarting services.
+
 ## Miniflux API Key rotation (Task 3.5)
 
 1. Login to Miniflux at `https://reader.<DOMAIN>`

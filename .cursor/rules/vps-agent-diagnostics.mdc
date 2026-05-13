@@ -1,0 +1,39 @@
+---
+description: VPS agent 诊断协作规则：本地无法直接操作 VPS 时，先生成安全、只读、可复制的诊断 prompt
+alwaysApply: true
+---
+
+# VPS Agent Diagnostics
+
+当任务需要 VPS 上的真实 `.env`、Docker daemon、Caddy 证书、DNS 或远程容器状态，而当前本地会话无法直接验证时，助手必须优先生成一段可交给 VPS agent 执行的诊断 prompt。
+
+## 安全边界
+
+- 默认要求 VPS agent 只读诊断：不改文件、不重启服务、不部署、不打印 secret。
+- prompt 中必须明确禁止输出 `.env` 原文、密码、token、cookie、API key。
+- 检查环境变量时只输出变量名是否存在，不输出值。
+- 如果用户已经泄露 secret，先提醒轮换，再继续诊断。
+
+## Prompt 内容要求
+
+VPS agent prompt 至少包含：
+
+- 当前目录、Git 分支、HEAD、目标 commit 是否存在。
+- 宿主机配置文件与容器内挂载文件是否一致。
+- Docker Compose 展开配置是否包含目标服务、网络别名和关键变量名。
+- Caddy `validate` / `adapt` / reload 后日志中的关键证据。
+- 容器状态、目标容器日志、Caddy 日志。
+- 本机 `curl --resolve ...:127.0.0.1` 与公网 `curl` 的对比。
+- 固定返回格式：结论、关键证据、建议下一步。
+
+## 当前项目重点
+
+AI Reader staging 验证时，必须重点检查：
+
+- VPS 是否已经切到 `feat/ai-reader-web`，并包含 `8fa227e` 与 `e23b103`。
+- `infra/caddy/Caddyfile` 和容器内 `/etc/caddy/Caddyfile` 是否都包含 `staging-ai-reader`。
+- Caddy 已加载的配置是否包含 `staging-ai-reader.blankhoney.xyz`。
+- `docker compose config` 是否包含 `reader-web` 和 `reader-web-staging`。
+- `myrss-staging-reader-web-1` 是否存在并处于 `Up`。
+
+可直接使用或改写 `docs/runbooks/vps-agent-diagnostics.md` 中的 prompt。
