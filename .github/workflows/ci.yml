@@ -49,8 +49,21 @@ jobs:
         run: |
           cp .env.example .env
           docker compose \
+            --profile worker \
             --env-file .env \
             -f infra/compose/docker-compose.base.yml \
+            config > /dev/null
+          docker compose \
+            --profile worker \
+            --env-file .env \
+            -f infra/compose/docker-compose.base.yml \
+            -f infra/compose/docker-compose.staging.yml \
+            config > /dev/null
+          docker compose \
+            --profile worker \
+            --env-file .env \
+            -f infra/compose/docker-compose.base.yml \
+            -f infra/compose/docker-compose.prod.yml \
             config > /dev/null
 
       - name: Trivy filesystem scan

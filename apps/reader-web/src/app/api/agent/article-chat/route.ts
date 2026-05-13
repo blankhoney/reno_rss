@@ -1,6 +1,7 @@
 import { buildArticleAgentMessages, shouldUseWebSearch } from "@/lib/agent/prompt";
 import { streamMinimaxChat } from "@/lib/agent/minimax";
 import { parseArticleAgentRequest } from "@/lib/agent/request";
+import { cleanOpenAICompatibleSseStream } from "@/lib/agent/stream";
 import { searchWeb } from "@/lib/agent/webSearch";
 import { getConfig } from "@/lib/config";
 
@@ -40,8 +41,8 @@ export async function POST(request: Request) {
   });
 
   try {
-    const stream = await streamMinimaxChat(messages);
-    return new Response(stream, {
+    const upstream = await streamMinimaxChat(messages);
+    return new Response(cleanOpenAICompatibleSseStream(upstream), {
       headers: {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",

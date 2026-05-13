@@ -121,10 +121,7 @@ def _build_messages(title: str, content: str) -> list[dict[str, str]]:
 
 
 def _parse_llm_json(raw: str) -> dict[str, Any]:
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError("invalid llm json") from exc
+    data = _load_llm_json(raw)
 
     overall_raw = data.get("overall")
     if overall_raw is None:
@@ -143,6 +140,79 @@ def _parse_llm_json(raw: str) -> dict[str, Any]:
         "reason": reason,
         "confidence": confidence,
     }
+
+
+def _load_llm_json(raw: str) -> dict[str, Any]:
+    cleaned = _strip_think_blocks(raw).strip()
+    candidates = [cleaned]
+    extracted = _extract_first_json_object(cleaned)
+    if extracted is not None and extracted != cleaned:
+        candidates.append(extracted)
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if isinstance(data, dict):
+            return data
+        last_error = ValueError("llm json root is not an object")
+
+    raise ValueError("invalid llm json") from last_error
+
+
+def _strip_think_blocks(raw: str) -> str:
+    output: list[str] = []
+    cursor = 0
+    lowered = raw.lower()
+
+    while cursor < len(raw):
+        start = lowered.find("<think>", cursor)
+        if start == -1:
+            output.append(raw[cursor:])
+            break
+
+        output.append(raw[cursor:start])
+        end = lowered.find("</think>", start + len("<think>"))
+        if end == -1:
+            break
+        cursor = end + len("</think>")
+
+    return "".join(output)
+
+
+def _extract_first_json_object(text: str) -> str | None:
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escaped = False
+
+        for index in range(start, len(text)):
+            char = text[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : index + 1]
+
+        start = text.find("{", start + 1)
+
+    return None
 
 
 def _normalize_tags(raw_tags: Any) -> list[str]:

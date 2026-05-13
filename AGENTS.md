@@ -23,6 +23,18 @@
    - For features: define acceptance criteria, implement, then test.
    - For multi-step work: use a short plan and state how each step is verified.
 
+## Testing Flow
+
+- For code-level bugs with clear input/output, add or update the smallest
+  failing test first, then implement the fix, then run the relevant suite.
+- For VPS, Caddy, DNS, Docker daemon, or live deployment issues, use read-only
+  diagnostics and command verification instead of forcing unit tests.
+- Minimum local checks by area:
+  - `apps/reader-web`: `npm test` and `npm run build`
+  - `apps/scorer-worker`: `python -m pytest tests -q`
+  - `infra/compose`: render affected compose config with `.env.example`
+  - Any tracked edit: `git diff --check`
+
 ## Learning Notes
 
 - Update `docs/learning-notes.md` whenever a task changes project behavior,

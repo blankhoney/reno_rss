@@ -85,3 +85,72 @@ export function stripThinkTags(text: string): string {
   const filter = createThinkTagFilter();
   return filter.push(text) + filter.flush();
 }
+
+function encodeOpenAICompatibleSseContent(content: string): string {
+  return `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`;
+}
+
+function extractDataLines(event: string): string[] {
+  return event
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trimStart());
+}
+
+export function cleanOpenAICompatibleSseStream(
+  upstream: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const thinkFilter = createThinkTagFilter();
+  let pending = "";
+
+  return new ReadableStream({
+    async start(controller) {
+      const reader = upstream.getReader();
+
+      function emitContent(content: string) {
+        if (content.length === 0) return;
+        controller.enqueue(encoder.encode(encodeOpenAICompatibleSseContent(content)));
+      }
+
+      function processEvent(event: string) {
+        const dataLines = extractDataLines(event);
+        for (const data of dataLines) {
+          if (data.trim() === "[DONE]") {
+            emitContent(thinkFilter.flush());
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            continue;
+          }
+          emitContent(thinkFilter.push(extractOpenAICompatibleEventText(data)));
+        }
+      }
+
+      function processPending(force = false) {
+        const events = pending.split(/\r?\n\r?\n/);
+        pending = force ? "" : (events.pop() ?? "");
+        for (const event of events) {
+          if (event.trim().length > 0) processEvent(event);
+        }
+      }
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          pending += decoder.decode(value, { stream: true });
+          processPending();
+        }
+
+        pending += decoder.decode();
+        processPending(true);
+        emitContent(thinkFilter.flush());
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      } finally {
+        reader.releaseLock();
+      }
+    },
+  });
+}

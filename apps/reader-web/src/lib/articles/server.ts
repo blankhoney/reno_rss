@@ -57,7 +57,8 @@ export async function listArticlesForModule(moduleId: ModuleId, limit: number): 
   let states = new Map<number, ReaderState>();
   try {
     ({ scores, states } = await getArticleMaps(entryIds));
-  } catch {
+  } catch (error) {
+    console.warn("Failed to load scoring data for article list", error);
     scores = new Map();
     states = new Map();
   }
@@ -77,7 +78,8 @@ export async function getArticleForReader(id: number): Promise<Article | null> {
   let states = new Map<number, ReaderState>();
   try {
     ({ scores, states } = await getArticleMaps([id]));
-  } catch {
+  } catch (error) {
+    console.warn("Failed to load scoring data for article detail", error);
     scores = new Map();
     states = new Map();
   }

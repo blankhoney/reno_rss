@@ -147,6 +147,71 @@ def test_score_entry_task2_dimensions_json_success():
     assert payload["scoring_status"] == "success"
 
 
+def test_score_entry_strips_think_block_before_parsing_json():
+    """Reasoning-capable models may wrap strict JSON with hidden thinking tags."""
+    llm_body = (
+        "<think>hidden scoring notes</think>\n"
+        + json.dumps(
+            {
+                "overall": 84,
+                "importance": 85,
+                "usefulness": 75,
+                "timeliness": 70,
+                "depth": 80,
+                "technical_value": 90,
+                "business_value": 55,
+                "trend_value": 78,
+                "tags": ["Linux", "Security"],
+                "reason": "Kernel security update.",
+                "confidence": 0.81,
+            }
+        )
+    )
+
+    payload = score_entry(
+        {"id": 603, "title": "Fragnesia", "content": "Linux local privilege escalation."},
+        llm_client=FakeLLMClient(llm_body),
+    )
+
+    assert payload["scoring_status"] == "success"
+    assert payload["model_provider"] == "minimax"
+    assert payload["score"] == 84
+    assert payload["dimension_scores"]["technical_value"] == 90
+    assert payload["tags"] == ["linux", "security"]
+
+
+def test_score_entry_extracts_json_object_from_noisy_response():
+    """Provider responses sometimes add short prose around the JSON object."""
+    llm_body = (
+        "Here is the JSON:\n"
+        + json.dumps(
+            {
+                "overall": 77,
+                "importance": 70,
+                "usefulness": 71,
+                "timeliness": 72,
+                "depth": 73,
+                "technical_value": 74,
+                "business_value": 75,
+                "trend_value": 76,
+                "tags": ["AI"],
+                "reason": "Useful AI product signal.",
+                "confidence": 0.7,
+            }
+        )
+        + "\nDone."
+    )
+
+    payload = score_entry(
+        {"id": 604, "title": "AI product", "content": "Useful product signal."},
+        llm_client=FakeLLMClient(llm_body),
+    )
+
+    assert payload["scoring_status"] == "success"
+    assert payload["score"] == 77
+    assert payload["dimension_scores"]["business_value"] == 75
+
+
 def test_score_entry_task2_fallback_error_baseline_dimensions():
     """Broken LLM yields error baseline with score 10 for 500-char body and key dims at 10."""
     body_500 = "x" * 500
