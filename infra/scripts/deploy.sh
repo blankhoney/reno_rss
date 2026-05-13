@@ -78,4 +78,11 @@ IMAGE_TAG="$TAG" docker compose \
     -f "$REPO_ROOT/infra/compose/docker-compose.${ENV}.yml" \
     up -d --build --remove-orphans
 
+echo "🔁 重建 $ENV Authelia 以加载生成配置..."
+IMAGE_TAG="$TAG" docker compose \
+    -p "myrss-${ENV}" \
+    -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
+    -f "$REPO_ROOT/infra/compose/docker-compose.${ENV}.yml" \
+    up -d --force-recreate --no-deps authelia
+
 echo "✅ 部署完成：$ENV @ $TAG"
