@@ -1,4 +1,8 @@
+"use client";
+
+import { useState } from "react";
 import type { Article } from "@/lib/articles/types";
+import { extractOpenAICompatibleEventText } from "@/lib/agent/stream";
 import type { DimensionKey } from "@/lib/scoring/repository";
 import { ScoreBadge } from "./ScoreBadge";
 
@@ -13,7 +17,51 @@ const DIMENSION_ROWS: { key: DimensionKey | "overall"; label: string }[] = [
   { key: "trend_value", label: "趋势价值" },
 ];
 
+function htmlToText(html: string): string {
+  const element = document.createElement("div");
+  element.innerHTML = html;
+  return (element.textContent ?? element.innerText ?? "").replace(/\s+/g, " ").trim();
+}
+
+function selectedTextFromPage(): string | undefined {
+  const text = window.getSelection()?.toString().trim();
+  return text && text.length > 0 ? text : undefined;
+}
+
+function appendAgentStreamChunk(
+  chunk: string,
+  pending: string,
+  append: (text: string) => void,
+): string {
+  const combined = pending + chunk;
+  const events = combined.split(/\r?\n\r?\n/);
+  const nextPending = events.pop() ?? "";
+
+  for (const event of events) {
+    const dataLines = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice("data:".length).trimStart());
+
+    if (dataLines.length === 0) {
+      append(event);
+      continue;
+    }
+
+    for (const data of dataLines) {
+      append(extractOpenAICompatibleEventText(data));
+    }
+  }
+
+  return nextPending;
+}
+
 export function ArticleReader({ article }: { article: Article | null }) {
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [isAsking, setIsAsking] = useState(false);
+
   if (article == null) {
     return (
       <article className="articleReaderPane" aria-label="文章内容">
@@ -26,6 +74,71 @@ export function ArticleReader({ article }: { article: Article | null }) {
   }
 
   const score = article.score;
+  const canAsk = question.trim().length > 0 && !isAsking;
+
+  async function askAgent() {
+    if (article == null || question.trim().length === 0) return;
+
+    setIsAsking(true);
+    setAnswer("");
+    setAgentError(null);
+
+    try {
+      const response = await fetch("/api/agent/article-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          selectedText: selectedTextFromPage(),
+          article: {
+            title: article.title,
+            url: article.url,
+            contentText: htmlToText(article.contentHtml).slice(0, 20000),
+            scoreReason: article.score?.reason ?? "",
+            tags: article.score?.tags ?? [],
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+        throw new Error(typeof body?.error === "string" ? body.error : "Agent request failed.");
+      }
+
+      const stream = response.body;
+      if (stream == null) throw new Error("Agent response missing stream.");
+
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let pending = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        pending = appendAgentStreamChunk(
+          decoder.decode(value, { stream: true }),
+          pending,
+          (text) => {
+            if (text.length > 0) setAnswer((current) => current + text);
+          },
+        );
+      }
+
+      const tail = decoder.decode();
+      pending = appendAgentStreamChunk(tail, pending, (text) => {
+        if (text.length > 0) setAnswer((current) => current + text);
+      });
+      if (pending.trim().length > 0) {
+        appendAgentStreamChunk("\n\n", pending, (text) => {
+          if (text.length > 0) setAnswer((current) => current + text);
+        });
+      }
+    } catch (error) {
+      setAgentError(error instanceof Error ? error.message : "Agent request failed.");
+    } finally {
+      setIsAsking(false);
+    }
+  }
 
   return (
     <article className="articleReaderPane" aria-label="文章内容">
@@ -68,6 +181,29 @@ export function ArticleReader({ article }: { article: Article | null }) {
             ? score.reason
             : "暂无评分说明（可能没有对应评分记录）。"}
         </p>
+      </section>
+
+      <section className="agentPanel" aria-label="当前文章问答">
+        <div className="agentHeader">
+          <h3 className="agentTitle">文章问答</h3>
+          <button
+            type="button"
+            className="readerToolbarBtn readerToolbarBtnPrimary"
+            disabled={!canAsk}
+            onClick={() => void askAgent()}
+          >
+            {isAsking ? "生成中" : "询问"}
+          </button>
+        </div>
+        <textarea
+          className="agentQuestion"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          placeholder="问当前文章..."
+          rows={3}
+        />
+        {agentError != null ? <p className="agentError">{agentError}</p> : null}
+        {answer.trim().length > 0 ? <pre className="agentAnswer">{answer}</pre> : null}
       </section>
 
       <div

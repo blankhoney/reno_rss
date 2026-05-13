@@ -301,6 +301,58 @@ button {
   color: var(--muted);
 }
 
+.agentPanel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel);
+}
+
+.agentHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.agentTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.agentQuestion {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  min-height: 84px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+.agentError {
+  margin: 10px 0 0;
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
+
+.agentAnswer {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  overflow: auto;
+  max-height: 320px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--bg);
+  line-height: 1.6;
+  font-family: inherit;
+}
+
 .articleContent.content {
   border-top: 1px solid var(--border);
   padding-top: 16px;
