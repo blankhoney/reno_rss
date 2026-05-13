@@ -57,6 +57,18 @@ IMAGE_TAG="$TAG" docker compose \
     -f "$REPO_ROOT/infra/compose/docker-compose.edge.yml" \
     up -d --remove-orphans
 
+echo "🔁 校验并重载 Caddy 配置..."
+docker compose \
+    -p "myrss-edge" \
+    --env-file "$REPO_ROOT/.env" \
+    -f "$REPO_ROOT/infra/compose/docker-compose.edge.yml" \
+    exec -T caddy caddy validate --config /etc/caddy/Caddyfile
+docker compose \
+    -p "myrss-edge" \
+    --env-file "$REPO_ROOT/.env" \
+    -f "$REPO_ROOT/infra/compose/docker-compose.edge.yml" \
+    exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+
 # ── Step 3：启动/更新环境后端服务 ───────────────────────────
 # 叠加 base.yml + <env>.yml，ENV 参数决定使用哪套别名
 echo "🔧 更新 $ENV 后端服务..."
