@@ -24,3 +24,10 @@ services:
     networks:
       app: {}
       data: {}
+
+  reader-web:
+    networks:
+      app:
+        aliases:
+          - reader-web-staging
+      data: {}

@@ -22,3 +22,10 @@ services:
     networks:
       app: {}
       data: {}
+
+  reader-web:
+    networks:
+      app:
+        aliases:
+          - reader-web-prod
+      data: {}

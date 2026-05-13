@@ -74,6 +74,26 @@ services:
       - app          # 访问 Miniflux API
       - data         # 写入 scoring 数据库
 
+  reader-web:
+    build:
+      context: ../../apps/reader-web
+    restart: unless-stopped
+    environment:
+      MINIFLUX_API_BASE_URL: ${MINIFLUX_API_BASE_URL}
+      MINIFLUX_USERNAME: ${MINIFLUX_ADMIN}
+      MINIFLUX_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD}
+      SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
+      READER_TENANT_ID: ${READER_TENANT_ID}
+      READER_MINIFLUX_USER_ID: ${READER_MINIFLUX_USER_ID}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
+      MINIMAX_MODEL: ${MINIMAX_MODEL}
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER}
+      WEB_SEARCH_API_KEY: ${WEB_SEARCH_API_KEY}
+    networks:
+      - app          # Caddy 通过 app 网络访问 reader-web
+      - data         # 读取 scoring 数据库
+
 networks:
   app:
     name: myrss-app   # 与 edge compose 共享同一个网络，名称必须一致
