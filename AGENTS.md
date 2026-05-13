@@ -1,14 +1,4 @@
-# AGENTS.md
-
-This file is the general agent entrypoint for this repository. It applies to
-the whole repo unless a more specific `AGENTS.md` is added in a subdirectory.
-
-## Rule Sources
-
-- Treat this file as the primary guidance for Codex and general coding agents.
-- Treat `.cursor/rules/*.mdc` as Cursor-specific helper rules. Do not assume
-  Codex or other agents automatically load them.
-- Use `docs/runbooks/` for operational procedures and copyable VPS prompts.
+# Project Agent Rules
 
 ## Development Rules
 
