@@ -3,6 +3,7 @@ import sanitizeHtml from "sanitize-html";
 import type { Article } from "./types";
 
 export const MODULE_IDS = [
+  "all",
   "unread",
   "read",
   "starred",
@@ -24,7 +25,7 @@ export function isModuleId(value: string): value is ModuleId {
 }
 
 /**
- * Resolves `module` for GET /api/articles. Absent `module` defaults to `"unread"`.
+ * Resolves `module` for GET /api/articles. Absent `module` defaults to `"all"`.
  * When the client sends `module` but the value is empty or unknown, returns `{ ok: false }`.
  */
 export function resolveArticlesListModuleId(
@@ -32,7 +33,7 @@ export function resolveArticlesListModuleId(
   rawModule: string | null,
 ): { ok: true; moduleId: ModuleId } | { ok: false } {
   if (!hasModuleParam) {
-    return { ok: true, moduleId: "unread" };
+    return { ok: true, moduleId: "all" };
   }
   if (rawModule === null || rawModule === "" || !isModuleId(rawModule)) {
     return { ok: false };
@@ -43,6 +44,12 @@ export function resolveArticlesListModuleId(
 function lastReadAtSortKey(lastReadAt: string | null): number {
   if (lastReadAt == null || lastReadAt === "") return 0;
   const ms = Date.parse(lastReadAt);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function publishedAtSortKey(publishedAt: string | null): number {
+  if (publishedAt == null || publishedAt === "") return 0;
+  const ms = Date.parse(publishedAt);
   return Number.isFinite(ms) ? ms : 0;
 }
 
@@ -60,9 +67,20 @@ export function minifluxEntryFilterForModule(
   moduleId: ModuleId,
   limit: number,
 ): MinifluxEntryModuleFilter {
+  if (moduleId === "all") return { status: "all", starred: undefined, limit };
   if (moduleId === "read") return { status: "read", starred: undefined, limit };
   if (moduleId === "starred") return { status: "all", starred: true, limit };
   if (moduleId === "read-later") return { status: "all", starred: undefined, limit };
+  if (
+    moduleId === "technical" ||
+    moduleId === "business" ||
+    moduleId === "trend" ||
+    moduleId === "ai" ||
+    moduleId === "product" ||
+    moduleId === "security"
+  ) {
+    return { status: "all", starred: undefined, limit };
+  }
   return { status: "unread", starred: undefined, limit };
 }
 
@@ -72,6 +90,9 @@ export function filterArticlesForModule(articles: Article[], moduleId: ModuleId)
 }
 
 export function scoreForModule(article: Article, moduleId: ModuleId): number {
+  if (moduleId === "all") {
+    return publishedAtSortKey(article.publishedAt);
+  }
   if (moduleId === "read") {
     return lastReadAtSortKey(article.lastReadAt);
   }

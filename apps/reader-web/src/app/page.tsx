@@ -8,7 +8,7 @@ import { DEFAULT_ARTICLES_LIST_LIMIT } from "@/lib/miniflux/client";
 
 function normalizeModule(raw: string | string[] | undefined): string {
   if (typeof raw === "string" && raw !== "") return raw;
-  return "unread";
+  return "all";
 }
 
 function parseArticleId(raw: string | string[] | undefined): number | null {

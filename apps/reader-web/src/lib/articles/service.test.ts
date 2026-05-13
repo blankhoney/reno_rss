@@ -11,7 +11,7 @@ import {
 } from "./service";
 
 test("resolveArticlesListModuleId defaults when module param absent", () => {
-  assert.deepEqual(resolveArticlesListModuleId(false, null), { ok: true, moduleId: "unread" });
+  assert.deepEqual(resolveArticlesListModuleId(false, null), { ok: true, moduleId: "all" });
 });
 
 test("resolveArticlesListModuleId accepts every MODULE_IDS value when present", () => {
@@ -64,7 +64,17 @@ function article(
   };
 }
 
-test("minifluxEntryFilterForModule fetches all statuses for starred and read-later", () => {
+test("minifluxEntryFilterForModule fetches all statuses for latest and scored modules", () => {
+  assert.deepEqual(minifluxEntryFilterForModule("all", 25), {
+    status: "all",
+    starred: undefined,
+    limit: 25,
+  });
+  assert.deepEqual(minifluxEntryFilterForModule("technical", 25), {
+    status: "all",
+    starred: undefined,
+    limit: 25,
+  });
   assert.deepEqual(minifluxEntryFilterForModule("starred", 25), {
     status: "all",
     starred: true,
@@ -92,6 +102,17 @@ test("read module sorts by most recent lastReadAt", () => {
       article(2, { status: "read", lastReadAt: "2026-05-13T00:00:00.000Z" }),
     ],
     "read",
+  );
+  assert.deepEqual(sorted.map((item) => item.id), [2, 1]);
+});
+
+test("all module sorts by most recent publishedAt", () => {
+  const sorted = sortArticlesForModule(
+    [
+      article(1, { publishedAt: "2026-05-12T00:00:00.000Z" }),
+      article(2, { publishedAt: "2026-05-13T00:00:00.000Z" }),
+    ],
+    "all",
   );
   assert.deepEqual(sorted.map((item) => item.id), [2, 1]);
 });

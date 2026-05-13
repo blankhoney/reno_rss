@@ -797,3 +797,33 @@ Caddy 新增 `ai-reader` / `staging-ai-reader` 只解决路由和 TLS。Authelia
 - 为什么 Caddyfile bind mount 改了之后还需要 `caddy reload`？
 - 为什么 Caddy 新增域名后还要同步 Authelia `access_control.rules`？
 - 为什么多个 Authelia 实例共用根域 cookie 时会出现登录后仍是匿名？
+
+---
+
+## AI Reader 列表与评分闭环修复
+
+### 做了什么
+
+修复了 staging 进入页面后的两个体验问题：
+- 默认阅读模块从 `unread` 改为 `all` / “最新”，列表读取 read + unread，避免打开文章后因为未读状态变化导致列表看起来消失。
+- 评分模块（技术、商业、趋势、AI、产品、安全）也读取全部状态的最近文章，再按对应评分维度排序。
+- 空列表时显示明确空状态，不再只留下空白列表。
+- scorer-worker 改为每 5 小时抓取最近 300 篇全部状态文章，并由部署脚本启用 worker profile，保证评分会持续写入 scoring 数据库。
+
+### 关键概念
+
+**默认 unread 适合 RSS 后台，不适合工作台首页**
+Miniflux 的未读列表会随着阅读动作变化。AI Reader 是阅读工作台，首页更需要稳定的“最新全部”视图；未读仍保留为一个单独模块。
+
+**评分缺失不一定是前端问题**
+reader-web 只读取 `item_scores`。如果 scorer-worker 没启动，或者只处理 unread，页面就会显示暂无评分。部署层必须让 worker 常驻，并让 worker 覆盖最近一批 read + unread 文章。
+
+**worker profile 需要部署脚本显式启用**
+Compose 里的 `profiles: [worker]` 不会被普通 `docker compose up` 启动。部署脚本要带 `--profile worker`，否则配置存在但容器不会运行。
+
+### 可以在学习 session 里追问的问题
+
+- 为什么工作台首页用 “all/latest” 比 “unread” 更稳定？
+- 为什么评分模块要读取全部状态，而不是只读取未读？
+- Docker Compose profile 和普通 service 有什么区别？
+- 每 5 小时评分 300 篇对 LLM 成本和新鲜度有什么影响？

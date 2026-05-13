@@ -13,6 +13,8 @@ function listHref(currentModule: string, articleId: number): string {
 }
 
 export function ArticleList({ articles, currentModule, selectedArticleId }: ArticleListProps) {
+  const isEmpty = articles.length === 0;
+
   return (
     <section className="articleListPane" aria-label="文章列表">
       <header className="articleListHeader">
@@ -26,6 +28,12 @@ export function ArticleList({ articles, currentModule, selectedArticleId }: Arti
           </select>
         </label>
       </header>
+      {isEmpty ? (
+        <div className="articleListEmpty">
+          <p className="articleListEmptyTitle">暂无文章</p>
+          <p className="articleListEmptyHint">当前模块没有可显示的文章。</p>
+        </div>
+      ) : null}
       <ul className="articleList">
         {articles.map((article) => {
           const score = article.score;

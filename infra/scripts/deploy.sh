@@ -16,7 +16,8 @@ set -euo pipefail
 unset MINIFLUX_API_KEY MINIFLUX_ADMIN_PASSWORD POSTGRES_SUPERUSER_PASSWORD \
       POSTGRES_MINIFLUX_PASSWORD POSTGRES_SCORING_PASSWORD SMTP_PASSWORD \
       MINIMAX_API_KEY MINIMAX_BASE_URL MINIMAX_MODEL LLM_TIMEOUT_SECONDS \
-      DIGEST_MIN_SCORE DIGEST_MAX_ITEMS READER_TENANT_ID READER_MINIFLUX_USER_ID \
+      DIGEST_MIN_SCORE DIGEST_MAX_ITEMS SCORER_INTERVAL_SECONDS SCORER_TENANT_ID \
+      SCORER_ENTRY_LIMIT SCORER_ENTRY_STATUS READER_TENANT_ID READER_MINIFLUX_USER_ID \
       WEB_SEARCH_PROVIDER WEB_SEARCH_API_KEY
 
 ENV="${1:?必须提供环境名，例如 staging 或 prod}"
@@ -73,6 +74,7 @@ docker compose \
 # 叠加 base.yml + <env>.yml，ENV 参数决定使用哪套别名
 echo "🔧 更新 $ENV 后端服务..."
 IMAGE_TAG="$TAG" docker compose \
+    --profile worker \
     -p "myrss-${ENV}" \
     -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
     -f "$REPO_ROOT/infra/compose/docker-compose.${ENV}.yml" \

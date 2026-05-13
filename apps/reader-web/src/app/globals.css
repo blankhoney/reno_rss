@@ -138,6 +138,25 @@ button {
   overflow: auto;
 }
 
+.articleListEmpty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  color: var(--muted);
+  background: var(--bg);
+}
+
+.articleListEmptyTitle {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.articleListEmptyHint {
+  margin: 0;
+  line-height: 1.5;
+}
+
 .articleCard {
   display: block;
   border: 1px solid var(--border);

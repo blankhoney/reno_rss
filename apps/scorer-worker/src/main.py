@@ -30,7 +30,9 @@ MINIFLUX_API_BASE_URL = os.environ["MINIFLUX_API_BASE_URL"]
 MINIFLUX_USERNAME = os.environ["MINIFLUX_USERNAME"]
 MINIFLUX_PASSWORD = os.environ["MINIFLUX_PASSWORD"]
 SCORING_DATABASE_URL = os.environ["SCORING_DATABASE_URL"]
-SCORER_INTERVAL_SECONDS = int(os.getenv("SCORER_INTERVAL_SECONDS", "3600"))
+SCORER_INTERVAL_SECONDS = int(os.getenv("SCORER_INTERVAL_SECONDS", "18000"))
+SCORER_ENTRY_LIMIT = int(os.getenv("SCORER_ENTRY_LIMIT", "300"))
+SCORER_ENTRY_STATUS = os.getenv("SCORER_ENTRY_STATUS", "all")
 SCORER_TENANT_ID = os.getenv("SCORER_TENANT_ID", "default")
 DIGEST_MIN_SCORE = int(os.getenv("DIGEST_MIN_SCORE", "70"))
 DIGEST_MAX_ITEMS = int(os.getenv("DIGEST_MAX_ITEMS", "10"))
@@ -39,7 +41,7 @@ DIGEST_MAX_ITEMS = int(os.getenv("DIGEST_MAX_ITEMS", "10"))
 def run_once(conn: psycopg2.extensions.connection) -> None:
     window_start = datetime.now(UTC)
     client = MinifluxClient(MINIFLUX_API_BASE_URL, MINIFLUX_USERNAME, MINIFLUX_PASSWORD)
-    entries = client.get_recent_entries()
+    entries = client.get_recent_entries(limit=SCORER_ENTRY_LIMIT, status=SCORER_ENTRY_STATUS)
     log.info("Fetched %d entries from Miniflux", len(entries))
 
     scored_entries = []

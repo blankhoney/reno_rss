@@ -1,4 +1,5 @@
 const MODULES: { id: string; label: string }[] = [
+  { id: "all", label: "最新" },
   { id: "unread", label: "未读" },
   { id: "read", label: "已读" },
   { id: "starred", label: "收藏" },

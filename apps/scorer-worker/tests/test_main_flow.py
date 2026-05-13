@@ -6,11 +6,13 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
-def _load_main(monkeypatch):
+def _load_main(monkeypatch, entry_limit="300", entry_status="all"):
     monkeypatch.setenv("MINIFLUX_API_BASE_URL", "http://miniflux:8080")
     monkeypatch.setenv("MINIFLUX_USERNAME", "testuser")
     monkeypatch.setenv("MINIFLUX_PASSWORD", "testpass")
     monkeypatch.setenv("SCORING_DATABASE_URL", "postgres://scoring:test@postgres:5432/scoring")
+    monkeypatch.setenv("SCORER_ENTRY_LIMIT", entry_limit)
+    monkeypatch.setenv("SCORER_ENTRY_STATUS", entry_status)
     monkeypatch.setenv("SCORER_TENANT_ID", "default")
     monkeypatch.setenv("DIGEST_MIN_SCORE", "70")
     monkeypatch.setenv("DIGEST_MAX_ITEMS", "2")
@@ -28,7 +30,11 @@ def test_run_once_creates_digest_from_high_scores(monkeypatch):
         {"id": 3, "feed_id": 1, "title": "Also Top", "url": "https://example.com/3", "content": "c"},
     ]
 
-    monkeypatch.setattr(main.MinifluxClient, "get_recent_entries", lambda self: entries)
+    monkeypatch.setattr(
+        main.MinifluxClient,
+        "get_recent_entries",
+        lambda self, limit, status: entries,
+    )
     monkeypatch.setattr(
         main,
         "score_entry",
@@ -60,3 +66,20 @@ def test_run_once_creates_digest_from_high_scores(monkeypatch):
     assert first_item["rank"] == 1
     assert second_item["miniflux_entry_id"] == 3
     assert second_item["rank"] == 2
+
+
+def test_run_once_uses_configured_entry_window(monkeypatch):
+    main = _load_main(monkeypatch, entry_limit="300", entry_status="all")
+    conn = MagicMock()
+    captured = {}
+
+    def fake_get_recent_entries(self, limit, status):
+        captured["limit"] = limit
+        captured["status"] = status
+        return []
+
+    monkeypatch.setattr(main.MinifluxClient, "get_recent_entries", fake_get_recent_entries)
+
+    main.run_once(conn)
+
+    assert captured == {"limit": 300, "status": "all"}
