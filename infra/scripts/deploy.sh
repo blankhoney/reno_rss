@@ -55,7 +55,7 @@ IMAGE_TAG="$TAG" docker compose \
     -p "myrss-edge" \
     --env-file "$REPO_ROOT/.env" \
     -f "$REPO_ROOT/infra/compose/docker-compose.edge.yml" \
-    up -d --remove-orphans
+    up -d --force-recreate --remove-orphans
 
 echo "🔁 校验并重载 Caddy 配置..."
 docker compose \
