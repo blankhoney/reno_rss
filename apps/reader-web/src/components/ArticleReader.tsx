@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Article } from "@/lib/articles/types";
-import { extractOpenAICompatibleEventText } from "@/lib/agent/stream";
+import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
 import type { DimensionKey } from "@/lib/scoring/repository";
 import { ScoreBadge } from "./ScoreBadge";
 
@@ -23,6 +23,17 @@ function htmlToText(html: string): string {
   return (element.textContent ?? element.innerText ?? "").replace(/\s+/g, " ").trim();
 }
 
+function articleContextText(article: Article): string {
+  const body = htmlToText(article.contentHtml);
+  const parts = [
+    `标题：${article.title}`,
+    `链接：${article.url}`,
+    article.score?.reason ? `评分理由：${article.score.reason}` : "",
+    body,
+  ].filter((part) => part.trim().length > 0);
+  return parts.join("\n\n").slice(0, 20000);
+}
+
 function selectedTextFromPage(): string | undefined {
   const text = window.getSelection()?.toString().trim();
   return text && text.length > 0 ? text : undefined;
@@ -31,6 +42,7 @@ function selectedTextFromPage(): string | undefined {
 function appendAgentStreamChunk(
   chunk: string,
   pending: string,
+  thinkFilter: ReturnType<typeof createThinkTagFilter>,
   append: (text: string) => void,
 ): string {
   const combined = pending + chunk;
@@ -44,12 +56,12 @@ function appendAgentStreamChunk(
       .map((line) => line.slice("data:".length).trimStart());
 
     if (dataLines.length === 0) {
-      append(event);
+      append(thinkFilter.push(event));
       continue;
     }
 
     for (const data of dataLines) {
-      append(extractOpenAICompatibleEventText(data));
+      append(thinkFilter.push(extractOpenAICompatibleEventText(data)));
     }
   }
 
@@ -93,7 +105,7 @@ export function ArticleReader({ article }: { article: Article | null }) {
           article: {
             title: article.title,
             url: article.url,
-            contentText: htmlToText(article.contentHtml).slice(0, 20000),
+            contentText: articleContextText(article),
             scoreReason: article.score?.reason ?? "",
             tags: article.score?.tags ?? [],
           },
@@ -110,6 +122,7 @@ export function ArticleReader({ article }: { article: Article | null }) {
 
       const reader = stream.getReader();
       const decoder = new TextDecoder();
+      const thinkFilter = createThinkTagFilter();
       let pending = "";
 
       while (true) {
@@ -118,6 +131,7 @@ export function ArticleReader({ article }: { article: Article | null }) {
         pending = appendAgentStreamChunk(
           decoder.decode(value, { stream: true }),
           pending,
+          thinkFilter,
           (text) => {
             if (text.length > 0) setAnswer((current) => current + text);
           },
@@ -125,14 +139,16 @@ export function ArticleReader({ article }: { article: Article | null }) {
       }
 
       const tail = decoder.decode();
-      pending = appendAgentStreamChunk(tail, pending, (text) => {
+      pending = appendAgentStreamChunk(tail, pending, thinkFilter, (text) => {
         if (text.length > 0) setAnswer((current) => current + text);
       });
       if (pending.trim().length > 0) {
-        appendAgentStreamChunk("\n\n", pending, (text) => {
+        appendAgentStreamChunk("\n\n", pending, thinkFilter, (text) => {
           if (text.length > 0) setAnswer((current) => current + text);
         });
       }
+      const finalText = thinkFilter.flush();
+      if (finalText.length > 0) setAnswer((current) => current + finalText);
     } catch (error) {
       setAgentError(error instanceof Error ? error.message : "Agent request failed.");
     } finally {

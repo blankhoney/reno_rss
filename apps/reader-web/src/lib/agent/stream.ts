@@ -29,3 +29,59 @@ export function extractOpenAICompatibleEventText(data: string): string {
 
   return "";
 }
+
+export function createThinkTagFilter() {
+  let insideThink = false;
+  let pendingTag = "";
+
+  return {
+    push(chunk: string): string {
+      let output = "";
+
+      for (const char of chunk) {
+        if (pendingTag.length > 0) {
+          pendingTag += char;
+          const lower = pendingTag.toLowerCase();
+          if ("<think>".startsWith(lower) || "</think>".startsWith(lower)) {
+            if (lower === "<think>") {
+              insideThink = true;
+              pendingTag = "";
+            } else if (lower === "</think>") {
+              insideThink = false;
+              pendingTag = "";
+            }
+            continue;
+          }
+
+          if (!insideThink) output += pendingTag;
+          pendingTag = "";
+          continue;
+        }
+
+        if (char === "<") {
+          pendingTag = char;
+          continue;
+        }
+
+        if (!insideThink) output += char;
+      }
+
+      return output;
+    },
+
+    flush(): string {
+      if (pendingTag.length === 0 || insideThink) {
+        pendingTag = "";
+        return "";
+      }
+      const output = pendingTag;
+      pendingTag = "";
+      return output;
+    },
+  };
+}
+
+export function stripThinkTags(text: string): string {
+  const filter = createThinkTagFilter();
+  return filter.push(text) + filter.flush();
+}
