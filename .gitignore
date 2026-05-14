@@ -9,6 +9,14 @@ data/
 backup/
 .worktrees/
 
+.cursor/
+.vscode/
+.understand-anything/
+AGENTS.md
+docs/
+node_modules/
+.next/
+
 __pycache__/
 *.py[cod]
 

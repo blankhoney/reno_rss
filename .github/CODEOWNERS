@@ -1,5 +1,4 @@
 # Code Owners — changes to these paths require review from @blankhoney
-# Ref: docs/superpowers/specs/2026-05-11-rss-audit-checklist.md CICD-02
 
 infra/**                      @blankhoney
 apps/scorer-worker/**         @blankhoney
