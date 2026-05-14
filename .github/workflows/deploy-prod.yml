@@ -36,6 +36,7 @@ jobs:
       - name: Deploy production on VPS
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
@@ -52,8 +53,7 @@ jobs:
 
           key_file="$(mktemp)"
           trap 'rm -f "$key_file"' EXIT
-          printf '%s' "$SSH_KEY" > "$key_file"
-          chmod 600 "$key_file"
+          bash .github/scripts/write-ssh-key.sh "$key_file"
 
           quote() { printf '%q' "$1"; }
           remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN")"

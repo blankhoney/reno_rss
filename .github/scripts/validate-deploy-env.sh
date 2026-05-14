@@ -3,7 +3,6 @@ set -euo pipefail
 
 missing=()
 required=(
-  "SSH_KEY:VPS_SSH_KEY"
   "VPS_HOST:VPS_HOST"
   "VPS_USER:VPS_USER"
   "VPS_APP_DIR:VPS_APP_DIR"
@@ -18,6 +17,10 @@ for item in "${required[@]}"; do
     missing+=("$secret_name")
   fi
 done
+
+if [[ -z "${SSH_KEY:-}" && -z "${SSH_KEY_B64:-}" ]]; then
+  missing+=("VPS_SSH_KEY or VPS_SSH_KEY_B64")
+fi
 
 if (( ${#missing[@]} > 0 )); then
   printf '::error title=Missing deploy secrets::Configure repository or environment secrets: %s\n' "${missing[*]}"
