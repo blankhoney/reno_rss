@@ -4,16 +4,24 @@ on:
   workflow_dispatch:
     inputs:
       env:
-        description: "Target environment (staging or prod)"
+        description: "Target environment"
         required: true
         type: choice
         options:
           - staging
           - prod
       image_tag:
-        description: "Git SHA or semver tag to roll back to"
+        description: "Previous GHCR image tag to deploy"
         required: true
         type: string
+      git_ref:
+        description: "Git ref containing compatible deploy scripts"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   rollback:
@@ -24,17 +32,49 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
 
-      - name: Execute rollback
+      - name: Compute image metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          repo_lc="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "deploy_ref=${{ inputs.git_ref }}"
+            echo "deploy_sha=$(git rev-parse HEAD)"
+            echo "image_registry=ghcr.io/${repo_lc}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Roll back on VPS
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          TARGET_ENV: ${{ inputs.env }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          DEPLOY_ENV: ${{ inputs.env }}
+          DEPLOY_REF: ${{ steps.meta.outputs.deploy_ref }}
+          DEPLOY_SHA: ${{ steps.meta.outputs.deploy_sha }}
+          IMAGE_REGISTRY: ${{ steps.meta.outputs.image_registry }}
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          echo "$SSH_KEY" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
-          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no \
-            "$VPS_USER@$VPS_HOST" \
-            "cd /opt/myrss/app && bash infra/scripts/rollback.sh $TARGET_ENV $IMAGE_TAG"
+          set -euo pipefail
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$SSH_KEY" > "$key_file"
+          chmod 600 "$key_file"
+
+          quote() { printf '%q' "$1"; }
+          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN")"
+
+          ssh -i "$key_file" -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
+            "$remote_env bash -s" < .github/scripts/remote-deploy.sh
+
+          {
+            echo "### Rollback"
+            echo "- env: \`${DEPLOY_ENV}\`"
+            echo "- code ref: \`${DEPLOY_REF}@${DEPLOY_SHA}\`"
+            echo "- image tag: \`${IMAGE_TAG}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

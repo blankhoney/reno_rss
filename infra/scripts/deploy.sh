@@ -22,6 +22,10 @@ unset MINIFLUX_API_KEY MINIFLUX_ADMIN_PASSWORD POSTGRES_SUPERUSER_PASSWORD \
 
 ENV="${1:?必须提供环境名，例如 staging 或 prod}"
 TAG="${2:?必须提供镜像 tag，例如 v1.2.3}"
+DEPLOY_IMAGE_REGISTRY="${IMAGE_REGISTRY:-}"
+DEPLOY_READER_WEB_IMAGE="${READER_WEB_IMAGE:-}"
+DEPLOY_SCORER_WORKER_IMAGE="${SCORER_WORKER_IMAGE:-}"
+DEPLOY_LOCAL_BUILD="${LOCAL_BUILD:-}"
 
 # 校验 ENV 参数，防止误操作
 if [[ "$ENV" != "staging" && "$ENV" != "prod" ]]; then
@@ -33,12 +37,35 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# ── Step 0：生成 Authelia 配置文件（envsubst 替换域名等变量）──
+# 从 .env 加载变量，envsubst 把 ${DOMAIN} 替换为真实值。
+# CI/CD 传入的镜像变量优先级高于 .env 中的空值或旧值。
+set -a; source "$REPO_ROOT/.env"; set +a
+
+IMAGE_REGISTRY="${DEPLOY_IMAGE_REGISTRY:-${IMAGE_REGISTRY:-}}"
+READER_WEB_IMAGE="${DEPLOY_READER_WEB_IMAGE:-${READER_WEB_IMAGE:-}}"
+SCORER_WORKER_IMAGE="${DEPLOY_SCORER_WORKER_IMAGE:-${SCORER_WORKER_IMAGE:-}}"
+LOCAL_BUILD="${DEPLOY_LOCAL_BUILD:-${LOCAL_BUILD:-0}}"
+
+IMAGE_REGISTRY="${IMAGE_REGISTRY%/}"
+USE_REMOTE_IMAGES=0
+if [[ -n "$IMAGE_REGISTRY" && "$LOCAL_BUILD" != "1" ]]; then
+    USE_REMOTE_IMAGES=1
+    export READER_WEB_IMAGE="${READER_WEB_IMAGE:-${IMAGE_REGISTRY}/reader-web:${TAG}}"
+    export SCORER_WORKER_IMAGE="${SCORER_WORKER_IMAGE:-${IMAGE_REGISTRY}/scorer-worker:${TAG}}"
+else
+    export READER_WEB_IMAGE="${READER_WEB_IMAGE:-myrss-reader-web:${TAG}}"
+    export SCORER_WORKER_IMAGE="${SCORER_WORKER_IMAGE:-myrss-scorer-worker:${TAG}}"
+fi
+
 echo "🚀 开始部署：ENV=$ENV  TAG=$TAG"
 echo "   仓库根目录：$REPO_ROOT"
+if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
+    echo "   镜像模式：remote ($IMAGE_REGISTRY)"
+else
+    echo "   镜像模式：local build"
+fi
 
-# ── Step 0：生成 Authelia 配置文件（envsubst 替换域名等变量）──
-# 从 .env 加载变量，envsubst 把 ${DOMAIN} 替换为真实值
-set -a; source "$REPO_ROOT/.env"; set +a
 envsubst < "$REPO_ROOT/infra/authelia/configuration.yml.tmpl" \
     > "$REPO_ROOT/infra/authelia/configuration.yml"
 echo "📝 Authelia 配置已生成"
@@ -73,18 +100,25 @@ docker compose \
 # ── Step 3：启动/更新环境后端服务 ───────────────────────────
 # 叠加 base.yml + <env>.yml，ENV 参数决定使用哪套别名
 echo "🔧 更新 $ENV 后端服务..."
-IMAGE_TAG="$TAG" docker compose \
+BACKEND_COMPOSE=(
+    docker compose
     --profile worker \
+    --env-file "$REPO_ROOT/.env" \
     -p "myrss-${ENV}" \
     -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
-    -f "$REPO_ROOT/infra/compose/docker-compose.${ENV}.yml" \
-    up -d --build --remove-orphans
+    -f "$REPO_ROOT/infra/compose/docker-compose.${ENV}.yml"
+)
+
+if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
+    echo "📦 拉取 $ENV 业务镜像..."
+    IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" pull reader-web scorer-worker
+    IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --no-build --remove-orphans
+else
+    IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --build --remove-orphans
+fi
 
 echo "🔁 重建 $ENV Authelia 以加载生成配置..."
-IMAGE_TAG="$TAG" docker compose \
-    -p "myrss-${ENV}" \
-    -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
-    -f "$REPO_ROOT/infra/compose/docker-compose.${ENV}.yml" \
+IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" \
     up -d --force-recreate --no-deps authelia
 
 echo "✅ 部署完成：$ENV @ $TAG"

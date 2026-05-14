@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     volumes:
       - ../authelia/configuration.yml:/config/configuration.yml:ro
-      - ../authelia/users_database.yml:/config/users_database.yml:ro
+      - ${AUTHELIA_USERS_DATABASE_FILE:-../authelia/users_database.yml}:/config/users_database.yml:ro
       - authelia_data:/config   # 存储 SQLite、2FA 设备注册信息
     environment:
       DOMAIN: ${DOMAIN}          # 供 configuration.yml 模板 {{ env "DOMAIN" }} 使用
@@ -53,6 +53,7 @@ services:
       - data         # Miniflux 通过 data 网络访问 PostgreSQL
 
   scorer-worker:
+    image: ${SCORER_WORKER_IMAGE:-myrss-scorer-worker:local}
     build:
       context: ../../apps/scorer-worker
     restart: unless-stopped
@@ -76,6 +77,7 @@ services:
       - data         # 写入 scoring 数据库
 
   reader-web:
+    image: ${READER_WEB_IMAGE:-myrss-reader-web:local}
     build:
       context: ../../apps/reader-web
     restart: unless-stopped
