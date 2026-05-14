@@ -61,6 +61,8 @@ jobs:
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
+          bash .github/scripts/validate-deploy-env.sh
+
           key_file="$(mktemp)"
           trap 'rm -f "$key_file"' EXIT
           printf '%s' "$SSH_KEY" > "$key_file"
