@@ -9,4 +9,7 @@ data/
 backup/
 .worktrees/
 
+__pycache__/
+*.py[cod]
+
 .DS_Store
