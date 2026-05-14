@@ -7,6 +7,7 @@ export const MODULE_IDS = [
   "unread",
   "read",
   "starred",
+  "project",
   "read-later",
   "technical",
   "business",
@@ -54,6 +55,7 @@ function publishedAtSortKey(publishedAt: string | null): number {
 }
 
 export function sortArticlesForModule(articles: Article[], moduleId: ModuleId): Article[] {
+  if (moduleId === "project") return articles;
   return [...articles].sort((a, b) => scoreForModule(b, moduleId) - scoreForModule(a, moduleId));
 }
 
@@ -70,6 +72,7 @@ export function minifluxEntryFilterForModule(
   if (moduleId === "all") return { status: "all", starred: undefined, limit };
   if (moduleId === "read") return { status: "read", starred: undefined, limit };
   if (moduleId === "starred") return { status: "all", starred: true, limit };
+  if (moduleId === "project") return { status: "all", starred: undefined, limit };
   if (moduleId === "read-later") return { status: "all", starred: undefined, limit };
   if (
     moduleId === "technical" ||

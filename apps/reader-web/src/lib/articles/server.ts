@@ -11,6 +11,7 @@ import { MinifluxClient } from "@/lib/miniflux/client";
 import { getPool } from "@/lib/scoring/db";
 import {
   type ArticleScore,
+  getProjectEntryIds,
   getReaderStatesByEntryIds,
   getScoresByEntryIds,
 } from "@/lib/scoring/repository";
@@ -49,6 +50,10 @@ async function getArticleMaps(entryIds: number[]): Promise<{
 }
 
 export async function listArticlesForModule(moduleId: ModuleId, limit: number): Promise<Article[]> {
+  if (moduleId === "project") {
+    return listProjectArticles(limit);
+  }
+
   const miniflux = getConfiguredMinifluxClient();
   const baseArticles = await miniflux.getEntries(minifluxEntryFilterForModule(moduleId, limit));
   const entryIds = baseArticles.map((article) => article.id);
@@ -67,6 +72,29 @@ export async function listArticlesForModule(moduleId: ModuleId, limit: number): 
     filterArticlesForModule(mergeArticleData(baseArticles, scores, states), moduleId),
     moduleId,
   );
+}
+
+async function listProjectArticles(limit: number): Promise<Article[]> {
+  const config = getConfig();
+  const pool = getPool();
+  const entryIds = await getProjectEntryIds(pool, config.READER_TENANT_ID, limit);
+  if (entryIds.length === 0) return [];
+
+  const miniflux = getConfiguredMinifluxClient();
+  const baseArticles = (
+    await Promise.all(entryIds.map((entryId) => miniflux.getEntry(entryId)))
+  ).filter((article) => article != null);
+  const ids = baseArticles.map((article) => article.id);
+
+  let scores = new Map<number, ArticleScore>();
+  let states = new Map<number, ReaderState>();
+  try {
+    ({ scores, states } = await getArticleMaps(ids));
+  } catch (error) {
+    console.warn("Failed to load scoring data for project article list", error);
+  }
+
+  return mergeArticleData(baseArticles, scores, states);
 }
 
 export async function getArticleForReader(id: number): Promise<Article | null> {

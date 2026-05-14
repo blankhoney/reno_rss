@@ -116,6 +116,12 @@ button {
   gap: 12px;
 }
 
+.articleListActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .articleListTitle {
   margin: 0;
   font-size: 1.15rem;
@@ -127,6 +133,51 @@ button {
   padding: 6px 10px;
   background: var(--panel);
   color: var(--text);
+}
+
+.settingsPanel {
+  position: relative;
+}
+
+.settingsPopover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 5;
+  width: 260px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.settingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+
+.settingsNumber {
+  width: 72px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.settingsActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settingsMessage {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .articleList {
@@ -287,6 +338,20 @@ button {
   margin: 12px 0 0;
   font-size: 1.35rem;
   line-height: 1.35;
+}
+
+.readerActionMessage,
+.readerActionError {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+}
+
+.readerActionMessage {
+  color: #166534;
+}
+
+.readerActionError {
+  color: #b91c1c;
 }
 
 .scoreSection {

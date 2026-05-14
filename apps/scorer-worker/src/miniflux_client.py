@@ -30,3 +30,13 @@ class MinifluxClient:
             resp.raise_for_status()
             data = resp.json()
             return data.get("entries", [])
+
+    def get_entry(self, entry_id: int) -> dict | None:
+        """Return one Miniflux entry dict, or None when it does not exist."""
+        url = f"{self._base_url}/v1/entries/{entry_id}"
+        with httpx.Client(auth=self._auth, timeout=30) as client:
+            resp = client.get(url)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.json()

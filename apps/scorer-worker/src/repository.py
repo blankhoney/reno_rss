@@ -15,6 +15,12 @@ import psycopg2
 
 _SCHEMA_SQL = (Path(__file__).parent.parent / "sql" / "001_init_scoring.sql").read_text()
 
+DEFAULT_SCORING_SETTINGS = {
+    "auto_score_new_unread": True,
+    "webhook_max_entries": 20,
+    "manual_rescore_enabled": True,
+}
+
 
 def init_schema(conn: psycopg2.extensions.connection) -> None:
     """Apply DDL (idempotent — safe to call on every startup)."""
@@ -86,6 +92,60 @@ def upsert_score(conn: psycopg2.extensions.connection, row: dict) -> None:
             serialized,
         )
     conn.commit()
+
+
+def get_latest_score(
+    conn: psycopg2.extensions.connection,
+    tenant_id: str,
+    miniflux_entry_id: int,
+    content_hash: str | None = None,
+) -> dict | None:
+    """Return the latest score for an entry, optionally constrained to one content hash."""
+    if content_hash is None:
+        where_hash = ""
+        values: tuple = (tenant_id, miniflux_entry_id)
+    else:
+        where_hash = "AND content_hash = %s"
+        values = (tenant_id, miniflux_entry_id, content_hash)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT score, scored_at
+            FROM item_scores
+            WHERE tenant_id = %s
+              AND miniflux_entry_id = %s
+              {where_hash}
+            ORDER BY scored_at DESC
+            LIMIT 1
+            """,
+            values,
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"score": int(row[0]), "scored_at": row[1]}
+
+
+def get_scoring_settings(conn: psycopg2.extensions.connection, tenant_id: str) -> dict:
+    """Return scoring settings for a tenant, falling back to defaults."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT auto_score_new_unread, webhook_max_entries, manual_rescore_enabled
+            FROM scoring_settings
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return dict(DEFAULT_SCORING_SETTINGS)
+    return {
+        "auto_score_new_unread": bool(row[0]),
+        "webhook_max_entries": int(row[1]),
+        "manual_rescore_enabled": bool(row[2]),
+    }
 
 
 def create_digest(conn: psycopg2.extensions.connection, row: dict) -> int:

@@ -6,34 +6,29 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
-def _load_main(monkeypatch, entry_limit="300", entry_status="all"):
+def _load_main(monkeypatch):
     monkeypatch.setenv("MINIFLUX_API_BASE_URL", "http://miniflux:8080")
     monkeypatch.setenv("MINIFLUX_USERNAME", "testuser")
     monkeypatch.setenv("MINIFLUX_PASSWORD", "testpass")
     monkeypatch.setenv("SCORING_DATABASE_URL", "postgres://scoring:test@postgres:5432/scoring")
-    monkeypatch.setenv("SCORER_ENTRY_LIMIT", entry_limit)
-    monkeypatch.setenv("SCORER_ENTRY_STATUS", entry_status)
     monkeypatch.setenv("SCORER_TENANT_ID", "default")
-    monkeypatch.setenv("DIGEST_MIN_SCORE", "70")
-    monkeypatch.setenv("DIGEST_MAX_ITEMS", "2")
+    monkeypatch.setenv("SCORER_WEBHOOK_USERNAME", "scorer")
+    monkeypatch.setenv("SCORER_WEBHOOK_PASSWORD", "secret")
+    monkeypatch.setenv("SCORER_WEBHOOK_MAX_ENTRIES", "20")
     import main
 
     return importlib.reload(main)
 
 
-def test_run_once_creates_digest_from_high_scores(monkeypatch):
+def test_score_entry_by_id_fetches_and_persists_score(monkeypatch):
     main = _load_main(monkeypatch)
     conn = MagicMock()
-    entries = [
-        {"id": 1, "feed_id": 1, "title": "Top", "url": "https://example.com/1", "content": "a"},
-        {"id": 2, "feed_id": 1, "title": "Low", "url": "https://example.com/2", "content": "b"},
-        {"id": 3, "feed_id": 1, "title": "Also Top", "url": "https://example.com/3", "content": "c"},
-    ]
+    entry = {"id": 1, "feed_id": 1, "title": "Top", "url": "https://example.com/1", "content": "a"}
 
     monkeypatch.setattr(
         main.MinifluxClient,
-        "get_recent_entries",
-        lambda self, limit, status: entries,
+        "get_entry",
+        lambda self, entry_id: entry if entry_id == 1 else None,
     )
     monkeypatch.setattr(
         main,
@@ -51,35 +46,72 @@ def test_run_once_creates_digest_from_high_scores(monkeypatch):
             "error_message": None,
         },
     )
-    create_digest = MagicMock(return_value=55)
-    upsert_digest_item = MagicMock()
-    monkeypatch.setattr(main, "create_digest", create_digest)
-    monkeypatch.setattr(main, "upsert_digest_item", upsert_digest_item)
+    upsert_snapshot = MagicMock()
+    upsert_score = MagicMock()
+    monkeypatch.setattr(main, "upsert_snapshot", upsert_snapshot)
+    monkeypatch.setattr(main, "upsert_score", upsert_score)
+    monkeypatch.setattr(main, "get_latest_score", MagicMock(return_value=None))
 
-    main.run_once(conn)
+    result = main.score_entry_by_id(conn, 1, force=True)
 
-    create_digest.assert_called_once()
-    assert upsert_digest_item.call_count == 2
-    first_item = upsert_digest_item.call_args_list[0].args[1]
-    second_item = upsert_digest_item.call_args_list[1].args[1]
-    assert first_item["miniflux_entry_id"] == 1
-    assert first_item["rank"] == 1
-    assert second_item["miniflux_entry_id"] == 3
-    assert second_item["rank"] == 2
+    assert result == {"ok": True, "entryId": 1, "score": 90, "cached": False}
+    upsert_snapshot.assert_called_once()
+    upsert_score.assert_called_once()
 
 
-def test_run_once_uses_configured_entry_window(monkeypatch):
-    main = _load_main(monkeypatch, entry_limit="300", entry_status="all")
+def test_score_entry_by_id_reuses_cached_score_without_force(monkeypatch):
+    main = _load_main(monkeypatch)
     conn = MagicMock()
-    captured = {}
+    entry = {"id": 1, "feed_id": 1, "title": "Top", "url": "https://example.com/1", "content": "a"}
 
-    def fake_get_recent_entries(self, limit, status):
-        captured["limit"] = limit
-        captured["status"] = status
-        return []
+    monkeypatch.setattr(main.MinifluxClient, "get_entry", lambda self, entry_id: entry)
+    monkeypatch.setattr(main, "upsert_snapshot", MagicMock())
+    monkeypatch.setattr(main, "get_latest_score", MagicMock(return_value={"score": 77}))
+    score_entry = MagicMock()
+    monkeypatch.setattr(main, "score_entry", score_entry)
 
-    monkeypatch.setattr(main.MinifluxClient, "get_recent_entries", fake_get_recent_entries)
+    result = main.score_entry_by_id(conn, 1, force=False)
 
-    main.run_once(conn)
+    assert result == {"ok": True, "entryId": 1, "score": 77, "cached": True}
+    score_entry.assert_not_called()
 
-    assert captured == {"limit": 300, "status": "all"}
+
+def test_handle_miniflux_webhook_scores_only_unread_entries_with_limit(monkeypatch):
+    main = _load_main(monkeypatch)
+    conn = MagicMock()
+    score_entry_by_id = MagicMock(return_value={"ok": True, "entryId": 1, "score": 80, "cached": False})
+    monkeypatch.setattr(main, "score_entry_by_id", score_entry_by_id)
+    monkeypatch.setattr(
+        main,
+        "get_scoring_settings",
+        MagicMock(
+            return_value={
+                "auto_score_new_unread": True,
+                "webhook_max_entries": 1,
+                "manual_rescore_enabled": True,
+            },
+        ),
+    )
+
+    result = main.handle_miniflux_webhook(
+        conn,
+        "new_entries",
+        {
+            "entries": [
+                {"id": 1, "status": "unread"},
+                {"id": 2, "status": "read"},
+                {"id": 3, "status": "unread"},
+            ],
+        },
+    )
+
+    assert result == {"ok": True, "eventType": "new_entries", "processed": 1, "skipped": 2}
+    score_entry_by_id.assert_called_once_with(conn, 1, force=False)
+
+
+def test_check_basic_auth_accepts_expected_credentials(monkeypatch):
+    main = _load_main(monkeypatch)
+    header = "Basic " + __import__("base64").b64encode(b"scorer:secret").decode()
+
+    assert main.check_basic_auth(header, "scorer", "secret") is True
+    assert main.check_basic_auth(header, "scorer", "wrong") is False

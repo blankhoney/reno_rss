@@ -20,10 +20,14 @@ services:
 
   scorer-worker:
     networks:
-      app: {}
+      app:
+        aliases:
+          - scoring-service-prod
       data: {}
 
   reader-web:
+    environment:
+      SCORING_SERVICE_URL: http://scoring-service-prod:8000
     networks:
       app:
         aliases:

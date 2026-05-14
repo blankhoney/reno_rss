@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
 import type { DimensionKey } from "@/lib/scoring/repository";
@@ -72,7 +72,20 @@ export function ArticleReader({ article }: { article: Article | null }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [agentError, setAgentError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
+  const [isScoring, setIsScoring] = useState(false);
+  const [isProjecting, setIsProjecting] = useState(false);
+  const [isTogglingCandidate, setIsTogglingCandidate] = useState(false);
+
+  useEffect(() => {
+    setQuestion("");
+    setAnswer("");
+    setAgentError(null);
+    setActionMessage(null);
+    setActionError(null);
+  }, [article?.id]);
 
   if (article == null) {
     return (
@@ -87,6 +100,63 @@ export function ArticleReader({ article }: { article: Article | null }) {
 
   const score = article.score;
   const canAsk = question.trim().length > 0 && !isAsking;
+
+  async function postArticleAction(path: string, body?: unknown) {
+    if (article == null) return;
+    setActionMessage(null);
+    setActionError(null);
+    const response = await fetch(`/api/articles/${article.id}/${path}`, {
+      method: "POST",
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as { error?: unknown } | null;
+      throw new Error(typeof data?.error === "string" ? data.error : "操作失败");
+    }
+  }
+
+  async function scoreNow() {
+    setIsScoring(true);
+    try {
+      await postArticleAction("score", { force: true });
+      setActionMessage("评分已更新");
+      window.location.reload();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "评分失败");
+    } finally {
+      setIsScoring(false);
+    }
+  }
+
+  async function toggleCandidate() {
+    if (article == null) return;
+    const wasStarred = article.starred;
+    setIsTogglingCandidate(true);
+    try {
+      await postArticleAction("star");
+      setActionMessage(wasStarred ? "已移出候选" : "已加入候选");
+      window.location.reload();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "候选状态更新失败");
+    } finally {
+      setIsTogglingCandidate(false);
+    }
+  }
+
+  async function enqueueProject() {
+    setIsProjecting(true);
+    try {
+      await postArticleAction("project");
+      setActionMessage("已立项");
+      window.location.reload();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "立项失败";
+      setActionError(message === "article_not_candidate" ? "请先加入候选再立项" : message);
+    } finally {
+      setIsProjecting(false);
+    }
+  }
 
   async function askAgent() {
     if (article == null || question.trim().length === 0) return;
@@ -171,13 +241,33 @@ export function ArticleReader({ article }: { article: Article | null }) {
           <button type="button" className="readerToolbarBtn" disabled>
             专注阅读
           </button>
-          <button type="button" className="readerToolbarBtn" disabled>
-            收藏
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isScoring}
+            onClick={() => void scoreNow()}
+          >
+            {isScoring ? "评分中" : "实时评分"}
           </button>
-          <button type="button" className="readerToolbarBtn" disabled>
-            稍后读
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isTogglingCandidate}
+            onClick={() => void toggleCandidate()}
+          >
+            {article.starred ? "移出候选" : "加入候选"}
+          </button>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isProjecting}
+            onClick={() => void enqueueProject()}
+          >
+            {isProjecting ? "立项中" : "立项"}
           </button>
         </div>
+        {actionMessage ? <p className="readerActionMessage">{actionMessage}</p> : null}
+        {actionError ? <p className="readerActionError">{actionError}</p> : null}
         <h2 className="readerTitle">{article.title}</h2>
       </header>
 

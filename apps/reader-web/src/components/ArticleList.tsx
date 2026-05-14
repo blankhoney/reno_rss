@@ -1,5 +1,6 @@
 import type { Article } from "@/lib/articles/types";
 import { ScoreBadge } from "./ScoreBadge";
+import { ScoringSettingsPanel } from "./ScoringSettingsPanel";
 
 type ArticleListProps = {
   articles: Article[];
@@ -19,14 +20,17 @@ export function ArticleList({ articles, currentModule, selectedArticleId }: Arti
     <section className="articleListPane" aria-label="文章列表">
       <header className="articleListHeader">
         <h1 className="articleListTitle">阅读工作台</h1>
-        <label className="articleSortLabel">
-          <span className="visuallyHidden">排序</span>
-          <select className="articleSortSelect" defaultValue="relevance" aria-label="排序方式">
-            <option value="relevance">按相关性</option>
-            <option value="time">按时间</option>
-            <option value="score">按总分</option>
-          </select>
-        </label>
+        <div className="articleListActions">
+          <ScoringSettingsPanel />
+          <label className="articleSortLabel">
+            <span className="visuallyHidden">排序</span>
+            <select className="articleSortSelect" defaultValue="relevance" aria-label="排序方式">
+              <option value="relevance">按相关性</option>
+              <option value="time">按时间</option>
+              <option value="score">按总分</option>
+            </select>
+          </label>
+        </div>
       </header>
       {isEmpty ? (
         <div className="articleListEmpty">

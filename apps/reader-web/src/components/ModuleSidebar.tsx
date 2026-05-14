@@ -1,8 +1,9 @@
 const MODULES: { id: string; label: string }[] = [
   { id: "all", label: "最新" },
-  { id: "unread", label: "未读" },
+  { id: "unread", label: "新到" },
   { id: "read", label: "已读" },
-  { id: "starred", label: "收藏" },
+  { id: "starred", label: "候选" },
+  { id: "project", label: "已立项" },
   { id: "read-later", label: "稍后读" },
   { id: "technical", label: "技术" },
   { id: "business", label: "商业" },

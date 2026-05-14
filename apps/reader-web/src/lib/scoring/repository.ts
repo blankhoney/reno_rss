@@ -17,6 +17,20 @@ export type ArticleScore = {
   scoredAt: string | null;
 };
 
+export type ScoringSettings = {
+  autoScoreNewUnread: boolean;
+  webhookMaxEntries: number;
+  manualRescoreEnabled: boolean;
+};
+
+export type ProjectQueueSource = "manual";
+
+export const DEFAULT_SCORING_SETTINGS: ScoringSettings = {
+  autoScoreNewUnread: true,
+  webhookMaxEntries: 20,
+  manualRescoreEnabled: true,
+};
+
 const dimensionKeys: DimensionKey[] = [
   "importance",
   "usefulness",
@@ -123,6 +137,167 @@ export async function markRead(
   await pool.query(text, values);
 }
 
+export function upsertProjectQueueSql(input: {
+  tenantId: string;
+  minifluxEntryId: number;
+  title: string;
+  url: string;
+  score: number | null;
+  source: ProjectQueueSource;
+}) {
+  return {
+    text: `
+      INSERT INTO entry_project_queue (
+        tenant_id, miniflux_entry_id, title, url, score, status, source, queued_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+      ON CONFLICT (tenant_id, miniflux_entry_id)
+      DO UPDATE SET
+        title = EXCLUDED.title,
+        url = EXCLUDED.url,
+        score = EXCLUDED.score,
+        status = EXCLUDED.status,
+        source = EXCLUDED.source,
+        updated_at = NOW()
+    `,
+    values: [
+      input.tenantId,
+      input.minifluxEntryId,
+      input.title,
+      input.url,
+      input.score,
+      "queued",
+      input.source,
+    ],
+  };
+}
+
+export async function enqueueProjectEntry(
+  pool: Pool,
+  input: {
+    tenantId: string;
+    minifluxEntryId: number;
+    title: string;
+    url: string;
+    score: number | null;
+    source: ProjectQueueSource;
+  },
+): Promise<void> {
+  const { text, values } = upsertProjectQueueSql(input);
+  await pool.query(text, values);
+}
+
+export async function getProjectEntryIds(
+  pool: Pool,
+  tenantId: string,
+  limit: number,
+): Promise<number[]> {
+  try {
+    const result = await pool.query(
+      `
+        SELECT miniflux_entry_id
+        FROM entry_project_queue
+        WHERE tenant_id = $1
+          AND status = 'queued'
+        ORDER BY queued_at DESC, id DESC
+        LIMIT $2
+      `,
+      [tenantId, limit],
+    );
+    return result.rows.map((row) => Number(row.miniflux_entry_id));
+  } catch (error) {
+    if (isUndefinedTableError(error)) return [];
+    throw error;
+  }
+}
+
+export function normalizeScoringSettingsPatch(input: unknown): ScoringSettings {
+  const record =
+    input !== null && typeof input === "object" && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
+  return {
+    autoScoreNewUnread:
+      typeof record.autoScoreNewUnread === "boolean"
+        ? record.autoScoreNewUnread
+        : DEFAULT_SCORING_SETTINGS.autoScoreNewUnread,
+    webhookMaxEntries: clampInt(
+      record.webhookMaxEntries,
+      1,
+      100,
+      DEFAULT_SCORING_SETTINGS.webhookMaxEntries,
+    ),
+    manualRescoreEnabled:
+      typeof record.manualRescoreEnabled === "boolean"
+        ? record.manualRescoreEnabled
+        : DEFAULT_SCORING_SETTINGS.manualRescoreEnabled,
+  };
+}
+
+export function updateScoringSettingsSql(tenantId: string, settings: ScoringSettings) {
+  return {
+    text: `
+      INSERT INTO scoring_settings (
+        tenant_id, auto_score_new_unread, webhook_max_entries,
+        manual_rescore_enabled, updated_at
+      )
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (tenant_id)
+      DO UPDATE SET
+        auto_score_new_unread = EXCLUDED.auto_score_new_unread,
+        webhook_max_entries = EXCLUDED.webhook_max_entries,
+        manual_rescore_enabled = EXCLUDED.manual_rescore_enabled,
+        updated_at = NOW()
+    `,
+    values: [
+      tenantId,
+      settings.autoScoreNewUnread,
+      settings.webhookMaxEntries,
+      settings.manualRescoreEnabled,
+    ],
+  };
+}
+
+export async function getScoringSettings(pool: Pool, tenantId: string): Promise<ScoringSettings> {
+  let result;
+  try {
+    result = await pool.query(
+      `
+        SELECT auto_score_new_unread, webhook_max_entries, manual_rescore_enabled
+        FROM scoring_settings
+        WHERE tenant_id = $1
+      `,
+      [tenantId],
+    );
+  } catch (error) {
+    if (isUndefinedTableError(error)) return DEFAULT_SCORING_SETTINGS;
+    throw error;
+  }
+  const row = result.rows[0];
+  if (!row) return DEFAULT_SCORING_SETTINGS;
+  return {
+    autoScoreNewUnread: Boolean(row.auto_score_new_unread),
+    webhookMaxEntries: clampInt(
+      row.webhook_max_entries,
+      1,
+      100,
+      DEFAULT_SCORING_SETTINGS.webhookMaxEntries,
+    ),
+    manualRescoreEnabled: Boolean(row.manual_rescore_enabled),
+  };
+}
+
+export async function updateScoringSettings(
+  pool: Pool,
+  tenantId: string,
+  settings: ScoringSettings,
+): Promise<ScoringSettings> {
+  const normalized = normalizeScoringSettingsPatch(settings);
+  const { text, values } = updateScoringSettingsSql(tenantId, normalized);
+  await pool.query(text, values);
+  return normalized;
+}
+
 function scoredAtIsoOrNull(scoredAt: string | Date | null): string | null {
   if (scoredAt == null) return null;
   const date = scoredAt instanceof Date ? scoredAt : new Date(scoredAt);
@@ -133,6 +308,12 @@ function clampScore(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
 }
 
 function normalizeTags(value: ScoreRow["tags"]): string[] {
@@ -146,6 +327,15 @@ function normalizeTags(value: ScoreRow["tags"]): string[] {
     }
   }
   return [];
+}
+
+function isUndefinedTableError(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "42P01"
+  );
 }
 
 export async function getScoresByEntryIds(

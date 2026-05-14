@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { markReadSql, setReadLaterSql, toArticleScore } from "./repository";
+import {
+  DEFAULT_SCORING_SETTINGS,
+  markReadSql,
+  normalizeScoringSettingsPatch,
+  setReadLaterSql,
+  toArticleScore,
+  updateScoringSettingsSql,
+  upsertProjectQueueSql,
+} from "./repository";
 
 test("setReadLaterSql builds an idempotent upsert", () => {
   const query = setReadLaterSql({
@@ -57,4 +65,57 @@ test("markReadSql upserts last_read_at without changing read_later", () => {
   assert.match(query.text, /last_read_at/);
   assert.match(query.text, /ON CONFLICT/);
   assert.doesNotMatch(query.text, /read_later\s*=/);
+});
+
+test("upsertProjectQueueSql deduplicates project queue entries", () => {
+  const query = upsertProjectQueueSql({
+    tenantId: "default",
+    minifluxEntryId: 42,
+    title: "Candidate",
+    url: "https://example.com",
+    score: 88,
+    source: "manual",
+  });
+
+  assert.deepEqual(query.values, [
+    "default",
+    42,
+    "Candidate",
+    "https://example.com",
+    88,
+    "queued",
+    "manual",
+  ]);
+  assert.match(query.text, /entry_project_queue/);
+  assert.match(query.text, /ON CONFLICT \(tenant_id, miniflux_entry_id\)/);
+});
+
+test("normalizeScoringSettingsPatch clamps user editable values", () => {
+  const patch = normalizeScoringSettingsPatch({
+    autoScoreNewUnread: false,
+    webhookMaxEntries: 500,
+    manualRescoreEnabled: true,
+  });
+
+  assert.deepEqual(patch, {
+    autoScoreNewUnread: false,
+    webhookMaxEntries: 100,
+    manualRescoreEnabled: true,
+  });
+});
+
+test("normalizeScoringSettingsPatch defaults unknown values", () => {
+  assert.deepEqual(normalizeScoringSettingsPatch({}), DEFAULT_SCORING_SETTINGS);
+});
+
+test("updateScoringSettingsSql upserts one row per tenant", () => {
+  const query = updateScoringSettingsSql("default", {
+    autoScoreNewUnread: false,
+    webhookMaxEntries: 12,
+    manualRescoreEnabled: true,
+  });
+
+  assert.deepEqual(query.values, ["default", false, 12, true]);
+  assert.match(query.text, /scoring_settings/);
+  assert.match(query.text, /ON CONFLICT \(tenant_id\)/);
 });

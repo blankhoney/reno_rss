@@ -85,6 +85,19 @@ test("minifluxEntryFilterForModule fetches all statuses for latest and scored mo
     starred: undefined,
     limit: 25,
   });
+  assert.deepEqual(minifluxEntryFilterForModule("project", 25), {
+    status: "all",
+    starred: undefined,
+    limit: 25,
+  });
+});
+
+test("project module keeps queue order", () => {
+  const sorted = sortArticlesForModule(
+    [article(1, { overall: 10 }), article(2, { overall: 90 })],
+    "project",
+  );
+  assert.deepEqual(sorted.map((item) => item.id), [1, 2]);
 });
 
 test("filterArticlesForModule keeps only read-later items for read-later module", () => {

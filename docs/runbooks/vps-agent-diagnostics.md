@@ -79,10 +79,18 @@ grep -nE 'reader-web|reader-web-staging|READER_MINIFLUX_USER_ID|WEB_SEARCH_PROVI
 
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E 'reader-web|caddy|authelia|miniflux|postgres' || true
 docker logs --tail=120 myrss-staging-reader-web-1 2>&1 || true
+docker logs --tail=120 myrss-staging-scorer-worker-1 2>&1 || true
+docker exec myrss-staging-reader-web-1 node - <<'NODE'
+const res = await fetch("http://scoring-service-staging:8000/healthz");
+console.log("scorer-health-status=", res.status);
+console.log(await res.text());
+NODE
 
 重点判断：
 - myrss-staging-reader-web-1 是否存在并 Up。
 - reader-web 是否有启动错误、缺失环境变量、Next.js 启动失败。
+- myrss-staging-scorer-worker-1 是否存在并 Up。
+- reader-web 容器内是否能访问 scorer-worker `/healthz`。
 
 6. DNS 与 TLS 对比
 
@@ -113,6 +121,8 @@ curl -vkI https://staging-reader.blankhoney.xyz 2>&1 | tail -40
 - compose config 是否包含 reader-web 和 reader-web-staging：
 - reader-web 容器是否存在：
 - reader-web 日志关键错误：
+- scorer-worker 容器是否存在：
+- scorer-worker /healthz 是否正常：
 - DNS 指向：
 - curl --resolve 结果：
 - 公网 curl staging-ai-reader 结果：

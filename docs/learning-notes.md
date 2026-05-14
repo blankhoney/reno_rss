@@ -635,8 +635,8 @@ Miniflux 不会自动抓取全网内容。它只会抓取你主动添加的 RSS/
 **用最小接口分层定位问题**
 遇到 `/v1/entries` 返回 401 时，不应直接重启服务。先测 `/v1/me`：如果 `/v1/me` 也 401，说明 key 本身无效；如果 `/v1/me` 是 200，再测 `/v1/entries`，就能区分“认证问题”和“具体查询问题”。
 
-**Worker 启动即执行一轮**
-当前 scorer-worker 启动时会先执行一次抓取，然后再按 `SCORER_INTERVAL_SECONDS` 间隔循环。重建容器是一种手动触发立即验证的方式，不需要等下一小时。
+**早期 Worker 启动即执行一轮**
+这一节记录的是早期定时轮询实现：scorer-worker 启动时会先执行一次抓取，再按 `SCORER_INTERVAL_SECONDS` 间隔循环。后续 AI Reader 已改成事件驱动评分服务，新未读文章靠 webhook，单篇文章靠“实时评分”按钮。
 
 ### 可以在学习 session 里追问的问题
 
@@ -879,3 +879,38 @@ worker 要能处理 `status=all` 的最近文章并成功解析模型 JSON；rea
 - 为什么部署问题不应该强行单元测试化？
 - 服务端输出清理和前端输出清理有什么边界区别？
 - `tenant_id` 为什么会影响评分写入和读取对齐？
+
+---
+
+## AI Reader 事件驱动评分与线索流
+
+### 做了什么
+
+把评分链路从“定时批量扫描”改成“事件驱动 + 手动实时评分”：
+- scorer-worker 不再运行 `while true + sleep` 轮询循环，而是作为内网 HTTP 服务提供 `/healthz`、`/internal/score-entry` 和 `/webhooks/miniflux`。
+- 新未读文章通过 Miniflux `new_entries` webhook 触发自动评分，单篇文章可以在阅读界面点击“实时评分”。
+- 阅读界面把 Miniflux 原生状态组织成线索流：`新到 = unread`，`候选 = starred/bookmark`，`已立项 = reader 自己的 entry_project_queue`。
+- “立项”采用手动按钮，且只允许已加入候选的文章进入本地队列表，避免把星标动作和外部推送混在一起。
+- 新增轻量评分设置：是否自动评分新未读、每次 webhook 处理上限、是否允许手动重评。
+- Miniflux webhook 需要在 Miniflux 里指向 Docker 内网 scorer-worker alias，不能走公网 Caddy，也不能把带密码的 webhook URL 贴到日志或聊天里。
+
+### 关键概念
+
+**Miniflux 状态适合做入口，不适合承载所有工作流**
+未读和星标是 Miniflux 已有的一等状态，适合分别表示“新到”和“候选”。但“已立项”需要去重、状态、分数和后续外部系统信息，应该放在 reader 自己的数据库表里。
+
+**不要假设星标会触发 Miniflux webhook**
+Miniflux 官方 webhook 有 `new_entries` 等事件，但星标/bookmark 和保存事件不能直接等同。AI Reader 自己的“立项”按钮是可控边界：只有用户明确点击，才写入本地队列。
+
+**删除定时评分后要补事件入口**
+定时扫描简单但成本不可控，也容易重复评分大量旧文章。事件驱动后，新文章靠 webhook 自动评分，旧文章或缺分文章靠单篇“实时评分”补齐；如以后需要历史补分，再单独做一次性工具。
+
+**scorer-worker 是内网服务，不是公网 API**
+reader-web 和 Miniflux 通过 Docker 内网 alias 访问 scorer-worker。staging/prod 使用不同 alias，避免两个环境共享 `myrss-app` 网络时服务名混淆。评分服务的 Basic Auth 只用于内网调用认证，日志不能打印密码或 webhook URL 中的凭据。
+
+### 可以在学习 session 里追问的问题
+
+- 为什么“候选”和“已立项”要拆成两个动作？
+- 为什么本地队列表比 Miniflux 自定义标签更适合首版？
+- webhook 自动评分和手动实时评分分别适合解决什么问题？
+- 删除定时任务后，历史未评分文章应该如何渐进补齐？

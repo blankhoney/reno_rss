@@ -50,6 +50,29 @@ docker ps --format "table {{.Names}}\t{{.Status}}" | grep myrss-prod
 ```
 Expected: all containers show `Up ... (healthy)` or `Up ...`
 
+For AI Reader scoring, verify reader-web can reach the internal scorer service:
+```bash
+docker exec myrss-prod-reader-web-1 node - <<'NODE'
+const res = await fetch("http://scoring-service-prod:8000/healthz");
+console.log(res.status);
+console.log(await res.text());
+NODE
+```
+Expected: HTTP `200` and `{"ok":true,...}`.
+
+## Miniflux webhook for new-entry scoring
+
+Miniflux webhooks are configured in Miniflux, not through the public Caddy
+routes. Use the internal Docker alias:
+
+- staging URL: `http://<SCORER_WEBHOOK_USERNAME>:<SCORER_WEBHOOK_PASSWORD>@scoring-service-staging:8000/webhooks/miniflux`
+- prod URL: `http://<SCORER_WEBHOOK_USERNAME>:<SCORER_WEBHOOK_PASSWORD>@scoring-service-prod:8000/webhooks/miniflux`
+
+Do not paste the real URL with password into chat or logs. After saving the
+webhook in Miniflux, new entries should trigger `X-Miniflux-Event-Type:
+new_entries` and scorer-worker will score up to the configured
+`webhookMaxEntries`.
+
 ## VPS agent diagnostics
 
 When local Codex cannot inspect VPS-only state, use
@@ -57,11 +80,13 @@ When local Codex cannot inspect VPS-only state, use
 read-only diagnosis from the VPS agent before changing deployment files or
 restarting services.
 
-## Miniflux API Key rotation (Task 3.5)
+## Miniflux credential rotation
 
-1. Login to Miniflux at `https://reader.<DOMAIN>`
-2. Go to **Settings → API Keys → Create new key** (name: `scorer-worker`)
-3. Update `.env` on server: `MINIFLUX_API_KEY=<new-key>`
+scorer-worker and reader-web now use Miniflux Basic Auth via
+`MINIFLUX_ADMIN` / `MINIFLUX_ADMIN_PASSWORD`.
+
+1. Login to Miniflux at `https://reader.<DOMAIN>`.
+2. Change the Miniflux user password.
+3. Update `.env` on server: `MINIFLUX_ADMIN_PASSWORD=<new-password>`.
 4. Redeploy backend: `bash infra/scripts/deploy.sh prod <current-sha>`
 5. Verify scorer-worker connects (check logs: `docker logs myrss-prod-scorer-worker-1`)
-6. Delete old API key from Miniflux UI
