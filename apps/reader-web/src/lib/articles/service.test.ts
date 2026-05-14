@@ -219,6 +219,15 @@ test("sanitizeArticleHtml removes script tags and inline event handlers", () => 
   assert.match(html, /Hi/);
 });
 
+test("sanitizeArticleHtml makes http links open safely in a new tab", () => {
+  const html = sanitizeArticleHtml(
+    '<p><a href="https://example.com/path?q=1">Source</a> <a href="mailto:test@example.com">Mail</a></p>',
+  );
+
+  assert.match(html, /<a href="https:\/\/example.com\/path\?q=1" target="_blank" rel="noreferrer noopener">Source<\/a>/);
+  assert.match(html, /<a href="mailto:test@example.com">Mail<\/a>/);
+});
+
 test("articleNeedsOriginalContentFetch detects empty, short, and Comments placeholders", () => {
   assert.equal(articleNeedsOriginalContentFetch(""), true);
   assert.equal(articleNeedsOriginalContentFetch("<p>Comments</p>"), true);

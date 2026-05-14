@@ -6,6 +6,7 @@ import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/ag
 import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
 import type { WebSearchStatus } from "@/lib/agent/webSearch";
+import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
 
 const DIMENSION_ROWS: { key: DimensionKey | "overall"; label: string }[] = [
@@ -434,7 +435,7 @@ export function ArticleReader({
           </p>
         ) : null}
         {agentError != null ? <p className="agentError">{agentError}</p> : null}
-        {answer.trim().length > 0 ? <pre className="agentAnswer">{answer}</pre> : null}
+        {answer.trim().length > 0 ? <AgentMarkdown text={answer} /> : null}
       </section>
 
     </article>

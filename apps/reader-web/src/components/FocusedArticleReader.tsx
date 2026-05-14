@@ -6,6 +6,7 @@ import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
 import type { WebSearchStatus } from "@/lib/agent/webSearch";
 import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
+import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
 
 const DIMENSION_ROWS: { key: DimensionKey | "overall"; label: string }[] = [
@@ -275,57 +276,54 @@ export function FocusedArticleReader({
         <a className="readerToolbarBtn readerToolbarBtnPrimary" href={article.url} target="_blank" rel="noreferrer">
           打开原文
         </a>
-        <details className="focusActionMenu">
-          <summary>操作</summary>
-          <div className="focusActionMenuItems">
-            <button
-              type="button"
-              className="readerToolbarBtn"
-              disabled={isFetchingContent}
-              onClick={() => void runAction(setIsFetchingContent, "fetch-content", "全文已刷新")}
-            >
-              {isFetchingContent ? "刷新中" : "刷新全文"}
-            </button>
-            <button
-              type="button"
-              className="readerToolbarBtn"
-              disabled={isScoring}
-              onClick={() => void runAction(setIsScoring, "score", "评分已更新", { force: true })}
-            >
-              {isScoring ? "评分中" : "实时评分"}
-            </button>
-            <button
-              type="button"
-              className="readerToolbarBtn"
-              disabled={isTogglingCandidate}
-              onClick={() =>
-                void runAction(
-                  setIsTogglingCandidate,
-                  "star",
-                  article.starred ? "已移出候选" : "已加入候选",
-                )
-              }
-            >
-              {article.starred ? "移出候选" : "加入候选"}
-            </button>
-            <button
-              type="button"
-              className="readerToolbarBtn"
-              disabled={isProjecting}
-              onClick={() => void runAction(setIsProjecting, "project", "已立项")}
-            >
-              {isProjecting ? "立项中" : "立项"}
-            </button>
-            <button
-              type="button"
-              className="readerToolbarBtn"
-              disabled={isMarkingRead}
-              onClick={() => void runAction(setIsMarkingRead, "read", "已标记为已读")}
-            >
-              {isMarkingRead ? "标记中" : "标记已读"}
-            </button>
-          </div>
-        </details>
+        <div className="focusActionBar" role="toolbar" aria-label="文章操作">
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isFetchingContent}
+            onClick={() => void runAction(setIsFetchingContent, "fetch-content", "全文已刷新")}
+          >
+            {isFetchingContent ? "刷新中" : "刷新全文"}
+          </button>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isScoring}
+            onClick={() => void runAction(setIsScoring, "score", "评分已更新", { force: true })}
+          >
+            {isScoring ? "评分中" : "实时评分"}
+          </button>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isTogglingCandidate}
+            onClick={() =>
+              void runAction(
+                setIsTogglingCandidate,
+                "star",
+                article.starred ? "已移出候选" : "已加入候选",
+              )
+            }
+          >
+            {article.starred ? "移出候选" : "加入候选"}
+          </button>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isProjecting}
+            onClick={() => void runAction(setIsProjecting, "project", "已立项")}
+          >
+            {isProjecting ? "立项中" : "立项"}
+          </button>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isMarkingRead}
+            onClick={() => void runAction(setIsMarkingRead, "read", "已标记为已读")}
+          >
+            {isMarkingRead ? "标记中" : "标记已读"}
+          </button>
+        </div>
       </header>
 
       <section className="focusStatusBar" aria-label="阅读状态">
@@ -415,54 +413,64 @@ export function FocusedArticleReader({
       </article>
 
       <section className={drawerOpen ? "agentDrawer agentDrawerOpen" : "agentDrawer"} aria-label="文章助手">
-        <button type="button" className="agentDrawerHandle" onClick={() => setDrawerOpen((value) => !value)}>
+        <button
+          type="button"
+          className="agentDrawerHandle"
+          aria-expanded={drawerOpen}
+          aria-controls="agent-drawer-body"
+          onClick={() => setDrawerOpen((value) => !value)}
+        >
           <span>文章助手</span>
           <span>{answer.trim().length > 0 ? "已有回答" : "总结、要点、解释选中、行动建议"}</span>
         </button>
-        {drawerOpen ? (
-          <div className="agentDrawerBody">
-            <div className="agentQuickActions" aria-label="快捷提问">
-              {QUICK_ACTIONS.map((action) => (
-                <button
-                  type="button"
-                  className="readerToolbarBtn"
-                  key={action.label}
-                  disabled={isAsking}
-                  onClick={() => void askAgent(action.question)}
-                >
-                  {action.label}
-                </button>
-              ))}
-            </div>
-            <div className="agentDrawerAskRow">
-              <textarea
-                className="agentQuestion"
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                placeholder="问当前文章..."
-                rows={3}
-              />
+        <div
+          id="agent-drawer-body"
+          className="agentDrawerBody"
+          aria-hidden={!drawerOpen}
+          inert={!drawerOpen}
+        >
+          <div className="agentQuickActions" aria-label="快捷提问">
+            {QUICK_ACTIONS.map((action) => (
               <button
                 type="button"
-                className="readerToolbarBtn readerToolbarBtnPrimary"
-                disabled={question.trim().length === 0 || isAsking}
-                onClick={() => void askAgent()}
+                className="readerToolbarBtn"
+                key={action.label}
+                disabled={!drawerOpen || isAsking}
+                onClick={() => void askAgent(action.question)}
               >
-                {isAsking ? "生成中" : "询问"}
+                {action.label}
               </button>
-            </div>
-            {article.contentStatus === "partial" ? (
-              <p className="agentNotice">正文不完整，提问时会尝试联网搜索摘要补充。</p>
-            ) : null}
-            {agentSearchStatus != null ? (
-              <p className="agentNotice">
-                {agentSearchStatusText(agentSearchStatus.status, agentSearchStatus.count)}
-              </p>
-            ) : null}
-            {agentError != null ? <p className="agentError">{agentError}</p> : null}
-            {answer.trim().length > 0 ? <pre className="agentAnswer">{answer}</pre> : null}
+            ))}
           </div>
-        ) : null}
+          <div className="agentDrawerAskRow">
+            <textarea
+              className="agentQuestion"
+              value={question}
+              disabled={!drawerOpen}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="问当前文章..."
+              rows={3}
+            />
+            <button
+              type="button"
+              className="readerToolbarBtn readerToolbarBtnPrimary"
+              disabled={!drawerOpen || question.trim().length === 0 || isAsking}
+              onClick={() => void askAgent()}
+            >
+              {isAsking ? "生成中" : "询问"}
+            </button>
+          </div>
+          {article.contentStatus === "partial" ? (
+            <p className="agentNotice">正文不完整，提问时会尝试联网搜索摘要补充。</p>
+          ) : null}
+          {agentSearchStatus != null ? (
+            <p className="agentNotice">
+              {agentSearchStatusText(agentSearchStatus.status, agentSearchStatus.count)}
+            </p>
+          ) : null}
+          {agentError != null ? <p className="agentError">{agentError}</p> : null}
+          {answer.trim().length > 0 ? <AgentMarkdown text={answer} /> : null}
+        </div>
       </section>
     </main>
   );

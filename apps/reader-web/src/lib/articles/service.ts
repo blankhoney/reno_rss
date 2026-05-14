@@ -190,6 +190,16 @@ type MinifluxArticle = Omit<
   | "contentFetchAttempted"
 >;
 
+function shouldOpenArticleLinkInNewTab(href: string | undefined): boolean {
+  if (href == null) return false;
+  try {
+    const url = new URL(href);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function sanitizeArticleHtml(html: string): string {
   return sanitizeHtml(html, {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img"]),
@@ -199,6 +209,21 @@ export function sanitizeArticleHtml(html: string): string {
       img: ["src", "alt", "title", "width", "height", "loading"],
     },
     allowedSchemes: ["http", "https", "mailto"],
+    transformTags: {
+      a: (tagName, attribs) => {
+        if (!shouldOpenArticleLinkInNewTab(attribs.href)) {
+          return { tagName, attribs };
+        }
+        return {
+          tagName,
+          attribs: {
+            ...attribs,
+            target: "_blank",
+            rel: "noreferrer noopener",
+          },
+        };
+      },
+    },
   });
 }
 

@@ -45,13 +45,19 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.match(html, /打开原文/);
   assert.match(html, /刷新全文/);
   assert.match(html, /实时评分/);
+  assert.match(html, /加入候选/);
+  assert.match(html, /立项/);
   assert.match(html, /标记已读/);
+  assert.doesNotMatch(html, /<summary>操作<\/summary>/);
   assert.match(html, /正文：片段/);
   assert.match(html, /评分：未评分/);
   assert.match(html, /联网补充：未配置/);
   assert.match(html, /当前仅有 RSS 片段/);
   assert.match(html, /文章助手/);
   assert.match(html, /总结、要点、解释选中、行动建议/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /agentDrawerBody/);
+  assert.match(html, /inert=""/);
 });
 
 test("FocusedArticleReader renders scored state and dimension reasons", () => {
