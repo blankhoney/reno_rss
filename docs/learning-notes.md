@@ -948,3 +948,29 @@ RSS 站点正文不完整时，先使用 Miniflux 已有的官方抓取能力，
 - 为什么各评分维度要独立判断，不能复用总分？
 - Miniflux `fetch-content` 和自建抓取器分别有什么取舍？
 - 摘要语言、排序和当前文章为什么要进入 URL？
+
+---
+
+## Staging Miniflux 内网别名混淆
+
+### 做了什么
+
+部署 `873e2aa` 后发现抽样评分里有多篇 `entry_not_found`：reader-web 能列出文章 ID，但 scorer-worker 用同一个 ID 去 Miniflux 详情接口查不到。根因很可能是 prod/staging 共享 `myrss-app` 网络时，两个环境都可能暴露默认服务名 `miniflux`，而 reader-web/scorer-worker 仍读取 `.env` 里的 `MINIFLUX_API_BASE_URL=http://miniflux:8080`。
+
+修复方式是让 compose overlay 明确覆盖服务访问地址：
+- staging 的 reader-web/scorer-worker 使用 `http://miniflux-staging:8080`
+- prod 的 reader-web/scorer-worker 使用 `http://miniflux-prod:8080`
+
+### 关键概念
+
+**共享 Docker 网络里不要依赖跨环境重复服务名**
+prod 和 staging 同时接入一个外部网络时，`miniflux` 这种默认服务名可能不再是唯一目标。Caddy 已经使用 `miniflux-prod` / `miniflux-staging`，内部服务也应该使用同样的环境专属 alias。
+
+**entry_not_found 可能是环境错连**
+如果列表服务和评分服务查的是不同 Miniflux 实例，就会出现“列表返回了 ID，但详情接口查不到”的现象。先查服务指向，再查业务逻辑。
+
+### 可以在学习 session 里追问的问题
+
+- Docker Compose 在 external network 上会给服务注册哪些 DNS alias？
+- 为什么 prod/staging 共网时要使用环境专属别名？
+- 如何通过容器内 DNS 和 `/v1/me` 验证两个服务访问的是同一个 Miniflux？
