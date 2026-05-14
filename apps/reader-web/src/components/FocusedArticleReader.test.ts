@@ -37,7 +37,6 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
       article: article(),
       currentLang: "zh",
       returnHref: "/?module=all&sort=default&lang=zh&article=42",
-      webSearchConfigured: false,
     }),
   );
 
@@ -51,7 +50,6 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.doesNotMatch(html, /<summary>操作<\/summary>/);
   assert.match(html, /正文：片段/);
   assert.match(html, /评分：未评分/);
-  assert.match(html, /联网补充：未配置/);
   assert.match(html, /当前仅有 RSS 片段/);
   assert.match(html, /文章助手/);
   assert.match(html, /总结、要点、解释选中、行动建议/);
@@ -90,13 +88,11 @@ test("FocusedArticleReader renders scored state and dimension reasons", () => {
       }),
       currentLang: "zh",
       returnHref: "/?module=technical&sort=score&lang=zh&article=42",
-      webSearchConfigured: true,
     }),
   );
 
   assert.match(html, /正文：完整/);
   assert.match(html, /评分：已评分/);
-  assert.match(html, /联网补充：已配置/);
   assert.match(html, /总分/);
   assert.match(html, /维度理由/);
   assert.match(html, /技术内容明确/);

@@ -5,7 +5,6 @@ import type { Article } from "@/lib/articles/types";
 import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
 import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
-import type { WebSearchStatus } from "@/lib/agent/webSearch";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
 
@@ -85,14 +84,6 @@ function switchSummaryLang(nextLang: SummaryLangId) {
   window.location.search = qs.toString();
 }
 
-function agentSearchStatusText(status: WebSearchStatus, count: number): string {
-  if (status === "searched") return `已联网补充 ${count} 条搜索摘要`;
-  if (status === "no_results") return "已尝试联网补充，但没有搜索结果";
-  if (status === "not_configured") return "联网补充未配置，回答只基于当前片段";
-  if (status === "failed") return "联网补充失败，回答只基于当前片段";
-  return "";
-}
-
 export function ArticleReader({
   article,
   currentLang,
@@ -110,10 +101,6 @@ export function ArticleReader({
   const [isProjecting, setIsProjecting] = useState(false);
   const [isTogglingCandidate, setIsTogglingCandidate] = useState(false);
   const [isFetchingContent, setIsFetchingContent] = useState(false);
-  const [agentSearchStatus, setAgentSearchStatus] = useState<{
-    status: WebSearchStatus;
-    count: number;
-  } | null>(null);
 
   useEffect(() => {
     setQuestion("");
@@ -121,7 +108,6 @@ export function ArticleReader({
     setAgentError(null);
     setActionMessage(null);
     setActionError(null);
-    setAgentSearchStatus(null);
   }, [article?.id]);
 
   if (article == null) {
@@ -237,17 +223,6 @@ export function ArticleReader({
         const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
         throw new Error(typeof body?.error === "string" ? body.error : "Agent request failed.");
       }
-      const searchStatus = response.headers.get("x-agent-search-status") as WebSearchStatus | null;
-      const searchCount = Number(response.headers.get("x-agent-search-count") ?? "0");
-      if (searchStatus != null && searchStatus !== "disabled") {
-        setAgentSearchStatus({
-          status: searchStatus,
-          count: Number.isFinite(searchCount) ? searchCount : 0,
-        });
-      } else {
-        setAgentSearchStatus(null);
-      }
-
       const stream = response.body;
       if (stream == null) throw new Error("Agent response missing stream.");
 
@@ -398,7 +373,7 @@ export function ArticleReader({
 
       {article.contentStatus === "partial" ? (
         <p className="contentPartialNotice">
-          当前仅有 RSS 片段，可能不是完整正文。可尝试刷新全文，或打开原文阅读；问答会尝试用搜索摘要补充。
+          当前仅有 RSS 片段，可能不是完整正文。可尝试刷新全文，或打开原文阅读；问答将基于片段和评分信息回答，可能不完整。
         </p>
       ) : null}
 
@@ -427,12 +402,7 @@ export function ArticleReader({
           rows={3}
         />
         {article.contentStatus === "partial" ? (
-          <p className="agentNotice">正文不完整，提问时会尝试联网搜索摘要补充。</p>
-        ) : null}
-        {agentSearchStatus != null ? (
-          <p className="agentNotice">
-            {agentSearchStatusText(agentSearchStatus.status, agentSearchStatus.count)}
-          </p>
+          <p className="agentNotice">正文不完整，回答将基于当前片段和评分信息，可能不完整。</p>
         ) : null}
         {agentError != null ? <p className="agentError">{agentError}</p> : null}
         {answer.trim().length > 0 ? <AgentMarkdown text={answer} /> : null}

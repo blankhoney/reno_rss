@@ -1,5 +1,4 @@
 import { FocusedArticleReader } from "@/components/FocusedArticleReader";
-import { getConfig } from "@/lib/config";
 import {
   resolveArticleSortId,
   resolveSummaryLangId,
@@ -65,7 +64,7 @@ export default async function FocusReadPage({ params, searchParams }: PageProps)
     );
   }
 
-  const [article, config] = await Promise.all([getArticleForReader(articleId), Promise.resolve(getConfig())]);
+  const article = await getArticleForReader(articleId);
   const returnHref = workbenchHref(articleId, currentModule, currentSort, currentLang);
 
   if (article == null) {
@@ -87,7 +86,6 @@ export default async function FocusReadPage({ params, searchParams }: PageProps)
       article={article}
       currentLang={currentLang}
       returnHref={returnHref}
-      webSearchConfigured={config.WEB_SEARCH_PROVIDER === "brave" && Boolean(config.WEB_SEARCH_API_KEY)}
     />
   );
 }

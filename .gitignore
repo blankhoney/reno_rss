@@ -9,6 +9,12 @@ data/
 backup/
 .worktrees/
 
+.cursor/
+.vscode/
+.understand-anything/
+AGENTS.md
+docs/
+
 .DS_Store
 
 # Python generated files

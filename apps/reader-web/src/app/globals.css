@@ -216,6 +216,33 @@ button {
   margin: -4px 0 0;
   color: var(--muted);
   font-size: 0.84rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 8px 10px;
+  display: grid;
+  gap: 7px;
+}
+
+.bulkScoreStatus p {
+  margin: 0;
+}
+
+.bulkScoreFailures {
+  margin: 0;
+  padding-left: 18px;
+  color: #b91c1c;
+}
+
+.bulkScoreRefresh {
+  justify-self: start;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--accent);
+  padding: 5px 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .articleList {

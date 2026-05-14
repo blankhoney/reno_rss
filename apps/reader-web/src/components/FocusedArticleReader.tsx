@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
-import type { WebSearchStatus } from "@/lib/agent/webSearch";
 import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
@@ -86,14 +85,6 @@ function summaryForLang(article: Article, lang: SummaryLangId): string {
   return summary.trim() || "暂无摘要，点击实时评分生成";
 }
 
-function agentSearchStatusText(status: WebSearchStatus, count: number): string {
-  if (status === "searched") return `已联网补充 ${count} 条搜索摘要`;
-  if (status === "no_results") return "已尝试联网补充，但没有搜索结果";
-  if (status === "not_configured") return "联网补充未配置，回答只基于当前片段";
-  if (status === "failed") return "联网补充失败，回答只基于当前片段";
-  return "";
-}
-
 function switchSummaryLang(nextLang: SummaryLangId) {
   const qs = new URLSearchParams(window.location.search);
   qs.set("lang", nextLang);
@@ -104,12 +95,10 @@ export function FocusedArticleReader({
   article,
   currentLang,
   returnHref,
-  webSearchConfigured,
 }: {
   article: Article;
   currentLang: SummaryLangId;
   returnHref: string;
-  webSearchConfigured: boolean;
 }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -123,10 +112,6 @@ export function FocusedArticleReader({
   const [isTogglingCandidate, setIsTogglingCandidate] = useState(false);
   const [isProjecting, setIsProjecting] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [agentSearchStatus, setAgentSearchStatus] = useState<{
-    status: WebSearchStatus;
-    count: number;
-  } | null>(null);
 
   useEffect(() => {
     if (!drawerOpen || isAsking) return;
@@ -213,17 +198,6 @@ export function FocusedArticleReader({
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
         throw new Error(typeof body?.error === "string" ? body.error : "Agent request failed.");
-      }
-
-      const searchStatus = response.headers.get("x-agent-search-status") as WebSearchStatus | null;
-      const searchCount = Number(response.headers.get("x-agent-search-count") ?? "0");
-      if (searchStatus != null && searchStatus !== "disabled") {
-        setAgentSearchStatus({
-          status: searchStatus,
-          count: Number.isFinite(searchCount) ? searchCount : 0,
-        });
-      } else {
-        setAgentSearchStatus(null);
       }
 
       const stream = response.body;
@@ -329,7 +303,6 @@ export function FocusedArticleReader({
       <section className="focusStatusBar" aria-label="阅读状态">
         <span>{article.contentStatus === "partial" ? "正文：片段" : "正文：完整"}</span>
         <span>{score ? "评分：已评分" : "评分：未评分"}</span>
-        <span>{webSearchConfigured ? "联网补充：已配置" : "联网补充：未配置"}</span>
       </section>
 
       {actionMessage ? <p className="readerActionMessage">{actionMessage}</p> : null}
@@ -461,12 +434,7 @@ export function FocusedArticleReader({
             </button>
           </div>
           {article.contentStatus === "partial" ? (
-            <p className="agentNotice">正文不完整，提问时会尝试联网搜索摘要补充。</p>
-          ) : null}
-          {agentSearchStatus != null ? (
-            <p className="agentNotice">
-              {agentSearchStatusText(agentSearchStatus.status, agentSearchStatus.count)}
-            </p>
+            <p className="agentNotice">正文不完整，回答将基于当前片段和评分信息，可能不完整。</p>
           ) : null}
           {agentError != null ? <p className="agentError">{agentError}</p> : null}
           {answer.trim().length > 0 ? <AgentMarkdown text={answer} /> : null}

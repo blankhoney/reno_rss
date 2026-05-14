@@ -57,7 +57,8 @@ function readHref(
 function articleSummary(article: Article, currentLang: SummaryLangId): string {
   const summary =
     currentLang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
-  return summary.trim() || "未生成摘要";
+  if (summary.trim().length > 0) return summary.trim();
+  return article.score ? "暂无摘要" : "未评分";
 }
 
 async function scoreArticle(entryId: number, force: boolean) {
@@ -77,6 +78,21 @@ async function scoreArticle(entryId: number, force: boolean) {
   return { ok: true, entryId };
 }
 
+export function scoreErrorMessage(error: string | undefined): string {
+  if (error === "manual_rescore_disabled") return "手动重评已关闭";
+  if (error === "entry_not_found") return "文章不存在或不在当前 Miniflux 实例";
+  if (error === "score_service_invalid_response") return "评分服务返回异常";
+  if (error === "score_failed") return "评分失败";
+  if (error === undefined || error.trim().length === 0) return "未知错误";
+  return error;
+}
+
+export function failedScoreMessages(summary: BulkScoreSummary): string[] {
+  return summary.results
+    .filter((result) => !result.ok)
+    .map((result) => `#${result.entryId}：${scoreErrorMessage(result.error)}`);
+}
+
 export function ArticleList({
   articles,
   currentModule,
@@ -86,10 +102,19 @@ export function ArticleList({
 }: ArticleListProps) {
   const isEmpty = articles.length === 0;
   const [manualBatchSize, setManualBatchSize] = useState(DEFAULT_SCORING_SETTINGS.manualBatchSize);
+  const [manualRescoreEnabled, setManualRescoreEnabled] = useState(
+    DEFAULT_SCORING_SETTINGS.manualRescoreEnabled,
+  );
   const [bulkScoreSummary, setBulkScoreSummary] = useState<BulkScoreSummary | null>(null);
   const [isBulkScoring, setIsBulkScoring] = useState(false);
   const clickTimerRef = useRef<number | null>(null);
   const batchCount = Math.min(manualBatchSize, articles.length);
+  const rescoreDisabledReason = !manualRescoreEnabled
+    ? "手动重评已关闭"
+    : batchCount === 0
+      ? "暂无可重评文章"
+      : null;
+  const failedMessages = bulkScoreSummary ? failedScoreMessages(bulkScoreSummary) : [];
 
   useEffect(() => {
     let cancelled = false;
@@ -99,10 +124,16 @@ export function ArticleList({
         return response.json() as Promise<{ settings: ScoringSettings }>;
       })
       .then((body) => {
-        if (!cancelled) setManualBatchSize(body.settings.manualBatchSize);
+        if (!cancelled) {
+          setManualBatchSize(body.settings.manualBatchSize);
+          setManualRescoreEnabled(body.settings.manualRescoreEnabled);
+        }
       })
       .catch(() => {
-        if (!cancelled) setManualBatchSize(DEFAULT_SCORING_SETTINGS.manualBatchSize);
+        if (!cancelled) {
+          setManualBatchSize(DEFAULT_SCORING_SETTINGS.manualBatchSize);
+          setManualRescoreEnabled(DEFAULT_SCORING_SETTINGS.manualRescoreEnabled);
+        }
       });
     return () => {
       cancelled = true;
@@ -143,7 +174,7 @@ export function ArticleList({
   }
 
   async function rescoreCurrentPage() {
-    if (isBulkScoring || batchCount === 0) return;
+    if (isBulkScoring || rescoreDisabledReason != null) return;
     setIsBulkScoring(true);
     setBulkScoreSummary({
       total: batchCount,
@@ -163,7 +194,6 @@ export function ArticleList({
     );
     setBulkScoreSummary(summary);
     setIsBulkScoring(false);
-    window.setTimeout(() => window.location.reload(), 700);
   }
 
   return (
@@ -174,14 +204,25 @@ export function ArticleList({
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isBulkScoring || batchCount === 0}
+            disabled={isBulkScoring || rescoreDisabledReason != null}
+            title={rescoreDisabledReason ?? undefined}
             onClick={() => void rescoreCurrentPage()}
           >
-            {isBulkScoring ? "重评中" : `重评前 ${batchCount} 篇`}
+            {isBulkScoring
+              ? "重评中"
+              : rescoreDisabledReason === "手动重评已关闭"
+                ? "手动重评已关闭"
+                : `重评前 ${batchCount} 篇`}
           </button>
           <ScoringSettingsPanel
-            onSettingsLoaded={(settings) => setManualBatchSize(settings.manualBatchSize)}
-            onSettingsSaved={(settings) => setManualBatchSize(settings.manualBatchSize)}
+            onSettingsLoaded={(settings) => {
+              setManualBatchSize(settings.manualBatchSize);
+              setManualRescoreEnabled(settings.manualRescoreEnabled);
+            }}
+            onSettingsSaved={(settings) => {
+              setManualBatchSize(settings.manualBatchSize);
+              setManualRescoreEnabled(settings.manualRescoreEnabled);
+            }}
           />
           <label className="articleSortLabel">
             <span className="visuallyHidden">排序</span>
@@ -201,10 +242,29 @@ export function ArticleList({
         </div>
       </header>
       {bulkScoreSummary ? (
-        <p className="bulkScoreStatus">
-          重评进度 {bulkScoreSummary.completed}/{bulkScoreSummary.total}，成功{" "}
-          {bulkScoreSummary.succeeded}，失败 {bulkScoreSummary.failed}
-        </p>
+        <div className="bulkScoreStatus" role="status">
+          <p>
+            {isBulkScoring ? "重评进度" : "重评完成"} {bulkScoreSummary.completed}/
+            {bulkScoreSummary.total}，成功 {bulkScoreSummary.succeeded}，失败{" "}
+            {bulkScoreSummary.failed}
+          </p>
+          {failedMessages.length > 0 ? (
+            <ul className="bulkScoreFailures" aria-label="评分失败文章">
+              {failedMessages.map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+            </ul>
+          ) : null}
+          {!isBulkScoring && bulkScoreSummary.completed > 0 ? (
+            <button
+              type="button"
+              className="bulkScoreRefresh"
+              onClick={() => window.location.reload()}
+            >
+              刷新列表查看摘要/评分
+            </button>
+          ) : null}
+        </div>
       ) : null}
       {isEmpty ? (
         <div className="articleListEmpty">
