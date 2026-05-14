@@ -1,6 +1,7 @@
 import type { Article } from "./types";
 import {
   articleNeedsOriginalContentFetch,
+  classifyArticleContentStatus,
   filterArticlesForModule,
   mergeArticleData,
   minifluxEntryFilterForModule,
@@ -115,8 +116,10 @@ export async function getArticleForReader(
   const miniflux = getConfiguredMinifluxClient();
   let article = await miniflux.getEntry(id);
   if (article == null) return null;
+  let contentFetchAttempted = false;
 
   if (options.autoFetchContent !== false && articleNeedsOriginalContentFetch(article.contentHtml)) {
+    contentFetchAttempted = true;
     try {
       const fetchedContent = await miniflux.fetchOriginalContent(id, true);
       if (fetchedContent.trim().length > article.contentHtml.trim().length) {
@@ -137,7 +140,13 @@ export async function getArticleForReader(
     states = new Map();
   }
 
-  return mergeArticleData([article], scores, states)[0] ?? null;
+  const merged = mergeArticleData([article], scores, states)[0];
+  if (!merged) return null;
+  return {
+    ...merged,
+    contentStatus: classifyArticleContentStatus(merged.contentHtml),
+    contentFetchAttempted,
+  };
 }
 
 export async function refreshArticleOriginalContent(id: number): Promise<Article | null> {
@@ -158,5 +167,11 @@ export async function refreshArticleOriginalContent(id: number): Promise<Article
     console.warn("Failed to load scoring data for refreshed article detail", error);
   }
 
-  return mergeArticleData([article], scores, states)[0] ?? null;
+  const merged = mergeArticleData([article], scores, states)[0];
+  if (!merged) return null;
+  return {
+    ...merged,
+    contentStatus: classifyArticleContentStatus(merged.contentHtml),
+    contentFetchAttempted: true,
+  };
 }

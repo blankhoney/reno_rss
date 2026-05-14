@@ -18,6 +18,7 @@ _SCHEMA_SQL = (Path(__file__).parent.parent / "sql" / "001_init_scoring.sql").re
 DEFAULT_SCORING_SETTINGS = {
     "auto_score_new_unread": True,
     "webhook_max_entries": 20,
+    "manual_batch_size": 20,
     "manual_rescore_enabled": True,
 }
 
@@ -145,7 +146,8 @@ def get_scoring_settings(conn: psycopg2.extensions.connection, tenant_id: str) -
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT auto_score_new_unread, webhook_max_entries, manual_rescore_enabled
+            SELECT auto_score_new_unread, webhook_max_entries, manual_batch_size,
+                   manual_rescore_enabled
             FROM scoring_settings
             WHERE tenant_id = %s
             """,
@@ -157,7 +159,8 @@ def get_scoring_settings(conn: psycopg2.extensions.connection, tenant_id: str) -
     return {
         "auto_score_new_unread": bool(row[0]),
         "webhook_max_entries": int(row[1]),
-        "manual_rescore_enabled": bool(row[2]),
+        "manual_batch_size": int(row[2]),
+        "manual_rescore_enabled": bool(row[3]),
     }
 
 

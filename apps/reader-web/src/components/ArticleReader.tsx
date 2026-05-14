@@ -5,6 +5,7 @@ import type { Article } from "@/lib/articles/types";
 import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
 import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
+import type { WebSearchStatus } from "@/lib/agent/webSearch";
 import { ScoreBadge } from "./ScoreBadge";
 
 const DIMENSION_ROWS: { key: DimensionKey | "overall"; label: string }[] = [
@@ -29,6 +30,7 @@ function articleContextText(article: Article): string {
   const parts = [
     `标题：${article.title}`,
     `链接：${article.url}`,
+    `正文状态：${article.contentStatus === "partial" ? "当前可能只有 RSS 片段" : "完整或较完整正文"}`,
     article.summaryZh ? `中文摘要：${article.summaryZh}` : "",
     article.summaryOriginal ? `原文摘要：${article.summaryOriginal}` : "",
     article.score?.reason ? `评分理由：${article.score.reason}` : "",
@@ -82,6 +84,14 @@ function switchSummaryLang(nextLang: SummaryLangId) {
   window.location.search = qs.toString();
 }
 
+function agentSearchStatusText(status: WebSearchStatus, count: number): string {
+  if (status === "searched") return `已联网补充 ${count} 条搜索摘要`;
+  if (status === "no_results") return "已尝试联网补充，但没有搜索结果";
+  if (status === "not_configured") return "联网补充未配置，回答只基于当前片段";
+  if (status === "failed") return "联网补充失败，回答只基于当前片段";
+  return "";
+}
+
 export function ArticleReader({
   article,
   currentLang,
@@ -99,6 +109,10 @@ export function ArticleReader({
   const [isProjecting, setIsProjecting] = useState(false);
   const [isTogglingCandidate, setIsTogglingCandidate] = useState(false);
   const [isFetchingContent, setIsFetchingContent] = useState(false);
+  const [agentSearchStatus, setAgentSearchStatus] = useState<{
+    status: WebSearchStatus;
+    count: number;
+  } | null>(null);
 
   useEffect(() => {
     setQuestion("");
@@ -106,6 +120,7 @@ export function ArticleReader({
     setAgentError(null);
     setActionMessage(null);
     setActionError(null);
+    setAgentSearchStatus(null);
   }, [article?.id]);
 
   if (article == null) {
@@ -210,6 +225,7 @@ export function ArticleReader({
             title: article.title,
             url: article.url,
             contentText: articleContextText(article),
+            contentStatus: article.contentStatus,
             scoreReason: article.score?.reason ?? "",
             tags: article.score?.tags ?? [],
           },
@@ -219,6 +235,16 @@ export function ArticleReader({
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
         throw new Error(typeof body?.error === "string" ? body.error : "Agent request failed.");
+      }
+      const searchStatus = response.headers.get("x-agent-search-status") as WebSearchStatus | null;
+      const searchCount = Number(response.headers.get("x-agent-search-count") ?? "0");
+      if (searchStatus != null && searchStatus !== "disabled") {
+        setAgentSearchStatus({
+          status: searchStatus,
+          count: Number.isFinite(searchCount) ? searchCount : 0,
+        });
+      } else {
+        setAgentSearchStatus(null);
       }
 
       const stream = response.body;
@@ -348,11 +374,32 @@ export function ArticleReader({
               <span className="scoreReasonLabel">总评</span>
               {score.reason.trim() || "暂无评分理由。"}
             </p>
+            {Object.keys(score.dimensionReasons).length > 0 ? (
+              <details className="dimensionReasons">
+                <summary>维度理由</summary>
+                <dl>
+                  {DIMENSION_ROWS.filter((row): row is { key: DimensionKey; label: string } => row.key !== "overall")
+                    .filter((row) => score.dimensionReasons[row.key])
+                    .map((row) => (
+                      <div key={row.key} className="dimensionReasonRow">
+                        <dt>{row.label}</dt>
+                        <dd>{score.dimensionReasons[row.key]}</dd>
+                      </div>
+                    ))}
+                </dl>
+              </details>
+            ) : null}
           </>
         ) : (
           <p className="scoreMissing">未评分。点击“实时评分”生成摘要、分数和理由。</p>
         )}
       </section>
+
+      {article.contentStatus === "partial" ? (
+        <p className="contentPartialNotice">
+          当前仅有 RSS 片段，可能不是完整正文。可尝试刷新全文，或打开原文阅读；问答会尝试用搜索摘要补充。
+        </p>
+      ) : null}
 
       <div
         className="articleContent content"
@@ -378,6 +425,14 @@ export function ArticleReader({
           placeholder="问当前文章..."
           rows={3}
         />
+        {article.contentStatus === "partial" ? (
+          <p className="agentNotice">正文不完整，提问时会尝试联网搜索摘要补充。</p>
+        ) : null}
+        {agentSearchStatus != null ? (
+          <p className="agentNotice">
+            {agentSearchStatusText(agentSearchStatus.status, agentSearchStatus.count)}
+          </p>
+        ) : null}
         {agentError != null ? <p className="agentError">{agentError}</p> : null}
         {answer.trim().length > 0 ? <pre className="agentAnswer">{answer}</pre> : null}
       </section>

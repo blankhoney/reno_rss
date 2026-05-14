@@ -1,6 +1,7 @@
 import type { ArticleScore } from "@/lib/scoring/repository";
 
 export type ArticleStatus = "read" | "unread" | "removed";
+export type ArticleContentStatus = "full" | "partial";
 
 export type Article = {
   id: number;
@@ -12,6 +13,8 @@ export type Article = {
   title: string;
   url: string;
   contentHtml: string;
+  contentStatus: ArticleContentStatus;
+  contentFetchAttempted: boolean;
   summaryZh: string;
   summaryOriginal: string;
   sourceLanguage: string;

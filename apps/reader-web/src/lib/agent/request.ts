@@ -1,3 +1,5 @@
+import type { ArticleContentStatus } from "@/lib/articles/types";
+
 export const ARTICLE_AGENT_LIMITS = {
   question: 1_000,
   selectedText: 5_000,
@@ -11,6 +13,7 @@ export type ArticleAgentRequest = {
     title: string;
     url: string;
     contentText: string;
+    contentStatus: ArticleContentStatus;
     scoreReason: string;
     tags: string[];
   };
@@ -44,6 +47,7 @@ export function parseArticleAgentRequest(parsed: unknown): ArticleAgentRequestPa
   const title = article.title;
   const urlField = article.url;
   const contentText = article.contentText;
+  const contentStatusRaw = article.contentStatus;
   const scoreReason = article.scoreReason;
   const tagsUnknown = article.tags;
 
@@ -59,6 +63,8 @@ export function parseArticleAgentRequest(parsed: unknown): ArticleAgentRequestPa
   ) {
     return { ok: false, error: "Invalid article payload" };
   }
+  const contentStatus: ArticleContentStatus =
+    contentStatusRaw === "partial" || contentStatusRaw === "full" ? contentStatusRaw : "full";
   if (contentText.length > ARTICLE_AGENT_LIMITS.contentText) {
     return { ok: false, error: "Article content is too long" };
   }
@@ -83,6 +89,7 @@ export function parseArticleAgentRequest(parsed: unknown): ArticleAgentRequestPa
         title,
         url: urlField,
         contentText,
+        contentStatus,
         scoreReason,
         tags: tagsUnknown as string[],
       },

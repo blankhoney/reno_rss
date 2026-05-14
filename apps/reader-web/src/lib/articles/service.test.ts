@@ -9,6 +9,7 @@ import {
   resolveArticlesListModuleId,
   resolveArticleSortId,
   sanitizeArticleHtml,
+  classifyArticleContentStatus,
   sortArticlesForModule,
 } from "./service";
 
@@ -43,6 +44,8 @@ function article(
     title: input.title ?? `Article ${id}`,
     url: input.url ?? "https://example.com",
     contentHtml: input.contentHtml ?? "<p>Body</p>",
+    contentStatus: input.contentStatus ?? "partial",
+    contentFetchAttempted: input.contentFetchAttempted ?? false,
     summaryZh: input.summaryZh ?? "",
     summaryOriginal: input.summaryOriginal ?? "",
     sourceLanguage: input.sourceLanguage ?? "unknown",
@@ -221,4 +224,10 @@ test("articleNeedsOriginalContentFetch detects empty, short, and Comments placeh
   assert.equal(articleNeedsOriginalContentFetch("<p>Comments</p>"), true);
   assert.equal(articleNeedsOriginalContentFetch("<p>Short teaser.</p>"), true);
   assert.equal(articleNeedsOriginalContentFetch(`<p>${"full body ".repeat(80)}</p>`), false);
+});
+
+test("classifyArticleContentStatus marks short or placeholder content as partial", () => {
+  assert.equal(classifyArticleContentStatus("<p>Comments</p>"), "partial");
+  assert.equal(classifyArticleContentStatus("<p>Short teaser.</p>"), "partial");
+  assert.equal(classifyArticleContentStatus(`<p>${"full body ".repeat(80)}</p>`), "full");
 });

@@ -10,6 +10,7 @@ function payload(overrides: Record<string, unknown> = {}) {
       title: "Article",
       url: "https://example.com",
       contentText: "Body",
+      contentStatus: "partial",
       scoreReason: "",
       tags: [],
     },
@@ -23,6 +24,18 @@ test("parseArticleAgentRequest accepts a minimal valid payload", () => {
   assert.equal(result.ok, true);
   if (result.ok) {
     assert.equal(result.value.question, "总结这篇文章");
+    assert.equal(result.value.article.contentStatus, "partial");
+  }
+});
+
+test("parseArticleAgentRequest defaults missing contentStatus to full", () => {
+  const base = payload();
+  delete (base.article as Record<string, unknown>).contentStatus;
+  const result = parseArticleAgentRequest(base);
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.value.article.contentStatus, "full");
   }
 });
 

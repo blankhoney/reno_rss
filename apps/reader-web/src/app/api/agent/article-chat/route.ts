@@ -2,7 +2,7 @@ import { buildArticleAgentMessages, shouldUseWebSearch } from "@/lib/agent/promp
 import { streamMinimaxChat } from "@/lib/agent/minimax";
 import { parseArticleAgentRequest } from "@/lib/agent/request";
 import { cleanOpenAICompatibleSseStream } from "@/lib/agent/stream";
-import { searchWeb } from "@/lib/agent/webSearch";
+import { searchWebWithStatus, type WebSearchOutcome } from "@/lib/agent/webSearch";
 import { getConfig } from "@/lib/config";
 
 export const runtime = "nodejs";
@@ -25,7 +25,9 @@ export async function POST(request: Request) {
   const { question, article, selectedText } = parsedRequest.value;
   const queryForSearch = `${question} ${article.title}`;
 
-  const searchResults = shouldUseWebSearch(question) ? await searchWeb(queryForSearch) : [];
+  const searchOutcome: WebSearchOutcome = shouldUseWebSearch(question, article.contentStatus)
+    ? await searchWebWithStatus(queryForSearch)
+    : { status: "disabled", results: [] };
 
   const messages = buildArticleAgentMessages({
     question,
@@ -33,11 +35,13 @@ export async function POST(request: Request) {
       title: article.title,
       url: article.url,
       contentText: article.contentText,
+      contentStatus: article.contentStatus,
       scoreReason: article.scoreReason,
       tags: article.tags,
     },
     selectedText,
-    searchResults,
+    searchResults: searchOutcome.results,
+    searchStatus: searchOutcome.status,
   });
 
   try {
@@ -47,6 +51,8 @@ export async function POST(request: Request) {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
+        "X-Agent-Search-Status": searchOutcome.status,
+        "X-Agent-Search-Count": String(searchOutcome.results.length),
       },
     });
   } catch (error) {

@@ -1,4 +1,16 @@
 import type { Pool } from "pg";
+export {
+  DEFAULT_SCORING_SETTINGS,
+  clampInt,
+  normalizeScoringSettingsPatch,
+  type ScoringSettings,
+} from "./settings";
+import {
+  DEFAULT_SCORING_SETTINGS,
+  clampInt,
+  normalizeScoringSettingsPatch,
+  type ScoringSettings,
+} from "./settings";
 
 export type DimensionKey =
   | "importance"
@@ -21,19 +33,7 @@ export type ArticleScore = {
   scoredAt: string | null;
 };
 
-export type ScoringSettings = {
-  autoScoreNewUnread: boolean;
-  webhookMaxEntries: number;
-  manualRescoreEnabled: boolean;
-};
-
 export type ProjectQueueSource = "manual";
-
-export const DEFAULT_SCORING_SETTINGS: ScoringSettings = {
-  autoScoreNewUnread: true,
-  webhookMaxEntries: 20,
-  manualRescoreEnabled: true,
-};
 
 const dimensionKeys: DimensionKey[] = [
   "importance",
@@ -218,32 +218,9 @@ export async function getProjectEntryIds(
     );
     return result.rows.map((row) => Number(row.miniflux_entry_id));
   } catch (error) {
-    if (isUndefinedTableError(error)) return [];
+    if (isUndefinedSchemaObjectError(error)) return [];
     throw error;
   }
-}
-
-export function normalizeScoringSettingsPatch(input: unknown): ScoringSettings {
-  const record =
-    input !== null && typeof input === "object" && !Array.isArray(input)
-      ? (input as Record<string, unknown>)
-      : {};
-  return {
-    autoScoreNewUnread:
-      typeof record.autoScoreNewUnread === "boolean"
-        ? record.autoScoreNewUnread
-        : DEFAULT_SCORING_SETTINGS.autoScoreNewUnread,
-    webhookMaxEntries: clampInt(
-      record.webhookMaxEntries,
-      1,
-      100,
-      DEFAULT_SCORING_SETTINGS.webhookMaxEntries,
-    ),
-    manualRescoreEnabled:
-      typeof record.manualRescoreEnabled === "boolean"
-        ? record.manualRescoreEnabled
-        : DEFAULT_SCORING_SETTINGS.manualRescoreEnabled,
-  };
 }
 
 export function updateScoringSettingsSql(tenantId: string, settings: ScoringSettings) {
@@ -251,13 +228,14 @@ export function updateScoringSettingsSql(tenantId: string, settings: ScoringSett
     text: `
       INSERT INTO scoring_settings (
         tenant_id, auto_score_new_unread, webhook_max_entries,
-        manual_rescore_enabled, updated_at
+        manual_batch_size, manual_rescore_enabled, updated_at
       )
-      VALUES ($1, $2, $3, $4, NOW())
+      VALUES ($1, $2, $3, $4, $5, NOW())
       ON CONFLICT (tenant_id)
       DO UPDATE SET
         auto_score_new_unread = EXCLUDED.auto_score_new_unread,
         webhook_max_entries = EXCLUDED.webhook_max_entries,
+        manual_batch_size = EXCLUDED.manual_batch_size,
         manual_rescore_enabled = EXCLUDED.manual_rescore_enabled,
         updated_at = NOW()
     `,
@@ -265,6 +243,7 @@ export function updateScoringSettingsSql(tenantId: string, settings: ScoringSett
       tenantId,
       settings.autoScoreNewUnread,
       settings.webhookMaxEntries,
+      settings.manualBatchSize,
       settings.manualRescoreEnabled,
     ],
   };
@@ -276,13 +255,14 @@ export async function getScoringSettings(pool: Pool, tenantId: string): Promise<
     result = await pool.query(
       `
         SELECT auto_score_new_unread, webhook_max_entries, manual_rescore_enabled
+             , manual_batch_size
         FROM scoring_settings
         WHERE tenant_id = $1
       `,
       [tenantId],
     );
   } catch (error) {
-    if (isUndefinedTableError(error)) return DEFAULT_SCORING_SETTINGS;
+    if (isUndefinedSchemaObjectError(error)) return DEFAULT_SCORING_SETTINGS;
     throw error;
   }
   const row = result.rows[0];
@@ -294,6 +274,12 @@ export async function getScoringSettings(pool: Pool, tenantId: string): Promise<
       1,
       100,
       DEFAULT_SCORING_SETTINGS.webhookMaxEntries,
+    ),
+    manualBatchSize: clampInt(
+      row.manual_batch_size,
+      1,
+      50,
+      DEFAULT_SCORING_SETTINGS.manualBatchSize,
     ),
     manualRescoreEnabled: Boolean(row.manual_rescore_enabled),
   };
@@ -320,12 +306,6 @@ function clampScore(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(100, Math.round(parsed)));
-}
-
-function clampInt(value: unknown, min: number, max: number, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
 }
 
 function normalizeTags(value: ScoreRow["tags"]): string[] {
@@ -370,12 +350,13 @@ function safeJsonObject(value: string): Record<string, unknown> {
   }
 }
 
-function isUndefinedTableError(error: unknown): boolean {
+function isUndefinedSchemaObjectError(error: unknown): boolean {
   return (
     error !== null &&
     typeof error === "object" &&
     "code" in error &&
-    (error as { code?: unknown }).code === "42P01"
+    ((error as { code?: unknown }).code === "42P01" ||
+      (error as { code?: unknown }).code === "42703")
   );
 }
 

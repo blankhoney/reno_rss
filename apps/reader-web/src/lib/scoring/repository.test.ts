@@ -117,12 +117,14 @@ test("normalizeScoringSettingsPatch clamps user editable values", () => {
   const patch = normalizeScoringSettingsPatch({
     autoScoreNewUnread: false,
     webhookMaxEntries: 500,
+    manualBatchSize: 500,
     manualRescoreEnabled: true,
   });
 
   assert.deepEqual(patch, {
     autoScoreNewUnread: false,
     webhookMaxEntries: 100,
+    manualBatchSize: 50,
     manualRescoreEnabled: true,
   });
 });
@@ -135,10 +137,12 @@ test("updateScoringSettingsSql upserts one row per tenant", () => {
   const query = updateScoringSettingsSql("default", {
     autoScoreNewUnread: false,
     webhookMaxEntries: 12,
+    manualBatchSize: 20,
     manualRescoreEnabled: true,
   });
 
-  assert.deepEqual(query.values, ["default", false, 12, true]);
+  assert.deepEqual(query.values, ["default", false, 12, 20, true]);
   assert.match(query.text, /scoring_settings/);
+  assert.match(query.text, /manual_batch_size/);
   assert.match(query.text, /ON CONFLICT \(tenant_id\)/);
 });

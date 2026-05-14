@@ -1,7 +1,11 @@
+import type { ArticleContentStatus } from "@/lib/articles/types";
+import type { WebSearchStatus } from "./webSearch";
+
 export type ArticleAgentArticle = {
   title: string;
   url: string;
   contentText: string;
+  contentStatus: ArticleContentStatus;
   scoreReason: string;
   tags: string[];
 };
@@ -17,6 +21,7 @@ export type BuildArticleAgentMessagesInput = {
   article: ArticleAgentArticle;
   selectedText?: string;
   searchResults: ArticleAgentSearchResult[];
+  searchStatus?: WebSearchStatus;
 };
 
 export type AgentChatMessage = {
@@ -45,14 +50,21 @@ const SIMPLE_SUMMARY_PATTERNS: RegExp[] = [
   /^tl;?dr\b/i,
 ];
 
-export function shouldUseWebSearch(question: string): boolean {
+export function shouldUseWebSearch(question: string, contentStatus: ArticleContentStatus = "full"): boolean {
+  if (contentStatus === "partial") return true;
   const q = question.trim();
   if (q.length === 0) return false;
   if (SIMPLE_SUMMARY_PATTERNS.some((p) => p.test(q))) return false;
   return FRESHNESS_PATTERNS.some((p) => p.test(q));
 }
 
-function formatSearchResultsBlock(results: ArticleAgentSearchResult[]): string {
+function formatSearchResultsBlock(results: ArticleAgentSearchResult[], status: WebSearchStatus): string {
+  if (status === "not_configured") {
+    return "联网补充未配置；请明确说明回答只能基于当前 RSS 片段、文章元数据和评分信息。";
+  }
+  if (status === "failed") {
+    return "联网补充请求失败；请明确说明回答只能基于当前 RSS 片段、文章元数据和评分信息。";
+  }
   if (results.length === 0) {
     return "（无联网搜索结果；请主要依据下文文章与评分信息作答。）";
   }
@@ -73,12 +85,13 @@ const SYSTEM_PROMPT = [
   "## 行动建议",
   "不要输出思考过程、草稿、隐藏的推理链条或 XML/JSON 格式的内部标签。",
   "严禁输出 <think>、</think> 或其中的任何内容。",
+  "如果使用联网搜索结果，要说明它是搜索摘要补充，不是站内全文正文。",
   "若联网搜索结果与正文冲突，要明确标注不确定点并在“依据”中分别说明出处。",
   "“引用”中优先引用正文句子或搜索结果条目；若没有合适引用可以写“无”。",
 ].join("\n");
 
 export function buildArticleAgentMessages(input: BuildArticleAgentMessagesInput): AgentChatMessage[] {
-  const { question, article, selectedText, searchResults } = input;
+  const { question, article, selectedText, searchResults, searchStatus = "disabled" } = input;
   const parts: string[] = [];
 
   parts.push(`## 用户问题\n${question.trim()}`);
@@ -92,6 +105,7 @@ export function buildArticleAgentMessages(input: BuildArticleAgentMessagesInput)
       "## 文章元数据",
       `标题：${article.title}`,
       `链接：${article.url}`,
+      `正文状态：${article.contentStatus === "partial" ? "RSS 片段，可能不是完整正文" : "完整或较完整正文"}`,
       `评分理由（系统）：${article.scoreReason}`,
       `标签：${article.tags.length > 0 ? article.tags.join(", ") : "（无）"}`,
     ].join("\n"),
@@ -99,7 +113,7 @@ export function buildArticleAgentMessages(input: BuildArticleAgentMessagesInput)
 
   parts.push(`## 文章正文\n${article.contentText}`);
 
-  parts.push(["## 联网搜索结果（若为空请忽略）", formatSearchResultsBlock(searchResults)].join("\n"));
+  parts.push(["## 联网搜索结果（若为空请忽略）", formatSearchResultsBlock(searchResults, searchStatus)].join("\n"));
 
   const userPayload = parts.join("\n\n");
 

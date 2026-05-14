@@ -1,22 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DEFAULT_SCORING_SETTINGS, type ScoringSettings } from "@/lib/scoring/settings";
 
-type ScoringSettings = {
-  autoScoreNewUnread: boolean;
-  webhookMaxEntries: number;
-  manualRescoreEnabled: boolean;
-};
-
-const DEFAULT_SETTINGS: ScoringSettings = {
-  autoScoreNewUnread: true,
-  webhookMaxEntries: 20,
-  manualRescoreEnabled: true,
-};
-
-export function ScoringSettingsPanel() {
+export function ScoringSettingsPanel({
+  onSettingsLoaded,
+  onSettingsSaved,
+}: {
+  onSettingsLoaded?: (settings: ScoringSettings) => void;
+  onSettingsSaved?: (settings: ScoringSettings) => void;
+}) {
   const [open, setOpen] = useState(false);
-  const [settings, setSettings] = useState<ScoringSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<ScoringSettings>(DEFAULT_SCORING_SETTINGS);
   const [message, setMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -29,7 +24,10 @@ export function ScoringSettingsPanel() {
         return response.json() as Promise<{ settings: ScoringSettings }>;
       })
       .then((body) => {
-        if (!cancelled) setSettings(body.settings);
+        if (!cancelled) {
+          setSettings(body.settings);
+          onSettingsLoaded?.(body.settings);
+        }
       })
       .catch(() => {
         if (!cancelled) setMessage("读取设置失败");
@@ -51,6 +49,7 @@ export function ScoringSettingsPanel() {
       if (!response.ok) throw new Error("settings_save_failed");
       const body = (await response.json()) as { settings: ScoringSettings };
       setSettings(body.settings);
+      onSettingsSaved?.(body.settings);
       setMessage("已保存");
     } catch {
       setMessage("保存失败");
@@ -91,6 +90,22 @@ export function ScoringSettingsPanel() {
                 setSettings((current) => ({
                   ...current,
                   webhookMaxEntries: Number(event.target.value),
+                }))
+              }
+            />
+          </label>
+          <label className="settingsRow">
+            <span>手动重评篇数</span>
+            <input
+              className="settingsNumber"
+              type="number"
+              min={1}
+              max={50}
+              value={settings.manualBatchSize}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  manualBatchSize: Number(event.target.value),
                 }))
               }
             />

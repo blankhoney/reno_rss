@@ -1,6 +1,6 @@
 import type { ArticleScore } from "@/lib/scoring/repository";
 import sanitizeHtml from "sanitize-html";
-import type { Article } from "./types";
+import type { Article, ArticleContentStatus } from "./types";
 
 export const MODULE_IDS = [
   "all",
@@ -96,7 +96,11 @@ export function sortArticlesForModule(
   sortId: ArticleSortId = "default",
 ): Article[] {
   if (sortId !== "default") {
-    return [...articles].sort((a, b) => scoreForSort(b, sortId) - scoreForSort(a, sortId));
+    return [...articles].sort((a, b) => {
+      const scoreDelta = scoreForSort(b, sortId) - scoreForSort(a, sortId);
+      if (scoreDelta !== 0) return scoreDelta;
+      return publishedAtSortKey(b.publishedAt) - publishedAtSortKey(a.publishedAt);
+    });
   }
   if (moduleId === "project") return articles;
   return [...articles].sort((a, b) => scoreForModule(b, moduleId) - scoreForModule(a, moduleId));
@@ -176,7 +180,14 @@ function scoreForSort(article: Article, sortId: ArticleSortId): number {
 
 type MinifluxArticle = Omit<
   Article,
-  "score" | "readLater" | "lastReadAt" | "summaryZh" | "summaryOriginal" | "sourceLanguage"
+  | "score"
+  | "readLater"
+  | "lastReadAt"
+  | "summaryZh"
+  | "summaryOriginal"
+  | "sourceLanguage"
+  | "contentStatus"
+  | "contentFetchAttempted"
 >;
 
 export function sanitizeArticleHtml(html: string): string {
@@ -197,6 +208,10 @@ export function articleNeedsOriginalContentFetch(html: string): boolean {
   return /^comments?$/i.test(text);
 }
 
+export function classifyArticleContentStatus(html: string): ArticleContentStatus {
+  return articleNeedsOriginalContentFetch(html) ? "partial" : "full";
+}
+
 export function mergeArticleData(
   articles: MinifluxArticle[],
   scores: Map<number, ArticleScore>,
@@ -204,9 +219,12 @@ export function mergeArticleData(
 ): Article[] {
   return articles.map((article) => {
     const state = states.get(article.id);
+    const contentHtml = sanitizeArticleHtml(article.contentHtml);
     return {
       ...article,
-      contentHtml: sanitizeArticleHtml(article.contentHtml),
+      contentHtml,
+      contentStatus: classifyArticleContentStatus(contentHtml),
+      contentFetchAttempted: false,
       score: scores.get(article.id) ?? null,
       summaryZh: scores.get(article.id)?.summaryZh ?? "",
       summaryOriginal: scores.get(article.id)?.summaryOriginal ?? "",

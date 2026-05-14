@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS scoring_settings (
     tenant_id               TEXT        PRIMARY KEY,
     auto_score_new_unread   BOOLEAN     NOT NULL DEFAULT TRUE,
     webhook_max_entries     INT         NOT NULL DEFAULT 20,
+    manual_batch_size       INT         NOT NULL DEFAULT 20,
     manual_rescore_enabled  BOOLEAN     NOT NULL DEFAULT TRUE,
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

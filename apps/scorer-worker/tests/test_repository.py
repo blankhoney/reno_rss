@@ -15,7 +15,17 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from repository import create_digest, upsert_digest_item, upsert_score, upsert_snapshot  # noqa: E402
+from repository import (
+    DEFAULT_SCORING_SETTINGS,
+    create_digest,
+    upsert_digest_item,
+    upsert_score,
+    upsert_snapshot,
+)  # noqa: E402
+
+
+def test_default_scoring_settings_include_manual_batch_size():
+    assert DEFAULT_SCORING_SETTINGS["manual_batch_size"] == 20
 
 
 def _make_conn():

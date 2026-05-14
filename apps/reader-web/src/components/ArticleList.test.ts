@@ -31,6 +31,8 @@ test("ArticleList renders summaries and preserves module sort lang in article li
     title: "Example title",
     url: "https://example.com",
     contentHtml: "<p>Body</p>",
+    contentStatus: "partial",
+    contentFetchAttempted: false,
     summaryZh: "这是一段中文摘要。",
     summaryOriginal: "This is an original summary.",
     sourceLanguage: "en",
