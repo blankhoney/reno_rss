@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
     "test": "node --test --import tsx 'src/**/*.test.ts'"
   },
   "dependencies": {

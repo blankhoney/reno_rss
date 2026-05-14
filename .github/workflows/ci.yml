@@ -15,6 +15,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/reader-web/package-lock.json
+
       - name: Install Python dependencies
         working-directory: apps/scorer-worker
         run: pip install -U pip && pip install -e ".[dev]"
@@ -26,6 +32,18 @@ jobs:
       - name: Unit tests
         working-directory: apps/scorer-worker
         run: pytest tests/ -q
+
+      - name: Install reader-web dependencies
+        working-directory: apps/reader-web
+        run: npm ci
+
+      - name: Test reader-web
+        working-directory: apps/reader-web
+        run: npm test
+
+      - name: Build reader-web
+        working-directory: apps/reader-web
+        run: npm run build
 
       - name: Validate Compose config
         run: |
