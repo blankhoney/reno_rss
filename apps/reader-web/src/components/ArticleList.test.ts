@@ -20,7 +20,7 @@ test("ArticleList renders an explicit empty state", () => {
   assert.match(html, /当前模块没有可显示的文章/);
 });
 
-test("ArticleList renders summaries and preserves module sort lang in article links", () => {
+test("ArticleList renders summaries and preserves workbench and focus reading links", () => {
   const article: Article = {
     id: 42,
     userId: 1,
@@ -55,5 +55,8 @@ test("ArticleList renders summaries and preserves module sort lang in article li
   );
 
   assert.match(html, /这是一段中文摘要/);
-  assert.match(html, /module=all&amp;sort=technical&amp;lang=zh&amp;article=42/);
+  assert.match(html, /data-preview-href="\?module=all&amp;sort=technical&amp;lang=zh&amp;article=42"/);
+  assert.match(html, /href="\/read\/42\?module=all&amp;sort=technical&amp;lang=zh"/);
+  assert.match(html, /单击预览，双击进入专注阅读/);
+  assert.match(html, /阅读/);
 });

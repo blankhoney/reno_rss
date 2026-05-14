@@ -6,7 +6,7 @@ import { DEFAULT_SCORING_SETTINGS, type ScoringSettings } from "@/lib/scoring/se
 import { scoreArticlesWithConcurrency, type BulkScoreSummary } from "@/lib/scoring/bulkScore";
 import { ScoreBadge } from "./ScoreBadge";
 import { ScoringSettingsPanel } from "./ScoringSettingsPanel";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type ArticleListProps = {
   articles: Article[];
@@ -38,6 +38,20 @@ function listHref(
     article: String(articleId),
   });
   return `?${qs.toString()}`;
+}
+
+function readHref(
+  currentModule: string,
+  currentSort: ArticleSortId,
+  currentLang: SummaryLangId,
+  articleId: number,
+): string {
+  const qs = new URLSearchParams({
+    module: currentModule,
+    sort: currentSort,
+    lang: currentLang,
+  });
+  return `/read/${articleId}?${qs.toString()}`;
 }
 
 function articleSummary(article: Article, currentLang: SummaryLangId): string {
@@ -74,6 +88,7 @@ export function ArticleList({
   const [manualBatchSize, setManualBatchSize] = useState(DEFAULT_SCORING_SETTINGS.manualBatchSize);
   const [bulkScoreSummary, setBulkScoreSummary] = useState<BulkScoreSummary | null>(null);
   const [isBulkScoring, setIsBulkScoring] = useState(false);
+  const clickTimerRef = useRef<number | null>(null);
   const batchCount = Math.min(manualBatchSize, articles.length);
 
   useEffect(() => {
@@ -94,6 +109,10 @@ export function ArticleList({
     };
   }, []);
 
+  useEffect(() => {
+    return () => clearPendingPreview();
+  }, []);
+
   function updateSort(nextSort: ArticleSortId) {
     const qs = new URLSearchParams(window.location.search);
     qs.set("module", currentModule);
@@ -101,6 +120,26 @@ export function ArticleList({
     qs.set("lang", currentLang);
     if (selectedArticleId != null) qs.set("article", String(selectedArticleId));
     window.location.search = qs.toString();
+  }
+
+  function clearPendingPreview() {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+  }
+
+  function openPreview(href: string) {
+    clearPendingPreview();
+    clickTimerRef.current = window.setTimeout(() => {
+      window.location.assign(href);
+      clickTimerRef.current = null;
+    }, 260);
+  }
+
+  function openReader(href: string) {
+    clearPendingPreview();
+    window.location.assign(href);
   }
 
   async function rescoreCurrentPage() {
@@ -177,12 +216,23 @@ export function ArticleList({
         {articles.map((article) => {
           const score = article.score;
           const isActive = selectedArticleId != null && selectedArticleId === article.id;
+          const previewHref = listHref(currentModule, currentSort, currentLang, article.id);
+          const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
           return (
             <li key={article.id}>
-              <a
+              <article
                 className={`articleCard${isActive ? " articleCardActive" : ""}`}
-                href={listHref(currentModule, currentSort, currentLang, article.id)}
+                role="link"
+                tabIndex={0}
                 aria-current={isActive ? "true" : undefined}
+                aria-label={`${article.title}，单击预览，双击进入专注阅读`}
+                data-preview-href={previewHref}
+                data-read-href={focusHref}
+                onClick={() => openPreview(previewHref)}
+                onDoubleClick={() => openReader(focusHref)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") openPreview(previewHref);
+                }}
               >
                 <div className="articleCardMeta">
                   <span className="articleFeed">{article.feedTitle}</span>
@@ -192,18 +242,28 @@ export function ArticleList({
                 </div>
                 <div className="articleCardTitle">{article.title}</div>
                 <p className="articleCardSummary">{articleSummary(article, currentLang)}</p>
-                <div className="articleCardScores">
-                  <ScoreBadge label="总分" value={score?.overall ?? null} />
-                  <ScoreBadge
-                    label="技术"
-                    value={score?.dimensions.technical_value ?? null}
-                  />
-                  <ScoreBadge
-                    label="商业"
-                    value={score?.dimensions.business_value ?? null}
-                  />
+                <div className="articleCardFooter">
+                  <div className="articleCardScores">
+                    <ScoreBadge label="总分" value={score?.overall ?? null} />
+                    <ScoreBadge
+                      label="技术"
+                      value={score?.dimensions.technical_value ?? null}
+                    />
+                    <ScoreBadge
+                      label="商业"
+                      value={score?.dimensions.business_value ?? null}
+                    />
+                  </div>
+                  <a
+                    className="articleReadLink"
+                    href={focusHref}
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                  >
+                    阅读
+                  </a>
                 </div>
-              </a>
+              </article>
             </li>
           );
         })}
