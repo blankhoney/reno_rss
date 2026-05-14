@@ -219,6 +219,19 @@ test("sanitizeArticleHtml removes script tags and inline event handlers", () => 
   assert.match(html, /Hi/);
 });
 
+test("sanitizeArticleHtml discards xmp raw text content", () => {
+  const html = sanitizeArticleHtml(
+    '<p>Before</p><xmp><script>alert(1)</script><img src="x" onerror="alert(2)"></xmp><p>After</p>',
+  );
+
+  assert.equal(html.includes("<xmp"), false);
+  assert.equal(html.includes("<script"), false);
+  assert.equal(html.includes("onerror"), false);
+  assert.equal(html.includes("<img"), false);
+  assert.match(html, /Before/);
+  assert.match(html, /After/);
+});
+
 test("sanitizeArticleHtml makes http links open safely in a new tab", () => {
   const html = sanitizeArticleHtml(
     '<p><a href="https://example.com/path?q=1">Source</a> <a href="mailto:test@example.com">Mail</a></p>',

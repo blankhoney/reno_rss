@@ -82,6 +82,7 @@ jobs:
         with:
           scan-type: "fs"
           scan-ref: "."
+          trivyignores: ".trivyignore"
           format: "table"
           exit-code: "1"
           severity: "CRITICAL,HIGH"

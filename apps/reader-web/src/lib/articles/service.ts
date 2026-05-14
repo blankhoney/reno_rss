@@ -209,6 +209,7 @@ export function sanitizeArticleHtml(html: string): string {
       img: ["src", "alt", "title", "width", "height", "loading"],
     },
     allowedSchemes: ["http", "https", "mailto"],
+    nonTextTags: ["script", "style", "textarea", "option", "xmp"],
     transformTags: {
       a: (tagName, attribs) => {
         if (!shouldOpenArticleLinkInNewTab(attribs.href)) {
