@@ -21,6 +21,25 @@ export type ModuleId = (typeof MODULE_IDS)[number];
 
 const MODULE_ID_SET: ReadonlySet<string> = new Set(MODULE_IDS);
 
+export const ARTICLE_SORT_IDS = [
+  "default",
+  "latest",
+  "score",
+  "technical",
+  "business",
+  "trend",
+] as const;
+
+export type ArticleSortId = (typeof ARTICLE_SORT_IDS)[number];
+
+const ARTICLE_SORT_ID_SET: ReadonlySet<string> = new Set(ARTICLE_SORT_IDS);
+
+export const SUMMARY_LANG_IDS = ["zh", "original"] as const;
+
+export type SummaryLangId = (typeof SUMMARY_LANG_IDS)[number];
+
+const SUMMARY_LANG_ID_SET: ReadonlySet<string> = new Set(SUMMARY_LANG_IDS);
+
 export function isModuleId(value: string): value is ModuleId {
   return MODULE_ID_SET.has(value);
 }
@@ -42,6 +61,23 @@ export function resolveArticlesListModuleId(
   return { ok: true, moduleId: rawModule };
 }
 
+export function resolveArticleSortId(
+  hasSortParam: boolean,
+  rawSort: string | null,
+): { ok: true; sortId: ArticleSortId } | { ok: false } {
+  if (!hasSortParam) {
+    return { ok: true, sortId: "default" };
+  }
+  if (rawSort === null || rawSort === "" || !ARTICLE_SORT_ID_SET.has(rawSort)) {
+    return { ok: false };
+  }
+  return { ok: true, sortId: rawSort as ArticleSortId };
+}
+
+export function resolveSummaryLangId(rawLang: string | null | undefined): SummaryLangId {
+  return rawLang != null && SUMMARY_LANG_ID_SET.has(rawLang) ? (rawLang as SummaryLangId) : "zh";
+}
+
 function lastReadAtSortKey(lastReadAt: string | null): number {
   if (lastReadAt == null || lastReadAt === "") return 0;
   const ms = Date.parse(lastReadAt);
@@ -54,7 +90,14 @@ function publishedAtSortKey(publishedAt: string | null): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-export function sortArticlesForModule(articles: Article[], moduleId: ModuleId): Article[] {
+export function sortArticlesForModule(
+  articles: Article[],
+  moduleId: ModuleId,
+  sortId: ArticleSortId = "default",
+): Article[] {
+  if (sortId !== "default") {
+    return [...articles].sort((a, b) => scoreForSort(b, sortId) - scoreForSort(a, sortId));
+  }
   if (moduleId === "project") return articles;
   return [...articles].sort((a, b) => scoreForModule(b, moduleId) - scoreForModule(a, moduleId));
 }
@@ -118,7 +161,23 @@ export function scoreForModule(article: Article, moduleId: ModuleId): number {
   }
 }
 
-type MinifluxArticle = Omit<Article, "score" | "readLater" | "lastReadAt">;
+function scoreForSort(article: Article, sortId: ArticleSortId): number {
+  if (sortId === "default") return scoreForModule(article, "all");
+  if (sortId === "latest") return publishedAtSortKey(article.publishedAt);
+
+  const score = article.score;
+  if (!score) return -1;
+  if (sortId === "score") return score.overall;
+  if (sortId === "technical") return score.dimensions.technical_value;
+  if (sortId === "business") return score.dimensions.business_value;
+  if (sortId === "trend") return score.dimensions.trend_value;
+  return -1;
+}
+
+type MinifluxArticle = Omit<
+  Article,
+  "score" | "readLater" | "lastReadAt" | "summaryZh" | "summaryOriginal" | "sourceLanguage"
+>;
 
 export function sanitizeArticleHtml(html: string): string {
   return sanitizeHtml(html, {
@@ -132,6 +191,12 @@ export function sanitizeArticleHtml(html: string): string {
   });
 }
 
+export function articleNeedsOriginalContentFetch(html: string): boolean {
+  const text = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  if (text.length < 280) return true;
+  return /^comments?$/i.test(text);
+}
+
 export function mergeArticleData(
   articles: MinifluxArticle[],
   scores: Map<number, ArticleScore>,
@@ -143,6 +208,9 @@ export function mergeArticleData(
       ...article,
       contentHtml: sanitizeArticleHtml(article.contentHtml),
       score: scores.get(article.id) ?? null,
+      summaryZh: scores.get(article.id)?.summaryZh ?? "",
+      summaryOriginal: scores.get(article.id)?.summaryOriginal ?? "",
+      sourceLanguage: scores.get(article.id)?.sourceLanguage ?? "unknown",
       readLater: state?.readLater ?? false,
       lastReadAt: state?.lastReadAt ?? null,
     };

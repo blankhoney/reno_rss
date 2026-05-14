@@ -1,9 +1,11 @@
 import type { Article } from "./types";
 import {
+  articleNeedsOriginalContentFetch,
   filterArticlesForModule,
   mergeArticleData,
   minifluxEntryFilterForModule,
   sortArticlesForModule,
+  type ArticleSortId,
   type ModuleId,
 } from "./service";
 import { getConfig } from "@/lib/config";
@@ -49,9 +51,13 @@ async function getArticleMaps(entryIds: number[]): Promise<{
   return { scores, states };
 }
 
-export async function listArticlesForModule(moduleId: ModuleId, limit: number): Promise<Article[]> {
+export async function listArticlesForModule(
+  moduleId: ModuleId,
+  limit: number,
+  sortId: ArticleSortId = "default",
+): Promise<Article[]> {
   if (moduleId === "project") {
-    return listProjectArticles(limit);
+    return listProjectArticles(limit, sortId);
   }
 
   const miniflux = getConfiguredMinifluxClient();
@@ -71,10 +77,11 @@ export async function listArticlesForModule(moduleId: ModuleId, limit: number): 
   return sortArticlesForModule(
     filterArticlesForModule(mergeArticleData(baseArticles, scores, states), moduleId),
     moduleId,
+    sortId,
   );
 }
 
-async function listProjectArticles(limit: number): Promise<Article[]> {
+async function listProjectArticles(limit: number, sortId: ArticleSortId): Promise<Article[]> {
   const config = getConfig();
   const pool = getPool();
   const entryIds = await getProjectEntryIds(pool, config.READER_TENANT_ID, limit);
@@ -94,13 +101,31 @@ async function listProjectArticles(limit: number): Promise<Article[]> {
     console.warn("Failed to load scoring data for project article list", error);
   }
 
-  return mergeArticleData(baseArticles, scores, states);
+  return sortArticlesForModule(mergeArticleData(baseArticles, scores, states), "project", sortId);
 }
 
-export async function getArticleForReader(id: number): Promise<Article | null> {
+type ArticleReaderOptions = {
+  autoFetchContent?: boolean;
+};
+
+export async function getArticleForReader(
+  id: number,
+  options: ArticleReaderOptions = {},
+): Promise<Article | null> {
   const miniflux = getConfiguredMinifluxClient();
-  const article = await miniflux.getEntry(id);
+  let article = await miniflux.getEntry(id);
   if (article == null) return null;
+
+  if (options.autoFetchContent !== false && articleNeedsOriginalContentFetch(article.contentHtml)) {
+    try {
+      const fetchedContent = await miniflux.fetchOriginalContent(id, true);
+      if (fetchedContent.trim().length > article.contentHtml.trim().length) {
+        article = { ...article, contentHtml: fetchedContent };
+      }
+    } catch (error) {
+      console.warn("Failed to fetch original content for article detail", error);
+    }
+  }
 
   let scores = new Map<number, ArticleScore>();
   let states = new Map<number, ReaderState>();
@@ -110,6 +135,27 @@ export async function getArticleForReader(id: number): Promise<Article | null> {
     console.warn("Failed to load scoring data for article detail", error);
     scores = new Map();
     states = new Map();
+  }
+
+  return mergeArticleData([article], scores, states)[0] ?? null;
+}
+
+export async function refreshArticleOriginalContent(id: number): Promise<Article | null> {
+  const miniflux = getConfiguredMinifluxClient();
+  let article = await miniflux.getEntry(id);
+  if (article == null) return null;
+
+  const fetchedContent = await miniflux.fetchOriginalContent(id, true);
+  if (fetchedContent.trim().length > 0) {
+    article = { ...article, contentHtml: fetchedContent };
+  }
+
+  let scores = new Map<number, ArticleScore>();
+  let states = new Map<number, ReaderState>();
+  try {
+    ({ scores, states } = await getArticleMaps([id]));
+  } catch (error) {
+    console.warn("Failed to load scoring data for refreshed article detail", error);
   }
 
   return mergeArticleData([article], scores, states)[0] ?? null;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_SCORING_SETTINGS,
+  getScoresByEntryIdsSql,
   markReadSql,
   normalizeScoringSettingsPatch,
   setReadLaterSql,
@@ -32,12 +33,20 @@ test("toArticleScore normalizes legacy rows without dimension_scores", () => {
     dimension_scores: null,
     tags: ["ai"],
     reason: "legacy",
+    summary_zh: "中文摘要",
+    summary_original: "Original summary",
+    source_language: "en",
+    dimension_reasons: { technical_value: "技术原因" },
     scored_at: "2026-05-13T00:00:00.000Z",
   });
 
   assert.equal(score.overall, 71);
   assert.equal(score.dimensions.technical_value, 71);
   assert.deepEqual(score.tags, ["ai"]);
+  assert.equal(score.summaryZh, "中文摘要");
+  assert.equal(score.summaryOriginal, "Original summary");
+  assert.equal(score.sourceLanguage, "en");
+  assert.equal(score.dimensionReasons.technical_value, "技术原因");
 });
 
 test("toArticleScore maps invalid scored_at to null without throwing", () => {
@@ -46,10 +55,24 @@ test("toArticleScore maps invalid scored_at to null without throwing", () => {
     dimension_scores: {},
     tags: [],
     reason: "",
+    summary_zh: "",
+    summary_original: "",
+    source_language: "unknown",
+    dimension_reasons: {},
     scored_at: "not-a-valid-date",
   });
 
   assert.equal(score.scoredAt, null);
+});
+
+test("getScoresByEntryIdsSql reads only successful non-baseline scores", () => {
+  const query = getScoresByEntryIdsSql("default", [1, 2]);
+
+  assert.deepEqual(query.values, ["default", [1, 2]]);
+  assert.match(query.text, /scoring_status\s*=\s*'success'/);
+  assert.match(query.text, /model_provider\s*<>\s*'baseline'/);
+  assert.match(query.text, /summary_zh/);
+  assert.match(query.text, /dimension_reasons/);
 });
 
 test("markReadSql upserts last_read_at without changing read_later", () => {

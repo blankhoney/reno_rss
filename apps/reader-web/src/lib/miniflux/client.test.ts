@@ -6,6 +6,7 @@ import {
   MINIFLUX_HTTP_CLIENT_RUNTIME,
   buildEntriesUrl,
   buildEntryUrl,
+  buildFetchContentUrl,
   buildMinifluxBasicAuthorizationHeader,
   normalizeMinifluxEntry,
   MinifluxClient,
@@ -33,6 +34,15 @@ test("buildEntryUrl preserves base URL path prefix", () => {
 
 test("buildEntryUrl uses root path when base has no pathname", () => {
   assert.equal(buildEntryUrl("http://miniflux:8080", 1).pathname, "/v1/entries/1");
+});
+
+test("buildFetchContentUrl uses official fetch-content endpoint", () => {
+  const url = buildFetchContentUrl("https://host/rss/miniflux", 888, true);
+
+  assert.equal(
+    url.toString(),
+    "https://host/rss/miniflux/v1/entries/888/fetch-content?update_content=true",
+  );
 });
 
 test("parseArticlesListLimitParam defaults and clamps", () => {
@@ -74,6 +84,26 @@ test("getEntry returns null on 404", async () => {
     const client = new MinifluxClient("http://localhost:8181", "u", "p");
     const entry = await client.getEntry(999);
     assert.equal(entry, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("fetchOriginalContent returns content from Miniflux fetch-content response", async () => {
+  let capturedUrl = "";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    capturedUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    return Promise.resolve(
+      new Response(JSON.stringify({ content: "<p>Fetched article body</p>" }), { status: 200 }),
+    );
+  }) as typeof fetch;
+
+  try {
+    const client = new MinifluxClient("http://localhost:8181", "u", "p");
+    const content = await client.fetchOriginalContent(42);
+    assert.match(capturedUrl, /\/v1\/entries\/42\/fetch-content\?update_content=true$/);
+    assert.equal(content, "<p>Fetched article body</p>");
   } finally {
     globalThis.fetch = originalFetch;
   }

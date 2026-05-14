@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveArticlesListModuleId } from "@/lib/articles/service";
+import { resolveArticlesListModuleId, resolveArticleSortId } from "@/lib/articles/service";
 import { listArticlesForModule } from "@/lib/articles/server";
 import { parseArticlesListLimitParam } from "@/lib/miniflux/client";
 
@@ -13,8 +13,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid module" }, { status: 400 });
   }
   const moduleId = moduleResolution.moduleId;
+  const sortResolution = resolveArticleSortId(
+    url.searchParams.has("sort"),
+    url.searchParams.get("sort"),
+  );
+  if (!sortResolution.ok) {
+    return NextResponse.json({ error: "Invalid sort" }, { status: 400 });
+  }
   const limit = parseArticlesListLimitParam(url.searchParams.get("limit"));
-  const articles = await listArticlesForModule(moduleId, limit);
+  const articles = await listArticlesForModule(moduleId, limit, sortResolution.sortId);
 
   return NextResponse.json({ articles });
 }

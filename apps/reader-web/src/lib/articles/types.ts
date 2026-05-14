@@ -12,6 +12,9 @@ export type Article = {
   title: string;
   url: string;
   contentHtml: string;
+  summaryZh: string;
+  summaryOriginal: string;
+  sourceLanguage: string;
   status: ArticleStatus;
   starred: boolean;
   publishedAt: string | null;

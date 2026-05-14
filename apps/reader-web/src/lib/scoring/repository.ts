@@ -14,6 +14,10 @@ export type ArticleScore = {
   dimensions: Record<DimensionKey, number>;
   tags: string[];
   reason: string;
+  summaryZh: string;
+  summaryOriginal: string;
+  sourceLanguage: string;
+  dimensionReasons: Partial<Record<DimensionKey, string>>;
   scoredAt: string | null;
 };
 
@@ -46,6 +50,10 @@ type ScoreRow = {
   dimension_scores: Partial<Record<DimensionKey, number>> | null;
   tags: string[] | string | null;
   reason: string | null;
+  summary_zh?: string | null;
+  summary_original?: string | null;
+  source_language?: string | null;
+  dimension_reasons?: Partial<Record<DimensionKey, string>> | string | null;
   scored_at: string | Date | null;
 };
 
@@ -61,6 +69,10 @@ export function toArticleScore(row: ScoreRow): ArticleScore {
     dimensions,
     tags: normalizeTags(row.tags),
     reason: row.reason ?? "",
+    summaryZh: row.summary_zh ?? "",
+    summaryOriginal: row.summary_original ?? "",
+    sourceLanguage: row.source_language ?? "unknown",
+    dimensionReasons: normalizeDimensionReasons(row.dimension_reasons),
     scoredAt: scoredAtIsoOrNull(row.scored_at),
   };
 }
@@ -329,6 +341,35 @@ function normalizeTags(value: ScoreRow["tags"]): string[] {
   return [];
 }
 
+function normalizeDimensionReasons(value: ScoreRow["dimension_reasons"]) {
+  const parsed =
+    typeof value === "string"
+      ? safeJsonObject(value)
+      : value !== null && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
+
+  const reasons: Partial<Record<DimensionKey, string>> = {};
+  for (const key of dimensionKeys) {
+    const raw = parsed[key];
+    if (typeof raw === "string" && raw.trim() !== "") {
+      reasons[key] = raw.trim();
+    }
+  }
+  return reasons;
+}
+
+function safeJsonObject(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function isUndefinedTableError(error: unknown): boolean {
   return (
     error !== null &&
@@ -344,20 +385,28 @@ export async function getScoresByEntryIds(
   entryIds: number[],
 ): Promise<Map<number, ArticleScore>> {
   if (entryIds.length === 0) return new Map();
-  const result = await pool.query(
-    `
-      SELECT DISTINCT ON (miniflux_entry_id)
-        miniflux_entry_id, score, dimension_scores, tags, reason, scored_at
-      FROM item_scores
-      WHERE tenant_id = $1
-        AND miniflux_entry_id = ANY($2::bigint[])
-      ORDER BY miniflux_entry_id, scored_at DESC
-    `,
-    [tenantId, entryIds],
-  );
+  const { text, values } = getScoresByEntryIdsSql(tenantId, entryIds);
+  const result = await pool.query(text, values);
   return new Map(
     result.rows.map((row) => [Number(row.miniflux_entry_id), toArticleScore(row as ScoreRow)]),
   );
+}
+
+export function getScoresByEntryIdsSql(tenantId: string, entryIds: number[]) {
+  return {
+    text: `
+      SELECT DISTINCT ON (miniflux_entry_id)
+        miniflux_entry_id, score, dimension_scores, tags, reason,
+        summary_zh, summary_original, source_language, dimension_reasons, scored_at
+      FROM item_scores
+      WHERE tenant_id = $1
+        AND miniflux_entry_id = ANY($2::bigint[])
+        AND scoring_status = 'success'
+        AND model_provider <> 'baseline'
+      ORDER BY miniflux_entry_id, scored_at DESC
+    `,
+    values: [tenantId, entryIds],
+  };
 }
 
 export async function getReaderStatesByEntryIds(

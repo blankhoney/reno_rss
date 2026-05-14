@@ -49,17 +49,17 @@ button {
 
 .workbench {
   display: grid;
-  grid-template-columns: 220px minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: 180px minmax(380px, 520px) minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .moduleSidebar {
   background: var(--panel);
   border-right: 1px solid var(--border);
-  padding: 20px;
+  padding: 18px 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .brand {
@@ -75,7 +75,7 @@ button {
 
 .moduleNavLink {
   display: block;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: 8px;
   color: var(--text);
 }
@@ -102,37 +102,41 @@ button {
 .articleListPane {
   background: var(--panel);
   border-right: 1px solid var(--border);
-  padding: 20px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   min-height: 100vh;
 }
 
 .articleListHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .articleListActions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .articleListTitle {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
 }
 
 .articleSortSelect {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 5px 8px;
   background: var(--panel);
   color: var(--text);
+  max-width: 132px;
 }
 
 .settingsPanel {
@@ -185,7 +189,7 @@ button {
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 12px;
+  gap: 10px;
   overflow: auto;
 }
 
@@ -211,8 +215,8 @@ button {
 .articleCard {
   display: block;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: 8px;
+  padding: 10px;
   background: var(--panel);
 }
 
@@ -245,23 +249,35 @@ button {
 }
 
 .articleCardTitle {
-  margin-top: 8px;
+  margin-top: 7px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.3;
+  font-size: 0.95rem;
+}
+
+.articleCardSummary {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .articleCardScores {
-  margin-top: 10px;
+  margin-top: 8px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .scoreBadge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: 5px;
+  padding: 3px 7px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -271,16 +287,16 @@ button {
 
 .scoreBadge strong {
   color: var(--text);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
 }
 
 .articleReaderPane {
   background: var(--panel);
-  padding: 20px;
+  padding: 18px 22px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
 .readerEmpty {
@@ -304,7 +320,7 @@ button {
 .readerToolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
 }
 
 .readerToolbarBtn,
@@ -312,11 +328,12 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
+  font-size: 0.9rem;
 }
 
 .readerToolbarBtnPrimary {
@@ -335,15 +352,61 @@ button {
 }
 
 .readerTitle {
-  margin: 12px 0 0;
-  font-size: 1.35rem;
-  line-height: 1.35;
+  margin: 10px 0 0;
+  font-size: 1.18rem;
+  line-height: 1.32;
 }
 
 .readerActionMessage,
 .readerActionError {
+  margin: 7px 0 0;
+  font-size: 0.85rem;
+}
+
+.readerSummary {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg);
+}
+
+.readerSummaryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.readerSummary p {
   margin: 8px 0 0;
-  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.readerLangToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.readerLangBtn {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  padding: 3px 7px;
+  font-size: 0.76rem;
+}
+
+.readerLangBtnActive {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-muted);
 }
 
 .readerActionMessage {
@@ -356,28 +419,28 @@ button {
 
 .scoreSection {
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: 8px;
+  padding: 10px;
   background: var(--bg);
 }
 
 .scoreGrid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .scoreReason {
-  margin: 12px 0 0;
+  margin: 9px 0 0;
   color: var(--text);
-  line-height: 1.55;
-  font-size: 0.95rem;
+  line-height: 1.5;
+  font-size: 0.88rem;
 }
 
 .scoreReasonLabel {
   display: inline-block;
   margin-right: 8px;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 6px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -385,10 +448,17 @@ button {
   color: var(--muted);
 }
 
+.scoreMissing {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
 .agentPanel {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 14px;
+  padding: 10px;
   background: var(--panel);
 }
 
@@ -402,17 +472,17 @@ button {
 
 .agentTitle {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.95rem;
 }
 
 .agentQuestion {
   display: block;
   width: 100%;
   resize: vertical;
-  min-height: 84px;
+  min-height: 64px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   color: var(--text);
   background: var(--bg);
   line-height: 1.5;
@@ -425,13 +495,13 @@ button {
 }
 
 .agentAnswer {
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   white-space: pre-wrap;
   overflow: auto;
-  max-height: 320px;
+  max-height: 260px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px;
   background: var(--bg);
   line-height: 1.6;
   font-family: inherit;
@@ -439,8 +509,9 @@ button {
 
 .articleContent.content {
   border-top: 1px solid var(--border);
-  padding-top: 16px;
+  padding-top: 14px;
   line-height: 1.7;
+  font-size: 0.98rem;
 }
 
 .articleContent img,

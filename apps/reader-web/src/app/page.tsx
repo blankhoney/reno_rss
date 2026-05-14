@@ -2,7 +2,12 @@ import type { Article } from "@/lib/articles/types";
 import { ArticleList } from "@/components/ArticleList";
 import { ArticleReader } from "@/components/ArticleReader";
 import { ModuleSidebar } from "@/components/ModuleSidebar";
-import { resolveArticlesListModuleId } from "@/lib/articles/service";
+import {
+  resolveArticlesListModuleId,
+  resolveArticleSortId,
+  resolveSummaryLangId,
+  type ArticleSortId,
+} from "@/lib/articles/service";
 import { getArticleForReader, listArticlesForModule } from "@/lib/articles/server";
 import { DEFAULT_ARTICLES_LIST_LIMIT } from "@/lib/miniflux/client";
 
@@ -18,12 +23,12 @@ function parseArticleId(raw: string | string[] | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-async function fetchArticlesList(module: string): Promise<Article[]> {
+async function fetchArticlesList(module: string, sort: ArticleSortId): Promise<Article[]> {
   const moduleResolution = resolveArticlesListModuleId(true, module);
   if (!moduleResolution.ok) {
     return [];
   }
-  return listArticlesForModule(moduleResolution.moduleId, DEFAULT_ARTICLES_LIST_LIMIT);
+  return listArticlesForModule(moduleResolution.moduleId, DEFAULT_ARTICLES_LIST_LIMIT, sort);
 }
 
 async function fetchArticleById(id: number): Promise<Article | null> {
@@ -37,9 +42,15 @@ type PageProps = {
 export default async function HomePage({ searchParams }: PageProps) {
   const sp = (await searchParams) ?? {};
   const currentModule = normalizeModule(sp.module);
+  const sortResolution = resolveArticleSortId(
+    typeof sp.sort === "string",
+    typeof sp.sort === "string" ? sp.sort : null,
+  );
+  const currentSort = sortResolution.ok ? sortResolution.sortId : "default";
+  const currentLang = resolveSummaryLangId(typeof sp.lang === "string" ? sp.lang : null);
   const selectedId = parseArticleId(sp.article);
 
-  const articles = await fetchArticlesList(currentModule);
+  const articles = await fetchArticlesList(currentModule, currentSort);
 
   let selectedArticle: Article | null = null;
   if (selectedId != null) {
@@ -51,13 +62,15 @@ export default async function HomePage({ searchParams }: PageProps) {
 
   return (
     <main className="workbench">
-      <ModuleSidebar currentModule={currentModule} />
+      <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
       <ArticleList
         articles={articles}
         currentModule={currentModule}
+        currentSort={currentSort}
+        currentLang={currentLang}
         selectedArticleId={selectedId}
       />
-      <ArticleReader article={selectedArticle} />
+      <ArticleReader article={selectedArticle} currentLang={currentLang} />
     </main>
   );
 }

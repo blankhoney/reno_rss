@@ -21,6 +21,10 @@ REQUIRED_KEYS = {
     "dimension_scores",
     "tags",
     "reason",
+    "summary_zh",
+    "summary_original",
+    "source_language",
+    "dimension_reasons",
     "model_version",
     "model_provider",
     "model_name",
@@ -40,6 +44,36 @@ DIMENSION_KEYS = (
     "business_value",
     "trend_value",
 )
+
+
+def valid_llm_payload(**overrides):
+    payload = {
+        "overall": 88,
+        "importance": 82,
+        "usefulness": 73,
+        "timeliness": 66,
+        "depth": 71,
+        "technical_value": 91,
+        "business_value": 54,
+        "trend_value": 79,
+        "tags": ["AI", "Agent", "Engineering", "Extra"],
+        "reason": "技术信号强，但商业落地信息有限。",
+        "summary_zh": "这篇文章讨论了一个重要的 AI 工程进展，并说明了潜在影响。",
+        "summary_original": "The article covers an important AI engineering development and its likely impact.",
+        "source_language": "en",
+        "dimension_reasons": {
+            "importance": "影响范围较大。",
+            "usefulness": "可给工程实践提供参考。",
+            "timeliness": "近期发布，时效较强。",
+            "depth": "有一定背景和细节。",
+            "technical_value": "技术细节明确。",
+            "business_value": "商业线索较少。",
+            "trend_value": "反映 AI agent 趋势。",
+        },
+        "confidence": 0.82,
+    }
+    payload.update(overrides)
+    return payload
 
 
 def test_score_payload_shape():
@@ -83,30 +117,45 @@ class FakeLLMClient:
         return self.content
 
 
-def test_score_entry_uses_minimax_json_response():
+def test_score_entry_uses_minimax_v3_json_response():
     payload = score_entry(
         {"id": 6, "title": "AI news", "content": "important model release"},
-        llm_client=FakeLLMClient(
-            '{"score": 88, "tags": ["ai", "release", "extra", "trimmed"], '
-            '"reason": "High signal for model updates.", "confidence": 0.82}'
-        ),
+        llm_client=FakeLLMClient(json.dumps(valid_llm_payload(tags=["ai", "release", "extra", "trimmed"]))),
     )
 
     assert set(payload.keys()) == REQUIRED_KEYS
     assert payload["score"] == 88
     assert payload["tags"] == ["ai", "release", "extra"]
-    assert payload["reason"] == "High signal for model updates."
+    assert payload["reason"] == "技术信号强，但商业落地信息有限。"
+    assert payload["summary_zh"].startswith("这篇文章讨论")
+    assert payload["summary_original"].startswith("The article covers")
+    assert payload["source_language"] == "en"
+    assert payload["dimension_reasons"]["technical_value"] == "技术细节明确。"
     assert payload["confidence"] == 0.82
     assert payload["model_provider"] == "minimax"
     assert payload["model_name"] == "MiniMax-M2.7"
-    assert payload["prompt_version"] == "rss-score-v2"
+    assert payload["prompt_version"] == "rss-score-v3"
     assert payload["scoring_status"] == "success"
     assert payload["error_message"] is None
-    assert payload["dimension_scores"] == {k: 0 for k in DIMENSION_KEYS}
+    assert payload["dimension_scores"]["technical_value"] == 91
+    assert payload["dimension_scores"]["business_value"] == 54
+
+
+def test_score_entry_rejects_legacy_score_only_json_response():
+    payload = score_entry(
+        {"id": 60, "title": "AI news", "content": "important model release"},
+        llm_client=FakeLLMClient(
+            '{"score": 88, "tags": ["ai"], "reason": "old shape", "confidence": 0.82}'
+        ),
+    )
+
+    assert payload["model_provider"] == "baseline"
+    assert payload["scoring_status"] == "error"
+    assert "missing required llm field" in payload["error_message"]
 
 
 def test_score_entry_task2_dimensions_json_success():
-    """LLM returns v2 shape: overall + seven dimensions + tags/reason/confidence."""
+    """LLM returns v3 shape: scores + summaries + dimension reasons."""
     expected_dims = {
         "importance": 70,
         "usefulness": 71,
@@ -117,13 +166,16 @@ def test_score_entry_task2_dimensions_json_success():
         "trend_value": 76,
     }
     llm_body = json.dumps(
-        {
-            "overall": 86,
+        valid_llm_payload(
+            overall=86,
             **expected_dims,
-            "tags": ["AI", "Agent", "Engineering", "Extra"],
-            "reason": "  Trimmed outer whitespace here. ",
-            "confidence": 90,
-        }
+            tags=["AI", "Agent", "Engineering", "Extra"],
+            reason="  Trimmed outer whitespace here. ",
+            summary_zh="中文摘要。",
+            summary_original="Original summary.",
+            source_language="en",
+            confidence=90,
+        )
     )
 
     class FakeLLMClientTask2Ok:
@@ -142,8 +194,10 @@ def test_score_entry_task2_dimensions_json_success():
     assert payload["dimension_scores"] == expected_dims
     assert payload["tags"] == ["ai", "agent", "engineering"]
     assert payload["reason"] == "Trimmed outer whitespace here."
+    assert payload["summary_zh"] == "中文摘要。"
+    assert payload["summary_original"] == "Original summary."
     assert payload["confidence"] == 0.9
-    assert payload["prompt_version"] == "rss-score-v2"
+    assert payload["prompt_version"] == "rss-score-v3"
     assert payload["scoring_status"] == "success"
 
 
@@ -152,19 +206,19 @@ def test_score_entry_strips_think_block_before_parsing_json():
     llm_body = (
         "<think>hidden scoring notes</think>\n"
         + json.dumps(
-            {
-                "overall": 84,
-                "importance": 85,
-                "usefulness": 75,
-                "timeliness": 70,
-                "depth": 80,
-                "technical_value": 90,
-                "business_value": 55,
-                "trend_value": 78,
-                "tags": ["Linux", "Security"],
-                "reason": "Kernel security update.",
-                "confidence": 0.81,
-            }
+            valid_llm_payload(
+                overall=84,
+                importance=85,
+                usefulness=75,
+                timeliness=70,
+                depth=80,
+                technical_value=90,
+                business_value=55,
+                trend_value=78,
+                tags=["Linux", "Security"],
+                reason="Kernel security update.",
+                confidence=0.81,
+            )
         )
     )
 
@@ -185,19 +239,19 @@ def test_score_entry_extracts_json_object_from_noisy_response():
     llm_body = (
         "Here is the JSON:\n"
         + json.dumps(
-            {
-                "overall": 77,
-                "importance": 70,
-                "usefulness": 71,
-                "timeliness": 72,
-                "depth": 73,
-                "technical_value": 74,
-                "business_value": 75,
-                "trend_value": 76,
-                "tags": ["AI"],
-                "reason": "Useful AI product signal.",
-                "confidence": 0.7,
-            }
+            valid_llm_payload(
+                overall=77,
+                importance=70,
+                usefulness=71,
+                timeliness=72,
+                depth=73,
+                technical_value=74,
+                business_value=75,
+                trend_value=76,
+                tags=["AI"],
+                reason="Useful AI product signal.",
+                confidence=0.7,
+            )
         )
         + "\nDone."
     )
@@ -213,7 +267,7 @@ def test_score_entry_extracts_json_object_from_noisy_response():
 
 
 def test_score_entry_task2_fallback_error_baseline_dimensions():
-    """Broken LLM yields error baseline with score 10 for 500-char body and key dims at 10."""
+    """Broken LLM yields error baseline with score 10 for 500-char body and no fake reason."""
     body_500 = "x" * 500
 
     class FakeLLMClientTask2Broken:
@@ -233,6 +287,8 @@ def test_score_entry_task2_fallback_error_baseline_dimensions():
     assert dims["importance"] == 10
     assert dims["technical_value"] == 10
     assert dims["business_value"] == 10
+    assert "length=" not in payload["reason"]
+    assert "hash=" not in payload["reason"]
 
 
 def test_score_entry_falls_back_on_non_json_response():

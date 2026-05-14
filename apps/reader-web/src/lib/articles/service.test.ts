@@ -3,9 +3,11 @@ import test from "node:test";
 import type { Article } from "./types";
 import {
   filterArticlesForModule,
+  articleNeedsOriginalContentFetch,
   minifluxEntryFilterForModule,
   MODULE_IDS,
   resolveArticlesListModuleId,
+  resolveArticleSortId,
   sanitizeArticleHtml,
   sortArticlesForModule,
 } from "./service";
@@ -41,6 +43,9 @@ function article(
     title: input.title ?? `Article ${id}`,
     url: input.url ?? "https://example.com",
     contentHtml: input.contentHtml ?? "<p>Body</p>",
+    summaryZh: input.summaryZh ?? "",
+    summaryOriginal: input.summaryOriginal ?? "",
+    sourceLanguage: input.sourceLanguage ?? "unknown",
     status: input.status ?? "unread",
     starred: input.starred ?? false,
     publishedAt: input.publishedAt ?? "2026-05-13T00:00:00.000Z",
@@ -57,6 +62,10 @@ function article(
       },
       tags: [],
       reason: "",
+      summaryZh: "",
+      summaryOriginal: "",
+      sourceLanguage: "unknown",
+      dimensionReasons: {},
       scoredAt: null,
     },
     readLater: input.readLater ?? false,
@@ -92,12 +101,82 @@ test("minifluxEntryFilterForModule fetches all statuses for latest and scored mo
   });
 });
 
+test("resolveArticleSortId defaults and rejects unknown explicit values", () => {
+  assert.deepEqual(resolveArticleSortId(false, null), { ok: true, sortId: "default" });
+  assert.deepEqual(resolveArticleSortId(true, "latest"), { ok: true, sortId: "latest" });
+  assert.deepEqual(resolveArticleSortId(true, "technical"), { ok: true, sortId: "technical" });
+  assert.deepEqual(resolveArticleSortId(true, "unknown"), { ok: false });
+});
+
 test("project module keeps queue order", () => {
   const sorted = sortArticlesForModule(
     [article(1, { overall: 10 }), article(2, { overall: 90 })],
     "project",
   );
   assert.deepEqual(sorted.map((item) => item.id), [1, 2]);
+});
+
+test("explicit score sorting puts unscored articles last", () => {
+  const sorted = sortArticlesForModule(
+    [article(1, { score: null }), article(2, { overall: 60 }), article(3, { overall: 90 })],
+    "all",
+    "score",
+  );
+
+  assert.deepEqual(sorted.map((item) => item.id), [3, 2, 1]);
+});
+
+test("explicit dimension sorting uses the selected dimension", () => {
+  const sorted = sortArticlesForModule(
+    [
+      article(1, {
+        score: {
+          overall: 95,
+          dimensions: {
+            importance: 90,
+            usefulness: 90,
+            timeliness: 90,
+            depth: 90,
+            technical_value: 10,
+            business_value: 90,
+            trend_value: 90,
+          },
+          tags: [],
+          reason: "",
+          summaryZh: "",
+          summaryOriginal: "",
+          sourceLanguage: "unknown",
+          dimensionReasons: {},
+          scoredAt: null,
+        },
+      }),
+      article(2, {
+        score: {
+          overall: 50,
+          dimensions: {
+            importance: 50,
+            usefulness: 50,
+            timeliness: 50,
+            depth: 50,
+            technical_value: 99,
+            business_value: 20,
+            trend_value: 20,
+          },
+          tags: [],
+          reason: "",
+          summaryZh: "",
+          summaryOriginal: "",
+          sourceLanguage: "unknown",
+          dimensionReasons: {},
+          scoredAt: null,
+        },
+      }),
+    ],
+    "all",
+    "technical",
+  );
+
+  assert.deepEqual(sorted.map((item) => item.id), [2, 1]);
 });
 
 test("filterArticlesForModule keeps only read-later items for read-later module", () => {
@@ -135,4 +214,11 @@ test("sanitizeArticleHtml removes script tags and inline event handlers", () => 
   assert.equal(html.includes("<script"), false);
   assert.equal(html.includes("onclick"), false);
   assert.match(html, /Hi/);
+});
+
+test("articleNeedsOriginalContentFetch detects empty, short, and Comments placeholders", () => {
+  assert.equal(articleNeedsOriginalContentFetch(""), true);
+  assert.equal(articleNeedsOriginalContentFetch("<p>Comments</p>"), true);
+  assert.equal(articleNeedsOriginalContentFetch("<p>Short teaser.</p>"), true);
+  assert.equal(articleNeedsOriginalContentFetch(`<p>${"full body ".repeat(80)}</p>`), false);
 });

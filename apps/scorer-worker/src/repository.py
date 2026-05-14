@@ -63,19 +63,28 @@ def upsert_score(conn: psycopg2.extensions.connection, row: dict) -> None:
         serialized["dimension_scores"] = json.dumps(serialized["dimension_scores"])
     if not serialized.get("dimension_scores"):
         serialized["dimension_scores"] = json.dumps({})
+    if isinstance(serialized.get("dimension_reasons"), dict):
+        serialized["dimension_reasons"] = json.dumps(serialized["dimension_reasons"])
+    if not serialized.get("dimension_reasons"):
+        serialized["dimension_reasons"] = json.dumps({})
+    serialized.setdefault("summary_zh", "")
+    serialized.setdefault("summary_original", "")
+    serialized.setdefault("source_language", "unknown")
 
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO item_scores (
                 tenant_id, miniflux_entry_id, content_hash,
-                score, dimension_scores, tags, reason, model_version,
-                model_provider, model_name, prompt_version,
+                score, dimension_scores, tags, reason,
+                summary_zh, summary_original, source_language, dimension_reasons,
+                model_version, model_provider, model_name, prompt_version,
                 confidence, scoring_status, error_message
             ) VALUES (
                 %(tenant_id)s, %(miniflux_entry_id)s, %(content_hash)s,
-                %(score)s, %(dimension_scores)s::jsonb, %(tags)s::jsonb, %(reason)s, %(model_version)s,
-                %(model_provider)s, %(model_name)s, %(prompt_version)s,
+                %(score)s, %(dimension_scores)s::jsonb, %(tags)s::jsonb, %(reason)s,
+                %(summary_zh)s, %(summary_original)s, %(source_language)s, %(dimension_reasons)s::jsonb,
+                %(model_version)s, %(model_provider)s, %(model_name)s, %(prompt_version)s,
                 %(confidence)s, %(scoring_status)s, %(error_message)s
             )
             ON CONFLICT (tenant_id, miniflux_entry_id, content_hash, model_version)
@@ -84,6 +93,10 @@ def upsert_score(conn: psycopg2.extensions.connection, row: dict) -> None:
                 dimension_scores = EXCLUDED.dimension_scores,
                 tags             = EXCLUDED.tags,
                 reason           = EXCLUDED.reason,
+                summary_zh       = EXCLUDED.summary_zh,
+                summary_original = EXCLUDED.summary_original,
+                source_language  = EXCLUDED.source_language,
+                dimension_reasons = EXCLUDED.dimension_reasons,
                 confidence       = EXCLUDED.confidence,
                 scoring_status   = EXCLUDED.scoring_status,
                 error_message    = EXCLUDED.error_message,

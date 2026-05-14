@@ -79,6 +79,16 @@ export function buildEntryUrl(baseUrl: string, entryId: number): URL {
   return buildMinifluxApiUrl(baseUrl, `v1/entries/${entryId}`);
 }
 
+export function buildFetchContentUrl(
+  baseUrl: string,
+  entryId: number,
+  updateContent = true,
+): URL {
+  const url = buildMinifluxApiUrl(baseUrl, `v1/entries/${entryId}/fetch-content`);
+  url.searchParams.set("update_content", String(updateContent));
+  return url;
+}
+
 /**
  * Parses the articles list `limit` query param: default 50, non-integers fall back to default,
  * integers are clamped to {@link MIN_ARTICLES_LIST_LIMIT}..{@link MAX_ARTICLES_LIST_LIMIT}.
@@ -159,6 +169,31 @@ export class MinifluxClient {
     }
     const data = (await response.json()) as MinifluxEntry;
     return normalizeMinifluxEntry(data);
+  }
+
+  async fetchOriginalContent(entryId: number, updateContent = true): Promise<string> {
+    const response = await fetch(buildFetchContentUrl(this.baseUrl, entryId, updateContent).toString(), {
+      headers: {
+        Authorization: buildMinifluxBasicAuthorizationHeader(this.username, this.password),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(DEFAULT_MINIFLUX_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(`Miniflux fetch content failed: ${response.status}`);
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const data = (await response.json()) as { content?: unknown };
+      return typeof data.content === "string" ? data.content : "";
+    }
+    const text = await response.text();
+    try {
+      const data = JSON.parse(text) as { content?: unknown };
+      return typeof data.content === "string" ? data.content : text;
+    } catch {
+      return text;
+    }
   }
 
   async updateEntries(entryIds: number[], status: "read" | "unread" | "removed"): Promise<void> {

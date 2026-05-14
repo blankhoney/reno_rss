@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
+import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
 import { ScoreBadge } from "./ScoreBadge";
 
@@ -28,6 +29,8 @@ function articleContextText(article: Article): string {
   const parts = [
     `标题：${article.title}`,
     `链接：${article.url}`,
+    article.summaryZh ? `中文摘要：${article.summaryZh}` : "",
+    article.summaryOriginal ? `原文摘要：${article.summaryOriginal}` : "",
     article.score?.reason ? `评分理由：${article.score.reason}` : "",
     body,
   ].filter((part) => part.trim().length > 0);
@@ -68,7 +71,24 @@ function appendAgentStreamChunk(
   return nextPending;
 }
 
-export function ArticleReader({ article }: { article: Article | null }) {
+function summaryForLang(article: Article, lang: SummaryLangId): string {
+  const summary = lang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
+  return summary.trim() || "暂无摘要，点击实时评分生成";
+}
+
+function switchSummaryLang(nextLang: SummaryLangId) {
+  const qs = new URLSearchParams(window.location.search);
+  qs.set("lang", nextLang);
+  window.location.search = qs.toString();
+}
+
+export function ArticleReader({
+  article,
+  currentLang,
+}: {
+  article: Article | null;
+  currentLang: SummaryLangId;
+}) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [agentError, setAgentError] = useState<string | null>(null);
@@ -78,6 +98,7 @@ export function ArticleReader({ article }: { article: Article | null }) {
   const [isScoring, setIsScoring] = useState(false);
   const [isProjecting, setIsProjecting] = useState(false);
   const [isTogglingCandidate, setIsTogglingCandidate] = useState(false);
+  const [isFetchingContent, setIsFetchingContent] = useState(false);
 
   useEffect(() => {
     setQuestion("");
@@ -126,6 +147,19 @@ export function ArticleReader({ article }: { article: Article | null }) {
       setActionError(error instanceof Error ? error.message : "评分失败");
     } finally {
       setIsScoring(false);
+    }
+  }
+
+  async function refreshFullContent() {
+    setIsFetchingContent(true);
+    try {
+      await postArticleAction("fetch-content");
+      setActionMessage("全文已刷新");
+      window.location.reload();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "全文刷新失败");
+    } finally {
+      setIsFetchingContent(false);
     }
   }
 
@@ -238,8 +272,13 @@ export function ArticleReader({ article }: { article: Article | null }) {
           >
             打开原文
           </a>
-          <button type="button" className="readerToolbarBtn" disabled>
-            专注阅读
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={isFetchingContent}
+            onClick={() => void refreshFullContent()}
+          >
+            {isFetchingContent ? "刷新中" : "刷新全文"}
           </button>
           <button
             type="button"
@@ -269,25 +308,56 @@ export function ArticleReader({ article }: { article: Article | null }) {
         {actionMessage ? <p className="readerActionMessage">{actionMessage}</p> : null}
         {actionError ? <p className="readerActionError">{actionError}</p> : null}
         <h2 className="readerTitle">{article.title}</h2>
+        <section className="readerSummary" aria-label="文章摘要">
+          <div className="readerSummaryHeader">
+            <span>摘要</span>
+            <div className="readerLangToggle" aria-label="摘要语言">
+              <button
+                type="button"
+                className={currentLang === "zh" ? "readerLangBtn readerLangBtnActive" : "readerLangBtn"}
+                onClick={() => switchSummaryLang("zh")}
+              >
+                中文摘要
+              </button>
+              <button
+                type="button"
+                className={
+                  currentLang === "original" ? "readerLangBtn readerLangBtnActive" : "readerLangBtn"
+                }
+                onClick={() => switchSummaryLang("original")}
+              >
+                原文摘要
+              </button>
+            </div>
+          </div>
+          <p>{summaryForLang(article, currentLang)}</p>
+        </section>
       </header>
 
       <section className="scoreSection" aria-label="评分">
-        <div className="scoreGrid">
-          {DIMENSION_ROWS.map((row) => {
-            const value =
-              row.key === "overall"
-                ? (score?.overall ?? null)
-                : (score?.dimensions[row.key] ?? null);
-            return <ScoreBadge key={row.key} label={row.label} value={value} />;
-          })}
-        </div>
-        <p className="scoreReason">
-          <span className="scoreReasonLabel">理由</span>
-          {score?.reason?.trim()
-            ? score.reason
-            : "暂无评分说明（可能没有对应评分记录）。"}
-        </p>
+        {score ? (
+          <>
+            <div className="scoreGrid">
+              {DIMENSION_ROWS.map((row) => {
+                const value =
+                  row.key === "overall" ? score.overall : score.dimensions[row.key];
+                return <ScoreBadge key={row.key} label={row.label} value={value} />;
+              })}
+            </div>
+            <p className="scoreReason">
+              <span className="scoreReasonLabel">总评</span>
+              {score.reason.trim() || "暂无评分理由。"}
+            </p>
+          </>
+        ) : (
+          <p className="scoreMissing">未评分。点击“实时评分”生成摘要、分数和理由。</p>
+        )}
       </section>
+
+      <div
+        className="articleContent content"
+        dangerouslySetInnerHTML={{ __html: article.contentHtml }}
+      />
 
       <section className="agentPanel" aria-label="当前文章问答">
         <div className="agentHeader">
@@ -312,10 +382,6 @@ export function ArticleReader({ article }: { article: Article | null }) {
         {answer.trim().length > 0 ? <pre className="agentAnswer">{answer}</pre> : null}
       </section>
 
-      <div
-        className="articleContent content"
-        dangerouslySetInnerHTML={{ __html: article.contentHtml }}
-      />
     </article>
   );
 }

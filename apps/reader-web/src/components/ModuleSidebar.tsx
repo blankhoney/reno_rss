@@ -1,3 +1,5 @@
+import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
+
 const MODULES: { id: string; label: string }[] = [
   { id: "all", label: "最新" },
   { id: "unread", label: "新到" },
@@ -14,7 +16,20 @@ const MODULES: { id: string; label: string }[] = [
   { id: "feeds", label: "订阅源管理" },
 ];
 
-export function ModuleSidebar({ currentModule }: { currentModule: string }) {
+function moduleHref(moduleId: string, currentSort: ArticleSortId, currentLang: SummaryLangId) {
+  const qs = new URLSearchParams({ module: moduleId, sort: currentSort, lang: currentLang });
+  return `?${qs.toString()}`;
+}
+
+export function ModuleSidebar({
+  currentModule,
+  currentSort = "default",
+  currentLang = "zh",
+}: {
+  currentModule: string;
+  currentSort?: ArticleSortId;
+  currentLang?: SummaryLangId;
+}) {
   return (
     <aside className="moduleSidebar">
       <div className="brand">AI Reader</div>
@@ -37,7 +52,7 @@ export function ModuleSidebar({ currentModule }: { currentModule: string }) {
             <a
               key={m.id}
               className={`moduleNavLink${active ? " moduleNavLinkActive" : ""}`}
-              href={`?module=${encodeURIComponent(m.id)}`}
+              href={moduleHref(m.id, currentSort, currentLang)}
               aria-current={active ? "page" : undefined}
             >
               {m.label}

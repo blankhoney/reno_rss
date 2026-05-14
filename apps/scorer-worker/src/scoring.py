@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from typing import Any
 
@@ -13,7 +12,7 @@ from llm_client import LLMClientError, MinimaxLLMClient
 _MODEL_PROVIDER = "baseline"
 _MODEL_NAME = "length-baseline"
 _MODEL_VERSION = "0.1.0"
-_PROMPT_VERSION = "rss-score-v2"
+_PROMPT_VERSION = "rss-score-v3"
 _LLM_MODEL_PROVIDER = "minimax"
 _DIMENSION_KEYS = (
     "importance",
@@ -26,6 +25,8 @@ _DIMENSION_KEYS = (
 )
 _MAX_TAGS = 3
 _MAX_REASON_LENGTH = 240
+_MAX_SUMMARY_LENGTH = 420
+_MAX_DIMENSION_REASON_LENGTH = 120
 _MAX_CONTENT_CHARS = 6000
 
 
@@ -58,6 +59,10 @@ def score_entry(entry: dict, llm_client: MinimaxLLMClient | None = None) -> dict
         "dimension_scores": result["dimension_scores"],
         "tags": result["tags"],
         "reason": result["reason"],
+        "summary_zh": result["summary_zh"],
+        "summary_original": result["summary_original"],
+        "source_language": result["source_language"],
+        "dimension_reasons": result["dimension_reasons"],
         "model_version": f"{_LLM_MODEL_PROVIDER}:{model_name}:{_PROMPT_VERSION}",
         "model_provider": _LLM_MODEL_PROVIDER,
         "model_name": model_name,
@@ -75,13 +80,15 @@ def _baseline_payload(title: str, combined: str, error_message: str | None) -> d
     # Naive tag extraction: unique lowercase words from title (≥4 chars)
     tags = list({w.lower() for w in title.split() if len(w) >= 4})[:5]
 
-    content_hash = hashlib.sha256(combined.encode()).hexdigest()[:16]
-
     return {
         "score": raw_score,
         "dimension_scores": {key: raw_score for key in _DIMENSION_KEYS},
         "tags": tags,
-        "reason": _trim_reason(f"length={len(combined)} hash={content_hash}"),
+        "reason": "评分失败，需重新评分。",
+        "summary_zh": "",
+        "summary_original": "",
+        "source_language": "unknown",
+        "dimension_reasons": {},
         "model_version": _MODEL_VERSION,
         "model_provider": _MODEL_PROVIDER,
         "model_name": _MODEL_NAME,
@@ -101,12 +108,20 @@ def _build_messages(title: str, content: str) -> list[dict[str, str]]:
                 "You score RSS entries for a personal reading digest. "
                 "Return strict JSON only (no markdown fences, no comments, no text outside JSON). "
                 "The JSON object must include keys: overall, importance, usefulness, timeliness, "
-                "depth, technical_value, business_value, trend_value, tags, reason, confidence. "
+                "depth, technical_value, business_value, trend_value, tags, reason, summary_zh, "
+                "summary_original, source_language, dimension_reasons, confidence. "
                 "overall and the seven dimension keys (importance, usefulness, timeliness, depth, "
                 "technical_value, business_value, trend_value) must be integers from 0 to 100. "
+                "Judge each dimension independently; do not copy the same score across dimensions "
+                "unless the content truly warrants it. "
                 "confidence may be a float from 0.0 to 1.0 or a number from 0 to 100; values above 1 "
                 "are treated as a 0-100 scale and normalized to 0.0-1.0. "
-                "tags must be a JSON array of short strings. reason must be a string."
+                "tags must be a JSON array of short strings. reason must be a short Chinese string. "
+                "summary_zh must be a one or two sentence Chinese summary for a Chinese reader. "
+                "summary_original must be a one or two sentence summary in the source language. "
+                "source_language must be a short language code such as zh, en, ja, ko, or unknown. "
+                "dimension_reasons must be an object with one short Chinese reason for each score "
+                "dimension key."
             ),
         },
         {
@@ -123,23 +138,51 @@ def _build_messages(title: str, content: str) -> list[dict[str, str]]:
 def _parse_llm_json(raw: str) -> dict[str, Any]:
     data = _load_llm_json(raw)
 
-    overall_raw = data.get("overall")
-    if overall_raw is None:
-        overall_raw = data.get("score")
-    score = _clamp_int(overall_raw, minimum=0, maximum=100)
+    _require_fields(
+        data,
+        [
+            "overall",
+            *_DIMENSION_KEYS,
+            "tags",
+            "reason",
+            "summary_zh",
+            "summary_original",
+            "source_language",
+            "dimension_reasons",
+            "confidence",
+        ],
+    )
 
-    dimension_scores = {key: _clamp_int(data.get(key), minimum=0, maximum=100) for key in _DIMENSION_KEYS}
+    score = _clamp_int(data["overall"], minimum=0, maximum=100)
+
+    dimension_scores = {
+        key: _clamp_int(data[key], minimum=0, maximum=100) for key in _DIMENSION_KEYS
+    }
 
     tags = _normalize_tags(data.get("tags"))
     reason = _trim_reason(str(data.get("reason") or "No reason provided."))
+    summary_zh = _trim_text(data.get("summary_zh"), _MAX_SUMMARY_LENGTH)
+    summary_original = _trim_text(data.get("summary_original"), _MAX_SUMMARY_LENGTH)
+    source_language = _trim_text(data.get("source_language"), 24).lower() or "unknown"
+    dimension_reasons = _normalize_dimension_reasons(data.get("dimension_reasons"))
     confidence = _parse_confidence(data.get("confidence"))
     return {
         "score": score,
         "dimension_scores": dimension_scores,
         "tags": tags,
         "reason": reason,
+        "summary_zh": summary_zh,
+        "summary_original": summary_original,
+        "source_language": source_language,
+        "dimension_reasons": dimension_reasons,
         "confidence": confidence,
     }
+
+
+def _require_fields(data: dict[str, Any], keys: list[str]) -> None:
+    for key in keys:
+        if key not in data:
+            raise ValueError(f"missing required llm field: {key}")
 
 
 def _load_llm_json(raw: str) -> dict[str, Any]:
@@ -228,9 +271,25 @@ def _normalize_tags(raw_tags: Any) -> list[str]:
     return tags
 
 
+def _normalize_dimension_reasons(raw_reasons: Any) -> dict[str, str]:
+    if not isinstance(raw_reasons, dict):
+        raise ValueError("dimension_reasons must be an object")
+    reasons: dict[str, str] = {}
+    for key in _DIMENSION_KEYS:
+        if key not in raw_reasons:
+            raise ValueError(f"missing required llm field: dimension_reasons.{key}")
+        reasons[key] = _trim_text(raw_reasons[key], _MAX_DIMENSION_REASON_LENGTH)
+    return reasons
+
+
 def _trim_reason(reason: str) -> str:
     clean = " ".join(reason.split())
     return clean[:_MAX_REASON_LENGTH]
+
+
+def _trim_text(value: Any, max_length: int) -> str:
+    clean = " ".join(str(value or "").split())
+    return clean[:max_length]
 
 
 def _parse_confidence(value: Any) -> float:

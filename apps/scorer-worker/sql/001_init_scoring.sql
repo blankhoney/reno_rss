@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS item_scores (
     dimension_scores   JSONB       NOT NULL DEFAULT '{}'::jsonb,
     tags               JSONB       NOT NULL,
     reason             TEXT        NOT NULL,
+    summary_zh         TEXT        NOT NULL DEFAULT '',
+    summary_original   TEXT        NOT NULL DEFAULT '',
+    source_language    TEXT        NOT NULL DEFAULT 'unknown',
+    dimension_reasons  JSONB       NOT NULL DEFAULT '{}'::jsonb,
     model_version      TEXT        NOT NULL,
     model_provider     TEXT        NOT NULL DEFAULT 'baseline',
     model_name         TEXT        NOT NULL DEFAULT 'length-baseline',
@@ -36,6 +40,18 @@ CREATE TABLE IF NOT EXISTS item_scores (
 
 ALTER TABLE item_scores
     ADD COLUMN IF NOT EXISTS dimension_scores JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS summary_zh TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS summary_original TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS source_language TEXT NOT NULL DEFAULT 'unknown';
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS dimension_reasons JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- Tracks batch scoring job runs for audit / idempotency
 CREATE TABLE IF NOT EXISTS scoring_jobs (
