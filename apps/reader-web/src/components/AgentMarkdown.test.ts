@@ -47,3 +47,21 @@ test("AgentMarkdown escapes raw HTML and leaves unsafe markdown links as text", 
   assert.equal(html.includes('href="javascript:'), false);
   assert.match(html, /\[bad\]\(javascript:alert\(1\)\)/);
 });
+
+test("AgentMarkdown drops model meta preamble before required sections", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(AgentMarkdown, {
+      text: [
+        "<tags>Let me provide the response following the format requirements.",
+        "",
+        "## 结论",
+        "可以回答。",
+      ].join("\n"),
+    }),
+  );
+
+  assert.equal(html.includes("Let me provide"), false);
+  assert.equal(html.includes("&lt;tags&gt;"), false);
+  assert.match(html, /<h2>结论<\/h2>/);
+  assert.match(html, /可以回答。/);
+});

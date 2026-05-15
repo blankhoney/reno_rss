@@ -8,6 +8,8 @@ type Block =
   | { type: "quote"; text: string };
 
 const INLINE_TOKEN = /(`[^`]+`|\*\*[^*]+\*\*|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\))/g;
+const REQUIRED_SECTION_HEADING =
+  /#{1,3}\s*(?:结论|依据|引用|不确定点|行动建议)(?:[:：].*)?/;
 
 function isSafeHttpUrl(rawUrl: string): boolean {
   try {
@@ -31,7 +33,13 @@ function isBlockStart(line: string): boolean {
 }
 
 function parseBlocks(text: string): Block[] {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  const firstRequiredHeading = REQUIRED_SECTION_HEADING.exec(normalized);
+  const displayText =
+    firstRequiredHeading != null && firstRequiredHeading.index > 0
+      ? normalized.slice(firstRequiredHeading.index).trimStart()
+      : normalized;
+  const lines = displayText.split("\n");
   const blocks: Block[] = [];
   let index = 0;
 
