@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
 import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
+import { articleAgentNotice, articleContentNotice } from "./articleContentNotice";
+import { useArticleActions } from "./useArticleActions";
+import { useDismissableLayer } from "./useDismissableLayer";
 
 const DIMENSION_ROWS: { key: DimensionKey | "overall"; label: string }[] = [
   { key: "overall", label: "总分" },
@@ -103,15 +107,16 @@ export function FocusedArticleReader({
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [agentError, setAgentError] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
-  const [isScoring, setIsScoring] = useState(false);
-  const [isFetchingContent, setIsFetchingContent] = useState(false);
-  const [isMarkingRead, setIsMarkingRead] = useState(false);
-  const [isTogglingCandidate, setIsTogglingCandidate] = useState(false);
-  const [isProjecting, setIsProjecting] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const articleActions = useArticleActions(article, currentLang);
+
+  useDismissableLayer({
+    enabled: drawerOpen,
+    layerRef: drawerRef,
+    onDismiss: () => setDrawerOpen(false),
+  });
 
   useEffect(() => {
     if (!drawerOpen || isAsking) return;
@@ -133,39 +138,6 @@ export function FocusedArticleReader({
       window.removeEventListener("touchmove", closeOnPageTouchMove, { capture: true });
     };
   }, [drawerOpen, isAsking]);
-
-  async function postArticleAction(path: string, body?: unknown) {
-    setActionMessage(null);
-    setActionError(null);
-    const response = await fetch(`/api/articles/${article.id}/${path}`, {
-      method: "POST",
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const data = (await response.json().catch(() => null)) as { error?: unknown } | null;
-      throw new Error(typeof data?.error === "string" ? data.error : "操作失败");
-    }
-  }
-
-  async function runAction(
-    setPending: (value: boolean) => void,
-    path: string,
-    message: string,
-    body?: unknown,
-  ) {
-    setPending(true);
-    try {
-      await postArticleAction(path, body);
-      setActionMessage(message);
-      window.location.reload();
-    } catch (error) {
-      const raw = error instanceof Error ? error.message : "操作失败";
-      setActionError(raw === "article_not_candidate" ? "请先加入候选再立项" : raw);
-    } finally {
-      setPending(false);
-    }
-  }
 
   async function askAgent(nextQuestion = question) {
     const trimmedQuestion = nextQuestion.trim();
@@ -240,6 +212,8 @@ export function FocusedArticleReader({
   }
 
   const score = article.score;
+  const contentNotice = articleContentNotice(article);
+  const agentNotice = articleAgentNotice(article);
 
   return (
     <main className="focusReader">
@@ -254,48 +228,42 @@ export function FocusedArticleReader({
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isFetchingContent}
-            onClick={() => void runAction(setIsFetchingContent, "fetch-content", "全文已刷新")}
+            disabled={articleActions.isFetchingContent}
+            onClick={() => void articleActions.refreshFullContent()}
           >
-            {isFetchingContent ? "刷新中" : "刷新全文"}
+            {articleActions.isFetchingContent ? "刷新中" : "刷新全文"}
           </button>
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isScoring}
-            onClick={() => void runAction(setIsScoring, "score", "评分已更新", { force: true })}
+            disabled={articleActions.isScoring}
+            onClick={() => void articleActions.scoreNow()}
           >
-            {isScoring ? "评分中" : "实时评分"}
+            {articleActions.isScoring ? "评分中" : "实时评分"}
           </button>
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isTogglingCandidate}
-            onClick={() =>
-              void runAction(
-                setIsTogglingCandidate,
-                "star",
-                article.starred ? "已移出候选" : "已加入候选",
-              )
-            }
+            disabled={articleActions.isTogglingCandidate}
+            onClick={() => void articleActions.toggleCandidate()}
           >
             {article.starred ? "移出候选" : "加入候选"}
           </button>
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isProjecting}
-            onClick={() => void runAction(setIsProjecting, "project", "已立项")}
+            disabled={articleActions.isProjecting}
+            onClick={() => void articleActions.enqueueProject()}
           >
-            {isProjecting ? "立项中" : "立项"}
+            {articleActions.isProjecting ? "立项中" : "立项"}
           </button>
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isMarkingRead}
-            onClick={() => void runAction(setIsMarkingRead, "read", "已标记为已读")}
+            disabled={articleActions.isMarkingRead}
+            onClick={() => void articleActions.markRead()}
           >
-            {isMarkingRead ? "标记中" : "标记已读"}
+            {articleActions.isMarkingRead ? "标记中" : "标记已读"}
           </button>
         </div>
       </header>
@@ -305,8 +273,20 @@ export function FocusedArticleReader({
         <span>{score ? "评分：已评分" : "评分：未评分"}</span>
       </section>
 
-      {actionMessage ? <p className="readerActionMessage">{actionMessage}</p> : null}
-      {actionError ? <p className="readerActionError">{actionError}</p> : null}
+      {articleActions.actionMessage ? (
+        <p className="readerActionMessage">
+          {articleActions.actionMessage}
+          {articleActions.actionLink ? (
+            <>
+              {" "}
+              <a href={articleActions.actionLink.href}>{articleActions.actionLink.label}</a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      {articleActions.actionError ? (
+        <p className="readerActionError">{articleActions.actionError}</p>
+      ) : null}
 
       <article className="focusArticle">
         <header className="focusArticleHeader">
@@ -376,16 +356,16 @@ export function FocusedArticleReader({
           )}
         </details>
 
-        {article.contentStatus === "partial" ? (
-          <p className="contentPartialNotice">
-            当前仅有 RSS 片段，可能不是完整正文。系统已尝试使用 Miniflux 抓取全文；仍不完整时可打开原文阅读，问答会按片段状态处理。
-          </p>
-        ) : null}
+        {contentNotice ? <p className="contentPartialNotice">{contentNotice}</p> : null}
 
         <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: article.contentHtml }} />
       </article>
 
-      <section className={drawerOpen ? "agentDrawer agentDrawerOpen" : "agentDrawer"} aria-label="文章助手">
+      <section
+        className={drawerOpen ? "agentDrawer agentDrawerOpen" : "agentDrawer"}
+        aria-label="文章助手"
+        ref={drawerRef}
+      >
         <button
           type="button"
           className="agentDrawerHandle"
@@ -396,11 +376,17 @@ export function FocusedArticleReader({
           <span>文章助手</span>
           <span>{answer.trim().length > 0 ? "已有回答" : "总结、要点、解释选中、行动建议"}</span>
         </button>
-        <div
+        <motion.div
           id="agent-drawer-body"
           className="agentDrawerBody"
           aria-hidden={!drawerOpen}
           inert={!drawerOpen}
+          animate={drawerOpen ? "open" : "closed"}
+          initial={false}
+          variants={{
+            open: { opacity: 1, y: 0 },
+            closed: { opacity: 0, y: 8 },
+          }}
         >
           <div className="agentQuickActions" aria-label="快捷提问">
             {QUICK_ACTIONS.map((action) => (
@@ -433,12 +419,10 @@ export function FocusedArticleReader({
               {isAsking ? "生成中" : "询问"}
             </button>
           </div>
-          {article.contentStatus === "partial" ? (
-            <p className="agentNotice">正文不完整，回答将基于当前片段和评分信息，可能不完整。</p>
-          ) : null}
+          {agentNotice ? <p className="agentNotice">{agentNotice}</p> : null}
           {agentError != null ? <p className="agentError">{agentError}</p> : null}
           {answer.trim().length > 0 ? <AgentMarkdown text={answer} /> : null}
-        </div>
+        </motion.div>
       </section>
     </main>
   );

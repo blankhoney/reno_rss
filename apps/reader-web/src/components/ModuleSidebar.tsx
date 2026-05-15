@@ -1,7 +1,9 @@
 "use client";
 
+import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
+import { AnimatedPanel } from "./AnimatedPanel";
 
 type ModuleNavItem = { id: string; label: string; disabled?: boolean };
 type ModuleNavGroup = { id: string; label: string; items: ModuleNavItem[] };
@@ -130,35 +132,41 @@ export function ModuleSidebar({
                 <span>{group.label}</span>
                 <span aria-hidden="true">{collapsed ? "+" : "-"}</span>
               </button>
-              {collapsed ? null : (
-                <div className="moduleNavGroupItems">
-                  {group.items.map((m) => {
-                    if (m.disabled) {
+              <AnimatePresence initial={false}>
+                {collapsed ? null : (
+                  <AnimatedPanel
+                    key={`${group.id}-items`}
+                    variant="collapse"
+                    className="moduleNavGroupItems"
+                  >
+                    {group.items.map((m) => {
+                      if (m.disabled) {
+                        return (
+                          <span
+                            key={m.id}
+                            className="moduleNavLink moduleNavLinkComingSoon"
+                            aria-disabled="true"
+                            aria-label={`${m.label}，即将推出`}
+                          >
+                            {m.label}
+                          </span>
+                        );
+                      }
+                      const active = currentModule === m.id;
                       return (
-                        <span
+                        <a
                           key={m.id}
-                          className="moduleNavLink moduleNavLinkComingSoon"
-                          aria-disabled="true"
-                          aria-label={`${m.label}，即将推出`}
+                          className={`moduleNavLink${active ? " moduleNavLinkActive" : ""}`}
+                          href={moduleHref(m.id, currentSort, currentLang)}
+                          aria-current={active ? "page" : undefined}
                         >
                           {m.label}
-                        </span>
+                        </a>
                       );
-                    }
-                    const active = currentModule === m.id;
-                    return (
-                      <a
-                        key={m.id}
-                        className={`moduleNavLink${active ? " moduleNavLinkActive" : ""}`}
-                        href={moduleHref(m.id, currentSort, currentLang)}
-                        aria-current={active ? "page" : undefined}
-                      >
-                        {m.label}
-                      </a>
-                    );
-                  })}
-                </div>
-              )}
+                    })}
+                  </AnimatedPanel>
+                )}
+              </AnimatePresence>
             </section>
           );
         })}

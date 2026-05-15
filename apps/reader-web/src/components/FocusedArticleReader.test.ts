@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { FocusedArticleReader } from "./FocusedArticleReader";
 import type { Article } from "@/lib/articles/types";
 
@@ -17,6 +18,7 @@ function article(input: Partial<Article> = {}): Article {
     url: "https://example.com",
     contentHtml: "<p>Short body</p>",
     contentStatus: "partial",
+    contentIssue: "rss_fragment",
     contentFetchAttempted: true,
     summaryZh: "这是一段中文摘要。",
     summaryOriginal: "This is an original summary.",
@@ -31,14 +33,31 @@ function article(input: Partial<Article> = {}): Article {
   };
 }
 
-test("FocusedArticleReader renders the focus reading controls and partial notice", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(FocusedArticleReader, {
-      article: article(),
-      currentLang: "zh",
-      returnHref: "/?module=all&sort=default&lang=zh&article=42",
-    }),
+const appRouter = {
+  back() {},
+  forward() {},
+  prefetch() {},
+  push() {},
+  replace() {},
+  refresh() {},
+};
+
+function renderFocusedReader(articleInput: Article, returnHref: string) {
+  return renderToStaticMarkup(
+    React.createElement(
+      AppRouterContext.Provider,
+      { value: appRouter as never },
+      React.createElement(FocusedArticleReader, {
+        article: articleInput,
+        currentLang: "zh",
+        returnHref,
+      }),
+    ),
   );
+}
+
+test("FocusedArticleReader renders the focus reading controls and partial notice", () => {
+  const html = renderFocusedReader(article(), "/?module=all&sort=default&lang=zh&article=42");
 
   assert.match(html, /返回工作台/);
   assert.match(html, /打开原文/);
@@ -50,7 +69,7 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.doesNotMatch(html, /<summary>操作<\/summary>/);
   assert.match(html, /正文：片段/);
   assert.match(html, /评分：未评分/);
-  assert.match(html, /当前仅有 RSS 片段/);
+  assert.match(html, /当前仍只有 RSS 片段/);
   assert.match(html, /文章助手/);
   assert.match(html, /总结、要点、解释选中、行动建议/);
   assert.match(html, /aria-expanded="false"/);
@@ -59,11 +78,11 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
 });
 
 test("FocusedArticleReader renders scored state and dimension reasons", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(FocusedArticleReader, {
-      article: article({
+  const html = renderFocusedReader(
+    article({
         contentHtml: "<p>Long enough body ".repeat(30),
         contentStatus: "full",
+        contentIssue: null,
         score: {
           overall: 80,
           dimensions: {
@@ -85,10 +104,8 @@ test("FocusedArticleReader renders scored state and dimension reasons", () => {
           },
           scoredAt: "2026-05-14T00:00:00.000Z",
         },
-      }),
-      currentLang: "zh",
-      returnHref: "/?module=technical&sort=score&lang=zh&article=42",
     }),
+    "/?module=technical&sort=score&lang=zh&article=42",
   );
 
   assert.match(html, /正文：完整/);

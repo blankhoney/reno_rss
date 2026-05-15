@@ -7,6 +7,8 @@ import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
+import { articleAgentNotice, articleContentNotice } from "./articleContentNotice";
+import { useArticleActions } from "./useArticleActions";
 
 const DIMENSION_ROWS: { key: DimensionKey | "overall"; label: string }[] = [
   { key: "overall", label: "总分" },
@@ -94,20 +96,13 @@ export function ArticleReader({
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [agentError, setAgentError] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
-  const [isScoring, setIsScoring] = useState(false);
-  const [isProjecting, setIsProjecting] = useState(false);
-  const [isTogglingCandidate, setIsTogglingCandidate] = useState(false);
-  const [isFetchingContent, setIsFetchingContent] = useState(false);
+  const articleActions = useArticleActions(article, currentLang);
 
   useEffect(() => {
     setQuestion("");
     setAnswer("");
     setAgentError(null);
-    setActionMessage(null);
-    setActionError(null);
   }, [article?.id]);
 
   if (article == null) {
@@ -123,76 +118,8 @@ export function ArticleReader({
 
   const score = article.score;
   const canAsk = question.trim().length > 0 && !isAsking;
-
-  async function postArticleAction(path: string, body?: unknown) {
-    if (article == null) return;
-    setActionMessage(null);
-    setActionError(null);
-    const response = await fetch(`/api/articles/${article.id}/${path}`, {
-      method: "POST",
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const data = (await response.json().catch(() => null)) as { error?: unknown } | null;
-      throw new Error(typeof data?.error === "string" ? data.error : "操作失败");
-    }
-  }
-
-  async function scoreNow() {
-    setIsScoring(true);
-    try {
-      await postArticleAction("score", { force: true });
-      setActionMessage("评分已更新");
-      window.location.reload();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "评分失败");
-    } finally {
-      setIsScoring(false);
-    }
-  }
-
-  async function refreshFullContent() {
-    setIsFetchingContent(true);
-    try {
-      await postArticleAction("fetch-content");
-      setActionMessage("全文已刷新");
-      window.location.reload();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "全文刷新失败");
-    } finally {
-      setIsFetchingContent(false);
-    }
-  }
-
-  async function toggleCandidate() {
-    if (article == null) return;
-    const wasStarred = article.starred;
-    setIsTogglingCandidate(true);
-    try {
-      await postArticleAction("star");
-      setActionMessage(wasStarred ? "已移出候选" : "已加入候选");
-      window.location.reload();
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "候选状态更新失败");
-    } finally {
-      setIsTogglingCandidate(false);
-    }
-  }
-
-  async function enqueueProject() {
-    setIsProjecting(true);
-    try {
-      await postArticleAction("project");
-      setActionMessage("已立项");
-      window.location.reload();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "立项失败";
-      setActionError(message === "article_not_candidate" ? "请先加入候选再立项" : message);
-    } finally {
-      setIsProjecting(false);
-    }
-  }
+  const contentNotice = articleContentNotice(article);
+  const agentNotice = articleAgentNotice(article);
 
   async function askAgent() {
     if (article == null || question.trim().length === 0) return;
@@ -277,38 +204,50 @@ export function ArticleReader({
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isFetchingContent}
-            onClick={() => void refreshFullContent()}
+            disabled={articleActions.isFetchingContent}
+            onClick={() => void articleActions.refreshFullContent()}
           >
-            {isFetchingContent ? "刷新中" : "刷新全文"}
+            {articleActions.isFetchingContent ? "刷新中" : "刷新全文"}
           </button>
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isScoring}
-            onClick={() => void scoreNow()}
+            disabled={articleActions.isScoring}
+            onClick={() => void articleActions.scoreNow()}
           >
-            {isScoring ? "评分中" : "实时评分"}
+            {articleActions.isScoring ? "评分中" : "实时评分"}
           </button>
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isTogglingCandidate}
-            onClick={() => void toggleCandidate()}
+            disabled={articleActions.isTogglingCandidate}
+            onClick={() => void articleActions.toggleCandidate()}
           >
             {article.starred ? "移出候选" : "加入候选"}
           </button>
           <button
             type="button"
             className="readerToolbarBtn"
-            disabled={isProjecting}
-            onClick={() => void enqueueProject()}
+            disabled={articleActions.isProjecting}
+            onClick={() => void articleActions.enqueueProject()}
           >
-            {isProjecting ? "立项中" : "立项"}
+            {articleActions.isProjecting ? "立项中" : "立项"}
           </button>
         </div>
-        {actionMessage ? <p className="readerActionMessage">{actionMessage}</p> : null}
-        {actionError ? <p className="readerActionError">{actionError}</p> : null}
+        {articleActions.actionMessage ? (
+          <p className="readerActionMessage">
+            {articleActions.actionMessage}
+            {articleActions.actionLink ? (
+              <>
+                {" "}
+                <a href={articleActions.actionLink.href}>{articleActions.actionLink.label}</a>
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        {articleActions.actionError ? (
+          <p className="readerActionError">{articleActions.actionError}</p>
+        ) : null}
         <h2 className="readerTitle">{article.title}</h2>
         <section className="readerSummary" aria-label="文章摘要">
           <div className="readerSummaryHeader">
@@ -371,11 +310,7 @@ export function ArticleReader({
         )}
       </section>
 
-      {article.contentStatus === "partial" ? (
-        <p className="contentPartialNotice">
-          当前仅有 RSS 片段，可能不是完整正文。可尝试刷新全文，或打开原文阅读；问答将基于片段和评分信息回答，可能不完整。
-        </p>
-      ) : null}
+      {contentNotice ? <p className="contentPartialNotice">{contentNotice}</p> : null}
 
       <div
         className="articleContent content"
@@ -401,9 +336,7 @@ export function ArticleReader({
           placeholder="问当前文章..."
           rows={3}
         />
-        {article.contentStatus === "partial" ? (
-          <p className="agentNotice">正文不完整，回答将基于当前片段和评分信息，可能不完整。</p>
-        ) : null}
+        {agentNotice ? <p className="agentNotice">{agentNotice}</p> : null}
         {agentError != null ? <p className="agentError">{agentError}</p> : null}
         {answer.trim().length > 0 ? <AgentMarkdown text={answer} /> : null}
       </section>

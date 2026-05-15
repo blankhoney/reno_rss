@@ -2,6 +2,7 @@ import type { ArticleScore } from "@/lib/scoring/repository";
 
 export type ArticleStatus = "read" | "unread" | "removed";
 export type ArticleContentStatus = "full" | "partial";
+export type ArticleContentIssue = "rss_fragment" | "blocked_or_error_page" | "fetch_failed" | null;
 
 export type Article = {
   id: number;
@@ -14,6 +15,7 @@ export type Article = {
   url: string;
   contentHtml: string;
   contentStatus: ArticleContentStatus;
+  contentIssue: ArticleContentIssue;
   contentFetchAttempted: boolean;
   summaryZh: string;
   summaryOriginal: string;

@@ -1,7 +1,10 @@
 import type { Article } from "./types";
 import {
+  decideFetchedArticleContent,
+  type ArticleContentFetchResult,
+} from "./contentQuality";
+import {
   articleNeedsOriginalContentFetch,
-  classifyArticleContentStatus,
   filterArticlesForModule,
   mergeArticleData,
   minifluxEntryFilterForModule,
@@ -117,16 +120,22 @@ export async function getArticleForReader(
   let article = await miniflux.getEntry(id);
   if (article == null) return null;
   let contentFetchAttempted = false;
+  let contentIssueOverride: Article["contentIssue"] | undefined;
 
   if (options.autoFetchContent !== false && articleNeedsOriginalContentFetch(article.contentHtml)) {
     contentFetchAttempted = true;
     try {
       const fetchedContent = await miniflux.fetchOriginalContent(id, true);
-      if (fetchedContent.trim().length > article.contentHtml.trim().length) {
-        article = { ...article, contentHtml: fetchedContent };
+      const decision = decideFetchedArticleContent(article.contentHtml, fetchedContent);
+      article = { ...article, contentHtml: decision.html };
+      if (decision.fetchResult.outcome === "rejected") {
+        contentIssueOverride = "blocked_or_error_page";
+      } else if (decision.fetchResult.outcome === "unchanged") {
+        contentIssueOverride = decision.fetchResult.issue;
       }
     } catch (error) {
       console.warn("Failed to fetch original content for article detail", error);
+      contentIssueOverride = "fetch_failed";
     }
   }
 
@@ -144,20 +153,23 @@ export async function getArticleForReader(
   if (!merged) return null;
   return {
     ...merged,
-    contentStatus: classifyArticleContentStatus(merged.contentHtml),
+    contentStatus: contentIssueOverride != null ? "partial" : merged.contentStatus,
+    contentIssue: contentIssueOverride ?? merged.contentIssue,
     contentFetchAttempted,
   };
 }
 
-export async function refreshArticleOriginalContent(id: number): Promise<Article | null> {
+export async function refreshArticleOriginalContent(id: number): Promise<{
+  article: Article;
+  fetchResult: ArticleContentFetchResult;
+} | null> {
   const miniflux = getConfiguredMinifluxClient();
   let article = await miniflux.getEntry(id);
   if (article == null) return null;
 
   const fetchedContent = await miniflux.fetchOriginalContent(id, true);
-  if (fetchedContent.trim().length > 0) {
-    article = { ...article, contentHtml: fetchedContent };
-  }
+  const decision = decideFetchedArticleContent(article.contentHtml, fetchedContent);
+  article = { ...article, contentHtml: decision.html };
 
   let scores = new Map<number, ArticleScore>();
   let states = new Map<number, ReaderState>();
@@ -169,9 +181,17 @@ export async function refreshArticleOriginalContent(id: number): Promise<Article
 
   const merged = mergeArticleData([article], scores, states)[0];
   if (!merged) return null;
-  return {
+  const contentIssue =
+    decision.fetchResult.outcome === "rejected"
+      ? "blocked_or_error_page"
+      : decision.fetchResult.outcome === "unchanged"
+        ? decision.fetchResult.issue
+        : merged.contentIssue;
+  const refreshedArticle: Article = {
     ...merged,
-    contentStatus: classifyArticleContentStatus(merged.contentHtml),
+    contentStatus: contentIssue != null ? "partial" : merged.contentStatus,
+    contentIssue,
     contentFetchAttempted: true,
   };
+  return { article: refreshedArticle, fetchResult: decision.fetchResult };
 }

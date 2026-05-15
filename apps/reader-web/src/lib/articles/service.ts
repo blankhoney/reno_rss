@@ -1,6 +1,7 @@
 import type { ArticleScore } from "@/lib/scoring/repository";
 import sanitizeHtml from "sanitize-html";
-import type { Article, ArticleContentStatus } from "./types";
+import { assessArticleContent } from "./contentQuality";
+import type { Article, ArticleContentIssue, ArticleContentStatus } from "./types";
 
 export const MODULE_IDS = [
   "all",
@@ -187,6 +188,7 @@ type MinifluxArticle = Omit<
   | "summaryOriginal"
   | "sourceLanguage"
   | "contentStatus"
+  | "contentIssue"
   | "contentFetchAttempted"
 >;
 
@@ -229,13 +231,15 @@ export function sanitizeArticleHtml(html: string): string {
 }
 
 export function articleNeedsOriginalContentFetch(html: string): boolean {
-  const text = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-  if (text.length < 280) return true;
-  return /^comments?$/i.test(text);
+  return assessArticleContent(html).status === "partial";
 }
 
 export function classifyArticleContentStatus(html: string): ArticleContentStatus {
-  return articleNeedsOriginalContentFetch(html) ? "partial" : "full";
+  return assessArticleContent(html).status;
+}
+
+export function classifyArticleContentIssue(html: string): ArticleContentIssue {
+  return assessArticleContent(html).issue;
 }
 
 export function mergeArticleData(
@@ -246,10 +250,12 @@ export function mergeArticleData(
   return articles.map((article) => {
     const state = states.get(article.id);
     const contentHtml = sanitizeArticleHtml(article.contentHtml);
+    const contentAssessment = assessArticleContent(contentHtml);
     return {
       ...article,
       contentHtml,
-      contentStatus: classifyArticleContentStatus(contentHtml),
+      contentStatus: contentAssessment.status,
+      contentIssue: contentAssessment.issue,
       contentFetchAttempted: false,
       score: scores.get(article.id) ?? null,
       summaryZh: scores.get(article.id)?.summaryZh ?? "",

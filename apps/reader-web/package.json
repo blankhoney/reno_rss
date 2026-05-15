@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@types/pg": "latest",
+    "motion": "^12.38.0",
     "next": "latest",
     "pg": "latest",
     "react": "latest",

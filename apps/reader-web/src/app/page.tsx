@@ -8,6 +8,7 @@ import {
   resolveSummaryLangId,
   type ArticleSortId,
 } from "@/lib/articles/service";
+import { selectedArticleIdOrFirst } from "@/lib/articles/selection";
 import { getArticleForReader, listArticlesForModule } from "@/lib/articles/server";
 import { DEFAULT_ARTICLES_LIST_LIMIT } from "@/lib/miniflux/client";
 
@@ -48,9 +49,10 @@ export default async function HomePage({ searchParams }: PageProps) {
   );
   const currentSort = sortResolution.ok ? sortResolution.sortId : "default";
   const currentLang = resolveSummaryLangId(typeof sp.lang === "string" ? sp.lang : null);
-  const selectedId = parseArticleId(sp.article);
+  const requestedSelectedId = parseArticleId(sp.article);
 
   const articles = await fetchArticlesList(currentModule, currentSort);
+  const selectedId = selectedArticleIdOrFirst(requestedSelectedId, articles);
 
   let selectedArticle: Article | null = null;
   if (selectedId != null) {
