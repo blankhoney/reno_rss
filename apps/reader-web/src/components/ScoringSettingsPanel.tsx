@@ -7,14 +7,16 @@ import { AnimatedPanel } from "./AnimatedPanel";
 import { useDismissableLayer } from "./useDismissableLayer";
 
 export function ScoringSettingsPanel({
+  initialSettings = DEFAULT_SCORING_SETTINGS,
   onSettingsLoaded,
   onSettingsSaved,
 }: {
+  initialSettings?: ScoringSettings;
   onSettingsLoaded?: (settings: ScoringSettings) => void;
   onSettingsSaved?: (settings: ScoringSettings) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [settings, setSettings] = useState<ScoringSettings>(DEFAULT_SCORING_SETTINGS);
+  const [settings, setSettings] = useState<ScoringSettings>(initialSettings);
   const [message, setMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);

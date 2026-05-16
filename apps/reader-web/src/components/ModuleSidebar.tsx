@@ -45,7 +45,7 @@ const MODULE_GROUPS: ModuleNavGroup[] = [
   {
     id: "manage",
     label: "管理",
-    items: [{ id: "feeds", label: "订阅源管理", disabled: true }],
+    items: [{ id: "feeds", label: "订阅源管理" }],
   },
 ];
 
@@ -65,17 +65,14 @@ function initialCollapsedGroups(currentModule: string): Set<string> {
   return next;
 }
 
-function readStoredCollapsedGroups(currentModule: string): Set<string> | null {
+function readStoredCollapsedGroups(): Set<string> | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
-    const next = new Set(parsed.map(String));
-    const activeGroupId = activeGroupIdForModule(currentModule);
-    if (activeGroupId) next.delete(activeGroupId);
-    return next;
+    return new Set(parsed.map(String));
   } catch {
     return null;
   }
@@ -96,7 +93,7 @@ export function ModuleSidebar({
   );
 
   useEffect(() => {
-    const stored = readStoredCollapsedGroups(currentModule);
+    const stored = readStoredCollapsedGroups();
     if (stored) setCollapsedGroups(stored);
   }, [currentModule]);
 
@@ -105,7 +102,6 @@ export function ModuleSidebar({
       const next = new Set(current);
       if (next.has(groupId)) next.delete(groupId);
       else next.add(groupId);
-      if (activeGroupId) next.delete(activeGroupId);
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
       } catch {
@@ -121,11 +117,12 @@ export function ModuleSidebar({
       <nav className="moduleNav" aria-label="阅读模块">
         {MODULE_GROUPS.map((group) => {
           const collapsed = collapsedGroups.has(group.id);
+          const activeGroup = activeGroupId === group.id;
           return (
             <section className="moduleNavGroup" key={group.id}>
               <button
                 type="button"
-                className="moduleNavGroupButton"
+                className={`moduleNavGroupButton${activeGroup ? " moduleNavGroupButtonActive" : ""}`}
                 aria-expanded={!collapsed}
                 onClick={() => toggleGroup(group.id)}
               >

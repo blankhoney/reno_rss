@@ -5,24 +5,31 @@ import {
 } from "./contentQuality";
 import {
   articleNeedsOriginalContentFetch,
+  filterHiddenFeedsForModule,
   filterArticlesForModule,
   mergeArticleData,
   minifluxEntryFilterForModule,
+  modulePreservesHiddenFeeds,
   sortArticlesForModule,
   type ArticleSortId,
   type ModuleId,
 } from "./service";
+import { buildFeedQualitySummaries, feedQualityMap } from "@/lib/feeds/quality";
 import { getConfig } from "@/lib/config";
 import { MinifluxClient } from "@/lib/miniflux/client";
 import { getPool } from "@/lib/scoring/db";
 import {
   type ArticleScore,
+  type FeedPreference,
+  getFeedPreferences,
   getProjectEntryIds,
   getReaderStatesByEntryIds,
   getScoresByEntryIds,
 } from "@/lib/scoring/repository";
 
 type ReaderState = { readLater: boolean; lastReadAt: string | null };
+const FEED_QUALITY_SAMPLE_LIMIT = 300;
+const ARTICLE_LIST_MAX_SCAN_LIMIT = 1_000;
 
 function getConfiguredMinifluxClient() {
   const config = getConfig();
@@ -55,34 +62,99 @@ async function getArticleMaps(entryIds: number[]): Promise<{
   return { scores, states };
 }
 
+type MinifluxArticle = Awaited<ReturnType<MinifluxClient["getEntries"]>>[number];
+
+async function enrichArticlesWithLocalData(baseArticles: MinifluxArticle[]): Promise<Article[]> {
+  const entryIds = baseArticles.map((article) => article.id);
+  const feedIds = [
+    ...new Set(baseArticles.flatMap((article) => (article.feedId == null ? [] : [article.feedId]))),
+  ];
+
+  let scores = new Map<number, ArticleScore>();
+  let states = new Map<number, ReaderState>();
+  let preferences = new Map<number, FeedPreference>();
+  try {
+    const maps = await getArticleMaps(entryIds);
+    scores = maps.scores;
+    states = maps.states;
+  } catch (error) {
+    console.warn("Failed to load scoring data for article list", error);
+  }
+  try {
+    preferences = await getFeedPreferences(getPool(), getConfig().READER_TENANT_ID, feedIds);
+  } catch (error) {
+    console.warn("Failed to load feed preferences for article list", error);
+  }
+
+  const merged = mergeArticleData(baseArticles, scores, states);
+  const qualityByFeed = feedQualityMap(
+    buildFeedQualitySummaries({
+      feeds: [],
+      articles: merged.slice(0, FEED_QUALITY_SAMPLE_LIMIT),
+      preferences,
+    }),
+  );
+
+  return merged.map((article) => {
+    const preference = article.feedId == null ? undefined : preferences.get(article.feedId);
+    const feedQuality = article.feedId == null ? undefined : qualityByFeed.get(article.feedId);
+    return {
+      ...article,
+      feedHidden: preference?.hidden ?? feedQuality?.hidden ?? false,
+      feedQualityScore: feedQuality?.qualityScore,
+    };
+  });
+}
+
+function applyModuleFiltersAndSort(
+  articles: Article[],
+  moduleId: ModuleId,
+  sortId: ArticleSortId,
+): Article[] {
+  return sortArticlesForModule(
+    filterHiddenFeedsForModule(filterArticlesForModule(articles, moduleId), moduleId),
+    moduleId,
+    sortId,
+  );
+}
+
 export async function listArticlesForModule(
   moduleId: ModuleId,
   limit: number,
   sortId: ArticleSortId = "default",
 ): Promise<Article[]> {
+  if (moduleId === "feeds") return [];
   if (moduleId === "project") {
     return listProjectArticles(limit, sortId);
   }
 
   const miniflux = getConfiguredMinifluxClient();
-  const baseArticles = await miniflux.getEntries(minifluxEntryFilterForModule(moduleId, limit));
-  const entryIds = baseArticles.map((article) => article.id);
+  const pageSize = Math.max(limit, FEED_QUALITY_SAMPLE_LIMIT);
+  const shouldBackfillHiddenFeeds = !modulePreservesHiddenFeeds(moduleId);
+  const maxScan = shouldBackfillHiddenFeeds
+    ? Math.max(FEED_QUALITY_SAMPLE_LIMIT, Math.min(ARTICLE_LIST_MAX_SCAN_LIMIT, limit * 20))
+    : pageSize;
+  const baseArticles: MinifluxArticle[] = [];
+  let visibleArticles: Article[] = [];
 
-  let scores = new Map<number, ArticleScore>();
-  let states = new Map<number, ReaderState>();
-  try {
-    ({ scores, states } = await getArticleMaps(entryIds));
-  } catch (error) {
-    console.warn("Failed to load scoring data for article list", error);
-    scores = new Map();
-    states = new Map();
+  for (let offset = 0; offset < maxScan; offset += pageSize) {
+    const pageLimit = Math.min(pageSize, maxScan - offset);
+    const page = await miniflux.getEntries({
+      ...minifluxEntryFilterForModule(moduleId, pageLimit),
+      offset,
+    });
+    baseArticles.push(...page);
+    visibleArticles = applyModuleFiltersAndSort(
+      await enrichArticlesWithLocalData(baseArticles),
+      moduleId,
+      sortId,
+    );
+    if (visibleArticles.length >= limit || page.length < pageLimit || !shouldBackfillHiddenFeeds) {
+      break;
+    }
   }
 
-  return sortArticlesForModule(
-    filterArticlesForModule(mergeArticleData(baseArticles, scores, states), moduleId),
-    moduleId,
-    sortId,
-  );
+  return visibleArticles.slice(0, limit);
 }
 
 async function listProjectArticles(limit: number, sortId: ArticleSortId): Promise<Article[]> {

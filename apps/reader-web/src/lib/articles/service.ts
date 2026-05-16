@@ -16,6 +16,7 @@ export const MODULE_IDS = [
   "ai",
   "product",
   "security",
+  "feeds",
 ] as const;
 
 export type ModuleId = (typeof MODULE_IDS)[number];
@@ -100,11 +101,17 @@ export function sortArticlesForModule(
     return [...articles].sort((a, b) => {
       const scoreDelta = scoreForSort(b, sortId) - scoreForSort(a, sortId);
       if (scoreDelta !== 0) return scoreDelta;
+      const qualityDelta = feedQualitySortTier(b) - feedQualitySortTier(a);
+      if (qualityDelta !== 0) return qualityDelta;
       return publishedAtSortKey(b.publishedAt) - publishedAtSortKey(a.publishedAt);
     });
   }
   if (moduleId === "project") return articles;
-  return [...articles].sort((a, b) => scoreForModule(b, moduleId) - scoreForModule(a, moduleId));
+  return [...articles].sort((a, b) => {
+    const qualityDelta = feedQualitySortTier(b) - feedQualitySortTier(a);
+    if (qualityDelta !== 0) return qualityDelta;
+    return scoreForModule(b, moduleId) - scoreForModule(a, moduleId);
+  });
 }
 
 export type MinifluxEntryModuleFilter = {
@@ -122,6 +129,7 @@ export function minifluxEntryFilterForModule(
   if (moduleId === "starred") return { status: "all", starred: true, limit };
   if (moduleId === "project") return { status: "all", starred: undefined, limit };
   if (moduleId === "read-later") return { status: "all", starred: undefined, limit };
+  if (moduleId === "feeds") return { status: "all", starred: undefined, limit };
   if (
     moduleId === "technical" ||
     moduleId === "business" ||
@@ -138,6 +146,15 @@ export function minifluxEntryFilterForModule(
 export function filterArticlesForModule(articles: Article[], moduleId: ModuleId): Article[] {
   if (moduleId === "read-later") return articles.filter((article) => article.readLater);
   return articles;
+}
+
+export function modulePreservesHiddenFeeds(moduleId: ModuleId): boolean {
+  return moduleId === "starred" || moduleId === "project" || moduleId === "read-later";
+}
+
+export function filterHiddenFeedsForModule(articles: Article[], moduleId: ModuleId): Article[] {
+  if (modulePreservesHiddenFeeds(moduleId)) return articles;
+  return articles.filter((article) => article.feedHidden !== true);
 }
 
 export function scoreForModule(article: Article, moduleId: ModuleId): number {
@@ -177,6 +194,12 @@ function scoreForSort(article: Article, sortId: ArticleSortId): number {
   if (sortId === "business") return score.dimensions.business_value;
   if (sortId === "trend") return score.dimensions.trend_value;
   return -1;
+}
+
+function feedQualitySortTier(article: Article): number {
+  const score = article.feedQualityScore;
+  if (score == null) return 1;
+  return score < 45 ? 0 : 1;
 }
 
 type MinifluxArticle = Omit<

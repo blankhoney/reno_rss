@@ -9,6 +9,8 @@ export type Article = {
   userId: number;
   feedId: number | null;
   feedTitle: string;
+  feedHidden?: boolean;
+  feedQualityScore?: number;
   categoryId: number | null;
   categoryTitle: string;
   title: string;

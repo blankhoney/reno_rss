@@ -2,11 +2,13 @@
 
 import type { Article } from "@/lib/articles/types";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
-import { DEFAULT_SCORING_SETTINGS, type ScoringSettings } from "@/lib/scoring/settings";
+import type { ScoringSettings } from "@/lib/scoring/settings";
 import { scoreArticlesWithConcurrency, type BulkScoreSummary } from "@/lib/scoring/bulkScore";
 import { ScoreBadge } from "./ScoreBadge";
 import { ScoringSettingsPanel } from "./ScoringSettingsPanel";
+import { SortMenu, type SortOption } from "./SortMenu";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type ArticleListProps = {
   articles: Article[];
@@ -14,9 +16,10 @@ type ArticleListProps = {
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
   selectedArticleId: number | null;
+  initialScoringSettings: ScoringSettings;
 };
 
-const SORT_OPTIONS: { id: ArticleSortId; label: string }[] = [
+const SORT_OPTIONS: SortOption[] = [
   { id: "default", label: "默认排序" },
   { id: "latest", label: "按最新" },
   { id: "score", label: "按总分" },
@@ -99,11 +102,13 @@ export function ArticleList({
   currentSort,
   currentLang,
   selectedArticleId,
+  initialScoringSettings,
 }: ArticleListProps) {
+  const router = useRouter();
   const isEmpty = articles.length === 0;
-  const [manualBatchSize, setManualBatchSize] = useState(DEFAULT_SCORING_SETTINGS.manualBatchSize);
+  const [manualBatchSize, setManualBatchSize] = useState(initialScoringSettings.manualBatchSize);
   const [manualRescoreEnabled, setManualRescoreEnabled] = useState(
-    DEFAULT_SCORING_SETTINGS.manualRescoreEnabled,
+    initialScoringSettings.manualRescoreEnabled,
   );
   const [bulkScoreSummary, setBulkScoreSummary] = useState<BulkScoreSummary | null>(null);
   const [isBulkScoring, setIsBulkScoring] = useState(false);
@@ -117,40 +122,17 @@ export function ArticleList({
   const failedMessages = bulkScoreSummary ? failedScoreMessages(bulkScoreSummary) : [];
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/scoring/settings", { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error("settings_fetch_failed");
-        return response.json() as Promise<{ settings: ScoringSettings }>;
-      })
-      .then((body) => {
-        if (!cancelled) {
-          setManualBatchSize(body.settings.manualBatchSize);
-          setManualRescoreEnabled(body.settings.manualRescoreEnabled);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setManualBatchSize(DEFAULT_SCORING_SETTINGS.manualBatchSize);
-          setManualRescoreEnabled(DEFAULT_SCORING_SETTINGS.manualRescoreEnabled);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     return () => clearPendingPreview();
   }, []);
 
   function updateSort(nextSort: ArticleSortId) {
-    const qs = new URLSearchParams(window.location.search);
-    qs.set("module", currentModule);
-    qs.set("sort", nextSort);
-    qs.set("lang", currentLang);
+    const qs = new URLSearchParams({
+      module: currentModule,
+      sort: nextSort,
+      lang: currentLang,
+    });
     if (selectedArticleId != null) qs.set("article", String(selectedArticleId));
-    window.location.search = qs.toString();
+    router.push(`?${qs.toString()}`);
   }
 
   function clearPendingPreview() {
@@ -163,14 +145,14 @@ export function ArticleList({
   function openPreview(href: string) {
     clearPendingPreview();
     clickTimerRef.current = window.setTimeout(() => {
-      window.location.assign(href);
+      router.push(href);
       clickTimerRef.current = null;
     }, 260);
   }
 
   function openReader(href: string) {
     clearPendingPreview();
-    window.location.assign(href);
+    router.push(href);
   }
 
   async function rescoreCurrentPage() {
@@ -215,6 +197,11 @@ export function ArticleList({
                 : `重评前 ${batchCount} 篇`}
           </button>
           <ScoringSettingsPanel
+            initialSettings={{
+              ...initialScoringSettings,
+              manualBatchSize,
+              manualRescoreEnabled,
+            }}
             onSettingsLoaded={(settings) => {
               setManualBatchSize(settings.manualBatchSize);
               setManualRescoreEnabled(settings.manualRescoreEnabled);
@@ -224,21 +211,7 @@ export function ArticleList({
               setManualRescoreEnabled(settings.manualRescoreEnabled);
             }}
           />
-          <label className="articleSortLabel">
-            <span className="visuallyHidden">排序</span>
-            <select
-              className="articleSortSelect"
-              value={currentSort}
-              aria-label="排序方式"
-              onChange={(event) => updateSort(event.target.value as ArticleSortId)}
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SortMenu currentSort={currentSort} options={SORT_OPTIONS} onChange={updateSort} />
         </div>
       </header>
       {bulkScoreSummary ? (
@@ -259,7 +232,7 @@ export function ArticleList({
             <button
               type="button"
               className="bulkScoreRefresh"
-              onClick={() => window.location.reload()}
+              onClick={() => router.refresh()}
             >
               刷新列表查看摘要/评分
             </button>

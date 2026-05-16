@@ -32,3 +32,12 @@ CREATE TABLE IF NOT EXISTS entry_project_queue (
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (tenant_id, miniflux_entry_id)
 );
+
+CREATE TABLE IF NOT EXISTS reader_feed_preferences (
+    tenant_id          TEXT        NOT NULL,
+    miniflux_feed_id   BIGINT      NOT NULL,
+    hidden             BOOLEAN     NOT NULL DEFAULT FALSE,
+    hidden_at          TIMESTAMPTZ,
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, miniflux_feed_id)
+);

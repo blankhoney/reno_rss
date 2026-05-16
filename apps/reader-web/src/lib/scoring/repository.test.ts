@@ -7,6 +7,7 @@ import {
   normalizeScoringSettingsPatch,
   setReadLaterSql,
   toArticleScore,
+  updateFeedPreferenceSql,
   updateScoringSettingsSql,
   upsertProjectQueueSql,
 } from "./repository";
@@ -145,4 +146,17 @@ test("updateScoringSettingsSql upserts one row per tenant", () => {
   assert.match(query.text, /scoring_settings/);
   assert.match(query.text, /manual_batch_size/);
   assert.match(query.text, /ON CONFLICT \(tenant_id\)/);
+});
+
+test("updateFeedPreferenceSql toggles feed hidden state", () => {
+  const query = updateFeedPreferenceSql({
+    tenantId: "default",
+    feedId: 9,
+    hidden: true,
+  });
+
+  assert.deepEqual(query.values, ["default", 9, true]);
+  assert.match(query.text, /reader_feed_preferences/);
+  assert.match(query.text, /ON CONFLICT \(tenant_id, miniflux_feed_id\)/);
+  assert.match(query.text, /RETURNING miniflux_feed_id/);
 });

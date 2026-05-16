@@ -56,6 +56,10 @@ button {
   min-height: 100vh;
 }
 
+.feedWorkbench {
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+
 .moduleSidebar {
   background: var(--panel);
   border-right: 1px solid var(--border);
@@ -97,6 +101,10 @@ button {
 
 .moduleNavGroupButton:hover {
   color: var(--text);
+}
+
+.moduleNavGroupButtonActive {
+  color: var(--accent);
 }
 
 .moduleNavGroupItems {
@@ -167,13 +175,81 @@ button {
   font-size: 1.05rem;
 }
 
-.articleSortSelect {
+.sortMenu {
+  position: relative;
+}
+
+.sortMenuButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 5px 8px;
+  padding: 6px 9px;
   background: var(--panel);
   color: var(--text);
-  max-width: 132px;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.sortMenuButton:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: var(--bg);
+}
+
+.sortMenuButton:active {
+  transform: scale(0.985);
+}
+
+.sortMenuLabel,
+.sortMenuChevron {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.sortMenuPopover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 6;
+  width: 150px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
+  padding: 6px;
+  display: grid;
+  gap: 3px;
+  transform-origin: top right;
+}
+
+.sortMenuOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sortMenuOption:hover {
+  background: var(--bg);
+}
+
+.sortMenuOptionActive {
+  color: var(--accent);
+  background: var(--accent-muted);
+  font-weight: 600;
 }
 
 .settingsPanel {
@@ -253,6 +329,97 @@ button {
   padding: 5px 8px;
   font-size: 0.82rem;
   font-weight: 600;
+}
+
+.feedQualityPane {
+  padding: 22px;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.feedQualityHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.feedQualityHeader h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.feedQualityHeader p,
+.feedQualityLoading,
+.feedQualityError {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.feedQualityError {
+  color: #b91c1c;
+}
+
+.feedQualityList {
+  display: grid;
+  gap: 10px;
+  max-width: 980px;
+}
+
+.feedQualityCard {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 13px;
+  display: grid;
+  gap: 10px;
+}
+
+.feedQualityCardHidden {
+  opacity: 0.62;
+}
+
+.feedQualityMain {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.feedQualityMain h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.feedQualityMeta,
+.feedQualityReasons {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.feedQualityStats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(74px, 1fr));
+  gap: 8px;
+}
+
+.feedQualityStats div {
+  border-radius: 7px;
+  background: var(--bg);
+  padding: 7px 8px;
+}
+
+.feedQualityStats dt {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.feedQualityStats dd {
+  margin: 2px 0 0;
+  font-weight: 700;
 }
 
 .articleList {
@@ -815,9 +982,38 @@ button {
 
 .articleContent img,
 .content img {
+  display: block;
   max-width: 100%;
   height: auto;
+  margin: 1.1em auto;
   border-radius: 8px;
+}
+
+.articleContent img[width="0"],
+.articleContent img[height="0"],
+.content img[width="0"],
+.content img[height="0"] {
+  display: none;
+}
+
+.articleContent figure,
+.content figure {
+  display: block;
+  margin: 1.35em 0;
+}
+
+.articleContent picture,
+.content picture {
+  display: block;
+}
+
+.articleContent figcaption,
+.content figcaption {
+  display: block;
+  margin-top: -0.65em;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
 }
 
 .articleContent pre,
@@ -1101,6 +1297,15 @@ button {
 
   .focusContent {
     font-size: 1rem;
+  }
+
+  .feedQualityHeader,
+  .feedQualityMain {
+    flex-direction: column;
+  }
+
+  .feedQualityStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .agentDrawer {

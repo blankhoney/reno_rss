@@ -43,6 +43,17 @@ export type MinifluxEntry = {
   };
 };
 
+export type MinifluxFeed = {
+  id: number;
+  title: string;
+  feed_url?: string;
+  site_url?: string;
+  category?: {
+    id?: number;
+    title?: string;
+  };
+};
+
 /**
  * Builds the `Authorization` header value for HTTP Basic authentication (requires Node Buffer).
  */
@@ -225,8 +236,8 @@ export class MinifluxClient {
     }
   }
 
-  /** Returns feeds as decoded JSON (typically an array of feed objects). */
-  async getFeeds(): Promise<unknown> {
+  /** Returns feeds as decoded JSON. */
+  async getFeeds(): Promise<MinifluxFeed[]> {
     const response = await fetch(buildMinifluxApiUrl(this.baseUrl, "v1/feeds").toString(), {
       headers: {
         Authorization: buildMinifluxBasicAuthorizationHeader(this.username, this.password),
@@ -237,7 +248,29 @@ export class MinifluxClient {
     if (!response.ok) {
       throw new Error(`Miniflux get feeds failed: ${response.status}`);
     }
-    return response.json();
+    const data = (await response.json()) as unknown;
+    if (!Array.isArray(data)) return [];
+    return data
+      .filter((feed): feed is Record<string, unknown> => feed !== null && typeof feed === "object")
+      .map((feed) => ({
+        id: Number(feed.id),
+        title: typeof feed.title === "string" ? feed.title : "",
+        feed_url: typeof feed.feed_url === "string" ? feed.feed_url : undefined,
+        site_url: typeof feed.site_url === "string" ? feed.site_url : undefined,
+        category:
+          feed.category !== null &&
+          typeof feed.category === "object" &&
+          !Array.isArray(feed.category)
+            ? {
+                id: Number((feed.category as { id?: unknown }).id),
+                title:
+                  typeof (feed.category as { title?: unknown }).title === "string"
+                    ? (feed.category as { title: string }).title
+                    : undefined,
+              }
+            : undefined,
+      }))
+      .filter((feed) => Number.isFinite(feed.id) && feed.id > 0);
   }
 
   async createFeed(feedUrl: string, categoryId: number): Promise<number> {

@@ -4,6 +4,7 @@ import type { Article } from "./types";
 import { assessArticleContent, decideFetchedArticleContent } from "./contentQuality";
 import {
   filterArticlesForModule,
+  filterHiddenFeedsForModule,
   articleNeedsOriginalContentFetch,
   minifluxEntryFilterForModule,
   MODULE_IDS,
@@ -40,6 +41,8 @@ function article(
     userId: input.userId ?? 7,
     feedId: input.feedId ?? 1,
     feedTitle: input.feedTitle ?? "Feed",
+    feedHidden: input.feedHidden,
+    feedQualityScore: input.feedQualityScore,
     categoryId: input.categoryId ?? 1,
     categoryTitle: input.categoryTitle ?? "AI",
     title: input.title ?? `Article ${id}`,
@@ -190,6 +193,55 @@ test("filterArticlesForModule keeps only read-later items for read-later module"
     "read-later",
   );
   assert.deepEqual(filtered.map((item) => item.id), [2]);
+});
+
+test("filterHiddenFeedsForModule hides feeds only in default modules", () => {
+  const articles = [
+    article(1, { feedHidden: true }),
+    article(2, { feedHidden: false }),
+  ];
+
+  assert.deepEqual(filterHiddenFeedsForModule(articles, "all").map((item) => item.id), [2]);
+  assert.deepEqual(filterHiddenFeedsForModule(articles, "technical").map((item) => item.id), [2]);
+  assert.deepEqual(filterHiddenFeedsForModule(articles, "starred").map((item) => item.id), [1, 2]);
+  assert.deepEqual(filterHiddenFeedsForModule(articles, "project").map((item) => item.id), [1, 2]);
+});
+
+test("sortArticlesForModule demotes low quality feeds before normal sorting", () => {
+  const sorted = sortArticlesForModule(
+    [
+      article(1, {
+        publishedAt: "2026-05-14T00:00:00.000Z",
+        feedQualityScore: 20,
+      }),
+      article(2, {
+        publishedAt: "2026-05-13T00:00:00.000Z",
+        feedQualityScore: 80,
+      }),
+    ],
+    "all",
+  );
+
+  assert.deepEqual(sorted.map((item) => item.id), [2, 1]);
+});
+
+test("explicit latest sorting keeps recency before feed quality", () => {
+  const sorted = sortArticlesForModule(
+    [
+      article(1, {
+        publishedAt: "2026-05-14T00:00:00.000Z",
+        feedQualityScore: 20,
+      }),
+      article(2, {
+        publishedAt: "2026-05-13T00:00:00.000Z",
+        feedQualityScore: 80,
+      }),
+    ],
+    "all",
+    "latest",
+  );
+
+  assert.deepEqual(sorted.map((item) => item.id), [1, 2]);
 });
 
 test("read module sorts by most recent lastReadAt", () => {

@@ -18,3 +18,13 @@ test("ModuleSidebar groups the navigation and keeps the active module visible", 
   assert.match(html, /已立项/);
   assert.match(html, /aria-current="page"/);
 });
+
+test("ModuleSidebar enables feed management", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ModuleSidebar, { currentModule: "feeds" }),
+  );
+
+  assert.match(html, /订阅源管理/);
+  assert.match(html, /aria-current="page"/);
+  assert.doesNotMatch(html, /即将推出/);
+});

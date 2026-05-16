@@ -35,6 +35,13 @@ export type ArticleScore = {
 
 export type ProjectQueueSource = "manual";
 
+export type FeedPreference = {
+  feedId: number;
+  hidden: boolean;
+  hiddenAt: string | null;
+  updatedAt: string | null;
+};
+
 const dimensionKeys: DimensionKey[] = [
   "importance",
   "usefulness",
@@ -219,6 +226,83 @@ export async function getProjectEntryIds(
     return result.rows.map((row) => Number(row.miniflux_entry_id));
   } catch (error) {
     if (isUndefinedSchemaObjectError(error)) return [];
+    throw error;
+  }
+}
+
+export function updateFeedPreferenceSql(input: {
+  tenantId: string;
+  feedId: number;
+  hidden: boolean;
+}) {
+  return {
+    text: `
+      INSERT INTO reader_feed_preferences (
+        tenant_id, miniflux_feed_id, hidden, hidden_at, updated_at
+      )
+      VALUES ($1, $2, $3, CASE WHEN $3 THEN NOW() ELSE NULL END, NOW())
+      ON CONFLICT (tenant_id, miniflux_feed_id)
+      DO UPDATE SET
+        hidden = EXCLUDED.hidden,
+        hidden_at = CASE
+          WHEN EXCLUDED.hidden THEN COALESCE(reader_feed_preferences.hidden_at, NOW())
+          ELSE NULL
+        END,
+        updated_at = NOW()
+      RETURNING miniflux_feed_id, hidden, hidden_at, updated_at
+    `,
+    values: [input.tenantId, input.feedId, input.hidden],
+  };
+}
+
+export async function updateFeedPreference(
+  pool: Pool,
+  input: {
+    tenantId: string;
+    feedId: number;
+    hidden: boolean;
+  },
+): Promise<FeedPreference> {
+  const { text, values } = updateFeedPreferenceSql(input);
+  const result = await pool.query(text, values);
+  const row = result.rows[0];
+  return {
+    feedId: Number(row?.miniflux_feed_id ?? input.feedId),
+    hidden: Boolean(row?.hidden ?? input.hidden),
+    hiddenAt: scoredAtIsoOrNull((row?.hidden_at ?? null) as string | Date | null),
+    updatedAt: scoredAtIsoOrNull((row?.updated_at ?? null) as string | Date | null),
+  };
+}
+
+export async function getFeedPreferences(
+  pool: Pool,
+  tenantId: string,
+  feedIds: number[],
+): Promise<Map<number, FeedPreference>> {
+  if (feedIds.length === 0) return new Map();
+  try {
+    const result = await pool.query(
+      `
+        SELECT miniflux_feed_id, hidden, hidden_at, updated_at
+        FROM reader_feed_preferences
+        WHERE tenant_id = $1
+          AND miniflux_feed_id = ANY($2::bigint[])
+      `,
+      [tenantId, feedIds],
+    );
+    return new Map(
+      result.rows.map((row) => [
+        Number(row.miniflux_feed_id),
+        {
+          feedId: Number(row.miniflux_feed_id),
+          hidden: Boolean(row.hidden),
+          hiddenAt: scoredAtIsoOrNull(row.hidden_at as string | Date | null),
+          updatedAt: scoredAtIsoOrNull(row.updated_at as string | Date | null),
+        },
+      ]),
+    );
+  } catch (error) {
+    if (isUndefinedSchemaObjectError(error)) return new Map();
     throw error;
   }
 }
