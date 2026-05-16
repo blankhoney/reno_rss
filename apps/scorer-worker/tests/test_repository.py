@@ -11,14 +11,21 @@ import os
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from repository import (  # noqa: E402
+from repository import (
+    DEFAULT_SCORING_SETTINGS,
     create_digest,
     upsert_digest_item,
     upsert_score,
     upsert_snapshot,
-)
+)  # noqa: E402
+
+
+def test_default_scoring_settings_include_manual_batch_size():
+    assert DEFAULT_SCORING_SETTINGS["manual_batch_size"] == 20
 
 
 def _make_conn():
@@ -31,6 +38,59 @@ def _make_conn():
     mock_conn = MagicMock()
     mock_conn.cursor.return_value = mock_ctx
     return mock_conn, mock_cur
+
+
+class _FakeDbCursor:
+    def __init__(self, conn):
+        self.conn = conn
+        self._result = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc_value, _traceback):
+        return False
+
+    def execute(self, sql, params=None):
+        if "CREATE TABLE IF NOT EXISTS item_scores" in sql:
+            self.conn.has_dimension_scores = "dimension_scores" in sql
+            return
+
+        if "INSERT INTO item_scores" in sql:
+            key = (params["tenant_id"], params["miniflux_entry_id"])
+            if "dimension_scores" in sql and self.conn.has_dimension_scores:
+                dimension_scores = json.loads(params["dimension_scores"])
+            else:
+                dimension_scores = {
+                    "technical_value": None,
+                    "business_value": None,
+                }
+            self.conn.rows[key] = (params["score"], dimension_scores)
+            return
+
+        if "SELECT score, dimension_scores" in sql:
+            self._result = self.conn.rows[(params[0], params[1])]
+            return
+
+    def fetchone(self):
+        return self._result
+
+
+class _FakeDbConn:
+    def __init__(self):
+        self.has_dimension_scores = False
+        self.rows = {}
+
+    def cursor(self):
+        return _FakeDbCursor(self)
+
+    def commit(self):
+        pass
+
+
+@pytest.fixture
+def db_conn():
+    return _FakeDbConn()
 
 
 # ---------------------------------------------------------------------------
@@ -121,40 +181,6 @@ def test_upsert_score_serializes_tags_to_json():
     assert parsed == ["a", "b"]
 
 
-def test_upsert_score_serializes_dimension_scores_to_json():
-    conn, cur = _make_conn()
-    row = {
-        "tenant_id": "t",
-        "miniflux_entry_id": 1,
-        "content_hash": "h",
-        "score": 86,
-        "dimension_scores": {
-            "importance": 90,
-            "usefulness": 78,
-            "timeliness": 84,
-            "depth": 72,
-            "technical_value": 92,
-            "business_value": 48,
-            "trend_value": 80,
-        },
-        "tags": ["ai"],
-        "reason": "r",
-        "model_version": "minimax:test:rss-score-v2",
-        "model_provider": "minimax",
-        "model_name": "test-model",
-        "prompt_version": "rss-score-v2",
-        "confidence": 0.91,
-        "scoring_status": "success",
-        "error_message": None,
-    }
-    upsert_score(conn, row)
-    _, kwargs_row = cur.execute.call_args[0]
-    assert isinstance(kwargs_row["dimension_scores"], str)
-    parsed = json.loads(kwargs_row["dimension_scores"])
-    assert parsed["technical_value"] == 92
-    assert parsed["business_value"] == 48
-
-
 def test_upsert_score_sql_contains_on_conflict():
     conn, cur = _make_conn()
     row = {
@@ -176,6 +202,53 @@ def test_upsert_score_sql_contains_on_conflict():
     sql_called = cur.execute.call_args[0][0]
     assert "ON CONFLICT" in sql_called
     assert "DO UPDATE SET" in sql_called
+
+
+def test_upsert_score_persists_dimension_scores(db_conn):
+    from repository import init_schema, upsert_score
+
+    init_schema(db_conn)
+    row = {
+        "tenant_id": "default",
+        "miniflux_entry_id": 123,
+        "content_hash": "hash-123",
+        "score": 86,
+        "dimension_scores": {
+            "importance": 90,
+            "usefulness": 78,
+            "timeliness": 84,
+            "depth": 72,
+            "technical_value": 92,
+            "business_value": 48,
+            "trend_value": 80,
+        },
+        "tags": ["ai", "agent"],
+        "reason": "High technical value for an AI reader.",
+        "model_version": "minimax:test:rss-score-v2",
+        "model_provider": "minimax",
+        "model_name": "test-model",
+        "prompt_version": "rss-score-v2",
+        "confidence": 0.91,
+        "scoring_status": "success",
+        "error_message": None,
+    }
+
+    upsert_score(db_conn, row)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT score, dimension_scores
+            FROM item_scores
+            WHERE tenant_id = %s AND miniflux_entry_id = %s
+            """,
+            ("default", 123),
+        )
+        score, dimension_scores = cur.fetchone()
+
+    assert score == 86
+    assert dimension_scores["technical_value"] == 92
+    assert dimension_scores["business_value"] == 48
 
 
 def test_upsert_score_idempotent_called_twice():

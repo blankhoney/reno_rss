@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from typing import Any
 
@@ -13,12 +12,8 @@ from llm_client import LLMClientError, MinimaxLLMClient
 _MODEL_PROVIDER = "baseline"
 _MODEL_NAME = "length-baseline"
 _MODEL_VERSION = "0.1.0"
-_PROMPT_VERSION = "rss-score-v2"
+_PROMPT_VERSION = "rss-score-v3"
 _LLM_MODEL_PROVIDER = "minimax"
-_MAX_TAGS = 3
-_MAX_REASON_LENGTH = 240
-_MAX_CONTENT_CHARS = 6000
-
 _DIMENSION_KEYS = (
     "importance",
     "usefulness",
@@ -28,6 +23,11 @@ _DIMENSION_KEYS = (
     "business_value",
     "trend_value",
 )
+_MAX_TAGS = 3
+_MAX_REASON_LENGTH = 240
+_MAX_SUMMARY_LENGTH = 420
+_MAX_DIMENSION_REASON_LENGTH = 120
+_MAX_CONTENT_CHARS = 6000
 
 
 def score_entry(entry: dict, llm_client: MinimaxLLMClient | None = None) -> dict:
@@ -59,6 +59,10 @@ def score_entry(entry: dict, llm_client: MinimaxLLMClient | None = None) -> dict
         "dimension_scores": result["dimension_scores"],
         "tags": result["tags"],
         "reason": result["reason"],
+        "summary_zh": result["summary_zh"],
+        "summary_original": result["summary_original"],
+        "source_language": result["source_language"],
+        "dimension_reasons": result["dimension_reasons"],
         "model_version": f"{_LLM_MODEL_PROVIDER}:{model_name}:{_PROMPT_VERSION}",
         "model_provider": _LLM_MODEL_PROVIDER,
         "model_name": model_name,
@@ -76,15 +80,15 @@ def _baseline_payload(title: str, combined: str, error_message: str | None) -> d
     # Naive tag extraction: unique lowercase words from title (≥4 chars)
     tags = list({w.lower() for w in title.split() if len(w) >= 4})[:5]
 
-    content_hash = hashlib.sha256(combined.encode()).hexdigest()[:16]
-
-    dimension_scores = {key: raw_score for key in _DIMENSION_KEYS}
-
     return {
         "score": raw_score,
-        "dimension_scores": dimension_scores,
+        "dimension_scores": {key: raw_score for key in _DIMENSION_KEYS},
         "tags": tags,
-        "reason": _trim_reason(f"length={len(combined)} hash={content_hash}"),
+        "reason": "评分失败，需重新评分。",
+        "summary_zh": "",
+        "summary_original": "",
+        "source_language": "unknown",
+        "dimension_reasons": {},
         "model_version": _MODEL_VERSION,
         "model_provider": _MODEL_PROVIDER,
         "model_name": _MODEL_NAME,
@@ -101,12 +105,23 @@ def _build_messages(title: str, content: str) -> list[dict[str, str]]:
         {
             "role": "system",
             "content": (
-                "You score RSS entries for a personal AI reading workspace. "
-                "Return strict JSON only with keys: overall, importance, usefulness, "
-                "timeliness, depth, technical_value, business_value, trend_value, "
-                "tags, reason, confidence. All score fields must be integers from 0 to 100. "
-                "tags must be short strings. confidence must be 0.0 to 1.0. "
-                "Do not include markdown, comments, or any text outside the JSON object."
+                "You score RSS entries for a personal reading digest. "
+                "Return strict JSON only (no markdown fences, no comments, no text outside JSON). "
+                "The JSON object must include keys: overall, importance, usefulness, timeliness, "
+                "depth, technical_value, business_value, trend_value, tags, reason, summary_zh, "
+                "summary_original, source_language, dimension_reasons, confidence. "
+                "overall and the seven dimension keys (importance, usefulness, timeliness, depth, "
+                "technical_value, business_value, trend_value) must be integers from 0 to 100. "
+                "Judge each dimension independently; do not copy the same score across dimensions "
+                "unless the content truly warrants it. "
+                "confidence may be a float from 0.0 to 1.0 or a number from 0 to 100; values above 1 "
+                "are treated as a 0-100 scale and normalized to 0.0-1.0. "
+                "tags must be a JSON array of short strings. reason must be a short Chinese string. "
+                "summary_zh must be a one or two sentence Chinese summary for a Chinese reader. "
+                "summary_original must be a one or two sentence summary in the source language. "
+                "source_language must be a short language code such as zh, en, ja, ko, or unknown. "
+                "dimension_reasons must be an object with one short Chinese reason for each score "
+                "dimension key."
             ),
         },
         {
@@ -121,34 +136,126 @@ def _build_messages(title: str, content: str) -> list[dict[str, str]]:
 
 
 def _parse_llm_json(raw: str) -> dict[str, Any]:
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError("invalid llm json") from exc
+    data = _load_llm_json(raw)
 
-    overall = _clamp_int(
-        data.get("overall", data.get("score")),
-        minimum=0,
-        maximum=100,
+    _require_fields(
+        data,
+        [
+            "overall",
+            *_DIMENSION_KEYS,
+            "tags",
+            "reason",
+            "summary_zh",
+            "summary_original",
+            "source_language",
+            "dimension_reasons",
+            "confidence",
+        ],
     )
+
+    score = _clamp_int(data["overall"], minimum=0, maximum=100)
+
     dimension_scores = {
-        key: (
-            _clamp_int(data.get(key), minimum=0, maximum=100)
-            if key in data
-            else overall
-        )
-        for key in _DIMENSION_KEYS
+        key: _clamp_int(data[key], minimum=0, maximum=100) for key in _DIMENSION_KEYS
     }
+
     tags = _normalize_tags(data.get("tags"))
     reason = _trim_reason(str(data.get("reason") or "No reason provided."))
-    confidence = _clamp_float(data.get("confidence"), minimum=0.0, maximum=1.0)
+    summary_zh = _trim_text(data.get("summary_zh"), _MAX_SUMMARY_LENGTH)
+    summary_original = _trim_text(data.get("summary_original"), _MAX_SUMMARY_LENGTH)
+    source_language = _trim_text(data.get("source_language"), 24).lower() or "unknown"
+    dimension_reasons = _normalize_dimension_reasons(data.get("dimension_reasons"))
+    confidence = _parse_confidence(data.get("confidence"))
     return {
-        "score": overall,
+        "score": score,
         "dimension_scores": dimension_scores,
         "tags": tags,
         "reason": reason,
+        "summary_zh": summary_zh,
+        "summary_original": summary_original,
+        "source_language": source_language,
+        "dimension_reasons": dimension_reasons,
         "confidence": confidence,
     }
+
+
+def _require_fields(data: dict[str, Any], keys: list[str]) -> None:
+    for key in keys:
+        if key not in data:
+            raise ValueError(f"missing required llm field: {key}")
+
+
+def _load_llm_json(raw: str) -> dict[str, Any]:
+    cleaned = _strip_think_blocks(raw).strip()
+    candidates = [cleaned]
+    extracted = _extract_first_json_object(cleaned)
+    if extracted is not None and extracted != cleaned:
+        candidates.append(extracted)
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if isinstance(data, dict):
+            return data
+        last_error = ValueError("llm json root is not an object")
+
+    raise ValueError("invalid llm json") from last_error
+
+
+def _strip_think_blocks(raw: str) -> str:
+    output: list[str] = []
+    cursor = 0
+    lowered = raw.lower()
+
+    while cursor < len(raw):
+        start = lowered.find("<think>", cursor)
+        if start == -1:
+            output.append(raw[cursor:])
+            break
+
+        output.append(raw[cursor:start])
+        end = lowered.find("</think>", start + len("<think>"))
+        if end == -1:
+            break
+        cursor = end + len("</think>")
+
+    return "".join(output)
+
+
+def _extract_first_json_object(text: str) -> str | None:
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escaped = False
+
+        for index in range(start, len(text)):
+            char = text[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : index + 1]
+
+        start = text.find("{", start + 1)
+
+    return None
 
 
 def _normalize_tags(raw_tags: Any) -> list[str]:
@@ -164,9 +271,35 @@ def _normalize_tags(raw_tags: Any) -> list[str]:
     return tags
 
 
+def _normalize_dimension_reasons(raw_reasons: Any) -> dict[str, str]:
+    if not isinstance(raw_reasons, dict):
+        raise ValueError("dimension_reasons must be an object")
+    reasons: dict[str, str] = {}
+    for key in _DIMENSION_KEYS:
+        if key not in raw_reasons:
+            raise ValueError(f"missing required llm field: dimension_reasons.{key}")
+        reasons[key] = _trim_text(raw_reasons[key], _MAX_DIMENSION_REASON_LENGTH)
+    return reasons
+
+
 def _trim_reason(reason: str) -> str:
     clean = " ".join(reason.split())
     return clean[:_MAX_REASON_LENGTH]
+
+
+def _trim_text(value: Any, max_length: int) -> str:
+    clean = " ".join(str(value or "").split())
+    return clean[:max_length]
+
+
+def _parse_confidence(value: Any) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return round(0.0, 3)
+    if parsed > 1.0:
+        parsed = parsed / 100.0
+    return round(max(0.0, min(1.0, parsed)), 3)
 
 
 def _clamp_int(value: Any, minimum: int, maximum: int) -> int:
@@ -175,14 +308,6 @@ def _clamp_int(value: Any, minimum: int, maximum: int) -> int:
     except (TypeError, ValueError):
         parsed = minimum
     return max(minimum, min(maximum, parsed))
-
-
-def _clamp_float(value: Any, minimum: float, maximum: float) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        parsed = minimum
-    return round(max(minimum, min(maximum, parsed)), 3)
 
 
 def _format_error(exc: Exception) -> str:

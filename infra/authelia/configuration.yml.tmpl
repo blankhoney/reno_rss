@@ -24,7 +24,9 @@ access_control:
   rules:
     - domain:
         - 'reader.${DOMAIN}'
+        - 'ai-reader.${DOMAIN}'
         - 'staging-reader.${DOMAIN}'
+        - 'staging-ai-reader.${DOMAIN}'
       policy: two_factor
 
 session:

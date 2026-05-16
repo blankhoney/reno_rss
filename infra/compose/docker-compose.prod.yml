@@ -19,6 +19,20 @@ services:
       data: {}
 
   scorer-worker:
+    environment:
+      MINIFLUX_API_BASE_URL: http://miniflux-prod:8080
     networks:
-      app: {}
+      app:
+        aliases:
+          - scoring-service-prod
+      data: {}
+
+  reader-web:
+    environment:
+      MINIFLUX_API_BASE_URL: http://miniflux-prod:8080
+      SCORING_SERVICE_URL: http://scoring-service-prod:8000
+    networks:
+      app:
+        aliases:
+          - reader-web-prod
       data: {}

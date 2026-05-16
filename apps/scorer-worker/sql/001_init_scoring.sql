@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS item_scores (
     dimension_scores   JSONB       NOT NULL DEFAULT '{}'::jsonb,
     tags               JSONB       NOT NULL,
     reason             TEXT        NOT NULL,
+    summary_zh         TEXT        NOT NULL DEFAULT '',
+    summary_original   TEXT        NOT NULL DEFAULT '',
+    source_language    TEXT        NOT NULL DEFAULT 'unknown',
+    dimension_reasons  JSONB       NOT NULL DEFAULT '{}'::jsonb,
     model_version      TEXT        NOT NULL,
     model_provider     TEXT        NOT NULL DEFAULT 'baseline',
     model_name         TEXT        NOT NULL DEFAULT 'length-baseline',
@@ -36,6 +40,18 @@ CREATE TABLE IF NOT EXISTS item_scores (
 
 ALTER TABLE item_scores
     ADD COLUMN IF NOT EXISTS dimension_scores JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS summary_zh TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS summary_original TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS source_language TEXT NOT NULL DEFAULT 'unknown';
+
+ALTER TABLE item_scores
+    ADD COLUMN IF NOT EXISTS dimension_reasons JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- Tracks batch scoring job runs for audit / idempotency
 CREATE TABLE IF NOT EXISTS scoring_jobs (
@@ -108,4 +124,39 @@ CREATE TABLE IF NOT EXISTS reader_entry_states (
     notes              TEXT,
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (tenant_id, miniflux_user_id, miniflux_entry_id)
+);
+
+CREATE TABLE IF NOT EXISTS scoring_settings (
+    tenant_id               TEXT        PRIMARY KEY,
+    auto_score_new_unread   BOOLEAN     NOT NULL DEFAULT TRUE,
+    webhook_max_entries     INT         NOT NULL DEFAULT 20,
+    manual_batch_size       INT         NOT NULL DEFAULT 20,
+    manual_rescore_enabled  BOOLEAN     NOT NULL DEFAULT TRUE,
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE scoring_settings
+    ADD COLUMN IF NOT EXISTS manual_batch_size INT NOT NULL DEFAULT 20;
+
+CREATE TABLE IF NOT EXISTS entry_project_queue (
+    id                 BIGSERIAL   PRIMARY KEY,
+    tenant_id          TEXT        NOT NULL,
+    miniflux_entry_id  BIGINT      NOT NULL,
+    title              TEXT        NOT NULL,
+    url                TEXT        NOT NULL,
+    score              INT,
+    status             TEXT        NOT NULL DEFAULT 'queued',
+    source             TEXT        NOT NULL DEFAULT 'manual',
+    queued_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (tenant_id, miniflux_entry_id)
+);
+
+CREATE TABLE IF NOT EXISTS reader_feed_preferences (
+    tenant_id          TEXT        NOT NULL,
+    miniflux_feed_id   BIGINT      NOT NULL,
+    hidden             BOOLEAN     NOT NULL DEFAULT FALSE,
+    hidden_at          TIMESTAMPTZ,
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, miniflux_feed_id)
 );

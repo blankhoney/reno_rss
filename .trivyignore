@@ -1,0 +1,3 @@
+# sanitize-html has no fixed release for CVE-2026-44990 yet.
+# AI Reader treats xmp as a non-text tag and has a regression test for stripping it.
+CVE-2026-44990
