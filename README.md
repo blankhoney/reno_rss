@@ -1,5 +1,7 @@
 # Reno RSS / AI Reader
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 AI Reader is a self-hosted RSS reading workspace built on top of Miniflux. It adds LLM scoring, Chinese summaries, article Q&A, focused reading, feed quality controls, and a Docker/GitHub Actions deployment pipeline.
 
 The project is optimized for a personal research/news workflow: new RSS entries arrive in Miniflux, selected entries are scored by MiniMax, and the reader UI ranks, summarizes, filters, and opens articles with an AI assistant.
@@ -164,4 +166,3 @@ Required repository secrets for remote deploys:
 - `.env.example` must stay placeholder-only.
 - The scorer endpoints are intended for the internal Docker network and require Basic Auth for mutating requests.
 - Public access is routed through Caddy and protected by Authelia.
-
