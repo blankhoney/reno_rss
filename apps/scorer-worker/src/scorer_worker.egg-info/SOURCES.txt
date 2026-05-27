@@ -1,8 +1,0 @@
-pyproject.toml
-src/__init__.py
-src/scorer_worker.egg-info/PKG-INFO
-src/scorer_worker.egg-info/SOURCES.txt
-src/scorer_worker.egg-info/dependency_links.txt
-src/scorer_worker.egg-info/requires.txt
-src/scorer_worker.egg-info/top_level.txt
-tests/test_scoring.py
