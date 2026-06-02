@@ -18,7 +18,8 @@ unset MINIFLUX_API_KEY MINIFLUX_ADMIN_PASSWORD POSTGRES_SUPERUSER_PASSWORD \
       MINIMAX_API_KEY MINIMAX_BASE_URL MINIMAX_MODEL LLM_TIMEOUT_SECONDS \
       SCORER_TENANT_ID SCORER_PORT SCORER_WEBHOOK_USERNAME \
       SCORER_WEBHOOK_PASSWORD SCORER_WEBHOOK_MAX_ENTRIES READER_TENANT_ID \
-      READER_MINIFLUX_USER_ID SCORING_SERVICE_URL WEB_SEARCH_PROVIDER WEB_SEARCH_API_KEY
+      READER_MINIFLUX_USER_ID SCORING_SERVICE_URL WEB_SEARCH_PROVIDER WEB_SEARCH_API_KEY \
+      DEMO_USERNAME DEMO_PASSWORD
 
 ENV="${1:?必须提供环境名，例如 staging 或 prod}"
 TAG="${2:?必须提供镜像 tag，例如 v1.2.3}"
@@ -58,12 +59,55 @@ else
     export SCORER_WORKER_IMAGE="${SCORER_WORKER_IMAGE:-myrss-scorer-worker:${TAG}}"
 fi
 
+AUTHELIA_ASSETS_DIR="$REPO_ROOT/infra/authelia/assets"
+AUTHELIA_LOCALES_DIR="$AUTHELIA_ASSETS_DIR/locales"
+AUTHELIA_LOCALES=(en zh-CN zh-HK zh-TW zh-SG)
+
+json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
+write_authelia_demo_locale_overrides() {
+    : "${DEMO_USERNAME:?staging 部署必须设置 DEMO_USERNAME}"
+    : "${DEMO_PASSWORD:?staging 部署必须设置 DEMO_PASSWORD}"
+
+    local demo_notice="Demo only for staging-ai-reader.${DOMAIN}"
+    local username_label="Username - ${demo_notice}: ${DEMO_USERNAME}"
+    local password_label="Password - ${demo_notice}: ${DEMO_PASSWORD}"
+    local sign_in_label="Sign in - ${demo_notice}"
+    local locale locale_dir
+
+    for locale in "${AUTHELIA_LOCALES[@]}"; do
+        locale_dir="$AUTHELIA_LOCALES_DIR/$locale"
+        mkdir -p "$locale_dir"
+        cat > "$locale_dir/portal.json" <<EOF
+{
+  "Username": "$(json_escape "$username_label")",
+  "Password": "$(json_escape "$password_label")",
+  "Sign in": "$(json_escape "$sign_in_label")"
+}
+EOF
+    done
+}
+
 echo "🚀 开始部署：ENV=$ENV  TAG=$TAG"
 echo "   仓库根目录：$REPO_ROOT"
 if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
     echo "   镜像模式：remote ($IMAGE_REGISTRY)"
 else
     echo "   镜像模式：local build"
+fi
+
+mkdir -p "$AUTHELIA_ASSETS_DIR"
+if [[ "$ENV" == "staging" ]]; then
+    write_authelia_demo_locale_overrides
+    echo "📝 Authelia staging demo locale overrides 已生成"
 fi
 
 envsubst < "$REPO_ROOT/infra/authelia/configuration.yml.tmpl" \
@@ -120,5 +164,16 @@ fi
 echo "🔁 重建 $ENV Authelia 以加载生成配置..."
 IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" \
     up -d --force-recreate --no-deps authelia
+
+if [[ "$ENV" == "staging" ]]; then
+    echo "🔁 重建共享 Authelia 以加载 staging demo 登录配置..."
+    IMAGE_TAG="$TAG" docker compose \
+        --profile worker \
+        --env-file "$REPO_ROOT/.env" \
+        -p "myrss-prod" \
+        -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
+        -f "$REPO_ROOT/infra/compose/docker-compose.prod.yml" \
+        up -d --force-recreate --no-deps authelia
+fi
 
 echo "✅ 部署完成：$ENV @ $TAG"

@@ -1,5 +1,6 @@
 # generated from infra/authelia/configuration.yml.tmpl by deploy.sh
 infra/authelia/configuration.yml
+infra/authelia/assets/
 
 .env
 .env.*
