@@ -17,6 +17,10 @@ test("ModuleSidebar groups the navigation and keeps the active module visible", 
   assert.match(html, /候选/);
   assert.match(html, /已立项/);
   assert.match(html, /aria-current="page"/);
+  assert.match(html, /GitHub 源码/);
+  assert.match(html, /href="https:\/\/github.com\/blankhoney\/reno_rss"/);
+  assert.match(html, /target="_blank"/);
+  assert.match(html, /rel="noreferrer noopener"/);
 });
 
 test("ModuleSidebar enables feed management", () => {

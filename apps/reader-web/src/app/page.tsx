@@ -1,6 +1,7 @@
 import type { Article } from "@/lib/articles/types";
 import { ArticleList } from "@/components/ArticleList";
 import { ArticleReader } from "@/components/ArticleReader";
+import { DemoLanding } from "@/components/DemoLanding";
 import { FeedQualityPanel } from "@/components/FeedQualityPanel";
 import { ModuleSidebar } from "@/components/ModuleSidebar";
 import {
@@ -13,6 +14,7 @@ import { selectedArticleIdOrFirst } from "@/lib/articles/selection";
 import { getArticleForReader, listArticlesForModule } from "@/lib/articles/server";
 import { DEFAULT_ARTICLES_LIST_LIMIT } from "@/lib/miniflux/client";
 import { getConfig } from "@/lib/config";
+import { getDemoAccessConfig, shouldRenderDemoLanding } from "@/lib/demo/access";
 import { getPool } from "@/lib/scoring/db";
 import { DEFAULT_SCORING_SETTINGS, getScoringSettings } from "@/lib/scoring/repository";
 
@@ -55,6 +57,11 @@ type PageProps = {
 
 export default async function HomePage({ searchParams }: PageProps) {
   const sp = (await searchParams) ?? {};
+  const demoConfig = getDemoAccessConfig();
+  if (shouldRenderDemoLanding(sp, demoConfig)) {
+    return <DemoLanding config={demoConfig} />;
+  }
+
   const currentModule = normalizeModule(sp.module);
   const sortResolution = resolveArticleSortId(
     typeof sp.sort === "string",

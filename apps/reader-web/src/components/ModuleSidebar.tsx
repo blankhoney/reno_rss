@@ -113,7 +113,17 @@ export function ModuleSidebar({
 
   return (
     <aside className="moduleSidebar">
-      <div className="brand">AI Reader</div>
+      <div className="brandBlock">
+        <div className="brand">AI Reader</div>
+        <a
+          className="sourceLink"
+          href="https://github.com/blankhoney/reno_rss"
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          GitHub 源码
+        </a>
+      </div>
       <nav className="moduleNav" aria-label="阅读模块">
         {MODULE_GROUPS.map((group) => {
           const collapsed = collapsedGroups.has(group.id);

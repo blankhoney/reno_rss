@@ -33,6 +33,12 @@ services:
     environment:
       MINIFLUX_API_BASE_URL: http://miniflux-staging:8080
       SCORING_SERVICE_URL: http://scoring-service-staging:8000
+      DEMO_LANDING_ENABLED: "true"
+      DEMO_USERNAME: ${DEMO_USERNAME}
+      DEMO_PASSWORD: ${DEMO_PASSWORD}
+      DEMO_AUTHELIA_BASE_URL: http://authelia-prod:9091
+      DEMO_TARGET_URL: https://staging-ai-reader.${DOMAIN}/?module=all&sort=default&lang=zh
+      DEMO_ALLOWED_ORIGIN: https://staging-ai-reader.${DOMAIN}
     networks:
       app:
         aliases:

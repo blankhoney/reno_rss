@@ -38,6 +38,154 @@ button {
   font: inherit;
 }
 
+.demoLanding {
+  min-height: 100vh;
+  padding: 56px clamp(20px, 6vw, 84px);
+  background:
+    radial-gradient(circle at 85% 10%, rgba(37, 99, 235, 0.14), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  display: grid;
+  align-content: center;
+  gap: 26px;
+}
+
+.demoHero {
+  max-width: 860px;
+}
+
+.demoEyebrow {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+}
+
+.demoHero h1 {
+  font-size: clamp(2.8rem, 8vw, 5.8rem);
+  line-height: 0.96;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.demoLead {
+  color: #374151;
+  font-size: clamp(1.08rem, 2vw, 1.35rem);
+  line-height: 1.7;
+  max-width: 720px;
+  margin: 24px 0 0;
+}
+
+.demoActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.demoPrimaryButton,
+.demoSecondaryButton {
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-weight: 800;
+  transition:
+    background-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.demoPrimaryButton {
+  border: 0;
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.24);
+}
+
+.demoPrimaryButton:hover:not(:disabled),
+.demoSecondaryButton:hover {
+  transform: translateY(-1px);
+}
+
+.demoPrimaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+.demoSecondaryButton {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--text);
+}
+
+.demoCredentials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.demoCredentials p {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 10px 12px;
+  min-width: 170px;
+}
+
+.demoCredentials span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.demoCredentials strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.demoHint,
+.demoWarning {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 16px 0 0;
+  max-width: 720px;
+}
+
+.demoWarning {
+  color: #b45309;
+}
+
+.demoFeatureGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 1040px;
+}
+
+.demoFeatureGrid article {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 16px;
+}
+
+.demoFeatureGrid h2 {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.demoFeatureGrid p {
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
 .visuallyHidden {
   position: absolute;
   width: 1px;
@@ -69,10 +217,30 @@ button {
   gap: 14px;
 }
 
+.brandBlock {
+  display: grid;
+  gap: 4px;
+}
+
 .brand {
   font-weight: 700;
   letter-spacing: 0.02em;
   font-size: 1.05rem;
+}
+
+.sourceLink {
+  width: fit-content;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition:
+    color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+
+.sourceLink:hover {
+  color: var(--accent);
+  transform: translateX(1px);
 }
 
 .moduleNav {
@@ -1265,6 +1433,14 @@ button {
 }
 
 @media (max-width: 900px) {
+  .demoLanding {
+    padding: 32px 18px;
+  }
+
+  .demoFeatureGrid {
+    grid-template-columns: 1fr;
+  }
+
   .workbench {
     grid-template-columns: 1fr;
   }

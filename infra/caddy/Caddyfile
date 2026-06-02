@@ -64,6 +64,31 @@ staging-auth.{$DOMAIN} {
 }
 
 staging-ai-reader.{$DOMAIN} {
+    @demo_landing {
+        method GET HEAD
+        path /
+        query ""
+    }
+    handle @demo_landing {
+        reverse_proxy reader-web-staging:3000
+    }
+
+    @demo_login {
+        method POST
+        path /api/demo-login
+    }
+    handle @demo_login {
+        reverse_proxy reader-web-staging:3000
+    }
+
+    @demo_public_assets {
+        method GET HEAD
+        path /_next/static/* /favicon.ico
+    }
+    handle @demo_public_assets {
+        reverse_proxy reader-web-staging:3000
+    }
+
     handle {
         forward_auth authelia-prod:9091 {
             uri /api/authz/forward-auth
