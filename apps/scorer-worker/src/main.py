@@ -191,8 +191,8 @@ def parse_positive_int(value: Any) -> int | None:
 
 
 def check_basic_auth(header: str | None, username: str, password: str) -> bool:
-    if not username and not password:
-        return True
+    if not username or not password:
+        return False
     if not header or not header.startswith("Basic "):
         return False
     try:

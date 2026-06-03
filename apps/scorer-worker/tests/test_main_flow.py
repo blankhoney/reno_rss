@@ -115,3 +115,5 @@ def test_check_basic_auth_accepts_expected_credentials(monkeypatch):
 
     assert main.check_basic_auth(header, "scorer", "secret") is True
     assert main.check_basic_auth(header, "scorer", "wrong") is False
+    assert main.check_basic_auth(header, "", "") is False
+    assert main.check_basic_auth(header, "scorer", "") is False
