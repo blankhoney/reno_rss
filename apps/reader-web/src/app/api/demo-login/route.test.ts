@@ -8,7 +8,7 @@ function setDemoEnv() {
   process.env.DEMO_LANDING_ENABLED = "true";
   process.env.DEMO_USERNAME = "demo";
   process.env.DEMO_PASSWORD = "demo-reader-2026";
-  process.env.DEMO_AUTHELIA_BASE_URL = "http://authelia-prod:9091";
+  process.env.DEMO_AUTHELIA_BASE_URL = "https://auth.blankhoney.xyz";
   process.env.DEMO_TARGET_URL =
     "https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh";
   process.env.DEMO_ALLOWED_ORIGIN = "https://staging-ai-reader.blankhoney.xyz";
@@ -61,7 +61,7 @@ test("POST /api/demo-login logs in with server-side demo credentials", async () 
       response.headers.get("location"),
       "https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh",
     );
-    assert.equal(capturedUrl, "http://authelia-prod:9091/api/firstfactor");
+    assert.equal(capturedUrl, "https://auth.blankhoney.xyz/api/firstfactor");
     assert.deepEqual(capturedBody, {
       username: "demo",
       password: "demo-reader-2026",

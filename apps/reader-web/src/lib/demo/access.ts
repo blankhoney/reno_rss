@@ -11,7 +11,7 @@ export type DemoLoginResult =
   | { ok: true; status: 303; location: string; cookies: string[] }
   | { ok: false; status: 403 | 503 | 502; error: string };
 
-const DEFAULT_AUTHELIA_BASE_URL = "http://authelia-prod:9091";
+const DEFAULT_AUTHELIA_BASE_URL = "https://auth.blankhoney.xyz";
 const DEFAULT_TARGET_URL = "https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh";
 const DEFAULT_ALLOWED_ORIGIN = "https://staging-ai-reader.blankhoney.xyz";
 
@@ -50,10 +50,11 @@ function sameOrigin(value: string | null, allowedOrigin: string): boolean {
 }
 
 export function requestAllowedByOrigin(request: Request, allowedOrigin: string): boolean {
-  return (
-    sameOrigin(request.headers.get("origin"), allowedOrigin) ||
-    sameOrigin(request.headers.get("referer"), allowedOrigin)
-  );
+  const origin = request.headers.get("origin");
+  if (origin != null) {
+    return sameOrigin(origin, allowedOrigin);
+  }
+  return sameOrigin(request.headers.get("referer"), allowedOrigin);
 }
 
 function autheliaFirstFactorUrl(baseUrl: string): string {

@@ -12,7 +12,7 @@ const demoConfig: DemoAccessConfig = {
   enabled: true,
   username: "demo",
   password: "demo-reader-2026",
-  autheliaBaseUrl: "http://authelia-prod:9091",
+  autheliaBaseUrl: "https://auth.blankhoney.xyz",
   targetUrl: "https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh",
   allowedOrigin: "https://staging-ai-reader.blankhoney.xyz",
 };
@@ -35,7 +35,7 @@ test("getDemoAccessConfig reads demo env without requiring reader config", () =>
     DEMO_LANDING_ENABLED: "true",
     DEMO_USERNAME: "demo",
     DEMO_PASSWORD: "public-demo-password",
-    DEMO_AUTHELIA_BASE_URL: "http://authelia-prod:9091",
+    DEMO_AUTHELIA_BASE_URL: "https://auth.example.test",
     DEMO_TARGET_URL: "https://staging-ai-reader.example.test/?module=all&sort=default&lang=zh",
     DEMO_ALLOWED_ORIGIN: "https://staging-ai-reader.example.test",
   });
@@ -43,7 +43,7 @@ test("getDemoAccessConfig reads demo env without requiring reader config", () =>
   assert.equal(config.enabled, true);
   assert.equal(config.username, "demo");
   assert.equal(config.password, "public-demo-password");
-  assert.equal(config.autheliaBaseUrl, "http://authelia-prod:9091");
+  assert.equal(config.autheliaBaseUrl, "https://auth.example.test");
   assert.equal(config.targetUrl, "https://staging-ai-reader.example.test/?module=all&sort=default&lang=zh");
   assert.equal(config.allowedOrigin, "https://staging-ai-reader.example.test");
 });
@@ -73,6 +73,16 @@ test("requestAllowedByOrigin accepts only the staging origin or referer", () => 
     requestAllowedByOrigin(request({ origin: "https://evil.example" }), demoConfig.allowedOrigin),
     false,
   );
+  assert.equal(
+    requestAllowedByOrigin(
+      request({
+        origin: "https://evil.example",
+        referer: "https://staging-ai-reader.blankhoney.xyz/",
+      }),
+      demoConfig.allowedOrigin,
+    ),
+    false,
+  );
   assert.equal(requestAllowedByOrigin(request(), demoConfig.allowedOrigin), false);
 });
 
@@ -95,7 +105,7 @@ test("performDemoLogin uses server credentials and fixed external target URL", a
     },
   );
 
-  assert.equal(capturedUrl, "http://authelia-prod:9091/api/firstfactor");
+  assert.equal(capturedUrl, "https://auth.blankhoney.xyz/api/firstfactor");
   assert.deepEqual(capturedBody, {
     username: "demo",
     password: "demo-reader-2026",

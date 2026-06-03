@@ -2,22 +2,34 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-AI Reader is a self-hosted RSS reading workspace built on top of Miniflux. It adds LLM scoring, Chinese summaries, article Q&A, focused reading, feed quality controls, and a Docker/GitHub Actions deployment pipeline.
+AI Reader is a self-hosted RSS research workspace built on top of Miniflux. It adds LLM scoring, Chinese summaries, article Q&A, focused reading, feed quality controls, and GitHub Actions based delivery on top of a traditional RSS backend.
 
-The project is optimized for a personal research/news workflow: new RSS entries arrive in Miniflux, selected entries are scored by MiniMax, and the reader UI ranks, summarizes, filters, and opens articles with an AI assistant.
+## Live Demo
 
-## Features
+- Demo: [https://staging-ai-reader.blankhoney.xyz/](https://staging-ai-reader.blankhoney.xyz/)
+- Source: [github.com/blankhoney/reno_rss](https://github.com/blankhoney/reno_rss)
 
-- **RSS ingestion** through Miniflux, backed by PostgreSQL.
-- **AI Reader web app** built with Next.js, React, TypeScript, and server-side Miniflux/scoring reads.
-- **Event-driven scoring service** with Python, MiniMax, PostgreSQL persistence, and internal HTTP endpoints:
-  - `GET /healthz`
-  - `POST /internal/score-entry`
-  - `POST /webhooks/miniflux`
-- **Reader workflow** with latest/unread/read/starred/project/read-later modules, focused reading pages, article Q&A, markdown answer rendering, manual rescoring, and scoring settings.
-- **Feed quality governance** using recent-article quality signals, score signals, and user actions to demote low-quality feeds and manually hide/restore feeds without deleting Miniflux subscriptions.
-- **Self-hosted edge and auth** with Caddy, Authelia, Docker Compose, staging/prod overlays, backup/restore scripts, and smoke tests.
-- **CI/CD** with GitHub Actions checks, GHCR image publishing, staging deploy, production deploy, and rollback workflows.
+Open the demo URL and use the one-click guest entry on the landing page. The guest account is limited to the staging AI Reader domain.
+
+## What It Does
+
+- **Unified RSS workspace**: Miniflux remains the feed source of truth while AI Reader provides a richer reading and triage UI.
+- **LLM article scoring**: MiniMax scores each article across importance, usefulness, timeliness, depth, technical value, business value, and trend value.
+- **Chinese-first summaries**: scored articles get Chinese summaries, original-language summaries, and per-dimension reasoning.
+- **Focused reading**: article pages support refreshed Miniflux content, partial-content warnings, Markdown-rendered AI answers, and an assistant drawer.
+- **Research workflow**: latest, unread, read, starred, read-later, project queue, and score-dimension modules support a new -> candidate -> project flow.
+- **Feed quality governance**: recent content quality, scores, and user actions demote weak feeds; feeds can be hidden/restored without deleting Miniflux subscriptions.
+- **Public demo entry**: staging has a safe public landing page with same-origin Authelia demo login and a minimal exposed Caddy surface.
+
+## Engineering Highlights
+
+- **Small-service architecture**: Next.js reader-web, Python scorer-worker, Miniflux, PostgreSQL, Caddy, and Authelia are isolated through Docker Compose overlays.
+- **Event-driven scoring**: scorer-worker exposes internal HTTP endpoints for manual scoring and Miniflux webhook scoring instead of relying on broad periodic rescans.
+- **Secure edge design**: Caddy protects business routes through Authelia forward-auth; the public demo only exposes the root landing page, static assets, and `POST /api/demo-login`.
+- **Automated delivery**: GitHub Actions run tests/builds, validate Compose, scan with Trivy, publish GHCR images, deploy staging, and support approved production deploys and rollback.
+- **Operational scripts**: deployment, smoke test, backup, restore, and rollback scripts live under `infra/scripts`.
+
+See [TECHNICAL.md](TECHNICAL.md) for deeper system design and security boundaries.
 
 ## Architecture
 
@@ -38,10 +50,10 @@ Runtime services:
 
 - `reader-web`: AI Reader UI and API routes.
 - `scorer-worker`: internal scoring/webhook service.
-- `miniflux`: RSS backend and source-of-truth feed store.
+- `miniflux`: RSS backend and feed state.
 - `postgres`: Miniflux database plus scoring/reader metadata database.
 - `caddy`: public HTTPS reverse proxy.
-- `authelia`: forward-auth and user login.
+- `authelia`: login, 2FA, and forward-auth.
 
 ## Repository Layout
 
@@ -50,7 +62,7 @@ apps/
   reader-web/        Next.js AI Reader UI and API routes
   scorer-worker/    Python scoring service and tests
 infra/
-  authelia/          Authelia configuration template and local placeholder user DB
+  authelia/          Authelia configuration template and placeholder user DB
   caddy/             Public edge routing
   compose/           Docker Compose base, edge, staging, and prod overlays
   postgres/init/     Initial database/user bootstrap
@@ -77,7 +89,7 @@ Start from the tracked example file:
 cp .env.example .env
 ```
 
-Then fill the runtime values in `.env`, including:
+Fill runtime values in `.env`, including:
 
 - `DOMAIN`
 - PostgreSQL passwords and database URLs
@@ -85,6 +97,7 @@ Then fill the runtime values in `.env`, including:
 - scorer webhook username/password
 - MiniMax API key/base URL/model
 - SMTP settings for Authelia notifications
+- optional staging demo values such as `DEMO_USERNAME` and `DEMO_PASSWORD`
 
 Keep real secrets out of Git. For Authelia users, `AUTHELIA_USERS_DATABASE_FILE` can point to a server-local file such as `/root/opt/myrss/secrets/users_database.yml`.
 
@@ -144,7 +157,7 @@ bash infra/scripts/smoke-test.sh prod
 
 ## CI/CD
 
-GitHub Actions currently provide:
+GitHub Actions provide:
 
 - `ci.yml`: Python lint/test, reader-web test/build, Compose config validation, Trivy scan, GHCR image build/push, and same-repo PR staging deploy.
 - `deploy-staging.yml`: manual staging deploy by image tag.
@@ -164,5 +177,6 @@ Required repository secrets for remote deploys:
 
 - Do not commit real `.env`, API keys, SSH keys, Authelia user databases, or VPS runtime secrets.
 - `.env.example` must stay placeholder-only.
-- The scorer endpoints are intended for the internal Docker network and require Basic Auth for mutating requests.
+- The scorer mutating endpoints are intended for the internal Docker network and require Basic Auth.
 - Public access is routed through Caddy and protected by Authelia.
+- The staging demo password is a public experience password, not a production secret; it should still be rotated when needed.

@@ -2,24 +2,34 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-AI Reader 是一个基于 Miniflux 的自托管 RSS 阅读工作台，在传统 RSS 聚合之上增加了 LLM 评分、中文摘要、文章问答、专注阅读、订阅源质量治理，以及 Docker/GitHub Actions 自动化部署流程。
+AI Reader 是一个基于 Miniflux 的自托管 RSS 研究阅读工作台。它在传统 RSS 后端之上加入 LLM 多维评分、中文摘要、文章问答、专注阅读、订阅源质量治理，以及基于 GitHub Actions 的自动交付流程。
 
-项目面向个人研究和新闻信息流：RSS 条目进入 Miniflux 后，AI Reader 会读取文章、调用 MiniMax 进行多维评分，并在阅读界面中提供排序、摘要、过滤、候选/立项和 AI 辅助阅读能力。
+## 在线 Demo
+
+- Demo 地址：[https://staging-ai-reader.blankhoney.xyz/](https://staging-ai-reader.blankhoney.xyz/)
+- 源码地址：[github.com/blankhoney/reno_rss](https://github.com/blankhoney/reno_rss)
+
+打开 Demo 后可以在首页点击“以游客身份进入”，无需提前知道账号密码。游客账号仅允许访问 staging AI Reader。
 
 ## 核心功能
 
-- **RSS 聚合**：使用 Miniflux 管理订阅源和文章状态，PostgreSQL 作为数据存储。
-- **AI Reader Web**：基于 Next.js、React、TypeScript 构建阅读工作台和 API routes。
-- **事件驱动评分服务**：Python scorer-worker 通过内部 HTTP 服务提供：
-  - `GET /healthz`
-  - `POST /internal/score-entry`
-  - `POST /webhooks/miniflux`
-- **LLM 能力**：接入 MiniMax，对文章生成总分、维度分、中文摘要、原文摘要、评分理由和问答上下文。
-- **阅读工作流**：支持最新、未读、已读、候选、已立项、稍后读、技术、商业、趋势等模块。
-- **专注阅读**：提供站内阅读页、全文刷新、文章问答、Markdown 回答渲染和片段正文提示。
-- **订阅源质量治理**：根据最近文章完整率、评分、用户行为等信号对低质量源降权，并支持手动隐藏/恢复，不删除 Miniflux 订阅。
-- **自托管部署**：Caddy 负责 HTTPS 入口，Authelia 负责登录鉴权，Docker Compose 区分 staging/prod 环境。
-- **CI/CD**：GitHub Actions 负责测试、构建、GHCR 镜像发布、staging/prod 部署和回滚。
+- **统一 RSS 工作台**：Miniflux 继续作为订阅源和文章状态的事实数据源，AI Reader 负责更适合研究场景的阅读和筛选体验。
+- **LLM 多维评分**：通过 MiniMax 从重要性、实用性、时效性、深度、技术价值、商业价值、趋势价值等维度评估文章。
+- **中文优先摘要**：评分成功后生成中文摘要、原文摘要、评分理由和各维度理由。
+- **专注阅读**：支持站内阅读、全文刷新、片段正文提示、Markdown 格式 AI 回答和文章助手抽屉。
+- **研究工作流**：最新、未读、已读、候选、稍后读、已立项和评分维度模块组成“新到 -> 候选 -> 立项”的线索流。
+- **订阅源质量治理**：根据最近文章完整率、评分和用户行为对低质量源降权，并支持手动隐藏/恢复，不直接删除 Miniflux 订阅。
+- **公开体验入口**：staging 根路径提供公开 Landing，同源调用 Authelia demo 登录，同时 Caddy 只暴露必要入口。
+
+## 工程亮点
+
+- **小服务架构**：Next.js reader-web、Python scorer-worker、Miniflux、PostgreSQL、Caddy、Authelia 通过 Docker Compose overlay 分环境组织。
+- **事件驱动评分**：scorer-worker 提供内部 HTTP 接口支持单篇实时评分和 Miniflux webhook 新文章评分，避免无差别定时全量扫描。
+- **安全边界清晰**：Caddy 通过 Authelia forward-auth 保护业务路径；公开 Demo 只允许根路径、静态资源和 `POST /api/demo-login`。
+- **自动交付**：GitHub Actions 覆盖测试、构建、Compose 校验、Trivy 扫描、GHCR 镜像发布、staging 部署、production 审批部署和回滚。
+- **运维脚本完整**：`infra/scripts` 提供 deploy、smoke-test、backup、restore、rollback。
+
+更详细的设计见 [TECHNICAL.zh-CN.md](TECHNICAL.zh-CN.md)。
 
 ## 架构
 
@@ -38,12 +48,12 @@ flowchart LR
 
 运行时服务：
 
-- `reader-web`：AI Reader 前端页面和 API routes。
+- `reader-web`：AI Reader 页面和 API routes。
 - `scorer-worker`：内部评分、Webhook 和单篇重评服务。
 - `miniflux`：RSS 后端和订阅源事实数据。
 - `postgres`：Miniflux 数据库，以及评分/阅读状态数据库。
 - `caddy`：公网 HTTPS 反向代理。
-- `authelia`：登录鉴权和 forward-auth。
+- `authelia`：登录、2FA 和 forward-auth。
 
 ## 目录结构
 
@@ -88,6 +98,7 @@ cp .env.example .env
 - scorer webhook 用户名/密码
 - MiniMax API key、base URL、model
 - Authelia 邮件通知 SMTP 配置
+- 可选 staging demo 配置，例如 `DEMO_USERNAME` 和 `DEMO_PASSWORD`
 
 真实 secret 不应提交到 Git。Authelia 用户库可以通过 `AUTHELIA_USERS_DATABASE_FILE` 指向服务器本地文件，例如：
 
@@ -173,4 +184,4 @@ GitHub Actions 提供：
 - `.env.example` 只能保留占位值。
 - scorer-worker 的写入接口只设计给 Docker 内网调用，并通过 Basic Auth 保护。
 - 公网访问通过 Caddy 入口和 Authelia 鉴权。
-
+- staging demo 密码是公开体验密码，不是生产 secret；仍建议按需轮换。

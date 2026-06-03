@@ -9,7 +9,7 @@ const config: DemoAccessConfig = {
   enabled: true,
   username: "demo",
   password: "demo-reader-2026",
-  autheliaBaseUrl: "http://authelia-prod:9091",
+  autheliaBaseUrl: "https://auth.blankhoney.xyz",
   targetUrl: "https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh",
   allowedOrigin: "https://staging-ai-reader.blankhoney.xyz",
 };
