@@ -33,8 +33,8 @@ app_users = Table(
     metadata,
     Column("id", UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")),
     Column("display_name", Text, nullable=False),
-    Column("session_token_hash", Text, nullable=False),
-    Column("recovery_code_hash", Text, nullable=False),
+    Column("session_token_hash", Text, nullable=False, unique=True),
+    Column("recovery_code_hash", Text, nullable=False, unique=True),
     Column("role", Text, nullable=False, server_default=text("'user'")),
     Column(
         "session_expires_at",

@@ -99,8 +99,8 @@ def upgrade() -> None:
             server_default=sa.text("gen_random_uuid()"),
         ),
         sa.Column("display_name", sa.Text(), nullable=False),
-        sa.Column("session_token_hash", sa.Text(), nullable=False),
-        sa.Column("recovery_code_hash", sa.Text(), nullable=False),
+        sa.Column("session_token_hash", sa.Text(), nullable=False, unique=True),
+        sa.Column("recovery_code_hash", sa.Text(), nullable=False, unique=True),
         sa.Column("role", sa.Text(), nullable=False, server_default=sa.text("'user'")),
         sa.Column(
             "session_expires_at",
