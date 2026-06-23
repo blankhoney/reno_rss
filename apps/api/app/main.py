@@ -1,8 +1,7 @@
 from datetime import UTC, datetime
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 
 from app.api.deps import ApiError, api_error_handler, request_validation_error_handler
 from app.api.routes import admin, articles, auth, jobs
@@ -25,7 +24,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
 
     @app.middleware("http")
-    async def csrf_origin_middleware(request: Request, call_next) -> JSONResponse:
+    async def csrf_origin_middleware(request: Request, call_next) -> Response:
         if request.method in WRITE_METHODS and not has_valid_csrf_origin(
             request,
             request.app.state.csrf_allowed_origins,

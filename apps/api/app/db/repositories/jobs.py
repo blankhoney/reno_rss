@@ -219,6 +219,12 @@ class DatabaseJobRepository:
         created_by: UUID | None = None,
         priority: int = 0,
     ) -> JobRecord:
+        # Insert (ON CONFLICT DO NOTHING against the partial unique index on
+        # active jobs). On conflict the row is None, so fall back to selecting
+        # the active duplicate. That duplicate can finish between the insert and
+        # the select, leaving nothing to return — so retry insert+select once
+        # more. Two rounds is enough: a fresh insert can only lose to a *new*
+        # active job, which the following select will then find.
         with self.engine.begin() as connection:
             row = self._insert_job(connection, job_type, payload, dedupe_key, created_by, priority)
             if row is None:
