@@ -87,6 +87,10 @@ def get_recommendation_repository(request: Request) -> RecommendationStore:
     return request.app.state.recommendation_repository
 
 
+def get_ask_provider(request: Request) -> object:
+    return request.app.state.ask_provider
+
+
 def get_current_user_optional(request: Request) -> UserRecord | None:
     store = get_auth_store(request)
     token = request.cookies.get(SESSION_COOKIE_NAME)

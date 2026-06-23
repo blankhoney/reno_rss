@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 
 from app.api.deps import ApiError, api_error_handler, request_validation_error_handler
-from app.api.routes import admin, articles, auth, feeds, jobs, recommendations
+from app.api.routes import admin, articles, ask, auth, feeds, jobs, recommendations
 from app.core.config import APP_VERSION, get_settings
 from app.core.security import has_valid_csrf_origin
 from app.db.auth_store import create_auth_store
@@ -27,6 +27,7 @@ def create_app() -> FastAPI:
     app.state.article_repository = create_article_repository(settings.database_url)
     app.state.scoring_repository = create_scoring_repository(settings.database_url)
     app.state.recommendation_repository = create_recommendation_repository(settings.database_url)
+    app.state.ask_provider = ask.DeterministicAskProvider()
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
     app.add_exception_handler(ApiError, api_error_handler)
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(articles.router)
+    app.include_router(ask.router)
     app.include_router(feeds.router)
     app.include_router(admin.router)
     app.include_router(jobs.router)
