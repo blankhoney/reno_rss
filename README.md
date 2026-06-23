@@ -25,11 +25,11 @@ Open the demo URL and use the one-click guest entry on the landing page. The gue
 
 - **Small-service architecture**: Next.js reader-web, Python scorer-worker, Miniflux, PostgreSQL, Caddy, and Authelia are isolated through Docker Compose overlays.
 - **Event-driven scoring**: scorer-worker exposes internal HTTP endpoints for manual scoring and Miniflux webhook scoring instead of relying on broad periodic rescans.
-- **Secure edge design**: Caddy protects business routes through Authelia forward-auth; the public demo only exposes the root landing page, static assets, and `POST /api/demo-login`.
+- **Layered auth design**: Caddy/Authelia can provide an outer demo or defense-in-depth layer, while the app/API owns session, role, CSRF, and rate-limit enforcement for business routes.
 - **Automated delivery**: GitHub Actions run tests/builds, validate Compose, scan with Trivy, publish GHCR images, deploy staging, and support approved production deploys and rollback.
 - **Operational scripts**: deployment, smoke test, backup, restore, and rollback scripts live under `infra/scripts`.
 
-See [TECHNICAL.md](TECHNICAL.md) for deeper system design and security boundaries.
+See [TECHNICAL.md](TECHNICAL.md) for deeper system design and security boundaries. See [SPEC-CICD.md](SPEC-CICD.md) for the delivery specification.
 
 ## Architecture
 
@@ -143,6 +143,8 @@ bash infra/scripts/deploy.sh staging sha-xxxxxxx
 bash infra/scripts/deploy.sh prod sha-xxxxxxx
 ```
 
+Production deploys must follow the v0.4 gate: database backup with artifact + SHA256, migration dry-run/upgrade, non-mutating smoke checks, image rollback first on app failure, and DB restore only for schema/data damage.
+
 Deployment modes:
 
 - **Local build mode**: builds `reader-web` and `scorer-worker` on the VPS.
@@ -159,10 +161,14 @@ bash infra/scripts/smoke-test.sh prod
 
 GitHub Actions provide:
 
-- `ci.yml`: Python lint/test, reader-web test/build, Compose config validation, Trivy scan, GHCR image build/push, and same-repo PR staging deploy.
-- `deploy-staging.yml`: manual staging deploy by image tag.
+- `ci.yml`: Python lint/test, reader-web test/build, Compose config validation, Trivy scan, GHCR image build/push, and automatic staging deploy for same-repository PRs and `main` pushes.
+- `deploy-staging.yml`: manual staging deploy by image tag as a fallback.
 - `deploy-prod.yml`: manual production deploy by image tag through the `production` environment.
 - `rollback.yml`: staging/prod rollback to a previous GHCR image tag.
+
+The normal staging path is `push main -> checks -> GHCR images -> VPS pull -> smoke test`. Manual VPS commands should only be needed for one-time server readiness or incident recovery.
+
+Image tags must match the deployed revision, for example `sha-7d59513`. Full delivery requirements are defined in [SPEC-CICD.md](SPEC-CICD.md).
 
 Required repository secrets for remote deploys:
 
@@ -178,5 +184,5 @@ Required repository secrets for remote deploys:
 - Do not commit real `.env`, API keys, SSH keys, Authelia user databases, or VPS runtime secrets.
 - `.env.example` must stay placeholder-only.
 - The scorer mutating endpoints are intended for the internal Docker network and require Basic Auth.
-- Public access is routed through Caddy and protected by Authelia.
+- Public access is routed through Caddy; Authelia is an outer/demo or defense-in-depth layer, and the app/API must enforce business auth itself.
 - The staging demo password is a public experience password, not a production secret; it should still be rotated when needed.

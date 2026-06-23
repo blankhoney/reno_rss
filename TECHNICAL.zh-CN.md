@@ -96,11 +96,13 @@ staging demo 的公开面保持最小：
 
 1. GitHub Actions 执行 Python test/lint、reader-web test/build、Compose 校验和 Trivy 扫描。
 2. 构建 `reader-web` 和 `scorer-worker` GHCR 镜像。
-3. staging 支持同仓库 PR 自动部署，也支持按镜像 tag 手动部署。
+3. staging 在同仓库 PR 和 `main` push 后自动部署。
 4. production 只支持手动部署，建议通过 GitHub `production` environment 审批。
 5. rollback 使用旧 GHCR 镜像 tag，复用同一套远程部署脚本。
 
 VPS 上的 `.env` 和 secret 文件由服务器本地保存。GitHub Actions 只传递部署元数据和拉取私有镜像所需的 GHCR 凭据。
+
+`deploy-staging.yml` 保留为按 image tag 手动部署的兜底入口。正常 staging 交付路径和验收标准见 [SPEC-CICD.zh-CN.md](SPEC-CICD.zh-CN.md)。
 
 ## 安全说明
 

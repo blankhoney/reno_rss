@@ -96,11 +96,13 @@ The delivery path is:
 
 1. GitHub Actions run Python tests/lint, reader-web tests/build, Compose validation, and Trivy scanning.
 2. GHCR images are built for `reader-web` and `scorer-worker`.
-3. Staging can be deployed automatically from same-repository PRs or manually by image tag.
+3. Staging is deployed automatically from same-repository PRs and `main` pushes.
 4. Production deploy is manual and should be protected by the GitHub `production` environment.
 5. Rollback uses a previous GHCR image tag with the same remote deploy path.
 
 The VPS keeps runtime `.env` and secret files locally. GitHub Actions only pass deployment metadata and GHCR credentials needed for image pulls.
+
+`deploy-staging.yml` remains available as a manual fallback by explicit image tag. The normal staging path and acceptance criteria are specified in [SPEC-CICD.md](SPEC-CICD.md).
 
 ## Security Notes
 
