@@ -9,6 +9,7 @@ from app.db.auth_store import AuthStore, UserRecord
 from app.db.repositories.articles import ArticleStore
 from app.db.repositories.feeds import FeedStore
 from app.db.repositories.jobs import JobStore
+from app.db.repositories.scoring import ScoringStore
 
 
 @dataclass
@@ -75,6 +76,10 @@ def get_feed_repository(request: Request) -> FeedStore:
 
 def get_article_repository(request: Request) -> ArticleStore:
     return request.app.state.article_repository
+
+
+def get_scoring_repository(request: Request) -> ScoringStore:
+    return request.app.state.scoring_repository
 
 
 def get_current_user_optional(request: Request) -> UserRecord | None:
