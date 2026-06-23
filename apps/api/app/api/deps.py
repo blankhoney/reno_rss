@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.security import SESSION_COOKIE_NAME
 from app.db.auth_store import AuthStore, UserRecord
+from app.db.repositories.feeds import FeedStore
 from app.db.repositories.jobs import JobStore
 
 
@@ -65,6 +66,10 @@ def get_auth_store(request: Request) -> AuthStore:
 
 def get_job_repository(request: Request) -> JobStore:
     return request.app.state.job_repository
+
+
+def get_feed_repository(request: Request) -> FeedStore:
+    return request.app.state.feed_repository
 
 
 def get_current_user_optional(request: Request) -> UserRecord | None:

@@ -4,10 +4,11 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 
 from app.api.deps import ApiError, api_error_handler, request_validation_error_handler
-from app.api.routes import admin, articles, auth, jobs
+from app.api.routes import admin, articles, auth, feeds, jobs
 from app.core.config import APP_VERSION, get_settings
 from app.core.security import has_valid_csrf_origin
 from app.db.auth_store import create_auth_store
+from app.db.repositories.feeds import create_feed_repository
 from app.db.repositories.jobs import create_job_repository
 
 
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AI Reader API", version=APP_VERSION)
     app.state.auth_store = create_auth_store(settings.database_url)
     app.state.job_repository = create_job_repository(settings.database_url)
+    app.state.feed_repository = create_feed_repository(settings.database_url)
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
     app.add_exception_handler(ApiError, api_error_handler)
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
@@ -45,6 +47,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(articles.router)
+    app.include_router(feeds.router)
     app.include_router(admin.router)
     app.include_router(jobs.router)
 
