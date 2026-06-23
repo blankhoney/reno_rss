@@ -22,6 +22,12 @@ dev = [
     "ruff>=0.4",
 ]
 
+# Only ship the `app` package. Without this, setuptools flat-layout
+# auto-discovery sees both `app/` and `alembic/` and refuses to build
+# ("Multiple top-level packages discovered"), breaking `pip install -e`.
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

@@ -17,6 +17,11 @@ dev = [
     "ruff>=0.4",
 ]
 
+# Keep packaging explicit so adding a sibling top-level dir later (e.g.
+# alembic/) cannot break setuptools flat-layout auto-discovery.
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
