@@ -8,6 +8,7 @@ import type { DimensionKey } from "@/lib/scoring/repository";
 import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
+import { ThemeToggle } from "./ThemeToggle";
 import { articleAgentNotice, articleContentNotice } from "./articleContentNotice";
 import { useArticleActions } from "./useArticleActions";
 import { useDismissableLayer } from "./useDismissableLayer";
@@ -266,6 +267,7 @@ export function FocusedArticleReader({
             {articleActions.isMarkingRead ? "标记中" : "标记已读"}
           </button>
         </div>
+        <ThemeToggle />
       </header>
 
       <section className="focusStatusBar" aria-label="阅读状态">

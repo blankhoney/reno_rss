@@ -4,6 +4,7 @@ import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import { AnimatedPanel } from "./AnimatedPanel";
+import { ThemeToggle } from "./ThemeToggle";
 
 type ModuleNavItem = { id: string; label: string; disabled?: boolean };
 type ModuleNavGroup = { id: string; label: string; items: ModuleNavItem[] };
@@ -114,7 +115,10 @@ export function ModuleSidebar({
   return (
     <aside className="moduleSidebar">
       <div className="brandBlock">
-        <div className="brand">AI Reader</div>
+        <div className="brandRow">
+          <div className="brand">AI Reader</div>
+          <ThemeToggle />
+        </div>
         <a
           className="sourceLink"
           href="https://github.com/blankhoney/reno_rss"
