@@ -8,6 +8,7 @@ from app.api.routes import admin, articles, auth, feeds, jobs
 from app.core.config import APP_VERSION, get_settings
 from app.core.security import has_valid_csrf_origin
 from app.db.auth_store import create_auth_store
+from app.db.repositories.articles import create_article_repository
 from app.db.repositories.feeds import create_feed_repository
 from app.db.repositories.jobs import create_job_repository
 
@@ -21,6 +22,7 @@ def create_app() -> FastAPI:
     app.state.auth_store = create_auth_store(settings.database_url)
     app.state.job_repository = create_job_repository(settings.database_url)
     app.state.feed_repository = create_feed_repository(settings.database_url)
+    app.state.article_repository = create_article_repository(settings.database_url)
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
     app.add_exception_handler(ApiError, api_error_handler)
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
