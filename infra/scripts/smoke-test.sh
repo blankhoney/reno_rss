@@ -94,6 +94,29 @@ else
     PUBLIC_URL="https://ai-reader.${DOMAIN}"
 fi
 
+if [[ "$ENV" == "staging" ]]; then
+    LANDING_BODY="$(curl -fsSL --connect-timeout 10 "$PUBLIC_URL/")"
+    for text in "AI Reader" "以游客身份进入" "GitHub"; do
+        if [[ "$LANDING_BODY" != *"$text"* ]]; then
+            echo "❌ staging demo landing missing marker: $text"
+            exit 1
+        fi
+    done
+    echo "  ✅ staging demo landing ok"
+
+    PROTECTED_BODY_FILE="/tmp/myrss-smoke-protected-body.txt"
+    PROTECTED_CODE="$(curl -sS -o "$PROTECTED_BODY_FILE" -w "%{http_code}" --connect-timeout 10 "$PUBLIC_URL/?module=all&sort=default&lang=zh")"
+    if [[ ! "$PROTECTED_CODE" =~ ^(2|3)[0-9][0-9]$ ]]; then
+        echo "❌ staging protected route returned HTTP $PROTECTED_CODE"
+        exit 1
+    fi
+    if [[ "$PROTECTED_CODE" == 200 ]] && grep -q "阅读工作台" "$PROTECTED_BODY_FILE"; then
+        echo "❌ staging protected route exposed business UI without auth"
+        exit 1
+    fi
+    echo "  ✅ staging protected route boundary ok: HTTP $PROTECTED_CODE"
+fi
+
 HTTP_CODE="$(curl -sS -o /tmp/myrss-smoke-headers.txt -w "%{http_code}" -I --connect-timeout 10 "$PUBLIC_URL")"
 if [[ ! "$HTTP_CODE" =~ ^(2|3)[0-9][0-9]$ ]]; then
     echo "❌ 公网入口异常：$PUBLIC_URL HTTP $HTTP_CODE"

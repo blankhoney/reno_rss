@@ -184,7 +184,7 @@ jobs:
     name: deploy staging
     runs-on: ubuntu-latest
     needs: images
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     environment:
       name: staging
       url: https://staging-ai-reader.blankhoney.xyz
@@ -229,4 +229,5 @@ jobs:
             echo "- reader-web: \`${{ needs.images.outputs.reader_image }}\`"
             echo "- scorer-worker: \`${{ needs.images.outputs.scorer_image }}\`"
             echo "- url: https://staging-ai-reader.blankhoney.xyz"
+            echo "- smoke test: passed"
           } >> "$GITHUB_STEP_SUMMARY"
