@@ -389,6 +389,19 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "job_watchers",
+        sa.Column("job_id", sa.BigInteger(), sa.ForeignKey("jobs.id"), nullable=False),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("app_users.id"),
+            nullable=False,
+        ),
+        _created_at(),
+        sa.PrimaryKeyConstraint("job_id", "user_id"),
+    )
+
+    op.create_table(
         "benchmark_runs",
         sa.Column("id", sa.BigInteger(), primary_key=True),
         sa.Column("suite", sa.Text(), nullable=False),
@@ -683,6 +696,7 @@ def _create_indexes() -> None:
         unique=True,
         postgresql_where=sa.text("status IN ('queued', 'running')"),
     )
+    op.create_index("ix_job_watchers_user", "job_watchers", ["user_id", "job_id"])
     op.create_index(
         "ix_benchmark_runs_suite_created",
         "benchmark_runs",
@@ -716,6 +730,7 @@ def downgrade() -> None:
         "scoring_batch_items",
         "article_base_scores",
         "benchmark_runs",
+        "job_watchers",
         "jobs",
         "rescore_requests",
         "rubric_change_proposals",

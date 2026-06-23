@@ -24,6 +24,7 @@ EXPECTED_TABLES = {
     "rubric_change_proposals",
     "rescore_requests",
     "jobs",
+    "job_watchers",
     "benchmark_runs",
     "app_settings",
 }

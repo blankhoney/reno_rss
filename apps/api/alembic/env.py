@@ -4,6 +4,7 @@ import os
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from app.core.config import normalize_database_url
 from app.db.models import metadata
 
 
@@ -14,7 +15,7 @@ if config.config_file_name is not None:
 
 database_url = os.getenv("SCORING_DATABASE_URL")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    config.set_main_option("sqlalchemy.url", normalize_database_url(database_url) or database_url)
 
 target_metadata = metadata
 

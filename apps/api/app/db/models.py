@@ -371,6 +371,14 @@ jobs = Table(
     ),
 )
 
+job_watchers = Table(
+    "job_watchers",
+    metadata,
+    Column("job_id", BigInteger, ForeignKey("jobs.id"), primary_key=True),
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), primary_key=True),
+    created_at_column(),
+)
+
 benchmark_runs = Table(
     "benchmark_runs",
     metadata,
@@ -466,5 +474,6 @@ Index(
     unique=True,
     postgresql_where=jobs.c.status.in_(("queued", "running")),
 )
+Index("ix_job_watchers_user", job_watchers.c.user_id, job_watchers.c.job_id)
 Index("ix_benchmark_runs_suite_created", benchmark_runs.c.suite, benchmark_runs.c.created_at.desc())
 Index("ix_benchmark_runs_status", benchmark_runs.c.status)
