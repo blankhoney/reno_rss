@@ -166,6 +166,9 @@ else
     IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --build --remove-orphans
 fi
 
+echo "🗄️  应用 $ENV API 数据库迁移..."
+IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" exec -T ai-reader-api alembic upgrade head
+
 echo "🔁 重建 $ENV Authelia 以加载生成配置..."
 IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" \
     up -d --force-recreate --no-deps authelia
