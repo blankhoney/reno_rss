@@ -6,8 +6,10 @@ from threading import Event
 
 from app.db.article_sink import DatabaseArticleSink
 from app.db.content_sink import DatabaseContentSink
+from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
 from app.jobs.fetch_content import fetch_article_content
+from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
 from app.jobs.score_batch import score_batch
 from app.jobs.sync_miniflux import run_sync_miniflux_entries
@@ -35,6 +37,7 @@ def create_worker_queue() -> InMemoryJobQueue | PostgresJobQueue:
 def build_handler_registry() -> dict[str, Handler]:
     return {
         "fetch_article_content": _fetch_article_content,
+        "generate_recommendations": _generate_recommendations,
         "score_batch": _score_batch,
         "worker_echo": _worker_echo,
         "sync_miniflux_entries": _sync_miniflux_entries,
@@ -114,6 +117,21 @@ def _score_batch(payload) -> dict[str, object]:
     sink = DatabaseScoreSink(database_url)
     try:
         return score_batch(dict(payload), sink, create_provider())
+    finally:
+        sink.dispose()
+
+
+def _generate_recommendations(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for generate_recommendations")
+    source_batch_id = payload.get("source_batch_id")
+    sink = DatabaseRecommendationSink(
+        database_url,
+        source_batch_id=int(source_batch_id) if source_batch_id is not None else None,
+    )
+    try:
+        return generate_recommendations(dict(payload), sink, rank_b4_recommendation_context)
     finally:
         sink.dispose()
 

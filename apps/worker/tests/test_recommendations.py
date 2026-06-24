@@ -208,3 +208,163 @@ def test_generate_recommendations_rejects_non_b4_algorithm_version():
 
     with pytest.raises(ValueError, match="algorithm_version"):
         generate_recommendations({"algorithm_version": "b4.experiment"}, sink, lambda context: [])
+
+
+def test_database_recommendation_sink_builds_context_and_writes_edition():
+    from sqlalchemy import create_engine, text
+
+    from app.db.recommendation_sink import DatabaseRecommendationSink
+    from app.jobs.generate_recommendations import rank_b4_recommendation_context
+
+    engine = create_engine("sqlite:///:memory:")
+    _create_recommendation_schema(engine)
+    sink = DatabaseRecommendationSink(engine=engine)
+
+    result = generate_recommendations(
+        {"user_ids": ["user-1"]},
+        sink,
+        rank_b4_recommendation_context,
+    )
+
+    with engine.begin() as connection:
+        editions = connection.execute(text("SELECT * FROM recommendation_editions")).mappings().all()
+        items = (
+            connection.execute(text("SELECT * FROM recommendation_items ORDER BY rank"))
+            .mappings()
+            .all()
+        )
+
+    assert result["editions_saved"] == 1
+    assert len(editions) == 1
+    assert editions[0]["user_id"] == "user-1"
+    assert [(item["article_id"], item["rank"], item["source"]) for item in items] == [
+        (1, 1, "subscription"),
+        (2, 2, "exploration"),
+    ]
+
+
+def _create_recommendation_schema(engine):
+    from datetime import UTC, datetime
+    import json
+
+    from sqlalchemy import text
+
+    now = datetime(2026, 6, 24, 12, tzinfo=UTC)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE app_users (id TEXT PRIMARY KEY, role TEXT NOT NULL)"
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE user_feed_subscriptions (
+                user_id TEXT,
+                feed_id INTEGER,
+                enabled INTEGER,
+                user_priority INTEGER
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE articles (
+                id INTEGER PRIMARY KEY,
+                published_at TEXT
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE article_sources (
+                id INTEGER PRIMARY KEY,
+                article_id INTEGER,
+                feed_id INTEGER
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE article_base_scores (
+                id INTEGER PRIMARY KEY,
+                article_id INTEGER,
+                base_score INTEGER,
+                recommendation_tier TEXT,
+                reason TEXT,
+                risk_flags TEXT,
+                dimension_scores TEXT,
+                scoring_status TEXT,
+                is_active INTEGER
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE user_article_states (
+                user_id TEXT,
+                article_id INTEGER,
+                status TEXT
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE user_article_feedback_scores (
+                user_id TEXT,
+                article_id INTEGER,
+                feedback_type TEXT,
+                user_score INTEGER
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE recommendation_editions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                source_batch_id INTEGER,
+                edition_type TEXT,
+                algorithm_version TEXT,
+                generated_at TEXT
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE recommendation_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                edition_id INTEGER,
+                article_id INTEGER,
+                rank INTEGER,
+                rank_score REAL,
+                tier TEXT,
+                reason TEXT,
+                source TEXT
+            )
+            """
+        )
+        connection.execute(text("INSERT INTO app_users (id, role) VALUES ('user-1', 'user')"))
+        connection.execute(
+            text(
+                "INSERT INTO user_feed_subscriptions VALUES ('user-1', 10, 1, 5)"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO articles (id, published_at) VALUES (1, :now), (2, :now)"),
+            {"now": now.isoformat()},
+        )
+        connection.execute(
+            text("INSERT INTO article_sources VALUES (1, 1, 10), (2, 2, 99)")
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO article_base_scores (
+                    id, article_id, base_score, recommendation_tier, reason,
+                    risk_flags, dimension_scores, scoring_status, is_active
+                )
+                VALUES
+                  (1, 1, 85, 'must_read', 'subscribed', '[]', :dims, 'success', 1),
+                  (2, 2, 82, 'read', 'explore', '[]', :dims, 'success', 1)
+                """
+            ),
+            {"dims": json.dumps({"risk_uncertainty": 20})},
+        )

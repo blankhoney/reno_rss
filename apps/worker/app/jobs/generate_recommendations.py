@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+import importlib.util
+from pathlib import Path
+from types import ModuleType
 from typing import Protocol, cast
 
 
@@ -95,3 +98,37 @@ def _item_value(item: object, key: str) -> object:
     if isinstance(item, Mapping):
         return item[key]
     return getattr(item, key)
+
+
+def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[object]:
+    ranking_module = _load_online_ranking_module()
+    candidates = [
+        ranking_module.Candidate(
+            article_id=int(candidate["article_id"]),
+            feed_ids=[int(feed_id) for feed_id in candidate["feed_ids"]],
+            base_score=int(candidate["base_score"]),
+            published_at=candidate["published_at"],
+            risk_uncertainty=int(candidate.get("risk_uncertainty", 100)),
+            risk_flags=list(candidate.get("risk_flags", [])),
+        )
+        for candidate in context.candidates
+        if isinstance(candidate, Mapping)
+    ]
+    return ranking_module.rank_b4(
+        user_priority_by_feed=context.user_priority_by_feed,
+        candidates=candidates,
+        feedback_by_article=context.feedback_by_article,
+        article_status_by_article=context.article_status_by_article,
+        now=context.now,
+    )
+
+
+def _load_online_ranking_module() -> ModuleType:
+    repo_root = Path(__file__).resolve().parents[4]
+    ranking_path = repo_root / "apps" / "api" / "app" / "domain" / "ranking.py"
+    spec = importlib.util.spec_from_file_location("ai_reader_api_ranking", ranking_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load B4 ranking module from {ranking_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
