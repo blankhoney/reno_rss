@@ -102,6 +102,74 @@ EOF
     done
 }
 
+run_prod_migration_backup() {
+    if [[ "$ENV" != "prod" ]]; then
+        echo "💾 $ENV 非生产环境：跳过迁移前备份 gate"
+        return
+    fi
+
+    local backup_output
+    local backup_dir
+    local backup_path
+
+    echo "💾 prod 迁移前备份数据库..."
+    if ! backup_output="$(cd "$REPO_ROOT" && "$SCRIPT_DIR/backup.sh" prod 2>&1)"; then
+        echo "$backup_output"
+        echo "❌ prod 数据库备份失败，停止迁移和部署"
+        exit 1
+    fi
+    echo "$backup_output"
+
+    backup_dir="$(printf '%s\n' "$backup_output" | sed -n 's/^✅ 备份完成：//p' | tail -n 1)"
+    if [[ -z "$backup_dir" ]]; then
+        echo "❌ 无法从 backup.sh 输出中解析备份目录，停止迁移"
+        exit 1
+    fi
+    backup_path="$backup_dir"
+    if [[ "$backup_path" != /* ]]; then
+        backup_path="$REPO_ROOT/${backup_path#./}"
+    fi
+    if [[ ! -f "$backup_path/checksums.txt" ]]; then
+        echo "❌ 备份校验文件不存在：$backup_path/checksums.txt"
+        exit 1
+    fi
+
+    echo "   backup artifact: $backup_path"
+    echo "   sha256:"
+    sed 's/^/     /' "$backup_path/checksums.txt"
+
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        {
+            echo "### Production database backup"
+            echo ""
+            echo "- Artifact: \`$backup_path\`"
+            echo ""
+            echo "\`\`\`"
+            cat "$backup_path/checksums.txt"
+            echo "\`\`\`"
+        } >> "$GITHUB_STEP_SUMMARY"
+    fi
+}
+
+wait_for_api_migration_ready() {
+    local max_attempts="${MIGRATION_READY_MAX_ATTEMPTS:-12}"
+    local sleep_seconds="${MIGRATION_READY_SLEEP_SECONDS:-5}"
+    local attempt
+
+    echo "⏳ 等待 $ENV API/DB 可执行迁移..."
+    for attempt in $(seq 1 "$max_attempts"); do
+        if IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" exec -T ai-reader-api alembic current >/dev/null 2>&1; then
+            echo "  ✅ migration context ready"
+            return
+        fi
+        echo "  等待 migration context：attempt $attempt/$max_attempts"
+        sleep "$sleep_seconds"
+    done
+
+    echo "❌ API/DB 在限定时间内未就绪，停止迁移"
+    exit 1
+}
+
 echo "🚀 开始部署：ENV=$ENV  TAG=$TAG"
 echo "   仓库根目录：$REPO_ROOT"
 if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
@@ -165,6 +233,12 @@ if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
 else
     IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --build --remove-orphans
 fi
+
+# PROD_MIGRATION_BACKUP_GATE
+run_prod_migration_backup
+
+# API_MIGRATION_READY_GATE
+wait_for_api_migration_ready
 
 echo "🗄️  应用 $ENV API 数据库迁移..."
 IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" exec -T ai-reader-api alembic upgrade head

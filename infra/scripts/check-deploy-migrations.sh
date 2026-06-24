@@ -15,14 +15,28 @@ if ! grep -q 'exec -T ai-reader-api alembic upgrade head' "$SCRIPT_PATH"; then
     exit 1
 fi
 
+if ! grep -q 'PROD_MIGRATION_BACKUP_GATE' "$SCRIPT_PATH"; then
+    echo "deploy.sh must gate prod migrations on backup.sh before Alembic upgrade" >&2
+    exit 1
+fi
+
+if ! grep -q 'API_MIGRATION_READY_GATE' "$SCRIPT_PATH"; then
+    echo "deploy.sh must wait for API/DB migration readiness before Alembic upgrade" >&2
+    exit 1
+fi
+
 if ! awk '
     /\$\{BACKEND_COMPOSE\[@\]\}" up -d/ { backend_up = NR }
+    /PROD_MIGRATION_BACKUP_GATE/ { backup = NR }
+    /API_MIGRATION_READY_GATE/ { ready = NR }
     /exec -T ai-reader-api alembic upgrade head/ { migration = NR }
     /up -d --force-recreate --no-deps authelia/ { authelia = NR }
     END {
-        exit !(backend_up && migration && authelia && backend_up < migration && migration < authelia)
+        ok = backend_up && backup && ready && migration && authelia &&
+             backend_up < backup && backup < ready && ready < migration && migration < authelia
+        exit !ok
     }
 ' "$SCRIPT_PATH"; then
-    echo "deploy.sh must run Alembic after backend up and before Authelia reload" >&2
+    echo "deploy.sh must run backup/readiness gates after backend up and before Alembic/Authelia" >&2
     exit 1
 fi
