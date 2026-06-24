@@ -63,6 +63,30 @@ class MinifluxClient:
             raise TypeError("Miniflux entries response must contain an entries list")
         return [_sync_entry_from_miniflux(entry) for entry in entries]
 
+    def fetch_content(self, entry_id: int, update_content: bool = True) -> str:
+        params = {"update_content": str(update_content).lower()}
+        with httpx.Client(
+            headers=self._config.auth_headers(),
+            timeout=self._config.timeout_seconds,
+        ) as client:
+            response = client.get(
+                f"{self._base_url}/v1/entries/{entry_id}/fetch-content",
+                params=params,
+            )
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "")
+            if "application/json" in content_type:
+                payload = response.json()
+                content = payload.get("content", "")
+                return content if isinstance(content, str) else ""
+            text = response.text
+        try:
+            payload = httpx.Response(200, content=text).json()
+        except ValueError:
+            return text
+        content = payload.get("content", "") if isinstance(payload, dict) else ""
+        return content if isinstance(content, str) else text
+
 
 def _sync_entry_from_miniflux(entry: object) -> dict[str, object]:
     if not isinstance(entry, dict):
