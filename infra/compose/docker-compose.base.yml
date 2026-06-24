@@ -70,7 +70,9 @@ services:
     build:
       context: ../../apps/worker
     restart: unless-stopped
-    profiles: [worker]
+    depends_on:
+      - postgres
+      - miniflux
     environment:
       SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
       MINIFLUX_API_BASE_URL: ${MINIFLUX_API_BASE_URL}

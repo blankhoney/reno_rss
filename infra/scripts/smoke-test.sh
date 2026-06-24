@@ -17,6 +17,7 @@ set -a; source "$REPO_ROOT/.env"; set +a
 
 PROJECT="myrss-${ENV}"
 API_CONTAINER="${PROJECT}-ai-reader-api-1"
+WORKER_CONTAINER="${PROJECT}-ai-reader-worker-1"
 READER_CONTAINER="${PROJECT}-reader-web-1"
 MINIFLUX_CONTAINER="${PROJECT}-miniflux-1"
 AUTHELIA_CONTAINER="${PROJECT}-authelia-1"
@@ -43,11 +44,18 @@ require_running() {
 }
 
 require_running "$API_CONTAINER"
+require_running "$WORKER_CONTAINER"
 require_running "$READER_CONTAINER"
 require_running "$MINIFLUX_CONTAINER"
 require_running "$AUTHELIA_CONTAINER"
 require_running "$POSTGRES_CONTAINER"
 require_running "$EDGE_CONTAINER"
+
+if ! docker logs --tail 80 "$WORKER_CONTAINER" 2>&1 | grep -q "worker runtime started"; then
+    echo "❌ worker 未输出启动日志：$WORKER_CONTAINER"
+    exit 1
+fi
+echo "  ✅ worker startup log ok"
 
 docker exec "$API_CONTAINER" python - <<'PY'
 import json
