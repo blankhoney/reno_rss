@@ -179,7 +179,7 @@ jobs:
 
       - name: Check deploy scripts
         run: |
-          bash -n infra/scripts/deploy.sh infra/scripts/backup.sh infra/scripts/smoke-test.sh infra/scripts/check-deploy-migrations.sh .github/scripts/remote-deploy.sh .github/scripts/validate-deploy-env.sh
+          bash -n infra/scripts/deploy.sh infra/scripts/backup.sh infra/scripts/smoke-test.sh infra/scripts/staging-runtime-proof.sh infra/scripts/check-deploy-migrations.sh .github/scripts/remote-deploy.sh .github/scripts/validate-deploy-env.sh
           bash infra/scripts/check-deploy-migrations.sh
 
       - name: Build Docker images
@@ -340,6 +340,7 @@ jobs:
           DEPLOY_SHA: ${{ needs.images.outputs.deploy_sha }}
           IMAGE_REGISTRY: ${{ needs.images.outputs.image_registry }}
           IMAGE_TAG: ${{ needs.images.outputs.image_tag }}
+          RUN_STAGING_RUNTIME_PROOF: "1"
         run: |
           set -euo pipefail
           bash .github/scripts/validate-deploy-env.sh
@@ -349,7 +350,7 @@ jobs:
           bash .github/scripts/write-ssh-key.sh "$key_file"
 
           quote() { printf '%q' "$1"; }
-          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN")"
+          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN") RUN_STAGING_RUNTIME_PROOF=$(quote "$RUN_STAGING_RUNTIME_PROOF")"
 
           ssh -i "$key_file" -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
             "$remote_env bash -s" < .github/scripts/remote-deploy.sh
@@ -363,4 +364,5 @@ jobs:
             echo "- ai-reader-worker: \`${{ needs.images.outputs.worker_image }}\`"
             echo "- url: https://staging-ai-reader.blankhoney.xyz"
             echo "- smoke test: passed"
+            echo "- runtime proof: passed"
           } >> "$GITHUB_STEP_SUMMARY"

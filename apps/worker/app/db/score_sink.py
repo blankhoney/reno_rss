@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import hashlib
 import json
 
 from sqlalchemy import Engine, create_engine, text
+
+
+RECOMMENDATIONS_JOB_TYPE = "generate_recommendations"
 
 
 class DatabaseScoreSink:
@@ -95,8 +99,54 @@ class DatabaseScoreSink:
                 {"batch_id": batch_id, "finished_at": datetime.now(UTC).isoformat()},
             )
 
-    def enqueue_recommendations(self, _batch_id: object) -> None:
-        return None
+    def enqueue_recommendations(self, batch_id: object) -> None:
+        payload = {"source_batch_id": batch_id}
+        params = {
+            "job_type": RECOMMENDATIONS_JOB_TYPE,
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "dedupe_key": _dedupe_key_for(RECOMMENDATIONS_JOB_TYPE, batch_id),
+        }
+        with self.engine.begin() as connection:
+            existing = connection.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM jobs
+                    WHERE job_type=:job_type
+                      AND dedupe_key=:dedupe_key
+                      AND status IN ('queued', 'running')
+                    LIMIT 1;
+                    """
+                ),
+                params,
+            ).scalar_one_or_none()
+            if existing is not None:
+                return
+
+            if self.engine.dialect.name == "postgresql":
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO jobs (job_type, payload, dedupe_key)
+                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key)
+                        ON CONFLICT (job_type, dedupe_key)
+                        WHERE status IN ('queued', 'running')
+                        DO NOTHING;
+                        """
+                    ),
+                    params,
+                )
+                return
+
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO jobs (job_type, payload, dedupe_key)
+                    VALUES (:job_type, :payload, :dedupe_key);
+                    """
+                ),
+                params,
+            )
 
     def dispose(self) -> None:
         self.engine.dispose()
@@ -165,3 +215,7 @@ def _insert_score_sql(dialect_name: str) -> str:
         )
         RETURNING id;
         """
+
+
+def _dedupe_key_for(job_type: str, value: object) -> str:
+    return hashlib.sha256(f"{job_type}:{value}".encode("utf-8")).hexdigest()

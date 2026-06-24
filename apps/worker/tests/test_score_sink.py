@@ -106,6 +106,23 @@ def test_score_sink_writes_success_and_error_rows_with_active_history():
     ]
 
 
+def test_score_sink_enqueues_deduped_recommendations_job():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    sink = DatabaseScoreSink(engine=engine)
+
+    sink.enqueue_recommendations(10)
+    sink.enqueue_recommendations(10)
+
+    with engine.begin() as connection:
+        jobs = connection.execute(text("SELECT * FROM jobs ORDER BY id")).mappings().all()
+
+    assert len(jobs) == 1
+    assert jobs[0]["job_type"] == "generate_recommendations"
+    assert jobs[0]["status"] == "queued"
+    assert jobs[0]["payload"] == '{"source_batch_id": 10}'
+
+
 def _create_schema(engine):
     with engine.begin() as connection:
         connection.exec_driver_sql(
@@ -168,6 +185,30 @@ def _create_schema(engine):
                 error TEXT,
                 is_active INTEGER,
                 scored_at TEXT
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                priority INTEGER DEFAULT 0,
+                payload TEXT NOT NULL,
+                dedupe_key TEXT NOT NULL,
+                progress TEXT NOT NULL DEFAULT '{}',
+                result TEXT NOT NULL DEFAULT '{}',
+                locked_by TEXT,
+                locked_at TEXT,
+                attempt_count INTEGER DEFAULT 0,
+                max_attempts INTEGER DEFAULT 5,
+                run_after TEXT DEFAULT CURRENT_TIMESTAMP,
+                completed_at TEXT,
+                last_error TEXT,
+                created_by TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
             """
         )

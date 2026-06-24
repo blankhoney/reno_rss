@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -151,7 +152,37 @@ def test_postgres_scoring_and_recommendation_sinks_use_real_schema_types():
                 "risk_flags": ["low_signal"],
             }
         ]
+
+        score_sink.enqueue_recommendations(ids["batch_id"])
+        score_sink.enqueue_recommendations(ids["batch_id"])
+        with engine.begin() as connection:
+            recommendation_jobs = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT job_type, status, payload, created_by
+                        FROM jobs
+                        WHERE job_type='generate_recommendations'
+                          AND payload @> CAST(:payload AS jsonb)
+                        ORDER BY id;
+                        """
+                    ),
+                    {"payload": json.dumps({"source_batch_id": ids["batch_id"]})},
+                )
+                .mappings()
+                .all()
+            )
+
+        assert recommendation_jobs == [
+            {
+                "job_type": "generate_recommendations",
+                "status": "queued",
+                "payload": {"source_batch_id": ids["batch_id"]},
+                "created_by": None,
+            }
+        ]
     finally:
+        score_sink.dispose()
         recommendation_sink.dispose()
 
 

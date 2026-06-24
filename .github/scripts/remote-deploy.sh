@@ -44,3 +44,7 @@ export IMAGE_REGISTRY
 export LOCAL_BUILD=0
 bash infra/scripts/deploy.sh "$DEPLOY_ENV" "$IMAGE_TAG"
 bash infra/scripts/smoke-test.sh "$DEPLOY_ENV"
+
+if [[ "$DEPLOY_ENV" == "staging" && "${RUN_STAGING_RUNTIME_PROOF:-0}" == "1" ]]; then
+    bash infra/scripts/staging-runtime-proof.sh "$DEPLOY_ENV"
+fi
