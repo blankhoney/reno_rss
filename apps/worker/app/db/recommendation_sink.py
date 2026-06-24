@@ -104,7 +104,7 @@ class DatabaseRecommendationSink:
                         """
                         SELECT feed_id, user_priority
                         FROM user_feed_subscriptions
-                        WHERE user_id=:user_id AND enabled=1;
+                        WHERE user_id=:user_id AND enabled = TRUE;
                         """
                     ),
                     {"user_id": user_id},
@@ -130,7 +130,7 @@ class DatabaseRecommendationSink:
                         FROM articles a
                         JOIN article_base_scores bs ON bs.article_id = a.id
                         JOIN article_sources s ON s.article_id = a.id
-                        WHERE bs.is_active = 1 AND bs.scoring_status = 'success'
+                        WHERE bs.is_active = TRUE AND bs.scoring_status = 'success'
                         ORDER BY a.id ASC, s.feed_id ASC;
                         """
                     )

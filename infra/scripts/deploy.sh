@@ -111,6 +111,7 @@ run_prod_migration_backup() {
     local backup_output
     local backup_dir
     local backup_path
+    local backup_sha256_file
 
     echo "💾 prod 迁移前备份数据库..."
     if ! backup_output="$(cd "$REPO_ROOT" && "$SCRIPT_DIR/backup.sh" prod 2>&1)"; then
@@ -120,23 +121,31 @@ run_prod_migration_backup() {
     fi
     echo "$backup_output"
 
-    backup_dir="$(printf '%s\n' "$backup_output" | sed -n 's/^✅ 备份完成：//p' | tail -n 1)"
+    backup_dir="$(printf '%s\n' "$backup_output" | sed -n 's/^BACKUP_DIR=//p' | tail -n 1)"
     if [[ -z "$backup_dir" ]]; then
-        echo "❌ 无法从 backup.sh 输出中解析备份目录，停止迁移"
+        echo "❌ 无法从 backup.sh 输出中解析 BACKUP_DIR，停止迁移"
+        exit 1
+    fi
+    backup_sha256_file="$(printf '%s\n' "$backup_output" | sed -n 's/^BACKUP_SHA256_FILE=//p' | tail -n 1)"
+    if [[ -z "$backup_sha256_file" ]]; then
+        echo "❌ 无法从 backup.sh 输出中解析 BACKUP_SHA256_FILE，停止迁移"
         exit 1
     fi
     backup_path="$backup_dir"
     if [[ "$backup_path" != /* ]]; then
         backup_path="$REPO_ROOT/${backup_path#./}"
     fi
-    if [[ ! -f "$backup_path/checksums.txt" ]]; then
-        echo "❌ 备份校验文件不存在：$backup_path/checksums.txt"
+    if [[ "$backup_sha256_file" != /* ]]; then
+        backup_sha256_file="$REPO_ROOT/${backup_sha256_file#./}"
+    fi
+    if [[ ! -f "$backup_sha256_file" ]]; then
+        echo "❌ 备份校验文件不存在：$backup_sha256_file"
         exit 1
     fi
 
     echo "   backup artifact: $backup_path"
     echo "   sha256:"
-    sed 's/^/     /' "$backup_path/checksums.txt"
+    sed 's/^/     /' "$backup_sha256_file"
 
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         {
@@ -145,7 +154,7 @@ run_prod_migration_backup() {
             echo "- Artifact: \`$backup_path\`"
             echo ""
             echo "\`\`\`"
-            cat "$backup_path/checksums.txt"
+            cat "$backup_sha256_file"
             echo "\`\`\`"
         } >> "$GITHUB_STEP_SUMMARY"
     fi

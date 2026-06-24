@@ -73,6 +73,8 @@ jobs:
 
       - name: Test worker
         working-directory: apps/worker
+        env:
+          WORKER_QUEUE_POSTGRES_TEST_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: uv run --isolated --with-editable . --extra dev python -m pytest tests -q
 
       - name: Lint worker
@@ -177,7 +179,7 @@ jobs:
 
       - name: Check deploy scripts
         run: |
-          bash -n infra/scripts/deploy.sh infra/scripts/smoke-test.sh .github/scripts/remote-deploy.sh .github/scripts/validate-deploy-env.sh
+          bash -n infra/scripts/deploy.sh infra/scripts/backup.sh infra/scripts/smoke-test.sh infra/scripts/check-deploy-migrations.sh .github/scripts/remote-deploy.sh .github/scripts/validate-deploy-env.sh
           bash infra/scripts/check-deploy-migrations.sh
 
       - name: Build Docker images

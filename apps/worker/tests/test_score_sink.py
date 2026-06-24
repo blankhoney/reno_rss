@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import create_engine, text
 
 from app.db.score_sink import DatabaseScoreSink
@@ -73,6 +75,7 @@ def test_score_sink_writes_success_and_error_rows_with_active_history():
             "prompt_version": "rss-score-v04",
         },
     )
+    sink.finish_batch(10)
 
     with engine.begin() as connection:
         scores = (
@@ -85,11 +88,18 @@ def test_score_sink_writes_success_and_error_rows_with_active_history():
             .mappings()
             .all()
         )
+        batch = (
+            connection.execute(text("SELECT * FROM scoring_batches WHERE id=10"))
+            .mappings()
+            .one()
+        )
 
     assert [article["id"] for article in articles] == [1, 2]
     assert first_score_id != second_score_id
     assert error_score_id is not None
     assert [score["is_active"] for score in scores] == [0, 1, 0]
+    assert all(_parse_datetime(score["scored_at"]).tzinfo is not None for score in scores)
+    assert _parse_datetime(batch["finished_at"]).tzinfo is not None
     assert [(item["article_id"], item["status"], item["base_score_id"]) for item in items] == [
         (1, "scored", second_score_id),
         (2, "error", error_score_id),
@@ -110,6 +120,7 @@ def _create_schema(engine):
             )
             """
         )
+
         connection.exec_driver_sql(
             """
             CREATE TABLE scoring_batches (
@@ -179,3 +190,9 @@ def _create_schema(engine):
                 """
             )
         )
+
+
+def _parse_datetime(value):
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))

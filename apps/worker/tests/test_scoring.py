@@ -200,3 +200,28 @@ def test_score_batch_writes_baseline_error_for_single_article_failure():
     assert sink.saved[1][1]["recommendation_tier"] == tier_for_score(sink.saved[1][1]["base_score"])
     assert sink.finished_batches == ["batch-7"]
     assert sink.recommendation_batches == ["batch-7"]
+
+
+def test_score_batch_truncates_baseline_error_to_240_chars():
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.saved: list[dict[str, object]] = []
+
+        def list_batch_articles(self, _batch_id):
+            return [{"id": 201, "title": "Bad", "content_text": "broken"}]
+
+        def save_score(self, _article_id, score):
+            self.saved.append(dict(score))
+
+    class VerboseFailingProvider:
+        def score_article(self, _article, _rubric):
+            raise RuntimeError("x" * 500)
+
+    sink = RecordingSink()
+
+    score_batch({"batch_id": "batch-7"}, sink, VerboseFailingProvider())
+
+    error = sink.saved[0]["error"]
+    assert isinstance(error, str)
+    assert len(error) == 240
+    assert error == "x" * 240

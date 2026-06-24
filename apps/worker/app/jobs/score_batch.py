@@ -79,7 +79,7 @@ def _baseline_error_score(article: Mapping[str, object], error: str) -> dict[str
         "risk_flags": [],
         "confidence": 0.0,
         "scoring_status": "error",
-        "error": error,
+        "error": error[:240],
         "recommendation_tier": tier_for_score(base_score),
         "model_provider": "baseline",
         "model_name": "length-baseline",

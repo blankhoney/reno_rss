@@ -15,29 +15,32 @@ PG_CONTAINER="myrss-prod-postgres-1"
 BACKUP_DIR="./backup/$(date +%Y-%m-%d_%H-%M-%S)"
 
 mkdir -p "$BACKUP_DIR"
+BACKUP_PATH="$(cd "$BACKUP_DIR" && pwd)"
 
-echo "💾 开始备份到 $BACKUP_DIR ..."
+echo "💾 开始备份到 $BACKUP_PATH ..."
 
 # 备份 miniflux 数据库
 docker exec "$PG_CONTAINER" \
     pg_dump -U postgres -Fc miniflux \
-    > "$BACKUP_DIR/miniflux.dump"
+    > "$BACKUP_PATH/miniflux.dump"
 echo "  ✅ miniflux.dump"
 
 # 备份 scoring 数据库
 docker exec "$PG_CONTAINER" \
     pg_dump -U postgres -Fc scoring \
-    > "$BACKUP_DIR/scoring.dump"
+    > "$BACKUP_PATH/scoring.dump"
 echo "  ✅ scoring.dump"
 
 # 生成校验和（用于验证文件未损坏）
-sha256sum "$BACKUP_DIR/miniflux.dump" "$BACKUP_DIR/scoring.dump" \
-    > "$BACKUP_DIR/checksums.txt"
+sha256sum "$BACKUP_PATH/miniflux.dump" "$BACKUP_PATH/scoring.dump" \
+    > "$BACKUP_PATH/checksums.txt"
 echo "  ✅ checksums.txt"
 
-echo "✅ 备份完成：$BACKUP_DIR"
+echo "BACKUP_DIR=$BACKUP_PATH"
+echo "BACKUP_SHA256_FILE=$BACKUP_PATH/checksums.txt"
+echo "✅ 备份完成：$BACKUP_PATH"
 echo "   文件大小："
-du -sh "$BACKUP_DIR"/*
+du -sh "$BACKUP_PATH"/*
 
 # 清理 7 天前的旧备份（按目录修改时间判断）
 echo "🧹 清理 7 天前的旧备份..."

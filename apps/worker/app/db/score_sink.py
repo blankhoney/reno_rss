@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 import json
 
 from sqlalchemy import Engine, create_engine, text
@@ -47,35 +47,15 @@ class DatabaseScoreSink:
                     text(
                         """
                         UPDATE article_base_scores
-                        SET is_active = 0
-                        WHERE article_id = :article_id AND is_active = 1;
+                        SET is_active = FALSE
+                        WHERE article_id = :article_id AND is_active = TRUE;
                         """
                     ),
                     {"article_id": article_id},
                 )
             row = (
                 connection.execute(
-                    text(
-                        """
-                        INSERT INTO article_base_scores (
-                            article_id, batch_id, base_score, recommendation_tier,
-                            summary_zh, summary_original, source_language,
-                            dimension_scores, dimension_reasons, tags, reason, risk_flags,
-                            confidence, rubric_version, model_provider, model_name,
-                            prompt_version, input_content_hash, scoring_status, error,
-                            is_active, scored_at
-                        )
-                        VALUES (
-                            :article_id, :batch_id, :base_score, :recommendation_tier,
-                            :summary_zh, :summary_original, :source_language,
-                            :dimension_scores, :dimension_reasons, :tags, :reason, :risk_flags,
-                            :confidence, :rubric_version, :model_provider, :model_name,
-                            :prompt_version, :input_content_hash, :scoring_status, :error,
-                            :is_active, :scored_at
-                        )
-                        RETURNING id;
-                        """
-                    ),
+                    text(_insert_score_sql(self.engine.dialect.name)),
                     values,
                 )
                 .mappings()
@@ -112,7 +92,7 @@ class DatabaseScoreSink:
                     WHERE id=:batch_id;
                     """
                 ),
-                {"batch_id": batch_id, "finished_at": datetime.now().isoformat()},
+                {"batch_id": batch_id, "finished_at": datetime.now(UTC).isoformat()},
             )
 
     def enqueue_recommendations(self, _batch_id: object) -> None:
@@ -149,6 +129,39 @@ def _score_values(
         "input_content_hash": score.get("input_content_hash"),
         "scoring_status": str(score.get("scoring_status", "success")),
         "error": score.get("error"),
-        "is_active": 1 if is_active else 0,
-        "scored_at": datetime.now().isoformat(),
+        "is_active": is_active,
+        "scored_at": datetime.now(UTC).isoformat(),
     }
+
+
+def _insert_score_sql(dialect_name: str) -> str:
+    if dialect_name == "postgresql":
+        dimension_scores = "CAST(:dimension_scores AS jsonb)"
+        dimension_reasons = "CAST(:dimension_reasons AS jsonb)"
+        tags = "CAST(:tags AS jsonb)"
+        risk_flags = "CAST(:risk_flags AS jsonb)"
+    else:
+        dimension_scores = ":dimension_scores"
+        dimension_reasons = ":dimension_reasons"
+        tags = ":tags"
+        risk_flags = ":risk_flags"
+
+    return f"""
+        INSERT INTO article_base_scores (
+            article_id, batch_id, base_score, recommendation_tier,
+            summary_zh, summary_original, source_language,
+            dimension_scores, dimension_reasons, tags, reason, risk_flags,
+            confidence, rubric_version, model_provider, model_name,
+            prompt_version, input_content_hash, scoring_status, error,
+            is_active, scored_at
+        )
+        VALUES (
+            :article_id, :batch_id, :base_score, :recommendation_tier,
+            :summary_zh, :summary_original, :source_language,
+            {dimension_scores}, {dimension_reasons}, {tags}, :reason, {risk_flags},
+            :confidence, :rubric_version, :model_provider, :model_name,
+            :prompt_version, :input_content_hash, :scoring_status, :error,
+            :is_active, :scored_at
+        )
+        RETURNING id;
+        """
