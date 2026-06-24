@@ -20,27 +20,34 @@ services:
     networks:
       data: {}
 
-  scorer-worker:
+  ai-reader-api:
     environment:
-      MINIFLUX_API_BASE_URL: http://miniflux-staging:8080
+      AI_READER_CSRF_ALLOWED_ORIGINS: https://staging-ai-reader.${DOMAIN}
     networks:
       app:
         aliases:
-          - scoring-service-staging
+          - api-staging
+      data: {}
+
+  ai-reader-worker:
+    environment:
+      MINIFLUX_API_BASE_URL: http://miniflux-staging:8080
+    networks:
+      app: {}
       data: {}
 
   reader-web:
     environment:
       MINIFLUX_API_BASE_URL: http://miniflux-staging:8080
-      SCORING_SERVICE_URL: http://scoring-service-staging:8000
+      SCORING_SERVICE_URL: http://api-staging:8000
       DEMO_LANDING_ENABLED: "true"
       DEMO_USERNAME: ${DEMO_USERNAME}
       DEMO_PASSWORD: ${DEMO_PASSWORD}
-      DEMO_AUTHELIA_BASE_URL: https://auth.${DOMAIN}
+      DEMO_AUTHELIA_BASE_URL: https://staging-auth.${DOMAIN}
       DEMO_TARGET_URL: https://staging-ai-reader.${DOMAIN}/?module=all&sort=default&lang=zh
       DEMO_ALLOWED_ORIGIN: https://staging-ai-reader.${DOMAIN}
     networks:
       app:
         aliases:
-          - reader-web-staging
+          - web-staging
       data: {}

@@ -10,6 +10,12 @@ services:
       - "443:443/udp"   # HTTP/3 支持
     environment:
       DOMAIN: ${DOMAIN}          # 注入到容器，供 Caddyfile {$DOMAIN} 使用
+      AI_READER_API_UPSTREAM: ${AI_READER_API_UPSTREAM:-api-prod:8000}
+      AI_READER_WEB_UPSTREAM: ${AI_READER_WEB_UPSTREAM:-web-prod:3000}
+      AI_READER_AUTH_UPSTREAM: ${AI_READER_AUTH_UPSTREAM:-authelia-prod:9091}
+      AI_READER_STAGING_API_UPSTREAM: ${AI_READER_STAGING_API_UPSTREAM:-api-staging:8000}
+      AI_READER_STAGING_WEB_UPSTREAM: ${AI_READER_STAGING_WEB_UPSTREAM:-web-staging:3000}
+      AI_READER_STAGING_AUTH_UPSTREAM: ${AI_READER_STAGING_AUTH_UPSTREAM:-authelia-staging:9091}
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data         # 证书缓存，重建容器不丢证书

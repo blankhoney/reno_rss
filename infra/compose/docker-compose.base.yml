@@ -53,32 +53,42 @@ services:
       - app          # Caddy 通过 app 网络访问 Miniflux
       - data         # Miniflux 通过 data 网络访问 PostgreSQL
 
-  scorer-worker:
-    image: ${SCORER_WORKER_IMAGE:-myrss-scorer-worker:local}
+  ai-reader-api:
+    image: ${AI_READER_API_IMAGE:-myrss-ai-reader-api:local}
     build:
-      context: ../../apps/scorer-worker
+      context: ../../apps/api
     restart: unless-stopped
-    profiles: [worker]    # 默认不启动，Task 4 完成后用 --profile worker 启用
     environment:
+      SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
+      AI_READER_CSRF_ALLOWED_ORIGINS: ${AI_READER_CSRF_ALLOWED_ORIGINS:-}
+    networks:
+      - app          # Caddy 通过 app 网络访问 API
+      - data         # 写入 scoring 数据库
+
+  ai-reader-worker:
+    image: ${AI_READER_WORKER_IMAGE:-myrss-ai-reader-worker:local}
+    build:
+      context: ../../apps/worker
+    restart: unless-stopped
+    profiles: [worker]
+    environment:
+      SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
       MINIFLUX_API_BASE_URL: ${MINIFLUX_API_BASE_URL}
       MINIFLUX_USERNAME: ${MINIFLUX_ADMIN}
       MINIFLUX_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD}
-      SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
-      SCORER_TENANT_ID: ${SCORER_TENANT_ID:-default}
-      SCORER_PORT: ${SCORER_PORT:-8000}
-      SCORER_WEBHOOK_USERNAME: ${SCORER_WEBHOOK_USERNAME:?SCORER_WEBHOOK_USERNAME is required}
-      SCORER_WEBHOOK_PASSWORD: ${SCORER_WEBHOOK_PASSWORD:?SCORER_WEBHOOK_PASSWORD is required}
-      SCORER_WEBHOOK_MAX_ENTRIES: ${SCORER_WEBHOOK_MAX_ENTRIES:-20}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       MINIMAX_API_KEY: ${MINIMAX_API_KEY}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
       MINIMAX_MODEL: ${MINIMAX_MODEL}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      EXTERNAL_CONTENT_PROVIDER: ${EXTERNAL_CONTENT_PROVIDER:-none}
     networks:
       - app          # 访问 Miniflux API
-      - data         # 写入 scoring 数据库
+      - data         # 读写业务数据库
 
   reader-web:
-    image: ${READER_WEB_IMAGE:-myrss-reader-web:local}
+    image: ${AI_READER_WEB_IMAGE:-myrss-ai-reader-web:local}
     build:
       context: ../../apps/reader-web
     restart: unless-stopped
@@ -92,9 +102,9 @@ services:
       MINIMAX_API_KEY: ${MINIMAX_API_KEY}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
       MINIMAX_MODEL: ${MINIMAX_MODEL}
-      SCORING_SERVICE_URL: ${SCORING_SERVICE_URL:-http://scorer-worker:8000}
-      SCORING_SERVICE_USERNAME: ${SCORER_WEBHOOK_USERNAME:?SCORER_WEBHOOK_USERNAME is required}
-      SCORING_SERVICE_PASSWORD: ${SCORER_WEBHOOK_PASSWORD:?SCORER_WEBHOOK_PASSWORD is required}
+      SCORING_SERVICE_URL: ${SCORING_SERVICE_URL:-http://ai-reader-api:8000}
+      SCORING_SERVICE_USERNAME: ${SCORER_WEBHOOK_USERNAME:-}
+      SCORING_SERVICE_PASSWORD: ${SCORER_WEBHOOK_PASSWORD:-}
       WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-none}
       WEB_SEARCH_API_KEY: ${WEB_SEARCH_API_KEY}
     networks:

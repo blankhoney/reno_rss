@@ -16,12 +16,18 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 set -a; source "$REPO_ROOT/.env"; set +a
 
 PROJECT="myrss-${ENV}"
+API_CONTAINER="${PROJECT}-ai-reader-api-1"
 READER_CONTAINER="${PROJECT}-reader-web-1"
-SCORER_CONTAINER="${PROJECT}-scorer-worker-1"
 MINIFLUX_CONTAINER="${PROJECT}-miniflux-1"
 AUTHELIA_CONTAINER="${PROJECT}-authelia-1"
 POSTGRES_CONTAINER="${PROJECT}-postgres-1"
 EDGE_CONTAINER="myrss-edge-caddy-1"
+
+if [[ "$ENV" == "staging" ]]; then
+    PUBLIC_URL="https://staging-ai-reader.${DOMAIN}"
+else
+    PUBLIC_URL="https://ai-reader.${DOMAIN}"
+fi
 
 echo "🔎 Smoke test：$ENV"
 
@@ -36,63 +42,99 @@ require_running() {
     echo "  ✅ $container running"
 }
 
+require_running "$API_CONTAINER"
 require_running "$READER_CONTAINER"
-require_running "$SCORER_CONTAINER"
 require_running "$MINIFLUX_CONTAINER"
 require_running "$AUTHELIA_CONTAINER"
 require_running "$POSTGRES_CONTAINER"
 require_running "$EDGE_CONTAINER"
 
-docker exec "$SCORER_CONTAINER" python - <<'PY'
+docker exec "$API_CONTAINER" python - <<'PY'
 import json
+import urllib.error
 import urllib.request
 
-body = urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=5).read().decode()
-payload = json.loads(body)
-if payload.get("ok") is not True:
-    raise SystemExit(f"scorer healthz not ok: {body}")
-print("  ✅ scorer healthz ok")
+
+def require_json_ok(path: str) -> None:
+    with urllib.request.urlopen(f"http://127.0.0.1:8000{path}", timeout=5) as response:
+        body = response.read().decode()
+    payload = json.loads(body)
+    if payload.get("ok") is not True:
+        raise SystemExit(f"{path} not ok")
+
+
+def require_status(path: str, expected: int) -> None:
+    request = urllib.request.Request(f"http://127.0.0.1:8000{path}")
+    try:
+        urllib.request.urlopen(request, timeout=5)
+    except urllib.error.HTTPError as error:
+        if error.code != expected:
+            raise SystemExit(f"{path} returned {error.code}, expected {expected}") from error
+    else:
+        raise SystemExit(f"{path} returned success, expected {expected}")
+
+
+require_json_ok("/healthz")
+require_json_ok("/api/healthz")
+require_status("/api/articles", 401)
+require_status("/api/admin/users", 401)
+print("  ✅ internal api health and anonymous auth boundaries ok")
 PY
 
-docker exec "$READER_CONTAINER" node - <<'NODE'
-const base = "http://127.0.0.1:3000";
-
-async function requireOk(path) {
-  const response = await fetch(`${base}${path}`);
-  if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}`);
-  }
-  return response;
+require_http_status() {
+    local path="$1"
+    local expected="$2"
+    local body_file
+    local code
+    body_file="$(mktemp)"
+    code="$(curl -sS -o "$body_file" -w "%{http_code}" --connect-timeout 10 "$PUBLIC_URL$path")"
+    rm -f "$body_file"
+    if [[ "$code" != "$expected" ]]; then
+        echo "❌ $PUBLIC_URL$path returned HTTP $code, expected $expected"
+        exit 1
+    fi
+    echo "  ✅ $path HTTP $expected"
 }
 
-const listResponse = await requireOk("/api/articles?module=all&sort=default");
-const list = await listResponse.json();
-if (!Array.isArray(list.articles)) {
-  throw new Error("/api/articles did not return an articles array");
-}
+require_http_status "/healthz" "200"
+require_http_status "/api/healthz" "200"
+require_http_status "/api/articles" "401"
+require_http_status "/api/admin/users" "401"
 
-const home = await (await requireOk("/?module=all&sort=default&lang=zh")).text();
-for (const text of ["阅读工作台", "重评前", "排序"]) {
-  if (!home.includes(text)) throw new Error(`home page missing ${text}`);
-}
+COOKIE_JAR="$(mktemp)"
+LOGIN_BODY="$(mktemp)"
+ADMIN_BODY="$(mktemp)"
+trap 'rm -f "$COOKIE_JAR" "$LOGIN_BODY" "$ADMIN_BODY"' EXIT
 
-if (list.articles.length > 0) {
-  const id = list.articles[0].id;
-  const article = await (await requireOk(`/read/${id}?module=all&sort=default&lang=zh`)).text();
-  if (!article.includes("返回工作台") || !article.includes("文章助手")) {
-    throw new Error(`/read/${id} missing focus reader markers`);
-  }
-  console.log(`  ✅ reader API/page ok, sample article=${id}`);
-} else {
-  console.log("  ⚠️ reader API/page ok, but no sample articles available");
-}
-NODE
-
-if [[ "$ENV" == "staging" ]]; then
-    PUBLIC_URL="https://staging-ai-reader.${DOMAIN}"
-else
-    PUBLIC_URL="https://ai-reader.${DOMAIN}"
+LOGIN_CODE="$(
+    curl -sS \
+        -o "$LOGIN_BODY" \
+        -c "$COOKIE_JAR" \
+        -w "%{http_code}" \
+        --connect-timeout 10 \
+        -H "Content-Type: application/json" \
+        -H "Origin: $PUBLIC_URL" \
+        --data "{\"display_name\":\"smoke-${ENV}\"}" \
+        "$PUBLIC_URL/api/auth/login"
+)"
+if [[ "$LOGIN_CODE" != "200" ]]; then
+    echo "❌ smoke login returned HTTP $LOGIN_CODE"
+    exit 1
 fi
+
+ADMIN_CODE="$(
+    curl -sS \
+        -o "$ADMIN_BODY" \
+        -b "$COOKIE_JAR" \
+        -w "%{http_code}" \
+        --connect-timeout 10 \
+        "$PUBLIC_URL/api/admin/users"
+)"
+if [[ "$ADMIN_CODE" != "403" ]]; then
+    echo "❌ non-admin admin boundary returned HTTP $ADMIN_CODE, expected 403"
+    exit 1
+fi
+echo "  ✅ logged-in non-admin admin boundary HTTP 403"
 
 if [[ "$ENV" == "staging" ]]; then
     LANDING_BODY="$(curl -fsSL --connect-timeout 10 "$PUBLIC_URL/")"
@@ -104,25 +146,20 @@ if [[ "$ENV" == "staging" ]]; then
     done
     echo "  ✅ staging demo landing ok"
 
-    PROTECTED_BODY_FILE="/tmp/myrss-smoke-protected-body.txt"
+    PROTECTED_BODY_FILE="$(mktemp)"
     PROTECTED_CODE="$(curl -sS -o "$PROTECTED_BODY_FILE" -w "%{http_code}" --connect-timeout 10 "$PUBLIC_URL/?module=all&sort=default&lang=zh")"
     if [[ ! "$PROTECTED_CODE" =~ ^(2|3)[0-9][0-9]$ ]]; then
         echo "❌ staging protected route returned HTTP $PROTECTED_CODE"
+        rm -f "$PROTECTED_BODY_FILE"
         exit 1
     fi
     if [[ "$PROTECTED_CODE" == 200 ]] && grep -q "阅读工作台" "$PROTECTED_BODY_FILE"; then
         echo "❌ staging protected route exposed business UI without auth"
+        rm -f "$PROTECTED_BODY_FILE"
         exit 1
     fi
+    rm -f "$PROTECTED_BODY_FILE"
     echo "  ✅ staging protected route boundary ok: HTTP $PROTECTED_CODE"
 fi
 
-HTTP_CODE="$(curl -sS -o /tmp/myrss-smoke-headers.txt -w "%{http_code}" -I --connect-timeout 10 "$PUBLIC_URL")"
-if [[ ! "$HTTP_CODE" =~ ^(2|3)[0-9][0-9]$ ]]; then
-    echo "❌ 公网入口异常：$PUBLIC_URL HTTP $HTTP_CODE"
-    tail -40 /tmp/myrss-smoke-headers.txt || true
-    exit 1
-fi
-
-echo "  ✅ public entry ok: $PUBLIC_URL HTTP $HTTP_CODE"
 echo "✅ Smoke test passed：$ENV"

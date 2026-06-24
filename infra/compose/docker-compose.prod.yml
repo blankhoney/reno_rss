@@ -18,21 +18,28 @@ services:
     networks:
       data: {}
 
-  scorer-worker:
+  ai-reader-api:
     environment:
-      MINIFLUX_API_BASE_URL: http://miniflux-prod:8080
+      AI_READER_CSRF_ALLOWED_ORIGINS: https://ai-reader.${DOMAIN}
     networks:
       app:
         aliases:
-          - scoring-service-prod
+          - api-prod
+      data: {}
+
+  ai-reader-worker:
+    environment:
+      MINIFLUX_API_BASE_URL: http://miniflux-prod:8080
+    networks:
+      app: {}
       data: {}
 
   reader-web:
     environment:
       MINIFLUX_API_BASE_URL: http://miniflux-prod:8080
-      SCORING_SERVICE_URL: http://scoring-service-prod:8000
+      SCORING_SERVICE_URL: http://api-prod:8000
     networks:
       app:
         aliases:
-          - reader-web-prod
+          - web-prod
       data: {}

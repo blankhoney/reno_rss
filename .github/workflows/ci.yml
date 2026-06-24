@@ -15,6 +15,18 @@ jobs:
   checks:
     name: lint / test / compose-validate / trivy
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +41,12 @@ jobs:
       - name: Install uv
         run: python -m pip install -U uv
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/reader-web/package-lock.json
+
       - name: Test api
         working-directory: apps/api
         run: uv run --isolated --with-editable . --extra dev python -m pytest tests -q
@@ -37,6 +55,22 @@ jobs:
         working-directory: apps/api
         run: uv run --isolated --with-editable . --extra dev ruff check .
 
+      - name: Export API OpenAPI schema
+        working-directory: apps/api
+        run: uv run --isolated --with-editable . --extra dev python -m app.export_openapi --out openapi.json
+
+      - name: Generate reader-web API types
+        run: npx --yes openapi-typescript@7.13.0 apps/api/openapi.json -o apps/reader-web/src/lib/api/generated/schema.ts
+
+      - name: Check generated API artifacts
+        run: git diff --exit-code -- apps/api/openapi.json apps/reader-web/src/lib/api/generated/schema.ts
+
+      - name: Check Alembic clean upgrade
+        working-directory: apps/api
+        env:
+          SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: uv run --isolated --with-editable . --extra dev alembic upgrade head
+
       - name: Test worker
         working-directory: apps/worker
         run: uv run --isolated --with-editable . --extra dev python -m pytest tests -q
@@ -44,6 +78,49 @@ jobs:
       - name: Lint worker
         working-directory: apps/worker
         run: uv run --isolated --with-editable . --extra dev ruff check .
+
+      - name: Run worker mini benchmark
+        working-directory: apps/worker
+        env:
+          LLM_PROVIDER: mock
+        run: |
+          uv run --isolated --with-editable . --extra dev python - <<'PY'
+          from datetime import UTC, datetime, timedelta
+
+          from app.benchmark.ranking import (
+              BenchmarkArticle,
+              BenchmarkDataset,
+              BenchmarkUser,
+              run_ranking_benchmark,
+          )
+
+          now = datetime(2026, 6, 24, tzinfo=UTC)
+          articles = [
+              BenchmarkArticle(
+                  article_id=index + 1,
+                  feed_ids=[1],
+                  title=f"benchmark article {index + 1}",
+                  tags=["ai"] if index < 10 else ["misc"],
+                  base_score=95 - index,
+                  published_at=now - timedelta(hours=index),
+                  risk_uncertainty=20,
+                  weak_label="must_read" if index < 10 else "skip",
+              )
+              for index in range(20)
+          ]
+          report = run_ranking_benchmark(
+              BenchmarkDataset(
+                  users=[BenchmarkUser(user_id="ci", priority_by_feed={1: 0})],
+                  articles=articles,
+                  generated_at=now,
+              ),
+              provider_name="mock",
+          )
+          if report.real_llm_calls != 0 or report.provider != "mock":
+              raise SystemExit("ci mini benchmark must not call a real LLM")
+          if report.status != "succeeded":
+              raise SystemExit(f"ci mini benchmark failed: {report.failure_reason}")
+          PY
 
       - name: Install Python dependencies
         working-directory: apps/scorer-worker
@@ -56,12 +133,6 @@ jobs:
       - name: Test scorer-worker
         working-directory: apps/scorer-worker
         run: pytest tests/ -q
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: apps/reader-web/package-lock.json
 
       - name: Install reader-web dependencies
         working-directory: apps/reader-web
@@ -88,13 +159,30 @@ jobs:
             --env-file .env \
             -f infra/compose/docker-compose.base.yml \
             -f infra/compose/docker-compose.staging.yml \
-            config > /dev/null
+            config > /tmp/ai-reader-staging-compose.yml
           docker compose \
             --profile worker \
             --env-file .env \
             -f infra/compose/docker-compose.base.yml \
             -f infra/compose/docker-compose.prod.yml \
+            config > /tmp/ai-reader-prod-compose.yml
+          docker compose \
+            --env-file .env \
+            -f infra/compose/docker-compose.edge.yml \
             config > /dev/null
+          grep -q "api-staging" /tmp/ai-reader-staging-compose.yml
+          grep -q "web-staging" /tmp/ai-reader-staging-compose.yml
+          grep -q "api-prod" /tmp/ai-reader-prod-compose.yml
+          grep -q "web-prod" /tmp/ai-reader-prod-compose.yml
+
+      - name: Build Docker images
+        run: |
+          docker build -f apps/api/Dockerfile apps/api
+          docker build -f apps/worker/Dockerfile apps/worker
+          docker build -f apps/reader-web/Dockerfile apps/reader-web
+
+      - name: Check whitespace
+        run: git diff --check
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@0.35.0
@@ -116,8 +204,9 @@ jobs:
       deploy_sha: ${{ steps.meta.outputs.deploy_sha }}
       image_registry: ${{ steps.meta.outputs.image_registry }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
-      reader_image: ${{ steps.meta.outputs.reader_image }}
-      scorer_image: ${{ steps.meta.outputs.scorer_image }}
+      web_image: ${{ steps.meta.outputs.web_image }}
+      api_image: ${{ steps.meta.outputs.api_image }}
+      worker_image: ${{ steps.meta.outputs.worker_image }}
 
     steps:
       - uses: actions/checkout@v4
@@ -157,36 +246,52 @@ jobs:
             echo "deploy_sha=${DEPLOY_SHA}"
             echo "image_registry=${image_registry}"
             echo "image_tag=${image_tag}"
-            echo "reader_image=${image_registry}/reader-web:${image_tag}"
-            echo "scorer_image=${image_registry}/scorer-worker:${image_tag}"
-            echo "reader_tags<<EOF"
-            echo "${image_registry}/reader-web:${image_tag}"
-            echo "${image_registry}/reader-web:${extra_tag}"
+            echo "web_image=${image_registry}/ai-reader-web:${image_tag}"
+            echo "api_image=${image_registry}/ai-reader-api:${image_tag}"
+            echo "worker_image=${image_registry}/ai-reader-worker:${image_tag}"
+            echo "web_tags<<EOF"
+            echo "${image_registry}/ai-reader-web:${image_tag}"
+            echo "${image_registry}/ai-reader-web:${extra_tag}"
             echo "EOF"
-            echo "scorer_tags<<EOF"
-            echo "${image_registry}/scorer-worker:${image_tag}"
-            echo "${image_registry}/scorer-worker:${extra_tag}"
+            echo "api_tags<<EOF"
+            echo "${image_registry}/ai-reader-api:${image_tag}"
+            echo "${image_registry}/ai-reader-api:${extra_tag}"
+            echo "EOF"
+            echo "worker_tags<<EOF"
+            echo "${image_registry}/ai-reader-worker:${image_tag}"
+            echo "${image_registry}/ai-reader-worker:${extra_tag}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build and push reader-web
+      - name: Build and push ai-reader-web
         uses: docker/build-push-action@v6
         with:
           context: apps/reader-web
           file: apps/reader-web/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.reader_tags }}
+          tags: ${{ steps.meta.outputs.web_tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
 
-      - name: Build and push scorer-worker
+      - name: Build and push ai-reader-api
         uses: docker/build-push-action@v6
         with:
-          context: apps/scorer-worker
-          file: apps/scorer-worker/Dockerfile
+          context: apps/api
+          file: apps/api/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.scorer_tags }}
+          tags: ${{ steps.meta.outputs.api_tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
+
+      - name: Build and push ai-reader-worker
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/worker
+          file: apps/worker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.worker_tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
@@ -195,8 +300,9 @@ jobs:
         run: |
           {
             echo "### Published images"
-            echo "- reader-web: \`${{ steps.meta.outputs.reader_image }}\`"
-            echo "- scorer-worker: \`${{ steps.meta.outputs.scorer_image }}\`"
+            echo "- ai-reader-web: \`${{ steps.meta.outputs.web_image }}\`"
+            echo "- ai-reader-api: \`${{ steps.meta.outputs.api_image }}\`"
+            echo "- ai-reader-worker: \`${{ steps.meta.outputs.worker_image }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy-staging:
@@ -245,8 +351,9 @@ jobs:
             echo "### Staging deploy"
             echo "- commit: \`${DEPLOY_SHA}\`"
             echo "- tag: \`${IMAGE_TAG}\`"
-            echo "- reader-web: \`${{ needs.images.outputs.reader_image }}\`"
-            echo "- scorer-worker: \`${{ needs.images.outputs.scorer_image }}\`"
+            echo "- ai-reader-web: \`${{ needs.images.outputs.web_image }}\`"
+            echo "- ai-reader-api: \`${{ needs.images.outputs.api_image }}\`"
+            echo "- ai-reader-worker: \`${{ needs.images.outputs.worker_image }}\`"
             echo "- url: https://staging-ai-reader.blankhoney.xyz"
             echo "- smoke test: passed"
           } >> "$GITHUB_STEP_SUMMARY"
