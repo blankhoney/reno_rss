@@ -27,7 +27,7 @@ def test_sync_normalizes_canonical_url_without_tracking_params():
                 {
                     "feed_id": 1,
                     "miniflux_entry_id": 101,
-                    "url": "https://example.com/read?b=2&utm_source=newsletter&fbclid=x&a=1&gclid=y",
+                    "url": "https://example.com/read?b=2&utm_source=newsletter&fbclid=x&a=1&gclid=y&mc_cid=mail&mc_eid=user",
                     "title": "Tracked link",
                     "published_at": "2026-06-24T09:00:00+08:00",
                 }
@@ -39,7 +39,7 @@ def test_sync_normalizes_canonical_url_without_tracking_params():
     assert result["articles_upserted"] == 1
     assert sink.articles[0]["canonical_url"] == "https://example.com/read?a=1&b=2"
     assert sink.sources[0]["source_url"] == (
-        "https://example.com/read?b=2&utm_source=newsletter&fbclid=x&a=1&gclid=y"
+        "https://example.com/read?b=2&utm_source=newsletter&fbclid=x&a=1&gclid=y&mc_cid=mail&mc_eid=user"
     )
 
 

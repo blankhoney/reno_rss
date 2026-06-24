@@ -2,7 +2,7 @@ from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
-TRACKING_PARAMS = {"fbclid", "gclid"}
+TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
 
 
 class ArticleSink(Protocol):
