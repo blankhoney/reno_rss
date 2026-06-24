@@ -341,6 +341,57 @@ def latest_article_id_from_api(user_cookie: str) -> int | None:
     return int(first["id"])
 
 
+def subscribe_user_to_article_feeds(engine, *, user_id: object, article_id: int) -> int:
+    with engine.begin() as connection:
+        feed_ids = [
+            int(row["feed_id"])
+            for row in connection.execute(
+                text(
+                    """
+                    SELECT feed_id
+                    FROM article_sources
+                    WHERE article_id=:article_id
+                    ORDER BY feed_id;
+                    """
+                ),
+                {"article_id": article_id},
+            )
+            .mappings()
+            .all()
+        ]
+        if not feed_ids:
+            primary_feed_id = connection.execute(
+                text(
+                    """
+                    SELECT primary_feed_id
+                    FROM articles
+                    WHERE id=:article_id;
+                    """
+                ),
+                {"article_id": article_id},
+            ).scalar_one_or_none()
+            if primary_feed_id is not None:
+                feed_ids = [int(primary_feed_id)]
+        if not feed_ids:
+            fail(f"article {article_id} has no feed source to subscribe for proof recommendations")
+
+        for feed_id in feed_ids:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO user_feed_subscriptions (user_id, feed_id, enabled, user_priority)
+                    VALUES (:user_id, :feed_id, TRUE, 20)
+                    ON CONFLICT (user_id, feed_id) DO UPDATE SET
+                        enabled=TRUE,
+                        user_priority=20,
+                        updated_at=NOW();
+                    """
+                ),
+                {"user_id": user_id, "feed_id": feed_id},
+            )
+    return len(feed_ids)
+
+
 def find_recommendation_job_id(engine, batch_id: int, *, timeout_seconds: int = 60) -> int:
     deadline = time.monotonic() + timeout_seconds
     payload = json.dumps({"source_batch_id": batch_id})
@@ -429,6 +480,16 @@ def main() -> None:
             )
         else:
             print(f"  ok selected staging article id={article_id}")
+
+        subscribed_feed_count = subscribe_user_to_article_feeds(
+            engine,
+            user_id=user_id,
+            article_id=article_id,
+        )
+        print(
+            "  ok proof user subscribed to selected article feeds: "
+            f"feed_count={subscribed_feed_count}"
+        )
 
         fetch_response = http_json(
             "POST",
