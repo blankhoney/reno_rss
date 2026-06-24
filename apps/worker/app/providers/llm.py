@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+import os
 import json
 import re
 from collections.abc import Mapping, Sequence
 from typing import Protocol, TypedDict
+
+import httpx
 
 
 DIMENSION_KEYS = (
@@ -22,6 +26,10 @@ RISK_FLAG_ALIASES = {
     "reprint": "duplicate",
     "syndicated": "duplicate",
 }
+
+DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/v1"
+DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7"
+DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
 
 
 class ArticleScore(TypedDict):
@@ -111,8 +119,11 @@ class MockProvider:
 
 
 class MiniMaxProvider:
+    model_provider = "minimax"
+
     def __init__(self, client: object) -> None:
         self.client = client
+        self.model_name = getattr(client, "model", "unknown")
 
     def score_article(
         self,
@@ -122,6 +133,66 @@ class MiniMaxProvider:
         response = self.client.chat_completion(_score_messages(article, rubric))
         content = _response_content(response)
         return normalize_score(_load_llm_json(content))
+
+
+@dataclass(frozen=True)
+class MinimaxConfig:
+    api_key: str
+    base_url: str = DEFAULT_MINIMAX_BASE_URL
+    model: str = DEFAULT_MINIMAX_MODEL
+    timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
+
+    @classmethod
+    def from_env(cls) -> MinimaxConfig:
+        return cls(
+            api_key=os.environ.get("MINIMAX_API_KEY", ""),
+            base_url=os.environ.get("MINIMAX_BASE_URL", DEFAULT_MINIMAX_BASE_URL).rstrip("/"),
+            model=os.environ.get("MINIMAX_MODEL", DEFAULT_MINIMAX_MODEL),
+            timeout_seconds=float(
+                os.environ.get("LLM_TIMEOUT_SECONDS", str(DEFAULT_LLM_TIMEOUT_SECONDS))
+            ),
+        )
+
+
+class MinimaxLLMClient:
+    def __init__(self, config: MinimaxConfig | None = None) -> None:
+        self.config = config or MinimaxConfig.from_env()
+        self.model = self.config.model
+
+    def chat_completion(self, messages: list[dict[str, str]]) -> str:
+        if not self.config.api_key or self.config.api_key == "change_me":
+            raise RuntimeError("missing MINIMAX_API_KEY")
+        response = httpx.post(
+            f"{self.config.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+            json={
+                "model": self.config.model,
+                "messages": messages,
+                "temperature": 0.2,
+            },
+            timeout=self.config.timeout_seconds,
+        )
+        response.raise_for_status()
+        data = response.json()
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError("llm response missing choices[0].message.content") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError("llm response content is empty")
+        return content
+
+
+def create_provider(provider_name: str | None = None) -> LLMProvider:
+    selected = (provider_name or os.environ.get("LLM_PROVIDER", "mock")).strip().lower()
+    if selected == "mock":
+        return MockProvider()
+    if selected == "minimax":
+        config = MinimaxConfig.from_env()
+        if not config.api_key or config.api_key == "change_me":
+            raise RuntimeError("MINIMAX_API_KEY is required when LLM_PROVIDER=minimax")
+        return MiniMaxProvider(MinimaxLLMClient(config))
+    raise ValueError("LLM_PROVIDER must be 'mock' or 'minimax'")
 
 
 def tier_for_score(score: int | float) -> str:

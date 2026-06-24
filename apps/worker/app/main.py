@@ -6,10 +6,13 @@ from threading import Event
 
 from app.db.article_sink import DatabaseArticleSink
 from app.db.content_sink import DatabaseContentSink
+from app.db.score_sink import DatabaseScoreSink
 from app.jobs.fetch_content import fetch_article_content
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
+from app.jobs.score_batch import score_batch
 from app.jobs.sync_miniflux import run_sync_miniflux_entries
 from app.providers.external_content import NoExternalContentProvider
+from app.providers.llm import create_provider
 from app.providers.miniflux import MinifluxClient, MinifluxConfig
 from app.runner import Handler, run_forever
 
@@ -32,6 +35,7 @@ def create_worker_queue() -> InMemoryJobQueue | PostgresJobQueue:
 def build_handler_registry() -> dict[str, Handler]:
     return {
         "fetch_article_content": _fetch_article_content,
+        "score_batch": _score_batch,
         "worker_echo": _worker_echo,
         "sync_miniflux_entries": _sync_miniflux_entries,
     }
@@ -99,6 +103,17 @@ def _fetch_article_content(payload) -> dict[str, object]:
             miniflux_client=MinifluxClient(MinifluxConfig.from_env()),
             external_provider=NoExternalContentProvider(),
         )
+    finally:
+        sink.dispose()
+
+
+def _score_batch(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for score_batch")
+    sink = DatabaseScoreSink(database_url)
+    try:
+        return score_batch(dict(payload), sink, create_provider())
     finally:
         sink.dispose()
 

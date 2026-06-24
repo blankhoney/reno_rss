@@ -1,7 +1,15 @@
 import json
 
 from app.jobs.score_batch import score_batch
-from app.providers.llm import DIMENSION_KEYS, MiniMaxProvider, MockProvider, tier_for_score
+import pytest
+
+from app.providers.llm import (
+    DIMENSION_KEYS,
+    MiniMaxProvider,
+    MockProvider,
+    create_provider,
+    tier_for_score,
+)
 
 
 def test_mock_provider_returns_v04_dimensions_and_derived_tier():
@@ -131,4 +139,64 @@ def test_score_batch_scores_all_articles_and_preserves_batch_id():
     assert provider.rubrics == [{"version": "v0.4"}, {"version": "v0.4"}]
     assert [article_id for article_id, _score in sink.saved] == [201, 202]
     assert [score["batch_id"] for _article_id, score in sink.saved] == ["batch-7", "batch-7"]
-    assert result == {"batch_id": "batch-7", "articles_seen": 2, "scores_saved": 2}
+    assert result == {
+        "batch_id": "batch-7",
+        "articles_seen": 2,
+        "scores_saved": 2,
+        "scores_failed": 0,
+    }
+
+
+def test_create_provider_selects_mock_and_minimax_fails_closed(monkeypatch):
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+
+    assert isinstance(create_provider("mock"), MockProvider)
+    with pytest.raises(RuntimeError, match="MINIMAX_API_KEY"):
+        create_provider("minimax")
+
+
+def test_score_batch_writes_baseline_error_for_single_article_failure():
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.saved: list[tuple[int, dict[str, object]]] = []
+            self.finished_batches: list[object] = []
+            self.recommendation_batches: list[object] = []
+
+        def list_batch_articles(self, _batch_id):
+            return [
+                {"id": 201, "title": "Good", "content_text": "useful " * 20},
+                {"id": 202, "title": "Bad", "content_text": "broken " * 20},
+            ]
+
+        def save_score(self, article_id, score):
+            self.saved.append((article_id, dict(score)))
+
+        def finish_batch(self, batch_id):
+            self.finished_batches.append(batch_id)
+
+        def enqueue_recommendations(self, batch_id):
+            self.recommendation_batches.append(batch_id)
+
+    class FlakyProvider:
+        def score_article(self, article, _rubric):
+            if article["id"] == 202:
+                raise RuntimeError("provider timeout")
+            return MockProvider().score_article(article, {})
+
+    sink = RecordingSink()
+
+    result = score_batch({"batch_id": "batch-7"}, sink, FlakyProvider())
+
+    assert result == {
+        "batch_id": "batch-7",
+        "articles_seen": 2,
+        "scores_saved": 2,
+        "scores_failed": 1,
+    }
+    assert sink.saved[0][1]["scoring_status"] == "success"
+    assert sink.saved[1][0] == 202
+    assert sink.saved[1][1]["scoring_status"] == "error"
+    assert sink.saved[1][1]["model_provider"] == "baseline"
+    assert sink.saved[1][1]["recommendation_tier"] == tier_for_score(sink.saved[1][1]["base_score"])
+    assert sink.finished_batches == ["batch-7"]
+    assert sink.recommendation_batches == ["batch-7"]
