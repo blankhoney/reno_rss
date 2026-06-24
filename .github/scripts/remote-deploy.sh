@@ -42,5 +42,18 @@ git checkout --detach "$DEPLOY_SHA"
 
 export IMAGE_REGISTRY
 export LOCAL_BUILD=0
-bash infra/scripts/deploy.sh "$DEPLOY_ENV" "$IMAGE_TAG"
-bash infra/scripts/smoke-test.sh "$DEPLOY_ENV"
+
+run_gate() {
+    local name="$1"
+    shift
+    echo "▶ $name"
+    "$@" </dev/null
+    echo "✅ $name passed"
+}
+
+run_gate "deploy $DEPLOY_ENV" bash infra/scripts/deploy.sh "$DEPLOY_ENV" "$IMAGE_TAG"
+run_gate "smoke test $DEPLOY_ENV" bash infra/scripts/smoke-test.sh "$DEPLOY_ENV"
+
+if [[ "$DEPLOY_ENV" == "staging" && "${RUN_STAGING_RUNTIME_PROOF:-0}" == "1" ]]; then
+    run_gate "staging runtime proof" bash infra/scripts/staging-runtime-proof.sh "$DEPLOY_ENV"
+fi

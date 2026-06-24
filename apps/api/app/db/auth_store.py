@@ -40,6 +40,8 @@ class AuthStore(Protocol):
 
     def create_user(self, display_name: str, role: str = "user") -> tuple[UserRecord, str, str]: ...
 
+    def admin_exists(self) -> bool: ...
+
 
 class MemoryAuthStore:
     def __init__(self) -> None:
@@ -86,6 +88,9 @@ class MemoryAuthStore:
         self._user_ids_by_session_hash[user.session_token_hash] = user.id
         self._user_ids_by_recovery_hash[user.recovery_code_hash] = user.id
         return user, session_token, recovery_code
+
+    def admin_exists(self) -> bool:
+        return any(user.role == "admin" for user in self._users_by_id.values())
 
     def recover(self, recovery_code: str) -> tuple[UserRecord, str, str] | None:
         recovery_hash = hash_token(recovery_code)
@@ -187,6 +192,13 @@ class DatabaseAuthStore:
                 .one()
             )
         return _user_from_row(row), session_token, recovery_code
+
+    def admin_exists(self) -> bool:
+        with self.engine.begin() as connection:
+            admin_id = connection.execute(
+                select(app_users.c.id).where(app_users.c.role == "admin").limit(1)
+            ).scalar_one_or_none()
+        return admin_id is not None
 
     def recover(self, recovery_code: str) -> tuple[UserRecord, str, str] | None:
         recovery_hash = hash_token(recovery_code)

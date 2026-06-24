@@ -15,6 +15,18 @@ jobs:
   checks:
     name: lint / test / compose-validate / trivy
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +37,92 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install -U uv
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/reader-web/package-lock.json
+
+      - name: Test api
+        working-directory: apps/api
+        run: uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+
+      - name: Lint api
+        working-directory: apps/api
+        run: uv run --isolated --with-editable . --extra dev ruff check .
+
+      - name: Export API OpenAPI schema
+        working-directory: apps/api
+        run: uv run --isolated --with-editable . --extra dev python -m app.export_openapi --out openapi.json
+
+      - name: Generate reader-web API types
+        run: npx --yes openapi-typescript@7.13.0 apps/api/openapi.json -o apps/reader-web/src/lib/api/generated/schema.ts
+
+      - name: Check generated API artifacts
+        run: git diff --exit-code -- apps/api/openapi.json apps/reader-web/src/lib/api/generated/schema.ts
+
+      - name: Check Alembic clean upgrade
+        working-directory: apps/api
+        env:
+          SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: uv run --isolated --with-editable . --extra dev alembic upgrade head
+
+      - name: Test worker
+        working-directory: apps/worker
+        env:
+          WORKER_QUEUE_POSTGRES_TEST_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+
+      - name: Lint worker
+        working-directory: apps/worker
+        run: uv run --isolated --with-editable . --extra dev ruff check .
+
+      - name: Run worker mini benchmark
+        working-directory: apps/worker
+        env:
+          LLM_PROVIDER: mock
+        run: |
+          uv run --isolated --with-editable . --extra dev python - <<'PY'
+          from datetime import UTC, datetime, timedelta
+
+          from app.benchmark.ranking import (
+              BenchmarkArticle,
+              BenchmarkDataset,
+              BenchmarkUser,
+              run_ranking_benchmark,
+          )
+
+          now = datetime(2026, 6, 24, tzinfo=UTC)
+          articles = [
+              BenchmarkArticle(
+                  article_id=index + 1,
+                  feed_ids=[1],
+                  title=f"benchmark article {index + 1}",
+                  tags=["ai"] if index < 10 else ["misc"],
+                  base_score=95 - index,
+                  published_at=now - timedelta(hours=index),
+                  risk_uncertainty=20,
+                  weak_label="must_read" if index < 10 else "skip",
+              )
+              for index in range(20)
+          ]
+          report = run_ranking_benchmark(
+              BenchmarkDataset(
+                  users=[BenchmarkUser(user_id="ci", priority_by_feed={1: 0})],
+                  articles=articles,
+                  generated_at=now,
+              ),
+              provider_name="mock",
+          )
+          if report.real_llm_calls != 0 or report.provider != "mock":
+              raise SystemExit("ci mini benchmark must not call a real LLM")
+          if report.status != "succeeded":
+              raise SystemExit(f"ci mini benchmark failed: {report.failure_reason}")
+          PY
 
       - name: Install Python dependencies
         working-directory: apps/scorer-worker
@@ -37,12 +135,6 @@ jobs:
       - name: Test scorer-worker
         working-directory: apps/scorer-worker
         run: pytest tests/ -q
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: apps/reader-web/package-lock.json
 
       - name: Install reader-web dependencies
         working-directory: apps/reader-web
@@ -69,13 +161,51 @@ jobs:
             --env-file .env \
             -f infra/compose/docker-compose.base.yml \
             -f infra/compose/docker-compose.staging.yml \
-            config > /dev/null
+            config > /tmp/ai-reader-staging-compose.yml
           docker compose \
             --profile worker \
             --env-file .env \
             -f infra/compose/docker-compose.base.yml \
             -f infra/compose/docker-compose.prod.yml \
+            config > /tmp/ai-reader-prod-compose.yml
+          docker compose \
+            --env-file .env \
+            -f infra/compose/docker-compose.edge.yml \
             config > /dev/null
+          grep -q "api-staging" /tmp/ai-reader-staging-compose.yml
+          grep -q "web-staging" /tmp/ai-reader-staging-compose.yml
+          grep -q "api-prod" /tmp/ai-reader-prod-compose.yml
+          grep -q "web-prod" /tmp/ai-reader-prod-compose.yml
+
+      - name: Check deploy scripts
+        run: |
+          bash -n infra/scripts/deploy.sh infra/scripts/backup.sh infra/scripts/smoke-test.sh infra/scripts/staging-runtime-proof.sh infra/scripts/check-deploy-migrations.sh .github/scripts/remote-deploy.sh .github/scripts/validate-deploy-env.sh
+          bash infra/scripts/check-deploy-migrations.sh
+          python - <<'PY'
+          from pathlib import Path
+
+          script = Path("infra/scripts/staging-runtime-proof.sh").read_text()
+          marker = "python - <<'PY'"
+          if marker not in script:
+              raise SystemExit("missing containerized python here-doc")
+          try:
+              docker_block = script[: script.index(marker)].rsplit("docker exec", 1)[1]
+          except IndexError as exc:
+              raise SystemExit("missing docker exec for containerized proof") from exc
+          if "-i" not in docker_block.split():
+              raise SystemExit(
+                  "staging-runtime-proof.sh must run docker exec -i so python receives the here-doc"
+              )
+          PY
+
+      - name: Build Docker images
+        run: |
+          docker build -f apps/api/Dockerfile apps/api
+          docker build -f apps/worker/Dockerfile .
+          docker build -f apps/reader-web/Dockerfile apps/reader-web
+
+      - name: Check whitespace
+        run: git diff --check
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@0.35.0
@@ -97,8 +227,9 @@ jobs:
       deploy_sha: ${{ steps.meta.outputs.deploy_sha }}
       image_registry: ${{ steps.meta.outputs.image_registry }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
-      reader_image: ${{ steps.meta.outputs.reader_image }}
-      scorer_image: ${{ steps.meta.outputs.scorer_image }}
+      web_image: ${{ steps.meta.outputs.web_image }}
+      api_image: ${{ steps.meta.outputs.api_image }}
+      worker_image: ${{ steps.meta.outputs.worker_image }}
 
     steps:
       - uses: actions/checkout@v4
@@ -138,36 +269,52 @@ jobs:
             echo "deploy_sha=${DEPLOY_SHA}"
             echo "image_registry=${image_registry}"
             echo "image_tag=${image_tag}"
-            echo "reader_image=${image_registry}/reader-web:${image_tag}"
-            echo "scorer_image=${image_registry}/scorer-worker:${image_tag}"
-            echo "reader_tags<<EOF"
-            echo "${image_registry}/reader-web:${image_tag}"
-            echo "${image_registry}/reader-web:${extra_tag}"
+            echo "web_image=${image_registry}/ai-reader-web:${image_tag}"
+            echo "api_image=${image_registry}/ai-reader-api:${image_tag}"
+            echo "worker_image=${image_registry}/ai-reader-worker:${image_tag}"
+            echo "web_tags<<EOF"
+            echo "${image_registry}/ai-reader-web:${image_tag}"
+            echo "${image_registry}/ai-reader-web:${extra_tag}"
             echo "EOF"
-            echo "scorer_tags<<EOF"
-            echo "${image_registry}/scorer-worker:${image_tag}"
-            echo "${image_registry}/scorer-worker:${extra_tag}"
+            echo "api_tags<<EOF"
+            echo "${image_registry}/ai-reader-api:${image_tag}"
+            echo "${image_registry}/ai-reader-api:${extra_tag}"
+            echo "EOF"
+            echo "worker_tags<<EOF"
+            echo "${image_registry}/ai-reader-worker:${image_tag}"
+            echo "${image_registry}/ai-reader-worker:${extra_tag}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build and push reader-web
+      - name: Build and push ai-reader-web
         uses: docker/build-push-action@v6
         with:
           context: apps/reader-web
           file: apps/reader-web/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.reader_tags }}
+          tags: ${{ steps.meta.outputs.web_tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
 
-      - name: Build and push scorer-worker
+      - name: Build and push ai-reader-api
         uses: docker/build-push-action@v6
         with:
-          context: apps/scorer-worker
-          file: apps/scorer-worker/Dockerfile
+          context: apps/api
+          file: apps/api/Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.scorer_tags }}
+          tags: ${{ steps.meta.outputs.api_tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
+
+      - name: Build and push ai-reader-worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.worker_tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
@@ -176,8 +323,9 @@ jobs:
         run: |
           {
             echo "### Published images"
-            echo "- reader-web: \`${{ steps.meta.outputs.reader_image }}\`"
-            echo "- scorer-worker: \`${{ steps.meta.outputs.scorer_image }}\`"
+            echo "- ai-reader-web: \`${{ steps.meta.outputs.web_image }}\`"
+            echo "- ai-reader-api: \`${{ steps.meta.outputs.api_image }}\`"
+            echo "- ai-reader-worker: \`${{ steps.meta.outputs.worker_image }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy-staging:
@@ -208,6 +356,7 @@ jobs:
           DEPLOY_SHA: ${{ needs.images.outputs.deploy_sha }}
           IMAGE_REGISTRY: ${{ needs.images.outputs.image_registry }}
           IMAGE_TAG: ${{ needs.images.outputs.image_tag }}
+          RUN_STAGING_RUNTIME_PROOF: "1"
         run: |
           set -euo pipefail
           bash .github/scripts/validate-deploy-env.sh
@@ -217,7 +366,7 @@ jobs:
           bash .github/scripts/write-ssh-key.sh "$key_file"
 
           quote() { printf '%q' "$1"; }
-          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN")"
+          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN") RUN_STAGING_RUNTIME_PROOF=$(quote "$RUN_STAGING_RUNTIME_PROOF")"
 
           ssh -i "$key_file" -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
             "$remote_env bash -s" < .github/scripts/remote-deploy.sh
@@ -226,8 +375,10 @@ jobs:
             echo "### Staging deploy"
             echo "- commit: \`${DEPLOY_SHA}\`"
             echo "- tag: \`${IMAGE_TAG}\`"
-            echo "- reader-web: \`${{ needs.images.outputs.reader_image }}\`"
-            echo "- scorer-worker: \`${{ needs.images.outputs.scorer_image }}\`"
+            echo "- ai-reader-web: \`${{ needs.images.outputs.web_image }}\`"
+            echo "- ai-reader-api: \`${{ needs.images.outputs.api_image }}\`"
+            echo "- ai-reader-worker: \`${{ needs.images.outputs.worker_image }}\`"
             echo "- url: https://staging-ai-reader.blankhoney.xyz"
             echo "- smoke test: passed"
+            echo "- runtime proof: passed"
           } >> "$GITHUB_STEP_SUMMARY"

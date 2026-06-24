@@ -20,13 +20,15 @@ unset MINIFLUX_API_KEY MINIFLUX_ADMIN_PASSWORD POSTGRES_SUPERUSER_PASSWORD \
       SCORER_WEBHOOK_PASSWORD SCORER_WEBHOOK_MAX_ENTRIES READER_TENANT_ID \
       READER_MINIFLUX_USER_ID SCORING_SERVICE_URL WEB_SEARCH_PROVIDER WEB_SEARCH_API_KEY \
       DEMO_LANDING_ENABLED DEMO_USERNAME DEMO_PASSWORD DEMO_AUTHELIA_BASE_URL \
-      DEMO_TARGET_URL DEMO_ALLOWED_ORIGIN
+      DEMO_TARGET_URL DEMO_ALLOWED_ORIGIN AI_READER_CSRF_ALLOWED_ORIGINS \
+      LLM_PROVIDER WORKER_CONCURRENCY EXTERNAL_CONTENT_PROVIDER
 
 ENV="${1:?必须提供环境名，例如 staging 或 prod}"
 TAG="${2:?必须提供镜像 tag，例如 v1.2.3}"
 DEPLOY_IMAGE_REGISTRY="${IMAGE_REGISTRY:-}"
-DEPLOY_READER_WEB_IMAGE="${READER_WEB_IMAGE:-}"
-DEPLOY_SCORER_WORKER_IMAGE="${SCORER_WORKER_IMAGE:-}"
+DEPLOY_AI_READER_WEB_IMAGE="${AI_READER_WEB_IMAGE:-}"
+DEPLOY_AI_READER_API_IMAGE="${AI_READER_API_IMAGE:-}"
+DEPLOY_AI_READER_WORKER_IMAGE="${AI_READER_WORKER_IMAGE:-}"
 DEPLOY_LOCAL_BUILD="${LOCAL_BUILD:-}"
 
 # 校验 ENV 参数，防止误操作
@@ -45,19 +47,22 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 set -a; source "$REPO_ROOT/.env"; set +a
 
 IMAGE_REGISTRY="${DEPLOY_IMAGE_REGISTRY:-${IMAGE_REGISTRY:-}}"
-READER_WEB_IMAGE="${DEPLOY_READER_WEB_IMAGE:-${READER_WEB_IMAGE:-}}"
-SCORER_WORKER_IMAGE="${DEPLOY_SCORER_WORKER_IMAGE:-${SCORER_WORKER_IMAGE:-}}"
+AI_READER_WEB_IMAGE="${DEPLOY_AI_READER_WEB_IMAGE:-${AI_READER_WEB_IMAGE:-}}"
+AI_READER_API_IMAGE="${DEPLOY_AI_READER_API_IMAGE:-${AI_READER_API_IMAGE:-}}"
+AI_READER_WORKER_IMAGE="${DEPLOY_AI_READER_WORKER_IMAGE:-${AI_READER_WORKER_IMAGE:-}}"
 LOCAL_BUILD="${DEPLOY_LOCAL_BUILD:-${LOCAL_BUILD:-0}}"
 
 IMAGE_REGISTRY="${IMAGE_REGISTRY%/}"
 USE_REMOTE_IMAGES=0
 if [[ -n "$IMAGE_REGISTRY" && "$LOCAL_BUILD" != "1" ]]; then
     USE_REMOTE_IMAGES=1
-    export READER_WEB_IMAGE="${READER_WEB_IMAGE:-${IMAGE_REGISTRY}/reader-web:${TAG}}"
-    export SCORER_WORKER_IMAGE="${SCORER_WORKER_IMAGE:-${IMAGE_REGISTRY}/scorer-worker:${TAG}}"
+    export AI_READER_WEB_IMAGE="${AI_READER_WEB_IMAGE:-${IMAGE_REGISTRY}/ai-reader-web:${TAG}}"
+    export AI_READER_API_IMAGE="${AI_READER_API_IMAGE:-${IMAGE_REGISTRY}/ai-reader-api:${TAG}}"
+    export AI_READER_WORKER_IMAGE="${AI_READER_WORKER_IMAGE:-${IMAGE_REGISTRY}/ai-reader-worker:${TAG}}"
 else
-    export READER_WEB_IMAGE="${READER_WEB_IMAGE:-myrss-reader-web:${TAG}}"
-    export SCORER_WORKER_IMAGE="${SCORER_WORKER_IMAGE:-myrss-scorer-worker:${TAG}}"
+    export AI_READER_WEB_IMAGE="${AI_READER_WEB_IMAGE:-myrss-ai-reader-web:${TAG}}"
+    export AI_READER_API_IMAGE="${AI_READER_API_IMAGE:-myrss-ai-reader-api:${TAG}}"
+    export AI_READER_WORKER_IMAGE="${AI_READER_WORKER_IMAGE:-myrss-ai-reader-worker:${TAG}}"
 fi
 
 AUTHELIA_ASSETS_DIR="$REPO_ROOT/infra/authelia/assets"
@@ -95,6 +100,83 @@ write_authelia_demo_locale_overrides() {
 }
 EOF
     done
+}
+
+run_prod_migration_backup() {
+    if [[ "$ENV" != "prod" ]]; then
+        echo "💾 $ENV 非生产环境：跳过迁移前备份 gate"
+        return
+    fi
+
+    local backup_output
+    local backup_dir
+    local backup_path
+    local backup_sha256_file
+
+    echo "💾 prod 迁移前备份数据库..."
+    if ! backup_output="$(cd "$REPO_ROOT" && "$SCRIPT_DIR/backup.sh" prod 2>&1)"; then
+        echo "$backup_output"
+        echo "❌ prod 数据库备份失败，停止迁移和部署"
+        exit 1
+    fi
+    echo "$backup_output"
+
+    backup_dir="$(printf '%s\n' "$backup_output" | sed -n 's/^BACKUP_DIR=//p' | tail -n 1)"
+    if [[ -z "$backup_dir" ]]; then
+        echo "❌ 无法从 backup.sh 输出中解析 BACKUP_DIR，停止迁移"
+        exit 1
+    fi
+    backup_sha256_file="$(printf '%s\n' "$backup_output" | sed -n 's/^BACKUP_SHA256_FILE=//p' | tail -n 1)"
+    if [[ -z "$backup_sha256_file" ]]; then
+        echo "❌ 无法从 backup.sh 输出中解析 BACKUP_SHA256_FILE，停止迁移"
+        exit 1
+    fi
+    backup_path="$backup_dir"
+    if [[ "$backup_path" != /* ]]; then
+        backup_path="$REPO_ROOT/${backup_path#./}"
+    fi
+    if [[ "$backup_sha256_file" != /* ]]; then
+        backup_sha256_file="$REPO_ROOT/${backup_sha256_file#./}"
+    fi
+    if [[ ! -f "$backup_sha256_file" ]]; then
+        echo "❌ 备份校验文件不存在：$backup_sha256_file"
+        exit 1
+    fi
+
+    echo "   backup artifact: $backup_path"
+    echo "   sha256:"
+    sed 's/^/     /' "$backup_sha256_file"
+
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        {
+            echo "### Production database backup"
+            echo ""
+            echo "- Artifact: \`$backup_path\`"
+            echo ""
+            echo "\`\`\`"
+            cat "$backup_sha256_file"
+            echo "\`\`\`"
+        } >> "$GITHUB_STEP_SUMMARY"
+    fi
+}
+
+wait_for_api_migration_ready() {
+    local max_attempts="${MIGRATION_READY_MAX_ATTEMPTS:-12}"
+    local sleep_seconds="${MIGRATION_READY_SLEEP_SECONDS:-5}"
+    local attempt
+
+    echo "⏳ 等待 $ENV API/DB 可执行迁移..."
+    for attempt in $(seq 1 "$max_attempts"); do
+        if IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" exec -T ai-reader-api alembic current >/dev/null 2>&1; then
+            echo "  ✅ migration context ready"
+            return
+        fi
+        echo "  等待 migration context：attempt $attempt/$max_attempts"
+        sleep "$sleep_seconds"
+    done
+
+    echo "❌ API/DB 在限定时间内未就绪，停止迁移"
+    exit 1
 }
 
 echo "🚀 开始部署：ENV=$ENV  TAG=$TAG"
@@ -147,7 +229,6 @@ docker compose \
 echo "🔧 更新 $ENV 后端服务..."
 BACKEND_COMPOSE=(
     docker compose
-    --profile worker \
     --env-file "$REPO_ROOT/.env" \
     -p "myrss-${ENV}" \
     -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
@@ -156,25 +237,23 @@ BACKEND_COMPOSE=(
 
 if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
     echo "📦 拉取 $ENV 业务镜像..."
-    IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" pull reader-web scorer-worker
+    IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" pull reader-web ai-reader-api ai-reader-worker
     IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --no-build --remove-orphans
 else
     IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --build --remove-orphans
 fi
 
+# PROD_MIGRATION_BACKUP_GATE
+run_prod_migration_backup
+
+# API_MIGRATION_READY_GATE
+wait_for_api_migration_ready
+
+echo "🗄️  应用 $ENV API 数据库迁移..."
+IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" exec -T ai-reader-api alembic upgrade head
+
 echo "🔁 重建 $ENV Authelia 以加载生成配置..."
 IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" \
     up -d --force-recreate --no-deps authelia
-
-if [[ "$ENV" == "staging" ]]; then
-    echo "🔁 重建共享 Authelia 以加载 staging demo 登录配置..."
-    IMAGE_TAG="$TAG" docker compose \
-        --profile worker \
-        --env-file "$REPO_ROOT/.env" \
-        -p "myrss-prod" \
-        -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
-        -f "$REPO_ROOT/infra/compose/docker-compose.prod.yml" \
-        up -d --force-recreate --no-deps authelia
-fi
 
 echo "✅ 部署完成：$ENV @ $TAG"

@@ -2,6 +2,8 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 AI Reader is a self-hosted RSS research workspace built on top of Miniflux. It adds LLM scoring, Chinese summaries, article Q&A, focused reading, feed quality controls, and GitHub Actions based delivery on top of a traditional RSS backend.
 
 ## Live Demo
@@ -186,3 +188,7 @@ Required repository secrets for remote deploys:
 - The scorer mutating endpoints are intended for the internal Docker network and require Basic Auth.
 - Public access is routed through Caddy; Authelia is an outer/demo or defense-in-depth layer, and the app/API must enforce business auth itself.
 - The staging demo password is a public experience password, not a production secret; it should still be rotated when needed.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
