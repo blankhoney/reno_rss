@@ -109,6 +109,41 @@ require_http_status "/api/healthz" "200"
 require_http_status "/api/articles" "401"
 require_http_status "/api/admin/users" "401"
 
+require_staging_protected_boundary() {
+    local path="/?module=all&sort=default&lang=zh"
+    local attempts=12
+    local delay_seconds=2
+    local attempt
+    local body_file
+    local code
+
+    for attempt in $(seq 1 "$attempts"); do
+        body_file="$(mktemp)"
+        if ! code="$(curl -sS -o "$body_file" -w "%{http_code}" --connect-timeout 10 "$PUBLIC_URL$path")"; then
+            code="000"
+        fi
+
+        if [[ "$code" =~ ^(2|3)[0-9][0-9]$ ]]; then
+            if [[ "$code" == 200 ]] && grep -q "阅读工作台" "$body_file"; then
+                echo "❌ staging protected route exposed business UI without auth"
+                rm -f "$body_file"
+                exit 1
+            fi
+            rm -f "$body_file"
+            echo "  ✅ staging protected route boundary ok: HTTP $code"
+            return
+        fi
+
+        rm -f "$body_file"
+        if [[ "$attempt" -lt "$attempts" ]]; then
+            sleep "$delay_seconds"
+        fi
+    done
+
+    echo "❌ staging protected route returned HTTP $code after ${attempts} attempts"
+    exit 1
+}
+
 COOKIE_JAR="$(mktemp)"
 LOGIN_BODY="$(mktemp)"
 ADMIN_BODY="$(mktemp)"
@@ -154,20 +189,7 @@ if [[ "$ENV" == "staging" ]]; then
     done
     echo "  ✅ staging demo landing ok"
 
-    PROTECTED_BODY_FILE="$(mktemp)"
-    PROTECTED_CODE="$(curl -sS -o "$PROTECTED_BODY_FILE" -w "%{http_code}" --connect-timeout 10 "$PUBLIC_URL/?module=all&sort=default&lang=zh")"
-    if [[ ! "$PROTECTED_CODE" =~ ^(2|3)[0-9][0-9]$ ]]; then
-        echo "❌ staging protected route returned HTTP $PROTECTED_CODE"
-        rm -f "$PROTECTED_BODY_FILE"
-        exit 1
-    fi
-    if [[ "$PROTECTED_CODE" == 200 ]] && grep -q "阅读工作台" "$PROTECTED_BODY_FILE"; then
-        echo "❌ staging protected route exposed business UI without auth"
-        rm -f "$PROTECTED_BODY_FILE"
-        exit 1
-    fi
-    rm -f "$PROTECTED_BODY_FILE"
-    echo "  ✅ staging protected route boundary ok: HTTP $PROTECTED_CODE"
+    require_staging_protected_boundary
 fi
 
 echo "✅ Smoke test passed：$ENV"
