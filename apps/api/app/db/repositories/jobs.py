@@ -8,6 +8,7 @@ from sqlalchemy import Engine, create_engine, desc, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
+from app.core.config import normalize_database_url
 from app.db.models import job_watchers, jobs
 
 
@@ -428,7 +429,7 @@ class DatabaseJobRepository:
 
 def create_job_repository(database_url: str | None) -> JobStore:
     if database_url:
-        return DatabaseJobRepository(database_url)
+        return DatabaseJobRepository(normalize_database_url(database_url) or database_url)
     return MemoryJobRepository()
 
 

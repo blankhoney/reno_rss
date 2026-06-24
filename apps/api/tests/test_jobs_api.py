@@ -151,6 +151,16 @@ async def test_database_job_repository_claim_uses_skip_locked():
     assert engine.connection.params == {"worker_id": "worker-1"}
 
 
+async def test_create_job_repository_normalizes_postgres_database_url():
+    from app.db.repositories.jobs import DatabaseJobRepository, create_job_repository
+
+    repository = create_job_repository("postgres://postgres:postgres@localhost/test")
+
+    assert isinstance(repository, DatabaseJobRepository)
+    assert repository.engine.url.drivername == "postgresql+psycopg"
+    repository.dispose()
+
+
 async def test_database_enqueue_retries_when_conflicting_job_finishes_before_reselect():
     from datetime import UTC, datetime
     from uuid import uuid4

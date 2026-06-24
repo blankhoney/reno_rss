@@ -2,6 +2,8 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 AI Reader 是一个基于 Miniflux 的自托管 RSS 研究阅读工作台。它在传统 RSS 后端之上加入 LLM 多维评分、中文摘要、文章问答、专注阅读、订阅源质量治理，以及基于 GitHub Actions 的自动交付流程。
 
 ## 在线 Demo
@@ -191,3 +193,7 @@ GitHub Actions 提供：
 - scorer-worker 的写入接口只设计给 Docker 内网调用，并通过 Basic Auth 保护。
 - 公网访问通过 Caddy 入口；Authelia 是公开 Demo 或 defense-in-depth 外层，业务鉴权必须由 app/API 自己执行。
 - staging demo 密码是公开体验密码，不是生产 secret；仍建议按需轮换。
+
+## 许可证
+
+MIT。详见 [LICENSE](LICENSE)。
