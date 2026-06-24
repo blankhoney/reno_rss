@@ -11,6 +11,32 @@ class ArticleSink(Protocol):
     def upsert_article_source(self, source: dict[str, object]) -> None: ...
 
 
+class MinifluxEntryClient(Protocol):
+    def list_entries(
+        self,
+        *,
+        limit: int,
+        after_entry_id: int | None = None,
+    ) -> list[dict[str, object]]: ...
+
+
+def run_sync_miniflux_entries(
+    payload: dict[str, object],
+    *,
+    sink: ArticleSink,
+    client: MinifluxEntryClient | None = None,
+) -> dict[str, int]:
+    if "entries" in payload:
+        return sync_miniflux_entries(payload, sink)
+    if client is None:
+        raise ValueError("client is required when payload does not include entries")
+
+    limit = _optional_int(payload, "limit", default=100)
+    after_entry_id = _optional_int(payload, "after_entry_id", default=None)
+    entries = client.list_entries(limit=limit, after_entry_id=after_entry_id)
+    return sync_miniflux_entries({**payload, "entries": entries}, sink)
+
+
 def sync_miniflux_entries(payload: dict[str, object], sink: ArticleSink) -> dict[str, int]:
     entries = _entries_from_payload(payload)
     article_ids_by_canonical_url: dict[str, int] = {}
@@ -128,6 +154,20 @@ def _required_int(entry: dict[str, object], key: str) -> int:
     value = entry.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"entry['{key}'] must be an int")
+    return value
+
+
+def _optional_int(
+    payload: dict[str, object],
+    key: str,
+    *,
+    default: int | None,
+) -> int | None:
+    value = payload.get(key, default)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"payload['{key}'] must be an int")
     return value
 
 

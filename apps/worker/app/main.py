@@ -4,7 +4,10 @@ import signal
 import socket
 from threading import Event
 
+from app.db.article_sink import DatabaseArticleSink
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
+from app.jobs.sync_miniflux import run_sync_miniflux_entries
+from app.providers.miniflux import MinifluxClient, MinifluxConfig
 from app.runner import Handler, run_forever
 
 
@@ -24,7 +27,10 @@ def create_worker_queue() -> InMemoryJobQueue | PostgresJobQueue:
 
 
 def build_handler_registry() -> dict[str, Handler]:
-    return {"worker_echo": _worker_echo}
+    return {
+        "worker_echo": _worker_echo,
+        "sync_miniflux_entries": _sync_miniflux_entries,
+    }
 
 
 def main() -> None:
@@ -60,6 +66,21 @@ def main() -> None:
 
 def _worker_echo(payload) -> dict[str, object]:
     return {"payload": dict(payload)}
+
+
+def _sync_miniflux_entries(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for sync_miniflux_entries")
+    sink = DatabaseArticleSink(database_url)
+    try:
+        return run_sync_miniflux_entries(
+            dict(payload),
+            sink=sink,
+            client=MinifluxClient(MinifluxConfig.from_env()),
+        )
+    finally:
+        sink.dispose()
 
 
 if __name__ == "__main__":

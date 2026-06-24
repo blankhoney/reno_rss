@@ -26,6 +26,11 @@ class CreateScoringBatchRequest(BaseModel):
     article_ids: list[int] = Field(min_length=1, max_length=30)
 
 
+class SyncMinifluxRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=500)
+    after_entry_id: int | None = Field(default=None, ge=1)
+
+
 def scoring_batch_item_public(item: ScoringBatchItemRecord) -> dict[str, object]:
     return {
         "id": item.id,
@@ -56,6 +61,31 @@ def scoring_batch_public(batch: ScoringBatchRecord) -> dict[str, object]:
 @router.get("/users")
 async def list_users(_current_user: UserRecord = Depends(require_admin)) -> dict[str, list[object]]:
     return {"items": []}
+
+
+@router.post("/sync")
+def enqueue_miniflux_sync(
+    payload: SyncMinifluxRequest,
+    current_user: UserRecord = Depends(require_admin),
+    job_repository: JobStore = Depends(get_job_repository),
+) -> JSONResponse:
+    job_payload: dict[str, object] = {"limit": payload.limit}
+    if payload.after_entry_id is not None:
+        job_payload["after_entry_id"] = payload.after_entry_id
+    job = job_repository.enqueue(
+        "sync_miniflux_entries",
+        job_payload,
+        dedupe_key=dedupe_key_for("sync_miniflux_entries", "manual"),
+        created_by=current_user.id,
+    )
+    return JSONResponse(
+        status_code=202,
+        content={
+            "job_id": job.id,
+            "job_type": job.job_type,
+            "status": job.status,
+        },
+    )
 
 
 @router.post("/scoring-batches")

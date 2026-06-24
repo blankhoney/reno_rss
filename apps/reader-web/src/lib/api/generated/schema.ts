@@ -278,6 +278,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enqueue Miniflux Sync */
+        post: operations["enqueue_miniflux_sync_api_admin_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/scoring-batches": {
         parameters: {
             query?: never;
@@ -418,6 +435,16 @@ export interface components {
         SetPriorityRequest: {
             /** User Priority */
             user_priority: number;
+        };
+        /** SyncMinifluxRequest */
+        SyncMinifluxRequest: {
+            /**
+             * Limit
+             * @default 100
+             */
+            limit: number;
+            /** After Entry Id */
+            after_entry_id?: number | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -969,6 +996,39 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown[];
                     };
+                };
+            };
+        };
+    };
+    enqueue_miniflux_sync_api_admin_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncMinifluxRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

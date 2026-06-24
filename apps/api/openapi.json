@@ -691,6 +691,45 @@
         }
       }
     },
+    "/api/admin/sync": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Enqueue Miniflux Sync",
+        "operationId": "enqueue_miniflux_sync_api_admin_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncMinifluxRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/scoring-batches": {
       "post": {
         "tags": [
@@ -1075,6 +1114,31 @@
           "user_priority"
         ],
         "title": "SetPriorityRequest"
+      },
+      "SyncMinifluxRequest": {
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 100
+          },
+          "after_entry_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Entry Id"
+          }
+        },
+        "type": "object",
+        "title": "SyncMinifluxRequest"
       },
       "ValidationError": {
         "properties": {

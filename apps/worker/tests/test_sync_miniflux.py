@@ -1,4 +1,4 @@
-from app.jobs.sync_miniflux import sync_miniflux_entries
+from app.jobs.sync_miniflux import run_sync_miniflux_entries, sync_miniflux_entries
 
 
 class RecordingSink:
@@ -112,3 +112,30 @@ def test_sync_skips_duplicate_source_entry_in_same_payload():
     assert result["source_duplicates_skipped"] == 1
     assert len(sink.sources) == 1
     assert sink.sources[0]["source_title"] == "Original entry"
+
+
+def test_run_sync_fetches_entries_from_client_when_payload_has_no_entries():
+    class FakeClient:
+        def list_entries(self, *, limit: int, after_entry_id: int | None = None):
+            assert limit == 2
+            assert after_entry_id == 42
+            return [
+                {
+                    "feed_id": 1,
+                    "miniflux_entry_id": 101,
+                    "url": "https://example.com/post",
+                    "title": "Fetched entry",
+                }
+            ]
+
+    sink = RecordingSink()
+
+    result = run_sync_miniflux_entries(
+        {"limit": 2, "after_entry_id": 42},
+        sink=sink,
+        client=FakeClient(),
+    )
+
+    assert result["entries_seen"] == 1
+    assert result["articles_upserted"] == 1
+    assert sink.articles[0]["title"] == "Fetched entry"
