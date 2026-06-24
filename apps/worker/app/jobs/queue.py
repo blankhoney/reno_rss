@@ -23,6 +23,11 @@ RETURNING *;
 """
 
 
+def retry_backoff_seconds(attempt_count: int, *, base_seconds: int, max_seconds: int) -> int:
+    effective_attempt = max(1, attempt_count)
+    return min(max_seconds, max(0, base_seconds) * (2 ** (effective_attempt - 1)))
+
+
 @dataclass(frozen=True)
 class QueueJob:
     id: int
@@ -104,34 +109,119 @@ class InMemoryJobQueue:
         self._jobs[job.id] = claimed
         return claimed
 
-    def mark_succeeded(self, job_id: int, result: dict[str, object]) -> QueueJob | None:
-        return self._complete(job_id, status="succeeded", result=result, error=None)
+    def reclaim_stale(
+        self,
+        *,
+        lease_seconds: int,
+        base_backoff_seconds: int,
+        max_backoff_seconds: int,
+    ) -> list[QueueJob]:
+        cutoff = datetime.now(UTC) - timedelta(seconds=lease_seconds)
+        reclaimed: list[QueueJob] = []
+        for job in list(self._jobs.values()):
+            if job.status != "running":
+                continue
+            if job.locked_at is not None and job.locked_at >= cutoff:
+                continue
+            reclaimed.append(
+                self._retry_or_fail(
+                    job,
+                    "job lease expired",
+                    base_backoff_seconds=base_backoff_seconds,
+                    max_backoff_seconds=max_backoff_seconds,
+                )
+            )
+        return reclaimed
+
+    def mark_succeeded(
+        self,
+        job_id: int,
+        result: dict[str, object],
+        *,
+        worker_id: str,
+    ) -> QueueJob | None:
+        return self._complete(
+            job_id,
+            status="succeeded",
+            result=result,
+            error=None,
+            worker_id=worker_id,
+        )
 
     def mark_retryable_failure(
         self,
         job_id: int,
         error: str,
-        backoff_seconds: int,
+        *,
+        worker_id: str,
+        base_backoff_seconds: int,
+        max_backoff_seconds: int,
     ) -> QueueJob | None:
         job = self._jobs.get(job_id)
-        if job is None:
+        if not self._is_running_owner(job, worker_id):
             return None
+        return self._retry_or_fail(
+            job,
+            error,
+            base_backoff_seconds=base_backoff_seconds,
+            max_backoff_seconds=max_backoff_seconds,
+        )
+
+    def mark_failed(self, job_id: int, error: str, *, worker_id: str) -> QueueJob | None:
+        return self._complete(job_id, status="failed", result={}, error=error, worker_id=worker_id)
+
+    def mark_cancelled(self, job_id: int, *, worker_id: str | None = None) -> QueueJob | None:
+        job = self._jobs.get(job_id)
+        if job is None or job.status not in {"queued", "running"}:
+            return None
+        if worker_id is not None and not self._is_running_owner(job, worker_id):
+            return None
+        updated = replace(
+            job,
+            status="cancelled",
+            locked_by=None,
+            locked_at=None,
+            completed_at=datetime.now(UTC),
+        )
+        self._jobs[job_id] = updated
+        return updated
+
+    def _retry_or_fail(
+        self,
+        job: QueueJob,
+        error: str,
+        *,
+        base_backoff_seconds: int,
+        max_backoff_seconds: int,
+    ) -> QueueJob:
         if job.attempt_count >= job.max_attempts:
-            return self.mark_failed(job_id, error)
+            updated = replace(
+                job,
+                status="failed",
+                result={},
+                last_error=error,
+                completed_at=datetime.now(UTC),
+            )
+            self._jobs[job.id] = updated
+            return updated
 
         updated = replace(
             job,
             status="queued",
             locked_by=None,
             locked_at=None,
-            run_after=datetime.now(UTC) + timedelta(seconds=backoff_seconds),
+            run_after=datetime.now(UTC)
+            + timedelta(
+                seconds=retry_backoff_seconds(
+                    job.attempt_count,
+                    base_seconds=base_backoff_seconds,
+                    max_seconds=max_backoff_seconds,
+                )
+            ),
             last_error=error,
         )
-        self._jobs[job_id] = updated
+        self._jobs[job.id] = updated
         return updated
-
-    def mark_failed(self, job_id: int, error: str) -> QueueJob | None:
-        return self._complete(job_id, status="failed", result={}, error=error)
 
     def _complete(
         self,
@@ -140,9 +230,10 @@ class InMemoryJobQueue:
         status: str,
         result: dict[str, object],
         error: str | None,
+        worker_id: str,
     ) -> QueueJob | None:
         job = self._jobs.get(job_id)
-        if job is None:
+        if not self._is_running_owner(job, worker_id):
             return None
         updated = replace(
             job,
@@ -153,6 +244,10 @@ class InMemoryJobQueue:
         )
         self._jobs[job_id] = updated
         return updated
+
+    @staticmethod
+    def _is_running_owner(job: QueueJob | None, worker_id: str) -> bool:
+        return job is not None and job.status == "running" and job.locked_by == worker_id
 
 
 class PostgresJobQueue:
@@ -168,7 +263,52 @@ class PostgresJobQueue:
             )
         return _queue_job_from_row(row) if row is not None else None
 
-    def mark_succeeded(self, job_id: int, result: dict[str, object]) -> QueueJob | None:
+    def reclaim_stale(
+        self,
+        *,
+        lease_seconds: int,
+        base_backoff_seconds: int,
+        max_backoff_seconds: int,
+    ) -> list[QueueJob]:
+        cutoff = datetime.now(UTC) - timedelta(seconds=lease_seconds)
+        reclaimed: list[QueueJob] = []
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT *
+                        FROM jobs
+                        WHERE status='running'
+                          AND (locked_at IS NULL OR locked_at < :cutoff)
+                        ORDER BY id ASC
+                        FOR UPDATE SKIP LOCKED;
+                        """
+                    ),
+                    {"cutoff": cutoff},
+                )
+                .mappings()
+                .all()
+            )
+            for job in rows:
+                row = self._retry_or_fail_postgres(
+                    connection,
+                    job,
+                    "job lease expired",
+                    base_backoff_seconds=base_backoff_seconds,
+                    max_backoff_seconds=max_backoff_seconds,
+                )
+                if row is not None:
+                    reclaimed.append(_queue_job_from_row(row))
+        return reclaimed
+
+    def mark_succeeded(
+        self,
+        job_id: int,
+        result: dict[str, object],
+        *,
+        worker_id: str,
+    ) -> QueueJob | None:
         row = self._execute_update(
             """
             UPDATE jobs
@@ -178,9 +318,11 @@ class PostgresJobQueue:
                 last_error=NULL,
                 updated_at=NOW()
             WHERE id=:job_id
+              AND status='running'
+              AND locked_by=:worker_id
             RETURNING *;
             """,
-            {"job_id": job_id, "result": json.dumps(result)},
+            {"job_id": job_id, "result": json.dumps(result), "worker_id": worker_id},
         )
         return _queue_job_from_row(row) if row is not None else None
 
@@ -188,73 +330,41 @@ class PostgresJobQueue:
         self,
         job_id: int,
         error: str,
-        backoff_seconds: int,
+        *,
+        worker_id: str,
+        base_backoff_seconds: int,
+        max_backoff_seconds: int,
     ) -> QueueJob | None:
         with self.engine.begin() as connection:
             job = (
                 connection.execute(
                     text(
                         """
-                        SELECT attempt_count, max_attempts
+                        SELECT *
                         FROM jobs
                         WHERE id=:job_id
+                          AND status='running'
+                          AND locked_by=:worker_id
                         FOR UPDATE;
                         """
                     ),
-                    {"job_id": job_id},
+                    {"job_id": job_id, "worker_id": worker_id},
                 )
                 .mappings()
                 .one_or_none()
             )
             if job is None:
                 return None
-            if job["attempt_count"] >= job["max_attempts"]:
-                row = (
-                    connection.execute(
-                        text(
-                            """
-                            UPDATE jobs
-                            SET status='failed',
-                                last_error=:error,
-                                completed_at=NOW(),
-                                updated_at=NOW()
-                            WHERE id=:job_id
-                            RETURNING *;
-                            """
-                        ),
-                        {"job_id": job_id, "error": error},
-                    )
-                    .mappings()
-                    .one_or_none()
-                )
-            else:
-                row = (
-                    connection.execute(
-                        text(
-                            """
-                            UPDATE jobs
-                            SET status='queued',
-                                locked_by=NULL,
-                                locked_at=NULL,
-                                run_after=:run_after,
-                                last_error=:error,
-                                updated_at=NOW()
-                            WHERE id=:job_id
-                            RETURNING *;
-                            """
-                        ),
-                        {
-                            "job_id": job_id,
-                            "error": error,
-                            "run_after": datetime.now(UTC) + timedelta(seconds=backoff_seconds),
-                        },
-                    )
-                    .mappings()
-                    .one_or_none()
-                )
+            row = self._retry_or_fail_postgres(
+                connection,
+                job,
+                error,
+                base_backoff_seconds=base_backoff_seconds,
+                max_backoff_seconds=max_backoff_seconds,
+            )
         return _queue_job_from_row(row) if row is not None else None
 
-    def mark_failed(self, job_id: int, error: str) -> QueueJob | None:
+    def mark_failed(self, job_id: int, error: str, *, worker_id: str) -> QueueJob | None:
         row = self._execute_update(
             """
             UPDATE jobs
@@ -263,9 +373,33 @@ class PostgresJobQueue:
                 completed_at=NOW(),
                 updated_at=NOW()
             WHERE id=:job_id
+              AND status='running'
+              AND locked_by=:worker_id
             RETURNING *;
             """,
-            {"job_id": job_id, "error": error},
+            {"job_id": job_id, "error": error, "worker_id": worker_id},
+        )
+        return _queue_job_from_row(row) if row is not None else None
+
+    def mark_cancelled(self, job_id: int, *, worker_id: str | None = None) -> QueueJob | None:
+        if worker_id is None:
+            where_clause = "id=:job_id AND status IN ('queued', 'running')"
+            params = {"job_id": job_id}
+        else:
+            where_clause = "id=:job_id AND status='running' AND locked_by=:worker_id"
+            params = {"job_id": job_id, "worker_id": worker_id}
+        row = self._execute_update(
+            f"""
+            UPDATE jobs
+            SET status='cancelled',
+                locked_by=NULL,
+                locked_at=NULL,
+                completed_at=NOW(),
+                updated_at=NOW()
+            WHERE {where_clause}
+            RETURNING *;
+            """,
+            params,
         )
         return _queue_job_from_row(row) if row is not None else None
 
@@ -275,6 +409,58 @@ class PostgresJobQueue:
     def _execute_update(self, statement: str, params: dict[str, object]):
         with self.engine.begin() as connection:
             return connection.execute(text(statement), params).mappings().one_or_none()
+
+    def _retry_or_fail_postgres(
+        self,
+        connection,
+        job,
+        error: str,
+        *,
+        base_backoff_seconds: int,
+        max_backoff_seconds: int,
+    ):
+        if job["attempt_count"] >= job["max_attempts"]:
+            statement = text(
+                """
+                UPDATE jobs
+                SET status='failed',
+                    last_error=:error,
+                    completed_at=NOW(),
+                    updated_at=NOW()
+                WHERE id=:job_id
+                  AND status='running'
+                RETURNING *;
+                """
+            )
+            params = {"job_id": job["id"], "error": error}
+        else:
+            statement = text(
+                """
+                UPDATE jobs
+                SET status='queued',
+                    locked_by=NULL,
+                    locked_at=NULL,
+                    run_after=:run_after,
+                    last_error=:error,
+                    updated_at=NOW()
+                WHERE id=:job_id
+                  AND status='running'
+                RETURNING *;
+                """
+            )
+            params = {
+                "job_id": job["id"],
+                "error": error,
+                "run_after": datetime.now(UTC)
+                + timedelta(
+                    seconds=retry_backoff_seconds(
+                        job["attempt_count"],
+                        base_seconds=base_backoff_seconds,
+                        max_seconds=max_backoff_seconds,
+                    )
+                ),
+            }
+        return connection.execute(statement, params).mappings().one_or_none()
 
 
 def _queue_job_from_row(row) -> QueueJob:

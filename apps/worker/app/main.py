@@ -1,3 +1,4 @@
+import logging
 import os
 import signal
 import socket
@@ -27,8 +28,6 @@ def build_handler_registry() -> dict[str, Handler]:
 
 
 def main() -> None:
-    import logging
-
     logging.basicConfig(level=os.environ.get("WORKER_LOG_LEVEL", "INFO"))
     queue = create_worker_queue()
     registry = build_handler_registry()
@@ -36,6 +35,8 @@ def main() -> None:
     worker_id = os.environ.get("WORKER_ID") or f"{socket.gethostname()}:{os.getpid()}"
     poll_seconds = float(os.environ.get("WORKER_POLL_SECONDS", "2"))
     retry_backoff_seconds = int(os.environ.get("WORKER_RETRY_BACKOFF_SECONDS", "60"))
+    retry_backoff_max_seconds = int(os.environ.get("WORKER_RETRY_BACKOFF_MAX_SECONDS", "3600"))
+    job_lease_seconds = int(os.environ.get("WORKER_JOB_LEASE_SECONDS", "900"))
 
     def request_stop(_signum, _frame) -> None:
         stop_event.set()
@@ -50,6 +51,8 @@ def main() -> None:
         worker_id=worker_id,
         poll_seconds=poll_seconds,
         retry_backoff_seconds=retry_backoff_seconds,
+        retry_backoff_max_seconds=retry_backoff_max_seconds,
+        job_lease_seconds=job_lease_seconds,
         stop_event=stop_event,
     )
     logging.info("worker runtime stopped: worker_id=%s", worker_id)
