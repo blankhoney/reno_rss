@@ -27,7 +27,7 @@ def create_app() -> FastAPI:
     app.state.article_repository = create_article_repository(settings.database_url)
     app.state.scoring_repository = create_scoring_repository(settings.database_url)
     app.state.recommendation_repository = create_recommendation_repository(settings.database_url)
-    app.state.ask_provider = ask.DeterministicAskProvider()
+    app.state.ask_provider = ask.create_ask_provider(settings)
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
     app.add_exception_handler(ApiError, api_error_handler)
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)

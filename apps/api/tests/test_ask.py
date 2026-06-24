@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -29,12 +30,57 @@ class StaticScoringRepository:
         return list(self.scores)
 
 
+class FakeMiniMaxStream:
+    def __init__(self, lines):
+        self.lines = lines
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    def iter_lines(self):
+        return iter(self.lines)
+
+
+def _minimax_stream_line(content):
+    return "data: " + json.dumps(
+        {"choices": [{"delta": {"content": content}}]},
+        ensure_ascii=False,
+    )
+
+
 @pytest.mark.asyncio
 async def test_ask_requires_session(client):
     response = await client.post("/api/articles/1/ask", json={"question": "总结"})
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "unauthenticated"
+
+
+def test_create_ask_provider_falls_back_when_minimax_key_is_unconfigured():
+    from app.api.routes.ask import DeterministicAskProvider, create_ask_provider
+    from app.core.config import Settings
+
+    settings = Settings(llm_provider="minimax", minimax_api_key="")
+
+    assert isinstance(create_ask_provider(settings), DeterministicAskProvider)
+
+
+def test_create_app_selects_minimax_ask_provider_when_key_is_configured(monkeypatch):
+    from app.api.routes.ask import MiniMaxAskProvider
+    from app.main import create_app
+
+    monkeypatch.setenv("LLM_PROVIDER", "minimax")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+
+    app = create_app()
+
+    assert isinstance(app.state.ask_provider, MiniMaxAskProvider)
 
 
 @pytest.mark.asyncio
@@ -168,6 +214,66 @@ async def test_ask_streams_sse_without_think_blocks_from_server_built_context(ap
     assert "Server truth with Important quote." in serialized_messages
     assert "Important quote" in serialized_messages
     assert "client supplied" not in serialized_messages
+
+
+@pytest.mark.asyncio
+async def test_ask_streams_minimax_chunks_without_logging_bodies(app, client, caplog):
+    from app.api.routes.ask import MiniMaxAskProvider
+
+    captured_request = {}
+
+    def stream_factory(method, url, *, headers, json, timeout):
+        captured_request.update(
+            {
+                "method": method,
+                "url": url,
+                "headers": headers,
+                "json": json,
+                "timeout": timeout,
+            }
+        )
+        return FakeMiniMaxStream(
+            [
+                _minimax_stream_line("结论："),
+                _minimax_stream_line("<think>hidden provider reasoning</think>值得读"),
+                "data: [DONE]",
+            ]
+        )
+
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    app.state.ask_provider = MiniMaxAskProvider(
+        api_key="test-key",
+        base_url="https://llm.example/v1",
+        model="MiniMax-Test",
+        timeout_seconds=9.0,
+        stream_factory=stream_factory,
+    )
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Agent Article",
+            "content_text": "Server truth with private body.",
+        }
+    )
+
+    response = await client.post(f"/api/articles/{article.id}/ask", json={"question": "总结"})
+
+    assert response.status_code == 200
+    assert "data: 结论：" in response.text
+    assert "data: 值得读" in response.text
+    assert "hidden provider reasoning" not in response.text
+    assert captured_request["method"] == "POST"
+    assert captured_request["url"] == "https://llm.example/v1/chat/completions"
+    assert captured_request["headers"] == {"Authorization": "Bearer test-key"}
+    assert captured_request["json"]["model"] == "MiniMax-Test"
+    assert captured_request["json"]["stream"] is True
+    assert captured_request["json"]["temperature"] == 0.2
+    assert captured_request["timeout"] == 9.0
+    assert "Server truth with private body." in str(captured_request["json"]["messages"])
+    assert "Server truth with private body." not in caplog.text
+    assert "结论：" not in caplog.text
 
 
 @pytest.mark.asyncio

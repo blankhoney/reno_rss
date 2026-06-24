@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+import json
 from typing import Protocol
 
+import httpx
 from fastapi import APIRouter, Depends, Path
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,6 +16,7 @@ from app.api.deps import (
     get_scoring_repository,
     require_user,
 )
+from app.core.config import Settings
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import ArticleRecord, ArticleStore
 from app.db.repositories.scoring import ScoreRecord, ScoringStore
@@ -21,6 +24,7 @@ from app.domain.ask_prompt import build_article_ask_context, stream_without_thin
 
 
 router = APIRouter(prefix="/api/articles", tags=["ask"])
+_STREAM_DONE = object()
 
 
 class AskRequest(BaseModel):
@@ -43,6 +47,62 @@ class DeterministicAskProvider:
             "不确定点：模型回答能力尚未接入。\n"
             "行动建议：配置 provider 后重试。"
         ]
+
+
+class MiniMaxAskProvider:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        timeout_seconds: float,
+        stream_factory: Callable[..., object] | None = None,
+    ) -> None:
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout_seconds = timeout_seconds
+        self._stream_factory = stream_factory or httpx.stream
+
+    def answer_article_question(self, messages: list[dict[str, str]]) -> Iterable[str]:
+        if not self.api_key or self.api_key == "change_me":
+            raise RuntimeError("missing MINIMAX_API_KEY")
+        with self._stream_factory(
+            "POST",
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.2,
+                "stream": True,
+            },
+            timeout=self.timeout_seconds,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                content = _stream_content_from_line(line)
+                if content is _STREAM_DONE:
+                    break
+                if isinstance(content, str) and content:
+                    yield content
+
+
+def create_ask_provider(settings: Settings) -> AskProvider:
+    selected = settings.llm_provider.strip().lower()
+    if selected in {"", "mock"}:
+        return DeterministicAskProvider()
+    if selected == "minimax":
+        if not settings.minimax_api_key or settings.minimax_api_key == "change_me":
+            return DeterministicAskProvider()
+        return MiniMaxAskProvider(
+            api_key=settings.minimax_api_key,
+            base_url=settings.minimax_base_url,
+            model=settings.minimax_model,
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
+    raise ValueError("LLM_PROVIDER must be 'mock' or 'minimax'")
 
 
 @router.post("/{article_id}/ask")
@@ -123,3 +183,30 @@ def _sse_answer(chunks: Iterable[str]) -> Iterable[str]:
 def _sse_data(text: str) -> str:
     lines = text.splitlines() or [text]
     return "".join(f"data: {line}\n" for line in lines) + "\n"
+
+
+def _stream_content_from_line(line: object) -> str | object | None:
+    text = _normalize_stream_line(line)
+    if not text or text.startswith(":") or not text.startswith("data:"):
+        return None
+    data = text.removeprefix("data:").strip()
+    if data == "[DONE]":
+        return _STREAM_DONE
+    try:
+        payload = json.loads(data)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("llm stream returned invalid JSON") from exc
+
+    try:
+        choice = payload["choices"][0]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("llm stream missing choices[0]") from exc
+    message = choice.get("delta") or choice.get("message") or {}
+    content = message.get("content", "")
+    return content if isinstance(content, str) else ""
+
+
+def _normalize_stream_line(line: object) -> str:
+    if isinstance(line, bytes):
+        return line.decode("utf-8", errors="replace").strip()
+    return str(line).strip()
