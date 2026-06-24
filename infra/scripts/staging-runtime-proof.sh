@@ -31,6 +31,7 @@ fi
 echo "  ok worker LLM_PROVIDER=mock"
 
 docker exec \
+    -i \
     -e PUBLIC_ORIGIN="$PUBLIC_URL" \
     "$API_CONTAINER" \
     python - <<'PY'

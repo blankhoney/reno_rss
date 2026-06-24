@@ -181,6 +181,22 @@ jobs:
         run: |
           bash -n infra/scripts/deploy.sh infra/scripts/backup.sh infra/scripts/smoke-test.sh infra/scripts/staging-runtime-proof.sh infra/scripts/check-deploy-migrations.sh .github/scripts/remote-deploy.sh .github/scripts/validate-deploy-env.sh
           bash infra/scripts/check-deploy-migrations.sh
+          python - <<'PY'
+          from pathlib import Path
+
+          script = Path("infra/scripts/staging-runtime-proof.sh").read_text()
+          marker = "python - <<'PY'"
+          if marker not in script:
+              raise SystemExit("missing containerized python here-doc")
+          try:
+              docker_block = script[: script.index(marker)].rsplit("docker exec", 1)[1]
+          except IndexError as exc:
+              raise SystemExit("missing docker exec for containerized proof") from exc
+          if "-i" not in docker_block.split():
+              raise SystemExit(
+                  "staging-runtime-proof.sh must run docker exec -i so python receives the here-doc"
+              )
+          PY
 
       - name: Build Docker images
         run: |
