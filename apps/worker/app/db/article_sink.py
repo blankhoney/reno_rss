@@ -12,6 +12,37 @@ class DatabaseArticleSink:
             raise ValueError("database_url or engine is required")
         self.engine = engine or create_engine(str(database_url), pool_pre_ping=True)
 
+    def upsert_feed(self, feed: dict[str, object]) -> int:
+        values = _feed_values(feed)
+        with self.engine.begin() as connection:
+            row = _existing_feed(connection, values)
+            if row is not None:
+                _update_existing_feed(connection, int(row["id"]), values)
+                return int(row["id"])
+
+            if values["feed_url"] is None:
+                raise ValueError("feed_url is required to create an unknown Miniflux feed")
+
+            row = (
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO feeds (
+                            feed_url, canonical_url, miniflux_feed_id, title, status
+                        )
+                        VALUES (
+                            :feed_url, :canonical_url, :miniflux_feed_id, :title, 'active'
+                        )
+                        RETURNING id;
+                        """
+                    ),
+                    values,
+                )
+                .mappings()
+                .one()
+            )
+        return int(row["id"])
+
     def upsert_article(self, article: dict[str, object]) -> int:
         values = _article_values(article)
         with self.engine.begin() as connection:
@@ -135,6 +166,71 @@ def _article_values(article: dict[str, object]) -> dict[str, object]:
         "fetched_at": _optional_datetime(article.get("fetched_at")),
         "content_expires_at": _optional_datetime(article.get("content_expires_at")),
     }
+
+
+def _feed_values(feed: dict[str, object]) -> dict[str, object]:
+    feed_url = _optional_str(feed.get("feed_url"))
+    title = _optional_str(feed.get("feed_title")) or feed_url
+    return {
+        "fallback_feed_id": int(feed["feed_id"]),
+        "feed_url": feed_url,
+        "canonical_url": _optional_str(feed.get("feed_site_url")),
+        "miniflux_feed_id": int(feed["feed_id"]),
+        "title": title,
+    }
+
+
+def _existing_feed(connection, values: dict[str, object]):
+    miniflux_feed_id = values["miniflux_feed_id"]
+    row = (
+        connection.execute(
+            text("SELECT id FROM feeds WHERE miniflux_feed_id=:miniflux_feed_id"),
+            {"miniflux_feed_id": miniflux_feed_id},
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is not None:
+        return row
+
+    feed_url = values["feed_url"]
+    if feed_url is not None:
+        row = (
+            connection.execute(
+                text("SELECT id FROM feeds WHERE feed_url=:feed_url"),
+                {"feed_url": feed_url},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is not None:
+            return row
+
+    return (
+        connection.execute(
+            text("SELECT id FROM feeds WHERE id=:feed_id"),
+            {"feed_id": values["fallback_feed_id"]},
+        )
+        .mappings()
+        .one_or_none()
+    )
+
+
+def _update_existing_feed(connection, feed_id: int, values: dict[str, object]) -> None:
+    connection.execute(
+        text(
+            """
+            UPDATE feeds
+            SET feed_url=COALESCE(:feed_url, feed_url),
+                canonical_url=COALESCE(:canonical_url, canonical_url),
+                miniflux_feed_id=COALESCE(miniflux_feed_id, :miniflux_feed_id),
+                title=COALESCE(:title, title),
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=:id;
+            """
+        ),
+        {**values, "id": feed_id},
+    )
 
 
 def _content_hash(content_text: str | None) -> str | None:

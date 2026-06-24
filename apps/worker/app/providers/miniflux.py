@@ -92,6 +92,7 @@ def _sync_entry_from_miniflux(entry: object) -> dict[str, object]:
     if not isinstance(entry, dict):
         raise TypeError("Miniflux entry must be a mapping")
     feed = entry.get("feed") if isinstance(entry.get("feed"), dict) else {}
+    category = feed.get("category") if isinstance(feed.get("category"), dict) else {}
     feed_id = entry.get("feed_id", feed.get("id"))
     content = entry.get("content")
     result: dict[str, object] = {
@@ -100,6 +101,10 @@ def _sync_entry_from_miniflux(entry: object) -> dict[str, object]:
         "url": str(entry["url"]),
         "title": str(entry["title"]),
     }
+    _copy_optional(feed, result, "feed_url")
+    _copy_optional(feed, result, "site_url", destination_key="feed_site_url")
+    _copy_optional(feed, result, "title", destination_key="feed_title")
+    _copy_optional(category, result, "id", destination_key="miniflux_category_id")
     _copy_optional(entry, result, "published_at")
     _copy_optional(entry, result, "author")
     if content:
@@ -107,10 +112,16 @@ def _sync_entry_from_miniflux(entry: object) -> dict[str, object]:
     return result
 
 
-def _copy_optional(source: dict[str, object], destination: dict[str, object], key: str) -> None:
+def _copy_optional(
+    source: dict[str, object],
+    destination: dict[str, object],
+    key: str,
+    *,
+    destination_key: str | None = None,
+) -> None:
     value = source.get(key)
     if value is not None:
-        destination[key] = value
+        destination[destination_key or key] = value
 
 
 def _usable_secret(value: str | None) -> str | None:

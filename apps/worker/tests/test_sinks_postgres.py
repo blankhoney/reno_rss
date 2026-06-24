@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import create_engine, text
 
+from app.db.article_sink import DatabaseArticleSink
 from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
 from app.main import normalize_database_url
@@ -184,6 +185,78 @@ def test_postgres_scoring_and_recommendation_sinks_use_real_schema_types():
     finally:
         score_sink.dispose()
         recommendation_sink.dispose()
+
+
+def test_postgres_article_sink_creates_miniflux_feed_before_fk_writes():
+    database_url = os.environ.get("WORKER_QUEUE_POSTGRES_TEST_URL")
+    if not database_url:
+        pytest.skip("set WORKER_QUEUE_POSTGRES_TEST_URL to run the real Postgres sink test")
+
+    _run_api_command(database_url, "alembic", "upgrade", "head")
+
+    normalized_url = normalize_database_url(database_url) or database_url
+    engine = create_engine(normalized_url, pool_pre_ping=True)
+    sink = DatabaseArticleSink(engine=engine)
+    base_id = uuid4().int % 1_000_000_000 + 2_000_000
+    remote_feed_id = base_id
+    feed_url = f"https://example.com/miniflux/{base_id}.xml"
+
+    try:
+        local_feed_id = sink.upsert_feed(
+            {
+                "feed_id": remote_feed_id,
+                "feed_url": feed_url,
+                "feed_title": "Miniflux Feed",
+                "feed_site_url": f"https://example.com/miniflux/{base_id}",
+            }
+        )
+        article_id = sink.upsert_article(
+            {
+                "primary_feed_id": local_feed_id,
+                "title": "Miniflux article",
+                "url": f"https://example.com/miniflux/{base_id}/article",
+                "canonical_url": f"https://example.com/miniflux/{base_id}/article",
+            }
+        )
+        sink.upsert_article_source(
+            {
+                "article_id": article_id,
+                "feed_id": local_feed_id,
+                "miniflux_entry_id": base_id + 1,
+                "miniflux_category_id": 9,
+                "source_url": f"https://example.com/miniflux/{base_id}/article",
+                "source_title": "Miniflux article",
+            }
+        )
+
+        with engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT f.id AS feed_id, f.miniflux_feed_id, f.feed_url,
+                               a.primary_feed_id, s.feed_id AS source_feed_id,
+                               s.miniflux_category_id
+                        FROM feeds f
+                        JOIN articles a ON a.primary_feed_id = f.id
+                        JOIN article_sources s ON s.article_id = a.id
+                        WHERE a.id = :article_id;
+                        """
+                    ),
+                    {"article_id": article_id},
+                )
+                .mappings()
+                .one()
+            )
+
+        assert row["feed_id"] == local_feed_id
+        assert row["miniflux_feed_id"] == remote_feed_id
+        assert row["feed_url"] == feed_url
+        assert row["primary_feed_id"] == local_feed_id
+        assert row["source_feed_id"] == local_feed_id
+        assert row["miniflux_category_id"] == 9
+    finally:
+        sink.dispose()
 
 
 def _seed_real_schema_fixture(engine):

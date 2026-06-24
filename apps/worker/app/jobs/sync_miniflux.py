@@ -6,6 +6,8 @@ TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
 
 
 class ArticleSink(Protocol):
+    def upsert_feed(self, feed: dict[str, object]) -> int: ...
+
     def upsert_article(self, article: dict[str, object]) -> int: ...
 
     def upsert_article_source(self, source: dict[str, object]) -> None: ...
@@ -49,8 +51,9 @@ def sync_miniflux_entries(payload: dict[str, object], sink: ArticleSink) -> dict
     }
 
     for entry in entries:
-        feed_id = _required_int(entry, "feed_id")
+        miniflux_feed_id = _required_int(entry, "feed_id")
         miniflux_entry_id = _required_int(entry, "miniflux_entry_id")
+        feed_id = sink.upsert_feed(_feed_from_entry(entry, miniflux_feed_id))
         source_key = (feed_id, miniflux_entry_id)
         if source_key in seen_source_keys:
             counts["source_duplicates_skipped"] += 1
@@ -78,6 +81,7 @@ def sync_miniflux_entries(payload: dict[str, object], sink: ArticleSink) -> dict
                 "article_id": article_id,
                 "feed_id": feed_id,
                 "miniflux_entry_id": miniflux_entry_id,
+                "miniflux_category_id": entry.get("miniflux_category_id"),
                 "source_url": url,
                 "source_title": title,
                 "published_at": entry.get("published_at"),
@@ -87,6 +91,15 @@ def sync_miniflux_entries(payload: dict[str, object], sink: ArticleSink) -> dict
         counts["sources_upserted"] += 1
 
     return counts
+
+
+def _feed_from_entry(entry: dict[str, object], feed_id: int) -> dict[str, object]:
+    return {
+        "feed_id": feed_id,
+        "feed_url": entry.get("feed_url"),
+        "feed_title": entry.get("feed_title"),
+        "feed_site_url": entry.get("feed_site_url"),
+    }
 
 
 def canonicalize_url(url: str) -> str:

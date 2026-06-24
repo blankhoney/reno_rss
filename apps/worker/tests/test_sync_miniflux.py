@@ -3,9 +3,14 @@ from app.jobs.sync_miniflux import run_sync_miniflux_entries, sync_miniflux_entr
 
 class RecordingSink:
     def __init__(self) -> None:
+        self.feeds: list[dict[str, object]] = []
         self.articles: list[dict[str, object]] = []
         self.sources: list[dict[str, object]] = []
         self._article_ids: dict[object, int] = {}
+
+    def upsert_feed(self, feed: dict[str, object]) -> int:
+        self.feeds.append(dict(feed))
+        return int(feed["feed_id"])
 
     def upsert_article(self, article: dict[str, object]) -> int:
         self.articles.append(dict(article))
@@ -139,3 +144,42 @@ def test_run_sync_fetches_entries_from_client_when_payload_has_no_entries():
     assert result["entries_seen"] == 1
     assert result["articles_upserted"] == 1
     assert sink.articles[0]["title"] == "Fetched entry"
+
+
+def test_sync_resolves_miniflux_feed_to_local_feed_before_article_and_source():
+    class ResolvingSink(RecordingSink):
+        def upsert_feed(self, feed: dict[str, object]) -> int:
+            self.feeds.append(dict(feed))
+            return int(feed["feed_id"]) + 700
+
+    sink = ResolvingSink()
+
+    result = sync_miniflux_entries(
+        {
+            "entries": [
+                {
+                    "feed_id": 31,
+                    "feed_url": "https://example.com/feed.xml",
+                    "feed_title": "Example Feed",
+                    "miniflux_entry_id": 101,
+                    "miniflux_category_id": 9,
+                    "url": "https://example.com/post",
+                    "title": "Entry title",
+                }
+            ]
+        },
+        sink,
+    )
+
+    assert result["articles_upserted"] == 1
+    assert sink.feeds == [
+        {
+            "feed_id": 31,
+            "feed_url": "https://example.com/feed.xml",
+            "feed_title": "Example Feed",
+            "feed_site_url": None,
+        }
+    ]
+    assert sink.articles[0]["primary_feed_id"] == 731
+    assert sink.sources[0]["feed_id"] == 731
+    assert sink.sources[0]["miniflux_category_id"] == 9
