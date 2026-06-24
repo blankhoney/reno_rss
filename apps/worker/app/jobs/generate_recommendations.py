@@ -124,11 +124,19 @@ def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[o
 
 
 def _load_online_ranking_module() -> ModuleType:
-    repo_root = Path(__file__).resolve().parents[4]
-    ranking_path = repo_root / "apps" / "api" / "app" / "domain" / "ranking.py"
+    ranking_path = _ranking_module_path(Path(__file__).resolve())
     spec = importlib.util.spec_from_file_location("ai_reader_api_ranking", ranking_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load B4 ranking module from {ranking_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _ranking_module_path(start: Path) -> Path:
+    relative_path = Path("apps/api/app/domain/ranking.py")
+    for parent in start.parents:
+        candidate = parent / relative_path
+        if candidate.exists():
+            return candidate
+    raise ImportError(f"Cannot find B4 ranking module relative to {start}")

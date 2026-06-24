@@ -201,7 +201,7 @@ jobs:
       - name: Build Docker images
         run: |
           docker build -f apps/api/Dockerfile apps/api
-          docker build -f apps/worker/Dockerfile apps/worker
+          docker build -f apps/worker/Dockerfile .
           docker build -f apps/reader-web/Dockerfile apps/reader-web
 
       - name: Check whitespace
@@ -311,7 +311,7 @@ jobs:
       - name: Build and push ai-reader-worker
         uses: docker/build-push-action@v6
         with:
-          context: apps/worker
+          context: .
           file: apps/worker/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.worker_tags }}

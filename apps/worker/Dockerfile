@@ -2,8 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY pyproject.toml ./
-COPY app/ app/
+COPY apps/worker/pyproject.toml ./
+COPY apps/worker/app/ app/
+COPY apps/api/app/domain/ranking.py apps/api/app/domain/ranking.py
 
 RUN pip install --no-cache-dir .
 

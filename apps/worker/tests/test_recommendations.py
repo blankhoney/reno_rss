@@ -2,7 +2,11 @@ from dataclasses import dataclass
 
 import pytest
 
-from app.jobs.generate_recommendations import RecommendationContext, generate_recommendations
+from app.jobs.generate_recommendations import (
+    RecommendationContext,
+    _ranking_module_path,
+    generate_recommendations,
+)
 
 
 @dataclass(frozen=True)
@@ -208,6 +212,17 @@ def test_generate_recommendations_rejects_non_b4_algorithm_version():
 
     with pytest.raises(ValueError, match="algorithm_version"):
         generate_recommendations({"algorithm_version": "b4.experiment"}, sink, lambda context: [])
+
+
+def test_ranking_module_path_scans_parent_roots_for_container_layout(tmp_path):
+    container_file = tmp_path / "app" / "jobs" / "generate_recommendations.py"
+    container_file.parent.mkdir(parents=True)
+    container_file.write_text("# worker module placeholder")
+    ranking_path = tmp_path / "apps" / "api" / "app" / "domain" / "ranking.py"
+    ranking_path.parent.mkdir(parents=True)
+    ranking_path.write_text("# ranking module placeholder")
+
+    assert _ranking_module_path(container_file) == ranking_path
 
 
 def test_database_recommendation_sink_builds_context_and_writes_edition():

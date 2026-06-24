@@ -68,7 +68,8 @@ services:
   ai-reader-worker:
     image: ${AI_READER_WORKER_IMAGE:-myrss-ai-reader-worker:local}
     build:
-      context: ../../apps/worker
+      context: ../..
+      dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
     depends_on:
       - postgres
