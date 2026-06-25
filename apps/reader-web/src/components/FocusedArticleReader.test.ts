@@ -62,7 +62,8 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.match(html, /返回工作台/);
   assert.match(html, /打开原文/);
   assert.match(html, /刷新全文/);
-  assert.match(html, /实时评分/);
+  assert.doesNotMatch(html, /实时评分/);
+  assert.match(html, /管理控制台创建评分批次/);
   assert.match(html, /加入候选/);
   assert.match(html, /立项/);
   assert.match(html, /标记已读/);

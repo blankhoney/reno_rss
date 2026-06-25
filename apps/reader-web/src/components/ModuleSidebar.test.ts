@@ -23,12 +23,12 @@ test("ModuleSidebar groups the navigation and keeps the active module visible", 
   assert.match(html, /rel="noreferrer noopener"/);
 });
 
-test("ModuleSidebar enables feed management", () => {
+test("ModuleSidebar exposes the FastAPI admin console as the management surface", () => {
   const html = renderToStaticMarkup(
-    React.createElement(ModuleSidebar, { currentModule: "feeds" }),
+    React.createElement(ModuleSidebar, { currentModule: "admin" }),
   );
 
-  assert.match(html, /订阅源管理/);
+  assert.match(html, /管理控制台/);
   assert.match(html, /aria-current="page"/);
-  assert.doesNotMatch(html, /即将推出/);
+  assert.doesNotMatch(html, /订阅源管理/);
 });

@@ -1,5 +1,4 @@
 # Code Owners — changes to these paths require review from @blankhoney
 
 infra/**                      @blankhoney
-apps/scorer-worker/**         @blankhoney
 .github/workflows/**          @blankhoney

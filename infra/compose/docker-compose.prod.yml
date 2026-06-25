@@ -35,11 +35,7 @@ services:
       data: {}
 
   reader-web:
-    environment:
-      MINIFLUX_API_BASE_URL: http://miniflux-prod:8080
-      SCORING_SERVICE_URL: http://api-prod:8000
     networks:
       app:
         aliases:
           - web-prod
-      data: {}

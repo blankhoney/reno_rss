@@ -83,14 +83,6 @@ staging-ai-reader.{$DOMAIN} {
         reverse_proxy {$AI_READER_STAGING_WEB_UPSTREAM}
     }
 
-    @demo_login {
-        method POST
-        path /api/demo-login
-    }
-    handle @demo_login {
-        reverse_proxy {$AI_READER_STAGING_WEB_UPSTREAM}
-    }
-
     @demo_public_assets {
         method GET HEAD
         path /_next/static/* /favicon.ico

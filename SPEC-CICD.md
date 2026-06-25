@@ -27,20 +27,20 @@ This specification defines the target delivery behavior for normal project devel
 
 - As the maintainer, when I push to `main`, staging should update automatically after checks pass.
 - As the maintainer, I should not SSH into the VPS for normal staging deploys.
-- As a visitor, the resume demo URL should continue to show the public landing page and allow guest entry.
+- As a visitor, the staging app URL should continue to show the public AI Reader session shell without exposing protected reader data.
 - As the maintainer, production should only change after a manual GitHub deployment approval.
 
 ## Functional Requirements
 
 - `ci.yml` must run Python tests/lint, reader-web tests/build, Compose validation, and Trivy high/critical scanning.
-- `ci.yml` must build and push `reader-web` and `scorer-worker` images to GHCR with `sha-<short_sha>` tags.
+- `ci.yml` must build and push `ai-reader-web`, `ai-reader-api`, and `ai-reader-worker` images to GHCR with `sha-<short_sha>` tags.
 - Same-repository PRs and `main` pushes must deploy staging after images are published.
 - Fork PRs must not deploy and must not read deployment secrets.
 - `deploy-staging.yml` remains as a manual fallback by explicit image tag.
 - `deploy-prod.yml` remains manual and must use the `production` environment.
 - `rollback.yml` continues to deploy a previous image tag through the same remote deploy path.
 - Remote deploy must stop if the VPS tracked worktree is dirty.
-- Staging smoke tests must verify containers, health endpoints, public demo landing, and protected business route boundaries with GET-only/non-mutating checks. They must not open reader pages or APIs that can mark articles read, fetch content, sync, score, ask an agent, or mutate business data.
+- Staging smoke tests must verify containers, health endpoints, the public AI Reader auth shell, and protected business route boundaries with GET-only/non-mutating checks. They must not open reader pages or APIs that can mark articles read, fetch content, sync, score, ask an agent, or mutate business data.
 
 ## Non-Functional Requirements
 
@@ -61,9 +61,9 @@ This specification defines the target delivery behavior for normal project devel
 ## Acceptance Criteria
 
 - A `main` push produces a `ci` workflow where `deploy staging` runs instead of being skipped.
-- The workflow publishes both GHCR images with the expected `sha-<short_sha>` tag.
+- The workflow publishes all three GHCR images with the expected `sha-<short_sha>` tag.
 - The staging deploy job completes remote deploy and smoke test successfully.
-- `https://staging-ai-reader.blankhoney.xyz/` renders the public demo landing.
+- `https://staging-ai-reader.blankhoney.xyz/` renders the public AI Reader auth/session shell.
 - `https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh` does not expose the business UI to an unauthenticated request.
 - Production remains unchanged unless `deploy-prod.yml` is manually run and approved.
 

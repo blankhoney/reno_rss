@@ -6,7 +6,6 @@ import {
   filterArticlesForModule,
   filterHiddenFeedsForModule,
   articleNeedsOriginalContentFetch,
-  minifluxEntryFilterForModule,
   MODULE_IDS,
   resolveArticlesListModuleId,
   resolveArticleSortId,
@@ -80,34 +79,6 @@ function article(
     lastReadAt: input.lastReadAt ?? null,
   };
 }
-
-test("minifluxEntryFilterForModule fetches all statuses for latest and scored modules", () => {
-  assert.deepEqual(minifluxEntryFilterForModule("all", 25), {
-    status: "all",
-    starred: undefined,
-    limit: 25,
-  });
-  assert.deepEqual(minifluxEntryFilterForModule("technical", 25), {
-    status: "all",
-    starred: undefined,
-    limit: 25,
-  });
-  assert.deepEqual(minifluxEntryFilterForModule("starred", 25), {
-    status: "all",
-    starred: true,
-    limit: 25,
-  });
-  assert.deepEqual(minifluxEntryFilterForModule("read-later", 25), {
-    status: "all",
-    starred: undefined,
-    limit: 25,
-  });
-  assert.deepEqual(minifluxEntryFilterForModule("project", 25), {
-    status: "all",
-    starred: undefined,
-    limit: 25,
-  });
-});
 
 test("resolveArticleSortId defaults and rejects unknown explicit values", () => {
   assert.deepEqual(resolveArticleSortId(false, null), { ok: true, sortId: "default" });
@@ -193,6 +164,19 @@ test("filterArticlesForModule keeps only read-later items for read-later module"
     "read-later",
   );
   assert.deepEqual(filtered.map((item) => item.id), [2]);
+});
+
+test("filterArticlesForModule applies v0.4 read and saved state locally", () => {
+  const items = [
+    article(1, { status: "unread", starred: false, readLater: false }),
+    article(2, { status: "read", starred: false, readLater: false }),
+    article(3, { status: "unread", starred: true, readLater: true }),
+  ];
+
+  assert.deepEqual(filterArticlesForModule(items, "unread").map((item) => item.id), [1, 3]);
+  assert.deepEqual(filterArticlesForModule(items, "read").map((item) => item.id), [2]);
+  assert.deepEqual(filterArticlesForModule(items, "starred").map((item) => item.id), [3]);
+  assert.deepEqual(filterArticlesForModule(items, "read-later").map((item) => item.id), [3]);
 });
 
 test("filterHiddenFeedsForModule hides feeds only in default modules", () => {

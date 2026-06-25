@@ -5,23 +5,25 @@ import { useRouter } from "next/navigation";
 import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import type { ArticleContentFetchResult } from "@/lib/articles/contentQuality";
+import {
+  enqueueFetchContentJob,
+  pollJobUntilTerminal,
+  updateArticleState,
+  type ApiJob,
+} from "@/lib/api/articles";
 
-type ActionKey = "score" | "fetchContent" | "candidate" | "project" | "read";
+type ActionKey = "fetchContent" | "candidate" | "project" | "read";
 
 type ActionLink = {
   href: string;
   label: string;
 };
 
-type FetchContentResponse = {
-  article?: Article;
-  fetchResult?: ArticleContentFetchResult;
-  error?: string;
-};
+export const ARTICLE_DATA_CHANGED_EVENT = "ai-reader:articles-changed";
 
-function projectHref(entryId: number, lang: SummaryLangId): string {
+function savedHref(entryId: number, lang: SummaryLangId): string {
   const qs = new URLSearchParams({
-    module: "project",
+    module: "starred",
     sort: "default",
     lang,
     article: String(entryId),
@@ -45,32 +47,41 @@ export function contentFetchResultMessage(result: ArticleContentFetchResult): st
   return "全文抓取失败，请打开原文阅读";
 }
 
+function resultString(result: unknown, key: string): string | null {
+  if (result === null || typeof result !== "object" || Array.isArray(result)) return null;
+  const value = (result as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
+}
+
+export function contentFetchJobMessage(job: ApiJob): string {
+  if (job.status === "failed") return "全文抓取失败，请打开原文阅读";
+
+  const outcome = resultString(job.result, "outcome");
+  const quality = resultString(job.result, "content_quality") ?? resultString(job.result, "quality");
+  if (outcome === "applied" && quality === "full") {
+    return "全文已刷新，已切换到较完整正文";
+  }
+  if (outcome === "applied") {
+    return "已获取到更多内容，但当前仍可能只有 RSS 片段";
+  }
+  if (outcome === "rejected") {
+    return "源站返回错误页或登录墙，当前仍显示 RSS 片段";
+  }
+  if (outcome === "unchanged" || outcome === "fallback") {
+    return "已尝试刷新全文，当前仍可能只有 RSS 片段";
+  }
+  return "全文刷新请求已完成";
+}
+
 function articleActionErrorMessage(error: string): string {
   if (error === "article_not_candidate") return "请先加入候选再立项";
-  if (error === "manual_rescore_disabled") return "手动重评已关闭";
   if (error === "entry_not_found") return "文章不存在或不在当前 Miniflux 实例";
   if (error === "fetch_content_failed") return "全文抓取失败，请打开原文阅读";
   return error.trim() || "操作失败";
 }
 
-async function postArticleAction<TBody = unknown, TResponse = unknown>(
-  entryId: number,
-  path: string,
-  body?: TBody,
-): Promise<TResponse> {
-  const response = await fetch(`/api/articles/${entryId}/${path}`, {
-    method: "POST",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = (await response.json().catch(() => null)) as
-    | ({ error?: unknown } & TResponse)
-    | null;
-
-  if (!response.ok) {
-    throw new Error(typeof data?.error === "string" ? data.error : "操作失败");
-  }
-  return (data ?? {}) as TResponse;
+function dispatchArticleDataChanged(articleId: number) {
+  window.dispatchEvent(new CustomEvent(ARTICLE_DATA_CHANGED_EVENT, { detail: { articleId } }));
 }
 
 export function useArticleActions(article: Article | null, currentLang: SummaryLangId) {
@@ -96,6 +107,7 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     try {
       const message = await request();
       setActionMessage(message);
+      dispatchArticleDataChanged(article.id);
       router.refresh();
     } catch (error) {
       const raw = error instanceof Error ? error.message : "操作失败";
@@ -109,50 +121,34 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     actionMessage,
     actionError,
     actionLink,
-    isScoring: pendingAction === "score",
     isFetchingContent: pendingAction === "fetchContent",
     isTogglingCandidate: pendingAction === "candidate",
     isProjecting: pendingAction === "project",
     isMarkingRead: pendingAction === "read",
-    scoreNow: () =>
-      run("score", async () => {
-        if (article == null) return "";
-        await postArticleAction(article.id, "score", { force: true });
-        return "评分已更新";
-      }),
     refreshFullContent: () =>
       run("fetchContent", async () => {
         if (article == null) return "";
-        try {
-          const data = await postArticleAction<undefined, FetchContentResponse>(
-            article.id,
-            "fetch-content",
-          );
-          return data.fetchResult
-            ? contentFetchResultMessage(data.fetchResult)
-            : "全文刷新请求已完成";
-        } catch (error) {
-          const raw = error instanceof Error ? error.message : "fetch_content_failed";
-          throw new Error(raw);
-        }
+        const created = await enqueueFetchContentJob(article.id);
+        const job = await pollJobUntilTerminal(created.jobId);
+        return contentFetchJobMessage(job);
       }),
     toggleCandidate: () =>
       run("candidate", async () => {
         if (article == null) return "";
-        await postArticleAction(article.id, "star");
+        await updateArticleState(article.id, { saved: !article.starred });
         return article.starred ? "已移出候选" : "已加入候选";
       }),
     enqueueProject: () =>
       run("project", async () => {
         if (article == null) return "";
-        await postArticleAction(article.id, "project");
-        setActionLink({ href: projectHref(article.id, currentLang), label: "查看已立项" });
-        return "已立项";
+        await updateArticleState(article.id, { saved: true });
+        setActionLink({ href: savedHref(article.id, currentLang), label: "查看候选" });
+        return "已加入候选";
       }),
     markRead: () =>
       run("read", async () => {
         if (article == null) return "";
-        await postArticleAction(article.id, "read");
+        await updateArticleState(article.id, { status: "read", readProgress: 1 });
         return "已标记为已读";
       }),
   };

@@ -10,10 +10,8 @@
     "test": "node --test --import tsx 'src/**/*.test.ts'"
   },
   "dependencies": {
-    "@types/pg": "latest",
     "motion": "^12.38.0",
     "next": "^16.2.7",
-    "pg": "latest",
     "react": "latest",
     "react-dom": "latest",
     "sanitize-html": "^2.17.4",

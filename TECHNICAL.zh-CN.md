@@ -6,14 +6,15 @@
 
 ## 系统概览
 
-AI Reader 是一个自托管 RSS 研究系统，运行时由六类服务组成：
+AI Reader 是一个自托管 RSS 研究系统，运行时由七类服务组成：
 
-- **Caddy**：公网 HTTPS 入口，负责反向代理和路由级鉴权边界。
-- **Authelia**：负责登录、2FA、forward-auth 和 staging demo 账号访问策略。
-- **Miniflux**：存储订阅源、文章条目和 RSS 原始状态。
-- **reader-web**：Next.js 应用，提供 AI Reader 页面和服务端 API routes。
-- **scorer-worker**：Python HTTP 服务，负责文章评分和 Miniflux webhook 处理。
-- **PostgreSQL**：存储 Miniflux 数据，以及评分、阅读状态、设置、立项队列和订阅源偏好。
+- **Caddy**：公网 HTTPS 入口，负责反向代理和路由边界。
+- **Authelia**：负责登录、2FA、forward-auth，以及 staging 受保护页面的 demo 账号访问策略。
+- **Miniflux**：存储订阅源、文章条目和 RSS 上游状态。
+- **reader-web**：Next.js 应用，渲染 AI Reader UI，并通过同源 `/api/*` 调用 FastAPI 后端。
+- **ai-reader-api**：FastAPI 服务，负责 session、文章状态、推荐、job、管理员 API 和文章问答 SSE。
+- **ai-reader-worker**：Python 队列 worker，负责 Miniflux 同步、正文补全、评分批次和推荐生成。
+- **PostgreSQL**：存储 Miniflux 数据，以及 AI Reader session、job、评分、推荐、文章状态和订阅源治理数据。
 
 ## 请求链路
 
@@ -23,54 +24,69 @@ sequenceDiagram
   participant Caddy
   participant Authelia
   participant Reader as reader-web
-  participant Miniflux
+  participant API as ai-reader-api
+  participant Worker as ai-reader-worker
   participant DB as PostgreSQL
-  participant Scorer as scorer-worker
+  participant Miniflux
   participant LLM as MiniMax
+
+  Browser->>Caddy: GET /
+  Caddy->>Reader: 公开 session shell
+  Reader-->>Browser: 登录/恢复 UI
+
+  Browser->>Caddy: POST /api/auth/login
+  Caddy->>API: 直连 /api/* 路由
+  API->>DB: 创建或刷新 app session
+  API-->>Browser: session cookie + recovery code
 
   Browser->>Caddy: GET /?module=all
   Caddy->>Authelia: forward-auth
   Authelia-->>Caddy: 授权用户 headers
   Caddy->>Reader: reverse proxy
-  Reader->>Miniflux: 读取文章列表
-  Reader->>DB: 读取评分/设置/偏好
+  Reader->>API: GET /api/recommendations/latest 和 /api/articles
+  API->>DB: 读取文章投影、状态、评分和推荐
   Reader-->>Browser: AI Reader 页面
 
-  Browser->>Reader: POST /api/articles/{id}/score
-  Reader->>Scorer: POST /internal/score-entry
-  Scorer->>Miniflux: 读取文章
-  Scorer->>LLM: 评分 prompt
-  Scorer->>DB: 持久化评分
-  Scorer-->>Reader: 返回结果
+  Browser->>API: POST /api/admin/scoring-batches/{id}/start
+  API->>DB: 入队 score_articles job
+  Worker->>DB: claim job
+  Worker->>Miniflux: 同步或抓取源站正文
+  Worker->>LLM: 真实 provider 下执行评分 prompt
+  Worker->>DB: 持久化评分和推荐版次
+  Browser->>API: POST /api/articles/{id}/ask
+  API-->>Browser: SSE 回答
 ```
 
 ## 数据边界
 
-- Miniflux 是订阅源、文章、已读状态、星标状态和原始 URL 的事实数据源。
-- AI Reader 只保存派生数据和本地工作流状态：
+- Miniflux 是订阅源、文章、原始 URL 和 RSS metadata 的上游事实数据源。
+- AI Reader 保存本地 session、文章投影和派生工作流状态：
   - 文章评分和评分理由
-  - 中文摘要和原文摘要
-  - 评分设置
-  - 稍后读状态
-  - 已立项队列
+  - 中文摘要和源站正文质量
+  - 已读、收藏和阅读进度状态
+  - 推荐版次和 Top10 排名
+  - job 队列状态
   - 订阅源偏好和隐藏状态
-- scorer-worker 和 reader-web 共享评分数据库，但网络职责分离：reader-web 面向用户请求，scorer-worker 面向内部评分和 webhook。
+- `reader-web` 不再直接读取 Miniflux 或 PostgreSQL。它的数据边界是 `apps/reader-web/src/lib/api` 下的 FastAPI generated client/adapters。
+- Caddy 对 `/api/*` 不走 Authelia，而是直接转到 FastAPI；FastAPI 必须通过 `require_user` 和 `require_admin` fail closed。
 
-## LLM 评分链路
+## Worker 与 LLM 链路
 
-scorer-worker 暴露三个内部接口：
+队列 worker 处理持久化 job，不暴露 HTTP 写接口。主要 job 类型是：
 
-- `GET /healthz`
-- `POST /internal/score-entry`
-- `POST /webhooks/miniflux`
+- `sync_miniflux`
+- `fetch_content`
+- `score_articles`
+- `generate_recommendations`
 
-评分由事件或用户动作触发：
+评分通过 FastAPI 管理控制台触发：
 
-- Miniflux webhook 可触发新文章评分
-- 用户可手动重评单篇文章
-- UI 可按当前列表顺序重评前 N 篇，并在前端限制并发
+- 管理员入队同步或评分批次
+- FastAPI 把 job 写入 PostgreSQL
+- worker claim job 并执行 Miniflux、正文抓取、LLM 和推荐生成工作
+- reader-web 轮询 `/api/jobs/{id}`，再读取相应文章、批次或推荐状态
 
-LLM 输出会被解析为结构化分数、摘要和维度理由。baseline/error 行会被视为评分失败，不参与评分排序展示。
+LLM 输出会被解析为 v0.4 八维评分（`topic_relevance`、`information_density`、`source_quality`、`novelty`、`timeliness`、`actionability`、`reading_cost_fit`、`risk_uncertainty`）、摘要和理由。CI 与 staging proof 默认使用 `LLM_PROVIDER=mock`，除非 operator 明确启用真实 provider。
 
 ## 内容渲染安全
 
@@ -83,19 +99,19 @@ LLM 输出会被解析为结构化分数、摘要和维度理由。baseline/erro
 
 staging demo 的公开面保持最小：
 
-- 空 query 的 `GET /` 展示公开 Landing。
-- `POST /api/demo-login` 执行同源 demo 登录。
-- `/_next/static/*` 和 `/favicon.ico` 对 Landing 公开。
-- `/?module=all`、`/read/*`、`/api/articles*`、`/api/agent*` 等业务路径仍必须通过 Authelia。
+- 空 query 的 `GET /` 展示公开 AI Reader session shell。
+- `/_next/static/*` 和 `/favicon.ico` 对该 shell 公开。
+- `/?module=all`、`/read/*` 等业务页面路径仍通过 Authelia forward-auth。
+- `/api/*` 直接转到 FastAPI。匿名文章/管理员请求必须在 FastAPI 内 fail closed；登录和恢复由 `/api/auth/login`、`/api/auth/recover` 处理。
 
-`/api/demo-login` 只从服务端环境变量读取 demo 凭据，校验 staging origin，调用 Authelia `/api/firstfactor`，转发 Authelia session cookie，并跳转到受保护工作台。该接口不接受客户端传入用户名、密码或跳转目标。
+公开 shell 要求输入显示名称，并由 FastAPI 返回一次性恢复码。它不再使用已退役的 reader-web 一键 demo route。
 
 ## CI/CD 与部署
 
 交付链路：
 
-1. GitHub Actions 执行 Python test/lint、reader-web test/build、Compose 校验和 Trivy 扫描。
-2. 构建 `reader-web` 和 `scorer-worker` GHCR 镜像。
+1. GitHub Actions 执行 API test/lint、worker test/lint、OpenAPI drift 检查、reader-web test/build、Compose 校验、部署脚本检查和 Trivy 扫描。
+2. 构建 `ai-reader-web`、`ai-reader-api` 和 `ai-reader-worker` GHCR 镜像。
 3. staging 在同仓库 PR 和 `main` push 后自动部署。
 4. production 只支持手动部署，建议通过 GitHub `production` environment 审批。
 5. rollback 使用旧 GHCR 镜像 tag，复用同一套远程部署脚本。
@@ -108,9 +124,9 @@ VPS 上的 `.env` 和 secret 文件由服务器本地保存。GitHub Actions 只
 
 - 真实 `.env`、Authelia 用户库、API key、SSH key 不进入 Git。
 - Git 中的 Authelia 用户库只是占位模板。
-- Demo 凭据是公开 staging 体验凭据，不是生产 secret。
-- scorer-worker 内部写接口不应暴露到公网。
-- Caddy 和 Authelia 是公网访问控制边界；reader-web 默认业务路径已由边缘层保护。
+- staging demo 的 Authelia 标签是公开 staging 辅助信息，不是生产 secret。
+- FastAPI 是 `/api/*` 授权责任边界；Caddy 会把这些请求直接转给 API 服务。
+- Caddy 和 Authelia 仍是受保护页面路由的访问控制边界。
 - CI 应对 high/critical 依赖漏洞失败；除非有明确 review 结论，否则不保留漏洞忽略项。
 
 ## 验证命令
@@ -122,7 +138,12 @@ npm run build
 ```
 
 ```bash
-cd apps/scorer-worker
+cd apps/api
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+```
+
+```bash
+cd apps/worker
 python -m pytest tests -q
 ```
 

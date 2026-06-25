@@ -1,11 +1,11 @@
-import { FocusedArticleReader } from "@/components/FocusedArticleReader";
+import { AuthSessionGate } from "@/components/AuthSessionGate";
+import { FocusedArticleScreen } from "@/components/FocusedArticleScreen";
 import {
   resolveArticleSortId,
   resolveSummaryLangId,
   type ArticleSortId,
   type SummaryLangId,
 } from "@/lib/articles/service";
-import { getArticleForReader } from "@/lib/articles/server";
 
 export const dynamic = "force-dynamic";
 
@@ -64,28 +64,11 @@ export default async function FocusReadPage({ params, searchParams }: PageProps)
     );
   }
 
-  const article = await getArticleForReader(articleId);
   const returnHref = workbenchHref(articleId, currentModule, currentSort, currentLang);
 
-  if (article == null) {
-    return (
-      <main className="focusReader">
-        <a className="readerToolbarBtn" href={returnHref}>
-          返回工作台
-        </a>
-        <div className="readerEmpty">
-          <p className="readerEmptyTitle">文章不存在</p>
-          <p className="readerEmptyHint">Miniflux 没有返回这篇文章。</p>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <FocusedArticleReader
-      article={article}
-      currentLang={currentLang}
-      returnHref={returnHref}
-    />
+    <AuthSessionGate>
+      <FocusedArticleScreen articleId={articleId} currentLang={currentLang} returnHref={returnHref} />
+    </AuthSessionGate>
   );
 }

@@ -95,24 +95,8 @@ services:
     build:
       context: ../../apps/reader-web
     restart: unless-stopped
-    environment:
-      MINIFLUX_API_BASE_URL: ${MINIFLUX_API_BASE_URL}
-      MINIFLUX_USERNAME: ${MINIFLUX_ADMIN}
-      MINIFLUX_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD}
-      SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
-      READER_TENANT_ID: ${READER_TENANT_ID:-default}
-      READER_MINIFLUX_USER_ID: ${READER_MINIFLUX_USER_ID}
-      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
-      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
-      MINIMAX_MODEL: ${MINIMAX_MODEL}
-      SCORING_SERVICE_URL: ${SCORING_SERVICE_URL:-http://ai-reader-api:8000}
-      SCORING_SERVICE_USERNAME: ${SCORER_WEBHOOK_USERNAME:-}
-      SCORING_SERVICE_PASSWORD: ${SCORER_WEBHOOK_PASSWORD:-}
-      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-none}
-      WEB_SEARCH_API_KEY: ${WEB_SEARCH_API_KEY}
     networks:
       - app          # Caddy 通过 app 网络访问 reader-web
-      - data         # 读取 scoring 数据库
 
 networks:
   app:

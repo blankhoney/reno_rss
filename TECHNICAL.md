@@ -6,14 +6,15 @@ This document describes the public, repository-tracked architecture of Reno RSS 
 
 ## System Overview
 
-AI Reader is a self-hosted RSS research system with six runtime services:
+AI Reader is a self-hosted RSS research system with seven runtime services:
 
-- **Caddy** terminates public HTTPS traffic and applies route-level auth boundaries.
-- **Authelia** provides login, 2FA, forward-auth, and the staging demo account policy.
+- **Caddy** terminates public HTTPS traffic and applies route-level routing boundaries.
+- **Authelia** provides login, 2FA, forward-auth, and the staging demo account policy for protected web pages.
 - **Miniflux** stores feeds, entries, and upstream RSS state.
-- **reader-web** is a Next.js app that renders the AI Reader UI and exposes server-side API routes.
-- **scorer-worker** is a Python HTTP service for article scoring and Miniflux webhook processing.
-- **PostgreSQL** stores Miniflux data plus scoring, reader state, settings, project queue, and feed preferences.
+- **reader-web** is a Next.js app that renders the AI Reader UI and talks to the FastAPI backend through same-origin `/api/*`.
+- **ai-reader-api** is a FastAPI service for sessions, article state, recommendations, jobs, admin APIs, and article ask SSE.
+- **ai-reader-worker** is a Python queue worker for Miniflux sync, content fetching, scoring batches, and recommendation generation.
+- **PostgreSQL** stores Miniflux data plus AI Reader sessions, jobs, scores, recommendations, article state, and feed governance data.
 
 ## Request Flow
 
@@ -23,54 +24,69 @@ sequenceDiagram
   participant Caddy
   participant Authelia
   participant Reader as reader-web
-  participant Miniflux
+  participant API as ai-reader-api
+  participant Worker as ai-reader-worker
   participant DB as PostgreSQL
-  participant Scorer as scorer-worker
+  participant Miniflux
   participant LLM as MiniMax
+
+  Browser->>Caddy: GET /
+  Caddy->>Reader: public session shell
+  Reader-->>Browser: login/recovery UI
+
+  Browser->>Caddy: POST /api/auth/login
+  Caddy->>API: direct /api/* route
+  API->>DB: create or refresh app session
+  API-->>Browser: session cookie + recovery code
 
   Browser->>Caddy: GET /?module=all
   Caddy->>Authelia: forward-auth
   Authelia-->>Caddy: authorized user headers
   Caddy->>Reader: reverse proxy
-  Reader->>Miniflux: list entries
-  Reader->>DB: read scores/settings/preferences
+  Reader->>API: GET /api/recommendations/latest and /api/articles
+  API->>DB: read article projection, state, scores, recommendations
   Reader-->>Browser: AI Reader UI
 
-  Browser->>Reader: POST /api/articles/{id}/score
-  Reader->>Scorer: POST /internal/score-entry
-  Scorer->>Miniflux: fetch entry
-  Scorer->>LLM: score prompt
-  Scorer->>DB: persist score
-  Scorer-->>Reader: result
+  Browser->>API: POST /api/admin/scoring-batches/{id}/start
+  API->>DB: enqueue score_articles job
+  Worker->>DB: claim job
+  Worker->>Miniflux: sync or fetch source content
+  Worker->>LLM: score prompt when provider is real
+  Worker->>DB: persist scores and recommendation edition
+  Browser->>API: POST /api/articles/{id}/ask
+  API-->>Browser: SSE answer
 ```
 
 ## Data Model Boundaries
 
-- Miniflux remains the source of truth for feeds, entries, read state, starred state, and original URLs.
-- AI Reader stores derived or local workflow state:
+- Miniflux remains the upstream source of truth for feeds, entries, original URLs, and RSS metadata.
+- AI Reader stores local sessions, article projections, and derived workflow state:
   - article scores and score reasons
-  - Chinese/original summaries
-  - scoring settings
-  - read-later state
-  - project queue state
+  - Chinese summaries and source-content quality
+  - read, saved, and progress state
+  - recommendation editions and Top10 ranks
+  - job queue state
   - feed preferences and hidden flags
-- The scorer-worker and reader-web share the scoring database but keep network responsibilities separate.
+- `reader-web` does not read Miniflux or PostgreSQL directly. Its data boundary is the generated FastAPI client under `apps/reader-web/src/lib/api`.
+- `/api/*` routes bypass Authelia at Caddy and must fail closed inside FastAPI through `require_user` and `require_admin`.
 
-## LLM Scoring Flow
+## Worker and LLM Flow
 
-The scorer-worker exposes:
+The queue worker handles durable jobs, not HTTP requests. The primary job types are:
 
-- `GET /healthz`
-- `POST /internal/score-entry`
-- `POST /webhooks/miniflux`
+- `sync_miniflux`
+- `fetch_content`
+- `score_articles`
+- `generate_recommendations`
 
-Scoring is event-driven or user-triggered:
+Scoring is triggered from the admin console through FastAPI:
 
-- new entries can be scored by Miniflux webhook
-- a user can manually rescore one article
-- the UI can rescore the first N articles on the current page with client-side concurrency control
+- an admin enqueues a sync or scoring batch
+- FastAPI writes a job to PostgreSQL
+- the worker claims the job and performs Miniflux, content-fetch, LLM, and recommendation work
+- reader-web polls `/api/jobs/{id}` and reads the resulting article, batch, or recommendation state
 
-The LLM response is parsed into structured scores, summaries, and dimension reasons. Baseline/error rows are treated as failed scoring and are hidden from score-based ranking.
+The LLM response is parsed into the v0.4 eight-dimension rubric (`topic_relevance`, `information_density`, `source_quality`, `novelty`, `timeliness`, `actionability`, `reading_cost_fit`, `risk_uncertainty`) plus summaries and reasons. CI and staging proof use `LLM_PROVIDER=mock` unless the operator deliberately enables a real provider.
 
 ## Content and Rendering Safety
 
@@ -83,19 +99,19 @@ The LLM response is parsed into structured scores, summaries, and dimension reas
 
 The staging demo is intentionally narrow:
 
-- `GET /` with an empty query renders a public landing page.
-- `POST /api/demo-login` performs same-origin demo login.
-- `/_next/static/*` and `/favicon.ico` are public for the landing page.
-- Business paths such as `/?module=all`, `/read/*`, `/api/articles*`, and `/api/agent*` still require Authelia.
+- `GET /` with an empty query renders the public AI Reader session shell.
+- `/_next/static/*` and `/favicon.ico` are public for that shell.
+- Business page routes such as `/?module=all` and `/read/*` still pass through Authelia forward-auth.
+- `/api/*` routes go directly to FastAPI. Anonymous article/admin calls must fail closed there; login and recovery are handled by `/api/auth/login` and `/api/auth/recover`.
 
-`/api/demo-login` reads demo credentials from server environment variables, validates the staging origin, calls Authelia `/api/firstfactor`, forwards Authelia session cookies, and redirects to the protected workspace. It does not accept client-provided usernames, passwords, or target URLs.
+The public shell asks for a display name and returns a one-time recovery code from FastAPI. It no longer uses the retired one-click reader-web demo route.
 
 ## CI/CD and Deployment
 
 The delivery path is:
 
-1. GitHub Actions run Python tests/lint, reader-web tests/build, Compose validation, and Trivy scanning.
-2. GHCR images are built for `reader-web` and `scorer-worker`.
+1. GitHub Actions run API tests/lint, worker tests/lint, OpenAPI drift checks, reader-web tests/build, Compose validation, deploy-script checks, and Trivy scanning.
+2. GHCR images are built for `ai-reader-web`, `ai-reader-api`, and `ai-reader-worker`.
 3. Staging is deployed automatically from same-repository PRs and `main` pushes.
 4. Production deploy is manual and should be protected by the GitHub `production` environment.
 5. Rollback uses a previous GHCR image tag with the same remote deploy path.
@@ -108,9 +124,9 @@ The VPS keeps runtime `.env` and secret files locally. GitHub Actions only pass 
 
 - Real `.env`, Authelia users, API keys, and SSH keys must stay out of Git.
 - The tracked Authelia user database is only a placeholder.
-- Demo credentials are public staging credentials, not production secrets.
-- Internal scorer endpoints should not be exposed publicly.
-- Caddy and Authelia are the public access-control boundary; reader-web assumes the edge protects business routes.
+- Staging demo Authelia labels are public staging affordances, not production secrets.
+- FastAPI is the authority for `/api/*` authorization; Caddy routes those requests directly to the API service.
+- Caddy and Authelia remain the page-route access-control boundary for protected web pages.
 - High/critical dependency advisories should fail CI; vulnerability ignores must stay empty unless there is an explicit reviewed reason.
 
 ## Verification Commands
@@ -122,7 +138,12 @@ npm run build
 ```
 
 ```bash
-cd apps/scorer-worker
+cd apps/api
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+```
+
+```bash
+cd apps/worker
 python -m pytest tests -q
 ```
 
