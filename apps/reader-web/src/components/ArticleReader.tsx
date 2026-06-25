@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import type { Article } from "@/lib/articles/types";
-import { createThinkTagFilter, extractOpenAICompatibleEventText } from "@/lib/agent/stream";
+import { createThinkTagFilter } from "@/lib/agent/stream";
+import { streamArticleAsk } from "@/lib/api/client";
 import type { SummaryLangId } from "@/lib/articles/service";
 import type { DimensionKey } from "@/lib/scoring/repository";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
+import { articleAskErrorMessage } from "./articleAsk";
 import { articleAgentNotice, articleContentNotice } from "./articleContentNotice";
 import { useArticleActions } from "./useArticleActions";
 
@@ -21,58 +23,9 @@ const DIMENSION_ROWS: { key: DimensionKey | "overall"; label: string }[] = [
   { key: "trend_value", label: "趋势价值" },
 ];
 
-function htmlToText(html: string): string {
-  const element = document.createElement("div");
-  element.innerHTML = html;
-  return (element.textContent ?? element.innerText ?? "").replace(/\s+/g, " ").trim();
-}
-
-function articleContextText(article: Article): string {
-  const body = htmlToText(article.contentHtml);
-  const parts = [
-    `标题：${article.title}`,
-    `链接：${article.url}`,
-    `正文状态：${article.contentStatus === "partial" ? "当前可能只有 RSS 片段" : "完整或较完整正文"}`,
-    article.summaryZh ? `中文摘要：${article.summaryZh}` : "",
-    article.summaryOriginal ? `原文摘要：${article.summaryOriginal}` : "",
-    article.score?.reason ? `评分理由：${article.score.reason}` : "",
-    body,
-  ].filter((part) => part.trim().length > 0);
-  return parts.join("\n\n").slice(0, 20000);
-}
-
 function selectedTextFromPage(): string | undefined {
   const text = window.getSelection()?.toString().trim();
   return text && text.length > 0 ? text : undefined;
-}
-
-function appendAgentStreamChunk(
-  chunk: string,
-  pending: string,
-  thinkFilter: ReturnType<typeof createThinkTagFilter>,
-  append: (text: string) => void,
-): string {
-  const combined = pending + chunk;
-  const events = combined.split(/\r?\n\r?\n/);
-  const nextPending = events.pop() ?? "";
-
-  for (const event of events) {
-    const dataLines = event
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice("data:".length).trimStart());
-
-    if (dataLines.length === 0) {
-      append(thinkFilter.push(event));
-      continue;
-    }
-
-    for (const data of dataLines) {
-      append(thinkFilter.push(extractOpenAICompatibleEventText(data)));
-    }
-  }
-
-  return nextPending;
 }
 
 function summaryForLang(article: Article, lang: SummaryLangId): string {
@@ -129,61 +82,18 @@ export function ArticleReader({
     setAgentError(null);
 
     try {
-      const response = await fetch("/api/agent/article-chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question,
-          selectedText: selectedTextFromPage(),
-          article: {
-            title: article.title,
-            url: article.url,
-            contentText: articleContextText(article),
-            contentStatus: article.contentStatus,
-            scoreReason: article.score?.reason ?? "",
-            tags: article.score?.tags ?? [],
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
-        throw new Error(typeof body?.error === "string" ? body.error : "Agent request failed.");
-      }
-      const stream = response.body;
-      if (stream == null) throw new Error("Agent response missing stream.");
-
-      const reader = stream.getReader();
-      const decoder = new TextDecoder();
       const thinkFilter = createThinkTagFilter();
-      let pending = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        pending = appendAgentStreamChunk(
-          decoder.decode(value, { stream: true }),
-          pending,
-          thinkFilter,
-          (text) => {
-            if (text.length > 0) setAnswer((current) => current + text);
-          },
-        );
-      }
-
-      const tail = decoder.decode();
-      pending = appendAgentStreamChunk(tail, pending, thinkFilter, (text) => {
+      for await (const chunk of streamArticleAsk(article.id, {
+        question,
+        selected_text: selectedTextFromPage(),
+      })) {
+        const text = thinkFilter.push(chunk);
         if (text.length > 0) setAnswer((current) => current + text);
-      });
-      if (pending.trim().length > 0) {
-        appendAgentStreamChunk("\n\n", pending, thinkFilter, (text) => {
-          if (text.length > 0) setAnswer((current) => current + text);
-        });
       }
       const finalText = thinkFilter.flush();
       if (finalText.length > 0) setAnswer((current) => current + finalText);
     } catch (error) {
-      setAgentError(error instanceof Error ? error.message : "Agent request failed.");
+      setAgentError(articleAskErrorMessage(error));
     } finally {
       setIsAsking(false);
     }
