@@ -2,192 +2,262 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+[![CI](https://github.com/blankhoney/reno_rss/actions/workflows/ci.yml/badge.svg)](https://github.com/blankhoney/reno_rss/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Last commit](https://img.shields.io/github/last-commit/blankhoney/reno_rss)
 
-AI Reader is a self-hosted RSS research workspace built on top of Miniflux. It adds LLM scoring, Chinese summaries, article Q&A, focused reading, feed quality controls, and GitHub Actions based delivery on top of a traditional RSS backend.
+AI Reader is a self-hosted RSS research workspace built on Miniflux.
+It turns a shared RSS feed pool into scored, explainable, Chinese-first reading queues for a small research team.
 
 ## Live Demo
 
-- Demo: [https://staging-ai-reader.blankhoney.xyz/](https://staging-ai-reader.blankhoney.xyz/)
+- Staging app: [https://staging-ai-reader.blankhoney.xyz/](https://staging-ai-reader.blankhoney.xyz/)
 - Source: [github.com/blankhoney/reno_rss](https://github.com/blankhoney/reno_rss)
 
-Open the demo URL and use the one-click guest entry on the landing page. The guest account is limited to the staging AI Reader domain.
+Open the staging URL, enter a display name, and save the recovery code shown after login. The public root renders an AI Reader session shell; article data and admin operations are still protected by the FastAPI session and role checks.
 
-## What It Does
+## Table of Contents
 
-- **Unified RSS workspace**: Miniflux remains the feed source of truth while AI Reader provides a richer reading and triage UI.
-- **LLM article scoring**: MiniMax scores each article across importance, usefulness, timeliness, depth, technical value, business value, and trend value.
-- **Chinese-first summaries**: scored articles get Chinese summaries, original-language summaries, and per-dimension reasoning.
-- **Focused reading**: article pages support refreshed Miniflux content, partial-content warnings, Markdown-rendered AI answers, and an assistant drawer.
-- **Research workflow**: latest, unread, read, starred, read-later, project queue, and score-dimension modules support a new -> candidate -> project flow.
-- **Feed quality governance**: recent content quality, scores, and user actions demote weak feeds; feeds can be hidden/restored without deleting Miniflux subscriptions.
-- **Public demo entry**: staging has a safe public landing page with same-origin Authelia demo login and a minimal exposed Caddy surface.
+- [Background](#background)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Repository Layout](#repository-layout)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Local Checks](#local-checks)
+- [Deployment](#deployment)
+- [CI/CD](#cicd)
+- [Maintainers](#maintainers)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
 
-## Engineering Highlights
+## Background
 
-- **Small-service architecture**: Next.js reader-web, Python scorer-worker, Miniflux, PostgreSQL, Caddy, and Authelia are isolated through Docker Compose overlays.
-- **Event-driven scoring**: scorer-worker exposes internal HTTP endpoints for manual scoring and Miniflux webhook scoring instead of relying on broad periodic rescans.
-- **Layered auth design**: Caddy/Authelia can provide an outer demo or defense-in-depth layer, while the app/API owns session, role, CSRF, and rate-limit enforcement for business routes.
-- **Automated delivery**: GitHub Actions run tests/builds, validate Compose, scan with Trivy, publish GHCR images, deploy staging, and support approved production deploys and rollback.
-- **Operational scripts**: deployment, smoke test, backup, restore, and rollback scripts live under `infra/scripts`.
+Miniflux remains the RSS engine and source of truth for fetched entries. AI Reader owns the product layer around it: users, sessions, saved/read state, content-quality state, scoring batches, Top10 recommendation editions, article Q&A, and admin operations.
 
-See [TECHNICAL.md](TECHNICAL.md) for deeper system design and security boundaries. See [SPEC-CICD.md](SPEC-CICD.md) for the delivery specification.
+The v0.4 architecture centers on one FastAPI API, one queue-driven worker, and one Next.js web app. The goal is not just "AI summaries for RSS"; it is a repeatable system for finding useful articles, explaining why they matter, and turning them into project or study leads.
+
+## Features
+
+- **FastAPI-backed reader workbench**: login/recovery sessions, article list/detail, saved/read state, content-fetch jobs, recommendations, admin sync/scoring, and article ask all go through same-origin `/api/*`.
+- **8-dimension scoring rubric**: `topic_relevance`, `information_density`, `source_quality`, `novelty`, `timeliness`, `actionability`, `reading_cost_fit`, and `risk_uncertainty`.
+- **Explainable Top10**: recommendation editions store rank, tier, rank score, reason, source, risk flags, and risk uncertainty for each item.
+- **Chinese-first summaries and reasons**: scoring writes Chinese summaries, original-language summaries, tags, total reasons, dimension reasons, confidence, and risk flags.
+- **Focused reading**: article pages support sanitized HTML, partial-content notices, refreshed-content jobs, quick actions, and Markdown-rendered assistant answers.
+- **Streaming article Q&A**: `/api/articles/{id}/ask` streams SSE answers while stripping model reasoning blocks before display.
+- **Admin operations console**: admins can enqueue Miniflux sync, create bounded scoring batches, start jobs, poll status, and reload batch detail.
+- **Staging runtime proof**: CI deploys staging and runs a chain proof for sync -> content fetch -> mock scoring -> recommendations -> ask SSE.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
   RSS[RSS feeds] --> Miniflux[Miniflux]
-  Miniflux --> Reader[reader-web<br/>Next.js]
-  Miniflux --> Scorer[scorer-worker<br/>Python HTTP service]
-  Scorer --> LLM[MiniMax LLM]
-  Reader --> DB[(PostgreSQL<br/>scoring + reader state)]
-  Scorer --> DB
-  Caddy[Caddy edge] --> Authelia[Authelia auth]
-  Caddy --> Reader
+  Miniflux --> Worker[ai-reader-worker<br/>sync / fetch / score / rank]
+  Worker --> DB[(PostgreSQL<br/>AI Reader data + job queue)]
+  API[ai-reader-api<br/>FastAPI] <--> DB
+  API --> Worker
+  API --> LLM[MiniMax or mock LLM]
+  Web[reader-web<br/>Next.js] --> API
+  Caddy[Caddy edge] --> Web
+  Caddy --> API
   Caddy --> Miniflux
+  Caddy --> Authelia[Authelia outer auth]
 ```
 
 Runtime services:
 
-- `reader-web`: AI Reader UI and API routes.
-- `scorer-worker`: internal scoring/webhook service.
-- `miniflux`: RSS backend and feed state.
-- `postgres`: Miniflux database plus scoring/reader metadata database.
-- `caddy`: public HTTPS reverse proxy.
-- `authelia`: login, 2FA, and forward-auth.
+- `reader-web`: Next.js UI for the workbench, focused reading, auth gate, Top10, and admin console.
+- `ai-reader-api`: FastAPI service for sessions, articles, state, recommendations, jobs, admin APIs, and ask SSE.
+- `ai-reader-worker`: Python queue worker for Miniflux sync, content fetch, scoring batches, and recommendation generation.
+- `miniflux`: RSS engine and operational feed source.
+- `postgres`: Miniflux database plus AI Reader schema, job queue, scores, recommendations, and user state.
+- `caddy`: public HTTPS reverse proxy and routing boundary.
+- `authelia`: outer forward-auth layer for protected web routes.
+
+Important boundary: Caddy routes `/api/*` directly to FastAPI. FastAPI self-guards business APIs with `require_user` and `require_admin`; web pages can still sit behind Authelia as defense in depth.
 
 ## Repository Layout
 
 ```text
 apps/
-  reader-web/        Next.js AI Reader UI and API routes
-  scorer-worker/    Python scoring service and tests
+  api/             FastAPI app, Alembic migrations, OpenAPI export, API tests
+  worker/          Python job worker, ranking/scoring/sync logic, worker tests
+  reader-web/      Next.js UI, FastAPI client adapters, component tests
 infra/
-  authelia/          Authelia configuration template and placeholder user DB
-  caddy/             Public edge routing
-  compose/           Docker Compose base, edge, staging, and prod overlays
-  postgres/init/     Initial database/user bootstrap
-  scripts/           deploy, smoke-test, backup, restore, rollback
+  authelia/        Authelia configuration template and placeholder user DB
+  caddy/           Public edge routing
+  compose/         Docker Compose base, edge, staging, and prod overlays
+  postgres/init/   Initial database/user bootstrap
+  scripts/         deploy, smoke-test, backup, restore, rollback, runtime proof
+docs/
+  spec/            v0.4 architecture, data model, API, deployment, security specs
+  runbooks/        Backup/restore, deploy, incident, and rollback procedures
 .github/
-  workflows/         CI, staging/prod deploy, rollback
-  scripts/           GitHub Actions remote deploy helpers
+  workflows/       CI, staging/prod deploy, rollback
+  scripts/         GitHub Actions remote deploy helpers
 ```
 
 ## Requirements
 
 - Docker and Docker Compose v2
 - Node.js 22 for `apps/reader-web`
-- Python 3.12 for `apps/scorer-worker`
+- Python 3.12 and `uv` for `apps/api` and `apps/worker`
 - A Miniflux admin account
-- A MiniMax API key for LLM scoring
+- MiniMax credentials for real LLM scoring, or `LLM_PROVIDER=mock` for tests and staging proof
 - VPS/runtime secrets stored outside Git
+
+## Install
+
+Clone the repository and install per app:
+
+```bash
+git clone https://github.com/blankhoney/reno_rss.git
+cd reno_rss
+
+cd apps/reader-web
+npm ci
+
+cd ../api
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+
+cd ../worker
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+```
+
+For deployment configuration, start from the tracked example:
+
+```bash
+cp .env.example .env
+```
+
+Do not commit the resulting `.env`.
 
 ## Configuration
 
-Start from the tracked example file:
+Fill these groups in `.env` or in server-local secret stores:
+
+- Domain and upstream routing: `DOMAIN`, `AI_READER_*_UPSTREAM`, `AI_READER_CSRF_ALLOWED_ORIGINS`
+- Images: `IMAGE_REGISTRY`, `AI_READER_WEB_IMAGE`, `AI_READER_API_IMAGE`, `AI_READER_WORKER_IMAGE`
+- Miniflux: `MINIFLUX_ADMIN`, `MINIFLUX_ADMIN_PASSWORD`, `MINIFLUX_DATABASE_URL`, `MINIFLUX_API_BASE_URL`, `MINIFLUX_API_KEY`
+- PostgreSQL: `POSTGRES_*`, `SCORING_DATABASE_URL`
+- Reader/API defaults: `READER_TENANT_ID`, `READER_MINIFLUX_USER_ID`
+- LLM and worker: `LLM_PROVIDER`, `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL`, `LLM_TIMEOUT_SECONDS`, `WORKER_CONCURRENCY`, `EXTERNAL_CONTENT_PROVIDER`
+- Staging auth/demo labels: `DEMO_USERNAME`, `DEMO_PASSWORD`, `DEMO_AUTHELIA_BASE_URL`, `DEMO_TARGET_URL`, `DEMO_ALLOWED_ORIGIN`
+- Authelia SMTP and users database: `SMTP_*`, `AUTHELIA_USERS_DATABASE_FILE`
+
+Real `.env`, Authelia users, API keys, SSH keys, and runtime secrets must stay out of Git.
+
+## Usage
+
+Common local commands:
 
 ```bash
-cp .env.example .env
-```
-
-Fill runtime values in `.env`, including:
-
-- `DOMAIN`
-- PostgreSQL passwords and database URLs
-- Miniflux admin username/password
-- scorer webhook username/password
-- MiniMax API key/base URL/model
-- SMTP settings for Authelia notifications
-- optional staging demo values such as `DEMO_USERNAME` and `DEMO_PASSWORD`
-
-Keep real secrets out of Git. For Authelia users, `AUTHELIA_USERS_DATABASE_FILE` can point to a server-local file such as `/root/opt/myrss/secrets/users_database.yml`.
-
-## Local Checks
-
-Reader web:
-
-```bash
+# reader-web
 cd apps/reader-web
-npm ci
 npm test
 npm run build
+
+# api
+cd apps/api
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+uv run --isolated --with-editable . --extra dev ruff check .
+uv run --isolated --with-editable . --extra dev python -m app.export_openapi --out openapi.json
+
+# worker
+cd apps/worker
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+uv run --isolated --with-editable . --extra dev ruff check .
 ```
 
-Scorer worker:
+Run Compose config checks without overwriting a local `.env`:
 
 ```bash
-cd apps/scorer-worker
-python -m pip install -e ".[dev]"
-python -m pytest tests -q
-ruff check src/
-```
-
-Compose validation:
-
-```bash
-cp .env.example .env
-docker compose --profile worker --env-file .env \
+docker compose --profile worker --env-file .env.example \
   -f infra/compose/docker-compose.base.yml \
   -f infra/compose/docker-compose.staging.yml config
 
-docker compose --profile worker --env-file .env \
+docker compose --profile worker --env-file .env.example \
   -f infra/compose/docker-compose.base.yml \
   -f infra/compose/docker-compose.prod.yml config
+
+docker compose --env-file .env.example \
+  -f infra/compose/docker-compose.edge.yml config
 ```
+
+## Local Checks
+
+Before committing a tracked change, run the smallest relevant gate plus:
+
+```bash
+git diff --check
+```
+
+Minimum checks by area:
+
+- `apps/reader-web`: `npm test` and `npm run build`
+- `apps/api`: `python -m pytest tests -q` and `ruff check .` through `uv run --isolated --with-editable . --extra dev`
+- `apps/worker`: `python -m pytest tests -q` and `ruff check .` through `uv run --isolated --with-editable . --extra dev`
+- Compose or deploy scripts: render affected overlays and run `bash -n infra/scripts/*.sh .github/scripts/*.sh`
 
 ## Deployment
 
-The deploy script supports `staging` and `prod`:
+Deploy scripts support `staging` and `prod`:
 
 ```bash
 bash infra/scripts/deploy.sh staging sha-xxxxxxx
 bash infra/scripts/deploy.sh prod sha-xxxxxxx
 ```
 
-Production deploys must follow the v0.4 gate: database backup with artifact + SHA256, migration dry-run/upgrade, non-mutating smoke checks, image rollback first on app failure, and DB restore only for schema/data damage.
+Production deploys are manual and protected. The production path must run the backup gate before migrations and should roll back the image before restoring a database backup unless the failure is schema/data damage.
 
-Deployment modes:
-
-- **Local build mode**: builds `reader-web` and `scorer-worker` on the VPS.
-- **Remote image mode**: pulls GHCR images using `IMAGE_REGISTRY` and `IMAGE_TAG`, then runs Compose with `--no-build`.
-
-Post-deploy smoke test:
+Post-deploy smoke:
 
 ```bash
 bash infra/scripts/smoke-test.sh staging
 bash infra/scripts/smoke-test.sh prod
 ```
 
+The staging CI path also runs `infra/scripts/staging-runtime-proof.sh`, which proves the sync/content-fetch/scoring/recommendation/ask chain with `LLM_PROVIDER=mock`.
+
 ## CI/CD
 
 GitHub Actions provide:
 
-- `ci.yml`: Python lint/test, reader-web test/build, Compose config validation, Trivy scan, GHCR image build/push, and automatic staging deploy for same-repository PRs and `main` pushes.
-- `deploy-staging.yml`: manual staging deploy by image tag as a fallback.
-- `deploy-prod.yml`: manual production deploy by image tag through the `production` environment.
+- `ci.yml`: API tests/lint, worker tests/lint, OpenAPI export and typed-client drift check, Alembic upgrade, reader-web tests/build, Compose validation, deploy-script checks, Docker builds, Trivy scan, GHCR image publish, and staging deploy for same-repository PRs and `main` pushes.
+- `deploy-staging.yml`: manual staging deploy by image tag.
+- `deploy-prod.yml`: manual production deploy through the `production` environment.
 - `rollback.yml`: staging/prod rollback to a previous GHCR image tag.
 
-The normal staging path is `push main -> checks -> GHCR images -> VPS pull -> smoke test`. Manual VPS commands should only be needed for one-time server readiness or incident recovery.
+Published images:
 
-Image tags must match the deployed revision, for example `sha-7d59513`. Full delivery requirements are defined in [SPEC-CICD.md](SPEC-CICD.md).
+- `ghcr.io/<owner>/reno_rss/ai-reader-web:sha-<short_sha>`
+- `ghcr.io/<owner>/reno_rss/ai-reader-api:sha-<short_sha>`
+- `ghcr.io/<owner>/reno_rss/ai-reader-worker:sha-<short_sha>`
 
-Required repository secrets for remote deploys:
+Full delivery behavior is specified in [SPEC-CICD.md](SPEC-CICD.md).
 
-- `VPS_HOST`
-- `VPS_USER`
-- `VPS_SSH_KEY` or `VPS_SSH_KEY_B64`
-- `VPS_APP_DIR`
-- `GHCR_USERNAME`
-- `GHCR_TOKEN`
+## Maintainers
 
-## Security Notes
+Maintainer: `blankhoney`.
 
-- Do not commit real `.env`, API keys, SSH keys, Authelia user databases, or VPS runtime secrets.
-- `.env.example` must stay placeholder-only.
-- The scorer mutating endpoints are intended for the internal Docker network and require Basic Auth.
-- Public access is routed through Caddy; Authelia is an outer/demo or defense-in-depth layer, and the app/API must enforce business auth itself.
-- The staging demo password is a public experience password, not a production secret; it should still be rotated when needed.
+Operational runbooks live in [docs/runbooks](docs/runbooks). Current v0.4 design specs live in [docs/spec](docs/spec).
+
+## Contributing
+
+This is also a teaching repository. Read [AGENTS.md](AGENTS.md) and the repo-local plan files before changing code. Prefer precise, verified changes over broad refactors; update `docs/learning-notes.md` when behavior, architecture, deployment, process, or durable debugging knowledge changes.
+
+## Security
+
+- Never commit real `.env`, Authelia user databases, API keys, SSH keys, cookies, or VPS runtime secrets.
+- `.env.example` must remain placeholder-only.
+- `/api/*` is routed to FastAPI and must fail closed for anonymous or non-admin callers where required.
+- Article HTML is untrusted and is sanitized before rendering.
+- Article ask responses strip `<think>` blocks before display.
+- Automated smoke/runtime proof uses `LLM_PROVIDER=mock` and must not spend real LLM tokens.
 
 ## License
 

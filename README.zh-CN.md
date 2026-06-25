@@ -2,144 +2,206 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+[![CI](https://github.com/blankhoney/reno_rss/actions/workflows/ci.yml/badge.svg)](https://github.com/blankhoney/reno_rss/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Last commit](https://img.shields.io/github/last-commit/blankhoney/reno_rss)
 
-AI Reader 是一个基于 Miniflux 的自托管 RSS 研究阅读工作台。它在传统 RSS 后端之上加入 LLM 多维评分、中文摘要、文章问答、专注阅读、订阅源质量治理，以及基于 GitHub Actions 的自动交付流程。
+AI Reader 是一个基于 Miniflux 的自托管 RSS 研究阅读工作台。
+它把共享 RSS 订阅池变成带评分、解释和中文摘要的团队阅读队列。
 
 ## 在线 Demo
 
-- Demo 地址：[https://staging-ai-reader.blankhoney.xyz/](https://staging-ai-reader.blankhoney.xyz/)
-- 源码地址：[github.com/blankhoney/reno_rss](https://github.com/blankhoney/reno_rss)
+- Staging 应用：[https://staging-ai-reader.blankhoney.xyz/](https://staging-ai-reader.blankhoney.xyz/)
+- 源码：[github.com/blankhoney/reno_rss](https://github.com/blankhoney/reno_rss)
 
-打开 Demo 后可以在首页点击“以游客身份进入”，无需提前知道账号密码。游客账号仅允许访问 staging AI Reader。
+打开 staging URL，输入显示名称，并保存登录后显示的恢复码。公开根路径只渲染 AI Reader 会话入口；文章数据和管理员操作仍由 FastAPI session 与 role 检查保护。
 
-## 核心功能
+## 目录
 
-- **统一 RSS 工作台**：Miniflux 继续作为订阅源和文章状态的事实数据源，AI Reader 负责更适合研究场景的阅读和筛选体验。
-- **LLM 多维评分**：通过 MiniMax 从重要性、实用性、时效性、深度、技术价值、商业价值、趋势价值等维度评估文章。
-- **中文优先摘要**：评分成功后生成中文摘要、原文摘要、评分理由和各维度理由。
-- **专注阅读**：支持站内阅读、全文刷新、片段正文提示、Markdown 格式 AI 回答和文章助手抽屉。
-- **研究工作流**：最新、未读、已读、候选、稍后读、已立项和评分维度模块组成“新到 -> 候选 -> 立项”的线索流。
-- **订阅源质量治理**：根据最近文章完整率、评分和用户行为对低质量源降权，并支持手动隐藏/恢复，不直接删除 Miniflux 订阅。
-- **公开体验入口**：staging 根路径提供公开 Landing，同源调用 Authelia demo 登录，同时 Caddy 只暴露必要入口。
+- [背景](#背景)
+- [功能](#功能)
+- [架构](#架构)
+- [仓库结构](#仓库结构)
+- [环境要求](#环境要求)
+- [安装](#安装)
+- [配置](#配置)
+- [使用](#使用)
+- [本地检查](#本地检查)
+- [部署](#部署)
+- [CI/CD](#cicd)
+- [维护者](#维护者)
+- [贡献](#贡献)
+- [安全](#安全)
+- [许可证](#许可证)
 
-## 工程亮点
+## 背景
 
-- **小服务架构**：Next.js reader-web、Python scorer-worker、Miniflux、PostgreSQL、Caddy、Authelia 通过 Docker Compose overlay 分环境组织。
-- **事件驱动评分**：scorer-worker 提供内部 HTTP 接口支持单篇实时评分和 Miniflux webhook 新文章评分，避免无差别定时全量扫描。
-- **分层鉴权边界**：Caddy/Authelia 可作为公开 Demo 或 defense-in-depth 外层，业务路径的 session、role、CSRF 和限流由 app/API 自己强制。
-- **自动交付**：GitHub Actions 覆盖测试、构建、Compose 校验、Trivy 扫描、GHCR 镜像发布、staging 部署、production 审批部署和回滚。
-- **运维脚本完整**：`infra/scripts` 提供 deploy、smoke-test、backup、restore、rollback。
+Miniflux 继续作为 RSS 抓取引擎和 entry 事实来源。AI Reader 负责产品层：用户、会话、收藏/已读状态、正文质量状态、评分批次、Top10 推荐版次、文章问答和管理员操作。
 
-更详细的设计见 [TECHNICAL.zh-CN.md](TECHNICAL.zh-CN.md)。交付规格见 [SPEC-CICD.zh-CN.md](SPEC-CICD.zh-CN.md)。
+v0.4 架构围绕一个 FastAPI API、一个队列驱动 worker、一个 Next.js Web 应用展开。它不只是“带 AI 摘要的 RSS”，而是一个可重复的信息筛选、解释和项目线索管理系统。
+
+## 功能
+
+- **FastAPI 驱动的阅读工作台**：登录/恢复、文章列表/详情、收藏/已读状态、正文补全 job、推荐、管理员同步/评分、文章问答都通过同源 `/api/*`。
+- **8 维评分 rubric**：`topic_relevance`、`information_density`、`source_quality`、`novelty`、`timeliness`、`actionability`、`reading_cost_fit`、`risk_uncertainty`。
+- **可解释 Top10**：推荐版次保存 rank、tier、rank score、推荐理由、来源、风险标记和不确定性。
+- **中文优先摘要和理由**：评分会写入中文摘要、原文摘要、标签、总理由、维度理由、confidence 和 risk flags。
+- **专注阅读**：支持 HTML 净化、片段正文提示、正文刷新 job、快捷提问和 Markdown 渲染的助手回答。
+- **流式文章问答**：`/api/articles/{id}/ask` 用 SSE 返回回答，并在展示前剥离模型推理块。
+- **管理员操作台**：管理员可以触发 Miniflux 同步、创建有上限的评分批次、启动 job、轮询状态并回读批次详情。
+- **staging runtime proof**：CI 会部署 staging，并用 mock LLM 跑 sync -> content fetch -> scoring -> recommendations -> ask SSE 链路证明。
 
 ## 架构
 
 ```mermaid
 flowchart LR
   RSS[RSS feeds] --> Miniflux[Miniflux]
-  Miniflux --> Reader[reader-web<br/>Next.js]
-  Miniflux --> Scorer[scorer-worker<br/>Python HTTP service]
-  Scorer --> LLM[MiniMax LLM]
-  Reader --> DB[(PostgreSQL<br/>评分与阅读状态)]
-  Scorer --> DB
-  Caddy[Caddy edge] --> Authelia[Authelia auth]
-  Caddy --> Reader
+  Miniflux --> Worker[ai-reader-worker<br/>sync / fetch / score / rank]
+  Worker --> DB[(PostgreSQL<br/>AI Reader data + job queue)]
+  API[ai-reader-api<br/>FastAPI] <--> DB
+  API --> Worker
+  API --> LLM[MiniMax or mock LLM]
+  Web[reader-web<br/>Next.js] --> API
+  Caddy[Caddy edge] --> Web
+  Caddy --> API
   Caddy --> Miniflux
+  Caddy --> Authelia[Authelia outer auth]
 ```
 
 运行时服务：
 
-- `reader-web`：AI Reader 页面和 API routes。
-- `scorer-worker`：内部评分、Webhook 和单篇重评服务。
-- `miniflux`：RSS 后端和订阅源事实数据。
-- `postgres`：Miniflux 数据库，以及评分/阅读状态数据库。
-- `caddy`：公网 HTTPS 反向代理。
-- `authelia`：登录、2FA 和 forward-auth。
+- `reader-web`：Next.js UI，负责工作台、专注阅读、认证入口、Top10 和管理员控制台。
+- `ai-reader-api`：FastAPI，负责 session、文章、状态、推荐、job、管理员 API 和 ask SSE。
+- `ai-reader-worker`：Python 队列 worker，负责 Miniflux 同步、正文补全、评分批次和推荐生成。
+- `miniflux`：RSS 抓取引擎和运维侧 feed 来源。
+- `postgres`：Miniflux 数据库，以及 AI Reader schema、job queue、评分、推荐和用户状态。
+- `caddy`：公网 HTTPS 反向代理和路由边界。
+- `authelia`：页面路由的外层 forward-auth。
 
-## 目录结构
+关键边界：Caddy 把 `/api/*` 直接路由到 FastAPI。FastAPI 用 `require_user` 和 `require_admin` 自己保护业务 API；页面仍可由 Authelia 做 defense in depth。
+
+## 仓库结构
 
 ```text
 apps/
-  reader-web/        Next.js AI Reader 页面和 API
-  scorer-worker/    Python 评分服务和测试
+  api/             FastAPI 应用、Alembic migration、OpenAPI 导出、API 测试
+  worker/          Python job worker、排序/评分/同步逻辑、worker 测试
+  reader-web/      Next.js UI、FastAPI client adapters、组件测试
 infra/
-  authelia/          Authelia 配置模板和占位用户库
-  caddy/             公网入口路由
-  compose/           Docker Compose base、edge、staging、prod 配置
-  postgres/init/     数据库和用户初始化脚本
-  scripts/           deploy、smoke-test、backup、restore、rollback
+  authelia/        Authelia 配置模板和占位用户库
+  caddy/           公网入口路由
+  compose/         Docker Compose base、edge、staging、prod overlay
+  postgres/init/   初始数据库/用户 bootstrap
+  scripts/         deploy、smoke-test、backup、restore、rollback、runtime proof
+docs/
+  spec/            v0.4 架构、数据模型、API、部署、安全规格
+  runbooks/        备份恢复、部署、事故和回滚 runbook
 .github/
-  workflows/         CI、staging/prod 部署、回滚
-  scripts/           GitHub Actions 远程部署辅助脚本
+  workflows/       CI、staging/prod 部署、回滚
+  scripts/         GitHub Actions 远程部署辅助脚本
 ```
 
 ## 环境要求
 
 - Docker 和 Docker Compose v2
 - Node.js 22，用于 `apps/reader-web`
-- Python 3.12，用于 `apps/scorer-worker`
+- Python 3.12 和 `uv`，用于 `apps/api` 与 `apps/worker`
 - Miniflux 管理员账号
-- MiniMax API key
-- VPS 或其他 Docker 运行环境
-- 真实 secret 必须保存在服务器或 GitHub Secrets 中，不写入 Git
+- 真实评分需要 MiniMax 凭据；测试和 staging proof 可用 `LLM_PROVIDER=mock`
+- VPS/runtime secrets 保存在 Git 外
+
+## 安装
+
+克隆仓库并分别安装/验证各 app：
+
+```bash
+git clone https://github.com/blankhoney/reno_rss.git
+cd reno_rss
+
+cd apps/reader-web
+npm ci
+
+cd ../api
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+
+cd ../worker
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+```
+
+部署配置从示例文件开始：
+
+```bash
+cp .env.example .env
+```
+
+不要提交生成的 `.env`。
 
 ## 配置
 
-复制示例环境变量：
+在 `.env` 或服务器本地 secret store 中填写这些配置组：
+
+- 域名和 upstream：`DOMAIN`、`AI_READER_*_UPSTREAM`、`AI_READER_CSRF_ALLOWED_ORIGINS`
+- 镜像：`IMAGE_REGISTRY`、`AI_READER_WEB_IMAGE`、`AI_READER_API_IMAGE`、`AI_READER_WORKER_IMAGE`
+- Miniflux：`MINIFLUX_ADMIN`、`MINIFLUX_ADMIN_PASSWORD`、`MINIFLUX_DATABASE_URL`、`MINIFLUX_API_BASE_URL`、`MINIFLUX_API_KEY`
+- PostgreSQL：`POSTGRES_*`、`SCORING_DATABASE_URL`
+- Reader/API 默认值：`READER_TENANT_ID`、`READER_MINIFLUX_USER_ID`
+- LLM 和 worker：`LLM_PROVIDER`、`MINIMAX_API_KEY`、`MINIMAX_BASE_URL`、`MINIMAX_MODEL`、`LLM_TIMEOUT_SECONDS`、`WORKER_CONCURRENCY`、`EXTERNAL_CONTENT_PROVIDER`
+- staging 认证/展示标签：`DEMO_USERNAME`、`DEMO_PASSWORD`、`DEMO_AUTHELIA_BASE_URL`、`DEMO_TARGET_URL`、`DEMO_ALLOWED_ORIGIN`
+- Authelia SMTP 和用户库：`SMTP_*`、`AUTHELIA_USERS_DATABASE_FILE`
+
+真实 `.env`、Authelia 用户库、API key、SSH key 和 runtime secret 都不能进入 Git。
+
+## 使用
+
+常用本地命令：
 
 ```bash
-cp .env.example .env
-```
-
-然后填写 `.env` 中的运行时配置：
-
-- `DOMAIN`
-- PostgreSQL 密码和数据库 URL
-- Miniflux 管理员用户名/密码
-- scorer webhook 用户名/密码
-- MiniMax API key、base URL、model
-- Authelia 邮件通知 SMTP 配置
-- 可选 staging demo 配置，例如 `DEMO_USERNAME` 和 `DEMO_PASSWORD`
-
-真实 secret 不应提交到 Git。Authelia 用户库可以通过 `AUTHELIA_USERS_DATABASE_FILE` 指向服务器本地文件，例如：
-
-```text
-/root/opt/myrss/secrets/users_database.yml
-```
-
-## 本地验证
-
-Reader Web：
-
-```bash
+# reader-web
 cd apps/reader-web
-npm ci
 npm test
 npm run build
+
+# api
+cd apps/api
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+uv run --isolated --with-editable . --extra dev ruff check .
+uv run --isolated --with-editable . --extra dev python -m app.export_openapi --out openapi.json
+
+# worker
+cd apps/worker
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+uv run --isolated --with-editable . --extra dev ruff check .
 ```
 
-Scorer Worker：
+不覆盖本地 `.env` 的 Compose 配置验证：
 
 ```bash
-cd apps/scorer-worker
-python -m pip install -e ".[dev]"
-python -m pytest tests -q
-ruff check src/
-```
-
-Compose 配置验证：
-
-```bash
-cp .env.example .env
-docker compose --profile worker --env-file .env \
+docker compose --profile worker --env-file .env.example \
   -f infra/compose/docker-compose.base.yml \
   -f infra/compose/docker-compose.staging.yml config
 
-docker compose --profile worker --env-file .env \
+docker compose --profile worker --env-file .env.example \
   -f infra/compose/docker-compose.base.yml \
   -f infra/compose/docker-compose.prod.yml config
+
+docker compose --env-file .env.example \
+  -f infra/compose/docker-compose.edge.yml config
 ```
+
+## 本地检查
+
+提交 tracked change 前，运行相关最小 gate，并始终跑：
+
+```bash
+git diff --check
+```
+
+按区域的最低检查：
+
+- `apps/reader-web`：`npm test` 和 `npm run build`
+- `apps/api`：通过 `uv run --isolated --with-editable . --extra dev` 运行 `python -m pytest tests -q` 和 `ruff check .`
+- `apps/worker`：通过 `uv run --isolated --with-editable . --extra dev` 运行 `python -m pytest tests -q` 和 `ruff check .`
+- Compose 或部署脚本：渲染受影响 overlay，并运行 `bash -n infra/scripts/*.sh .github/scripts/*.sh`
 
 ## 部署
 
@@ -150,49 +212,52 @@ bash infra/scripts/deploy.sh staging sha-xxxxxxx
 bash infra/scripts/deploy.sh prod sha-xxxxxxx
 ```
 
-production 部署必须遵守 v0.4 闸门：先备份数据库并记录 artifact + SHA256，再执行 migration dry-run/upgrade，随后跑不改业务数据的 smoke；应用失败先回滚镜像，只有 schema/data 损坏时才按 runbook 恢复数据库。
+production 部署是手动且受保护的。生产路径必须在 migration 前完成备份 gate；除非故障明确是 schema/data 损坏，否则先回滚镜像，再考虑数据库恢复。
 
-部署模式：
-
-- **本地构建模式**：在 VPS 上构建 `reader-web` 和 `scorer-worker` 镜像。
-- **远程镜像模式**：从 GHCR 拉取指定 `IMAGE_TAG` 镜像，并通过 Compose `--no-build` 启动。
-
-部署后 smoke test：
+部署后 smoke：
 
 ```bash
 bash infra/scripts/smoke-test.sh staging
 bash infra/scripts/smoke-test.sh prod
 ```
 
+staging CI 路径还会运行 `infra/scripts/staging-runtime-proof.sh`，用 `LLM_PROVIDER=mock` 证明同步、正文补全、评分、推荐和问答链路。
+
 ## CI/CD
 
 GitHub Actions 提供：
 
-- `ci.yml`：Python lint/test、reader-web test/build、Compose config 校验、Trivy 扫描、GHCR 镜像构建，以及同仓库 PR 和 `main` push 的 staging 自动部署。
-- `deploy-staging.yml`：按镜像 tag 手动部署 staging，作为兜底入口。
-- `deploy-prod.yml`：按镜像 tag 手动部署 production，并走 GitHub `production` environment。
-- `rollback.yml`：按旧镜像 tag 回滚 staging/prod。
+- `ci.yml`：API 测试/lint、worker 测试/lint、OpenAPI 导出和 typed-client drift 检查、Alembic upgrade、reader-web 测试/构建、Compose 校验、部署脚本检查、Docker build、Trivy 扫描、GHCR 镜像发布，以及同仓库 PR 和 `main` push 的 staging 部署。
+- `deploy-staging.yml`：按镜像 tag 手动部署 staging。
+- `deploy-prod.yml`：通过 `production` environment 手动部署生产。
+- `rollback.yml`：按旧 GHCR image tag 回滚 staging/prod。
 
-正常 staging 路径是 `push main -> checks -> GHCR images -> VPS pull -> smoke test`。常规交付不应再手动 SSH 到 VPS，除非是首次服务器就绪检查或故障恢复。
+发布的镜像：
 
-镜像 tag 必须与部署 revision 对齐，例如 `sha-7d59513`。完整交付要求见 [SPEC-CICD.zh-CN.md](SPEC-CICD.zh-CN.md)。
+- `ghcr.io/<owner>/reno_rss/ai-reader-web:sha-<short_sha>`
+- `ghcr.io/<owner>/reno_rss/ai-reader-api:sha-<short_sha>`
+- `ghcr.io/<owner>/reno_rss/ai-reader-worker:sha-<short_sha>`
 
-远程部署需要配置 GitHub Secrets：
+完整交付行为见 [SPEC-CICD.zh-CN.md](SPEC-CICD.zh-CN.md)。
 
-- `VPS_HOST`
-- `VPS_USER`
-- `VPS_SSH_KEY` 或 `VPS_SSH_KEY_B64`
-- `VPS_APP_DIR`
-- `GHCR_USERNAME`
-- `GHCR_TOKEN`
+## 维护者
 
-## 安全说明
+维护者：`blankhoney`。
 
-- 不要提交真实 `.env`、API key、SSH key、Authelia 用户库或 VPS runtime secret。
+运维 runbook 在 [docs/runbooks](docs/runbooks)。当前 v0.4 设计规格在 [docs/spec](docs/spec)。
+
+## 贡献
+
+这也是一个教学仓库。改代码前请阅读 [AGENTS.md](AGENTS.md) 和 repo-local plan 文件。优先做精确、可验证的改动，不做顺手大重构；当任务改变行为、架构、部署、流程或可复用调试知识时，更新 `docs/learning-notes.md`。
+
+## 安全
+
+- 不要提交真实 `.env`、Authelia 用户库、API key、SSH key、cookie 或 VPS runtime secret。
 - `.env.example` 只能保留占位值。
-- scorer-worker 的写入接口只设计给 Docker 内网调用，并通过 Basic Auth 保护。
-- 公网访问通过 Caddy 入口；Authelia 是公开 Demo 或 defense-in-depth 外层，业务鉴权必须由 app/API 自己执行。
-- staging demo 密码是公开体验密码，不是生产 secret；仍建议按需轮换。
+- `/api/*` 路由到 FastAPI，匿名或非管理员请求必须按需要 fail closed。
+- 文章 HTML 不可信，渲染前必须净化。
+- 文章问答展示前会剥离 `<think>` 块。
+- 自动 smoke/runtime proof 使用 `LLM_PROVIDER=mock`，不能消耗真实 LLM token。
 
 ## 许可证
 
