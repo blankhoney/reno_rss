@@ -1,4 +1,5 @@
 import { AuthSessionGate } from "@/components/AuthSessionGate";
+import { AdminConsole } from "@/components/AdminConsole";
 import { FeedQualityPanel } from "@/components/FeedQualityPanel";
 import { ModuleSidebar } from "@/components/ModuleSidebar";
 import { ReaderWorkbench } from "@/components/ReaderWorkbench";
@@ -41,6 +42,17 @@ export default async function HomePage({ searchParams }: PageProps) {
         <main className="workbench feedWorkbench">
           <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
           <FeedQualityPanel />
+        </main>
+      </AuthSessionGate>
+    );
+  }
+
+  if (currentModule === "admin") {
+    return (
+      <AuthSessionGate>
+        <main className="workbench feedWorkbench">
+          <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
+          <AdminConsole />
         </main>
       </AuthSessionGate>
     );
