@@ -978,6 +978,54 @@ button {
   background: var(--accent-muted);
 }
 
+.recommendationEdition {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.recommendationCard {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.recommendationTopline,
+.recommendationMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.recommendationRank {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.recommendationPill,
+.recommendationRisk {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.recommendationReason {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.83rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .scoreBadge {
   display: inline-flex;
   align-items: center;

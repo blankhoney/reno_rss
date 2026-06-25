@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Article } from "@/lib/articles/types";
-import { buildWorkbenchView } from "./ReaderWorkbench";
+import { buildWorkbenchView, shouldUseHomeRecommendations } from "./ReaderWorkbench";
 
 function article(id: number, input: Partial<Article> = {}): Article {
   return {
@@ -61,4 +61,10 @@ test("buildWorkbenchView falls back to the first visible article", () => {
 
   assert.deepEqual(view.articles.map((item) => item.id), [2, 1]);
   assert.equal(view.selectedArticleId, 2);
+});
+
+test("shouldUseHomeRecommendations only enables Top10 on the default home view", () => {
+  assert.equal(shouldUseHomeRecommendations("all", "default"), true);
+  assert.equal(shouldUseHomeRecommendations("all", "latest"), false);
+  assert.equal(shouldUseHomeRecommendations("unread", "default"), false);
 });

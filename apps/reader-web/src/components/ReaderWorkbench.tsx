@@ -13,10 +13,15 @@ import {
 } from "@/lib/articles/service";
 import { selectedArticleIdOrFirst } from "@/lib/articles/selection";
 import { getArticle, listArticles } from "@/lib/api/articles";
+import {
+  latestRecommendations,
+  type RecommendationPage,
+} from "@/lib/api/recommendations";
 import { DEFAULT_SCORING_SETTINGS } from "@/lib/scoring/settings";
 import { ArticleList } from "./ArticleList";
 import { ArticleReader } from "./ArticleReader";
 import { ModuleSidebar } from "./ModuleSidebar";
+import { RecommendationList } from "./RecommendationList";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
 
 const ARTICLE_LIST_PAGE_SIZE = 50;
@@ -26,6 +31,17 @@ export type WorkbenchView = {
   articles: Article[];
   selectedArticleId: number | null;
 };
+
+export function shouldUseHomeRecommendations(
+  currentModule: string,
+  currentSort: ArticleSortId,
+): boolean {
+  return currentModule === "all" && currentSort === "default";
+}
+
+function recommendationArticles(page: RecommendationPage | null): Article[] {
+  return page?.items.flatMap((item) => (item.article ? [item.article] : [])) ?? [];
+}
 
 export function buildWorkbenchView({
   articles,
@@ -69,6 +85,11 @@ export function ReaderWorkbench({
   requestedSelectedId: number | null;
 }) {
   const [rawArticles, setRawArticles] = useState<Article[]>([]);
+  const [recommendationPage, setRecommendationPage] = useState<RecommendationPage | null>(null);
+  const [recommendationNotice, setRecommendationNotice] = useState<{
+    title: string;
+    body: string;
+  } | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,11 +104,22 @@ export function ReaderWorkbench({
       }),
     [currentModule, currentSort, rawArticles, requestedSelectedId],
   );
+  const recommendationArticleList = useMemo(
+    () => recommendationArticles(recommendationPage),
+    [recommendationPage],
+  );
+  const showingRecommendations =
+    shouldUseHomeRecommendations(currentModule, currentSort) && recommendationArticleList.length > 0;
+  const selectedArticleId = showingRecommendations
+    ? selectedArticleIdOrFirst(requestedSelectedId, recommendationArticleList)
+    : view.selectedArticleId;
 
   const loadWorkbench = useCallback(async () => {
     const moduleResolution = resolveArticlesListModuleId(true, currentModule);
     if (!moduleResolution.ok || moduleResolution.moduleId === "feeds") {
       setRawArticles([]);
+      setRecommendationPage(null);
+      setRecommendationNotice(null);
       setSelectedArticle(null);
       setIsLoading(false);
       setError(null);
@@ -97,20 +129,58 @@ export function ReaderWorkbench({
     setIsLoading(true);
     setError(null);
     try {
-      const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE });
-      const nextView = buildWorkbenchView({
-        articles: page.articles,
-        currentModule,
-        currentSort,
-        requestedSelectedId,
-      });
-      const nextSelectedArticle =
-        nextView.selectedArticleId == null ? null : await getArticle(nextView.selectedArticleId);
+      let nextRecommendationPage: RecommendationPage | null = null;
+      let nextRecommendationNotice: { title: string; body: string } | null = null;
+      let nextArticles: Article[] = [];
+      let nextSelectedId: number | null = null;
 
-      setRawArticles(page.articles);
+      if (shouldUseHomeRecommendations(currentModule, currentSort)) {
+        try {
+          nextRecommendationPage = await latestRecommendations();
+        } catch (recommendationError) {
+          nextRecommendationNotice = {
+            title: "Top10 暂不可用。",
+            body:
+              recommendationError instanceof Error
+                ? recommendationError.message
+                : "已回退到最新文章列表。",
+          };
+        }
+
+        const topArticles = recommendationArticles(nextRecommendationPage);
+        if (topArticles.length > 0) {
+          nextArticles = topArticles;
+          nextSelectedId = selectedArticleIdOrFirst(requestedSelectedId, topArticles);
+        } else {
+          nextRecommendationNotice = nextRecommendationNotice ?? {
+            title: "Top10 尚未生成。",
+            body: "需要先完成同步和评分，当前显示最新文章列表。",
+          };
+        }
+      }
+
+      if (nextArticles.length === 0) {
+        const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE });
+        nextArticles = page.articles;
+        const nextView = buildWorkbenchView({
+          articles: nextArticles,
+          currentModule,
+          currentSort,
+          requestedSelectedId,
+        });
+        nextSelectedId = nextView.selectedArticleId;
+      }
+
+      const nextSelectedArticle = nextSelectedId == null ? null : await getArticle(nextSelectedId);
+
+      setRawArticles(nextArticles);
+      setRecommendationPage(nextRecommendationPage);
+      setRecommendationNotice(nextRecommendationNotice);
       setSelectedArticle(nextSelectedArticle);
     } catch (loadError) {
       setRawArticles([]);
+      setRecommendationPage(null);
+      setRecommendationNotice(null);
       setSelectedArticle(null);
       setError(loadError instanceof Error ? loadError.message : "文章加载失败");
     } finally {
@@ -131,14 +201,25 @@ export function ReaderWorkbench({
   return (
     <main className="workbench">
       <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
-      <ArticleList
-        articles={view.articles}
-        currentModule={currentModule}
-        currentSort={currentSort}
-        currentLang={currentLang}
-        selectedArticleId={view.selectedArticleId}
-        initialScoringSettings={DEFAULT_SCORING_SETTINGS}
-      />
+      {showingRecommendations && recommendationPage ? (
+        <RecommendationList
+          page={recommendationPage}
+          currentModule={currentModule}
+          currentSort={currentSort}
+          currentLang={currentLang}
+          selectedArticleId={selectedArticleId}
+        />
+      ) : (
+        <ArticleList
+          articles={view.articles}
+          currentModule={currentModule}
+          currentSort={currentSort}
+          currentLang={currentLang}
+          selectedArticleId={selectedArticleId}
+          initialScoringSettings={DEFAULT_SCORING_SETTINGS}
+          notice={recommendationNotice ?? undefined}
+        />
+      )}
       {isLoading ? (
         <article className="articleReaderPane" aria-label="文章内容">
           <div className="readerEmpty">

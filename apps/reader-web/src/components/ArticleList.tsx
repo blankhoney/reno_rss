@@ -17,6 +17,10 @@ type ArticleListProps = {
   currentLang: SummaryLangId;
   selectedArticleId: number | null;
   initialScoringSettings: ScoringSettings;
+  notice?: {
+    title: string;
+    body: string;
+  };
 };
 
 const SORT_OPTIONS: SortOption[] = [
@@ -103,6 +107,7 @@ export function ArticleList({
   currentLang,
   selectedArticleId,
   initialScoringSettings,
+  notice,
 }: ArticleListProps) {
   const router = useRouter();
   const isEmpty = articles.length === 0;
@@ -237,6 +242,13 @@ export function ArticleList({
               刷新列表查看摘要/评分
             </button>
           ) : null}
+        </div>
+      ) : null}
+      {notice ? (
+        <div className="bulkScoreStatus" role="status">
+          <p>
+            <strong>{notice.title}</strong> {notice.body}
+          </p>
         </div>
       ) : null}
       {isEmpty ? (
