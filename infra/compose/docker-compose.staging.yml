@@ -38,8 +38,6 @@ services:
 
   reader-web:
     environment:
-      MINIFLUX_API_BASE_URL: http://miniflux-staging:8080
-      SCORING_SERVICE_URL: http://api-staging:8000
       DEMO_LANDING_ENABLED: "true"
       DEMO_USERNAME: ${DEMO_USERNAME}
       DEMO_PASSWORD: ${DEMO_PASSWORD}
@@ -50,4 +48,3 @@ services:
       app:
         aliases:
           - web-staging
-      data: {}

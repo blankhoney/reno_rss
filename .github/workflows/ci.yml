@@ -124,18 +124,6 @@ jobs:
               raise SystemExit(f"ci mini benchmark failed: {report.failure_reason}")
           PY
 
-      - name: Install Python dependencies
-        working-directory: apps/scorer-worker
-        run: pip install -U pip && pip install -e ".[dev]"
-
-      - name: Lint scorer-worker
-        working-directory: apps/scorer-worker
-        run: ruff check src/
-
-      - name: Test scorer-worker
-        working-directory: apps/scorer-worker
-        run: pytest tests/ -q
-
       - name: Install reader-web dependencies
         working-directory: apps/reader-web
         run: npm ci

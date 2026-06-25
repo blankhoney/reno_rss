@@ -33,7 +33,7 @@ This specification defines the target delivery behavior for normal project devel
 ## Functional Requirements
 
 - `ci.yml` must run Python tests/lint, reader-web tests/build, Compose validation, and Trivy high/critical scanning.
-- `ci.yml` must build and push `reader-web` and `scorer-worker` images to GHCR with `sha-<short_sha>` tags.
+- `ci.yml` must build and push `ai-reader-web`, `ai-reader-api`, and `ai-reader-worker` images to GHCR with `sha-<short_sha>` tags.
 - Same-repository PRs and `main` pushes must deploy staging after images are published.
 - Fork PRs must not deploy and must not read deployment secrets.
 - `deploy-staging.yml` remains as a manual fallback by explicit image tag.
@@ -61,7 +61,7 @@ This specification defines the target delivery behavior for normal project devel
 ## Acceptance Criteria
 
 - A `main` push produces a `ci` workflow where `deploy staging` runs instead of being skipped.
-- The workflow publishes both GHCR images with the expected `sha-<short_sha>` tag.
+- The workflow publishes all three GHCR images with the expected `sha-<short_sha>` tag.
 - The staging deploy job completes remote deploy and smoke test successfully.
 - `https://staging-ai-reader.blankhoney.xyz/` renders the public demo landing.
 - `https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh` does not expose the business UI to an unauthenticated request.

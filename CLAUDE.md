@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Reno RSS / AI Reader — a self-hosted RSS research workspace. **Miniflux stays the source of truth for feeds/entries/read/star state**; everything AI Reader adds (LLM scores, Chinese summaries, read-later, project queue, feed visibility) is *derived/local* state in a separate Postgres database. Two custom apps sit on top of Miniflux: a Next.js UI and a Python scoring service.
+Reno RSS / AI Reader — a self-hosted RSS research workspace. **Miniflux stays the source of truth for feeds/entries/read/star state**; everything AI Reader adds (LLM scores, Chinese summaries, recommendations, content fetch state, project queues, feed visibility) is *derived/local* state in a separate Postgres database. Three custom apps sit on top of Miniflux: a FastAPI API, a Python queue worker, and a Next.js UI.
 
 Deeper design docs: `TECHNICAL.md` (architecture + security boundaries), `SPEC-CICD.md` (delivery spec), `docs/runbooks/` (ops), `docs/superpowers/{plans,specs}/` (original design/plan docs). Chinese mirrors exist as `*.zh-CN.md`.
 
@@ -21,26 +21,21 @@ Deeper design docs: `TECHNICAL.md` (architecture + security boundaries), `SPEC-C
 
 ## Architecture: the non-obvious parts
 
-Six runtime services (Docker Compose): `caddy` (public TLS edge) → `authelia` (forward-auth) → `reader-web` (Next.js) + `miniflux`, with `scorer-worker` (Python) and `postgres` behind them. Caddy/Authelia are *the* access-control boundary; reader-web assumes the edge already authenticated business routes.
+Runtime services (Docker Compose): `caddy` (public TLS edge), `authelia` (forward-auth), `reader-web` (Next.js), `ai-reader-api` (FastAPI), `ai-reader-worker` (Python queue worker), `miniflux`, and `postgres`. Caddy routes `/api/*` directly to FastAPI; API endpoints enforce `require_user` / `require_admin` themselves. Web pages are served by `reader-web`, with staging exposing the root app shell and static assets publicly while other page routes remain behind Authelia.
 
-**Cross-service data contract (this trips people up):** both apps share one Postgres "scoring" database but own different tables.
-- `scorer-worker` **writes** scores → table `item_scores` (plus `items_snapshot`, etc.). reader-web **reads** `item_scores` (`apps/reader-web/src/lib/scoring/repository.ts`) but never writes it.
-- `reader-web` owns `reader_entry_states`, `entry_project_queue`, `reader_feed_preferences`.
-- `scoring_settings` is declared in **both** DDL files — keep the two definitions in sync if you change it.
-- Schema application is asymmetric: `scorer-worker` auto-applies its full DDL (`apps/scorer-worker/sql/001_init_scoring.sql`) on startup via `init_schema` (`src/main.py:281`). **reader-web's `src/lib/scoring/schema.sql` is NOT applied at runtime** — `getPool()` only opens a pool. Those tables must be created separately, so a fresh DB needs that SQL run manually.
+**Cross-service data contract (this trips people up):** `apps/api` owns the HTTP API and database schema via Alembic; `apps/worker` owns background jobs for Miniflux sync, content fetch, LLM scoring, and Top10 recommendation generation; `apps/reader-web` does not call Miniflux or Postgres directly. The browser app calls same-origin FastAPI `/api/*` through `apps/reader-web/src/lib/api/*` adapters.
 
-**Scoring is event-driven — there is no polling loop.** `scorer-worker` is a stdlib `http.server.ThreadingHTTPServer` (no web framework) exposing `GET /healthz`, `POST /internal/score-entry`, `POST /webhooks/miniflux`. reader-web calls it over HTTP via `src/lib/scoring/service-client.ts`. POSTs require Basic Auth and **fail closed** if `SCORER_WEBHOOK_USERNAME/PASSWORD` are unset (every POST → 401). LLM (MiniMax) failures fall back to a length-based baseline row marked as failed/`error`, which is then hidden from score ranking.
+**Scoring is queue-driven — there is no old HTTP scorer service.** Admin scoring creates batches through FastAPI, enqueues jobs in Postgres, and `ai-reader-worker` processes them. LLM provider defaults to `mock` in automated staging proof; MiniMax is used only when deliberately configured.
 
-**reader-web data flow:** App Router SSR pages (`src/app/page.tsx` reads `module`/`sort`/`lang`/`article` query params) → `src/lib/articles/server.ts` orchestrates a Miniflux fetch + enrichment from the scoring DB → filter/sort by module. `src/lib/scoring/db.ts:getPool()` is the single Postgres pool owner; `src/lib/miniflux/client.ts` is the only Miniflux caller (Node runtime only). Agent Q&A (`/api/agent/article-chat`) streams MiniMax over SSE.
+**reader-web data flow:** App Router pages parse URL state, then client components load data through FastAPI adapters: `/api/auth/*`, `/api/articles`, `/api/recommendations/latest`, `/api/articles/{id}/ask`, `/api/admin/*`, and `/api/jobs/{id}`. Article HTML is still sanitized in `src/lib/articles/service.ts` before render.
 
 ## Invariants a refactor must preserve
 
 - **HTML sanitization**: all article HTML passes `sanitizeArticleHtml()` (`src/lib/articles/service.ts`) before render — RSS/fetched content is untrusted.
-- **`<think>` stripping + Markdown-only agent output**: agent SSE is cleaned by `src/lib/agent/stream.ts` (strip `<think>…</think>`); answers render through `AgentMarkdown` (no raw HTML) and the system prompt enforces fixed Chinese sections (结论/依据/引用/不确定点/行动建议). Agent input is length-capped server-side.
-- **module → candidate → project flow**: an article must be starred (Miniflux) before `POST /api/articles/[id]/project` enqueues it into `entry_project_queue`.
-- **markRead dual-write**: updates both Miniflux status *and* local `reader_entry_states.last_read_at`.
-- **content quality / feed demotion**: `src/lib/articles/contentQuality.ts` classifies full vs partial (RSS fragment / blocked page) and decides whether a fetched body replaces the current one; `src/lib/feeds/quality.ts` computes a 0–100 feed quality score that demotes weak feeds. Hidden feeds are filtered out of most modules but preserved for starred/project/read-later.
-- **public demo boundary (staging)**: only `GET /` (empty query), `POST /api/demo-login`, `/_next/static/*`, `/favicon.ico` are public; all business routes stay behind Authelia. `demo-login` reads server-side creds and rejects client-supplied username/password/target. Don't widen this surface.
+- **`<think>` stripping + Markdown-only agent output**: article ask SSE is cleaned by `src/lib/agent/stream.ts` (strip `<think>…</think>`); answers render through `AgentMarkdown` (no raw HTML). Agent input is assembled server-side by FastAPI and length-capped there.
+- **saved → project flow**: project/candidate state changes go through FastAPI article state APIs; reader-web must not recreate direct Miniflux or database write paths.
+- **content quality / feed demotion**: `src/lib/articles/contentQuality.ts` classifies full vs partial (RSS fragment / blocked page) and the API/worker owns fetched-content replacement. Feed quality scores arrive as API fields and are used only for client sorting/demotion.
+- **staging public boundary**: Caddy routes `/api/*` to FastAPI and only exposes the root app shell/static assets publicly; do not reintroduce public Next API route handlers.
 
 ## Commands
 
@@ -50,19 +45,23 @@ npm ci
 npm test                 # node --test --import tsx 'src/**/*.test.ts'
 npm run build            # next build (also the CI gate)
 npm run dev              # local dev server
-node --test --import tsx src/lib/scoring/repository.test.ts   # single test file
 ```
 Tests are Node's built-in runner (no Jest/Vitest), `*.test.ts` co-located with source, using `node:assert/strict`. Many test SQL builders / pure transforms rather than hitting a real DB.
 
-scorer-worker (`apps/scorer-worker/`, Python 3.12):
+api (`apps/api/`, Python 3.12):
 ```bash
-python -m pip install -e ".[dev]"
-python -m pytest tests -q
-python -m pytest tests/test_scoring.py::test_name -q   # single test
-ruff check src/          # line-length 100
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+uv run --isolated --with-editable . --extra dev ruff check .
+uv run --isolated --with-editable . --extra dev alembic upgrade head
 ```
 
-Compose config validation (must pass in CI; always include `--profile worker`, else scorer-worker is omitted):
+worker (`apps/worker/`, Python 3.12):
+```bash
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
+uv run --isolated --with-editable . --extra dev ruff check .
+```
+
+Compose config validation (must pass in CI; include `--profile worker` for the current worker overlay):
 ```bash
 cp .env.example .env
 docker compose --profile worker --env-file .env \
@@ -73,7 +72,7 @@ Overlays: `base` = shared services; `prod`/`staging` = network aliases + env dif
 
 ## CI/CD
 
-`.github/workflows/ci.yml` runs on PRs and `main` pushes: ruff + pytest (scorer), `npm test` + `npm run build` (reader), compose validation across all overlays, Trivy fs scan (fails on CRITICAL/HIGH). Then it builds/pushes GHCR images tagged `sha-<short_sha>` and **auto-deploys staging** — but only for same-repo PRs and `main` pushes; **fork PRs skip image build/deploy** (no secrets). Production (`deploy-prod.yml`) is manual via the `production` environment; `rollback.yml` redeploys an older tag. Image tags must match the deployed revision. Remote deploy (`.github/scripts/remote-deploy.sh`) refuses to run if the VPS tracked worktree is dirty — diagnose the dirty file, don't auto-reset.
+`.github/workflows/ci.yml` runs on PRs and `main` pushes: API/worker ruff + pytest, reader-web `npm test` + `npm run build`, compose validation across all overlays, deploy-script checks, Trivy fs scan (fails on CRITICAL/HIGH). Then it builds/pushes GHCR images for `ai-reader-web`, `ai-reader-api`, and `ai-reader-worker` tagged `sha-<short_sha>` and **auto-deploys staging** — but only for same-repo PRs and `main` pushes; **fork PRs skip image build/deploy** (no secrets). Production (`deploy-prod.yml`) is manual via the `production` environment; `rollback.yml` redeploys an older tag. Image tags must match the deployed revision. Remote deploy (`.github/scripts/remote-deploy.sh`) refuses to run if the VPS tracked worktree is dirty — diagnose the dirty file, don't auto-reset.
 
 ## Secrets & VPS
 

@@ -5,7 +5,7 @@
 #   bash infra/scripts/restore.sh ./backup/2026-05-11_12-00-00
 #
 # ⚠️  警告：恢复操作会覆盖现有数据库内容！
-# ⚠️  恢复前会先停止 miniflux 和 scorer-worker，防止写冲突
+# ⚠️  恢复前会先停止 miniflux、API 和 worker，防止写冲突
 
 set -euo pipefail
 
@@ -34,11 +34,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # 停止依赖数据库的服务（防止恢复期间有写入）
-echo "⏸️  停止 miniflux 和 scorer-worker..."
+echo "⏸️  停止 miniflux、AI Reader API 和 worker..."
 docker compose -p "myrss-prod" \
     -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
     -f "$REPO_ROOT/infra/compose/docker-compose.prod.yml" \
-    stop miniflux scorer-worker
+    stop miniflux ai-reader-api ai-reader-worker
 
 # 恢复 miniflux 数据库
 echo "📥 恢复 miniflux..."
@@ -59,6 +59,6 @@ echo "▶️  重启服务..."
 docker compose -p "myrss-prod" \
     -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
     -f "$REPO_ROOT/infra/compose/docker-compose.prod.yml" \
-    start miniflux scorer-worker
+    start miniflux ai-reader-api ai-reader-worker
 
 echo "✅ 恢复完成，请验证服务是否正常运行"

@@ -33,7 +33,7 @@ Reno RSS / AI Reader 已经具备 GitHub Actions 检查、GHCR 镜像发布、VP
 ## 功能需求
 
 - `ci.yml` 必须执行 Python test/lint、reader-web test/build、Compose 校验和 Trivy high/critical 扫描。
-- `ci.yml` 必须将 `reader-web` 和 `scorer-worker` 镜像发布到 GHCR，并使用 `sha-<short_sha>` tag。
+- `ci.yml` 必须将 `ai-reader-web`、`ai-reader-api` 和 `ai-reader-worker` 镜像发布到 GHCR，并使用 `sha-<short_sha>` tag。
 - 同仓库 PR 和 `main` push 必须在镜像发布后部署 staging。
 - 外部 fork PR 不部署，也不能读取部署 secret。
 - `deploy-staging.yml` 保留为按 image tag 手动部署的兜底入口。
@@ -61,7 +61,7 @@ Reno RSS / AI Reader 已经具备 GitHub Actions 检查、GHCR 镜像发布、VP
 ## 验收标准
 
 - `main` push 触发的 `ci` workflow 中，`deploy staging` 运行而不是 skipped。
-- workflow 发布两个带 `sha-<short_sha>` tag 的 GHCR 镜像。
+- workflow 发布三个带 `sha-<short_sha>` tag 的 GHCR 镜像。
 - staging deploy job 成功完成远程部署和 smoke test。
 - `https://staging-ai-reader.blankhoney.xyz/` 展示公开 Demo Landing。
 - 未登录请求 `https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh` 不直接暴露业务 UI。

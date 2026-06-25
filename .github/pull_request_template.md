@@ -11,8 +11,9 @@
 
 ## Test plan
 
-- [ ] `pytest apps/scorer-worker/tests -q` passes locally
-- [ ] `ruff check apps/scorer-worker/src/` returns no errors
+- [ ] `uv run --isolated --with-editable . --extra dev python -m pytest tests -q` passes in changed Python app(s)
+- [ ] `uv run --isolated --with-editable . --extra dev ruff check .` returns no errors in changed Python app(s)
+- [ ] `npm test` and `npm run build` pass for reader-web changes
 - [ ] `docker compose -f infra/compose/docker-compose.base.yml config` succeeds
 - [ ] Tested on staging before prod deploy
 
