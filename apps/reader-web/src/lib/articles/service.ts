@@ -144,6 +144,9 @@ export function minifluxEntryFilterForModule(
 }
 
 export function filterArticlesForModule(articles: Article[], moduleId: ModuleId): Article[] {
+  if (moduleId === "unread") return articles.filter((article) => article.status === "unread");
+  if (moduleId === "read") return articles.filter((article) => article.status === "read");
+  if (moduleId === "starred") return articles.filter((article) => article.starred);
   if (moduleId === "read-later") return articles.filter((article) => article.readLater);
   return articles;
 }

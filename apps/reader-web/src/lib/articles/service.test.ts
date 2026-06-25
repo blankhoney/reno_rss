@@ -195,6 +195,19 @@ test("filterArticlesForModule keeps only read-later items for read-later module"
   assert.deepEqual(filtered.map((item) => item.id), [2]);
 });
 
+test("filterArticlesForModule applies v0.4 read and saved state locally", () => {
+  const items = [
+    article(1, { status: "unread", starred: false, readLater: false }),
+    article(2, { status: "read", starred: false, readLater: false }),
+    article(3, { status: "unread", starred: true, readLater: true }),
+  ];
+
+  assert.deepEqual(filterArticlesForModule(items, "unread").map((item) => item.id), [1, 3]);
+  assert.deepEqual(filterArticlesForModule(items, "read").map((item) => item.id), [2]);
+  assert.deepEqual(filterArticlesForModule(items, "starred").map((item) => item.id), [3]);
+  assert.deepEqual(filterArticlesForModule(items, "read-later").map((item) => item.id), [3]);
+});
+
 test("filterHiddenFeedsForModule hides feeds only in default modules", () => {
   const articles = [
     article(1, { feedHidden: true }),
