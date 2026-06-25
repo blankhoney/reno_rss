@@ -21,7 +21,7 @@ Deeper design docs: `TECHNICAL.md` (architecture + security boundaries), `SPEC-C
 
 ## Architecture: the non-obvious parts
 
-Runtime services (Docker Compose): `caddy` (public TLS edge), `authelia` (forward-auth), `reader-web` (Next.js), `ai-reader-api` (FastAPI), `ai-reader-worker` (Python queue worker), `miniflux`, and `postgres`. Caddy routes `/api/*` directly to FastAPI; API endpoints enforce `require_user` / `require_admin` themselves. Web pages are served by `reader-web`, with staging exposing the root app shell and static assets publicly while other page routes remain behind Authelia.
+Runtime services (Docker Compose): `caddy` (public TLS edge), `authelia` (forward-auth), `reader-web` (Next.js), `ai-reader-api` (FastAPI), `ai-reader-worker` (Python queue worker), `miniflux`, and `postgres`. Caddy routes `/api/*` directly to FastAPI; API endpoints enforce `require_user` / `require_admin` themselves. Web pages are served by `reader-web`. **Prod** keeps all page routes behind Authelia forward-auth; **staging** is a fully public functional demo — Caddy serves all app routes without Authelia and the API resolves anonymous requests to a shared demo user (see staging public boundary invariant below).
 
 **Cross-service data contract (this trips people up):** `apps/api` owns the HTTP API and database schema via Alembic; `apps/worker` owns background jobs for Miniflux sync, content fetch, LLM scoring, and Top10 recommendation generation; `apps/reader-web` does not call Miniflux or Postgres directly. The browser app calls same-origin FastAPI `/api/*` through `apps/reader-web/src/lib/api/*` adapters.
 
@@ -35,7 +35,7 @@ Runtime services (Docker Compose): `caddy` (public TLS edge), `authelia` (forwar
 - **`<think>` stripping + Markdown-only agent output**: article ask SSE is cleaned by `src/lib/agent/stream.ts` (strip `<think>…</think>`); answers render through `AgentMarkdown` (no raw HTML). Agent input is assembled server-side by FastAPI and length-capped there.
 - **saved → project flow**: project/candidate state changes go through FastAPI article state APIs; reader-web must not recreate direct Miniflux or database write paths.
 - **content quality / feed demotion**: `src/lib/articles/contentQuality.ts` classifies full vs partial (RSS fragment / blocked page) and the API/worker owns fetched-content replacement. Feed quality scores arrive as API fields and are used only for client sorting/demotion.
-- **staging public boundary**: Caddy routes `/api/*` to FastAPI and only exposes the root app shell/static assets publicly; do not reintroduce public Next API route handlers.
+- **staging public boundary**: staging is intentionally a fully public demo. Caddy serves all staging app routes (no Authelia gate), and FastAPI resolves anonymous (no-cookie) requests to a shared demo user **only** when `AI_READER_ANONYMOUS_DEMO=true` (set in `docker-compose.staging.yml`). The flag defaults to `False`, so **prod stays fail-closed (401 for any unauthenticated API call)** and keeps its Authelia gate. Admin endpoints (`require_admin`) stay protected even on staging (demo user is role `user` → 403). `smoke-test.sh` asserts both contracts (prod 401; staging articles 200 / admin 403). Do not enable the flag in prod, and do not reintroduce public Next API route handlers.
 
 ## Commands
 

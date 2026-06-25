@@ -948,6 +948,33 @@ button {
   line-height: 1.5;
 }
 
+.articleListMore {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.articleListMoreButton {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 20px;
+  color: var(--accent);
+  background: var(--panel);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.articleListMoreButton:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+}
+
+.articleListMoreButton:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 .articleCard {
   display: block;
   border: 1px solid var(--border);

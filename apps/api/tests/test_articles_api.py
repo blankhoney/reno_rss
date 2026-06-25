@@ -137,6 +137,79 @@ async def test_article_detail_returns_sources_and_content(app, client):
 
 
 @pytest.mark.asyncio
+async def test_articles_require_auth_when_anonymous_demo_disabled(app, client):
+    # Production default: no session cookie and the flag off → fail closed.
+    assert app.state.anonymous_demo_enabled is False
+    response = await client.get("/api/articles")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_anonymous_demo_serves_articles_but_not_admin(app, client):
+    # Staging public demo: anonymous requests resolve to a shared demo user.
+    app.state.anonymous_demo_enabled = True
+    app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    articles_response = await client.get("/api/articles")
+    admin_response = await client.get("/api/admin/users")
+
+    assert articles_response.status_code == 200
+    assert len(articles_response.json()["items"]) == 1
+    # Demo user is role=user, so admin endpoints stay protected.
+    assert admin_response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_article_list_and_detail_surface_active_score(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+    app.state.scoring_repository.create_score(
+        article_id=article.id,
+        base_score=82,
+        is_active=True,
+    )
+
+    list_response = await client.get("/api/articles")
+    detail_response = await client.get(f"/api/articles/{article.id}")
+
+    item = list_response.json()["items"][0]
+    assert item["score"]["overall"] == 82
+    assert item["score"]["tier"] == "read"
+    assert detail_response.json()["score"]["overall"] == 82
+
+
+@pytest.mark.asyncio
+async def test_article_score_is_null_without_active_score(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    response = await client.get(f"/api/articles/{article.id}")
+
+    assert response.json()["score"] is None
+
+
+@pytest.mark.asyncio
 async def test_article_state_upserts_for_current_user(app, client):
     await client.post("/api/auth/login", json={"display_name": "Blank"})
     article = app.state.article_repository.upsert_from_source(

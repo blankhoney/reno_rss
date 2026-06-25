@@ -94,7 +94,15 @@ def get_ask_provider(request: Request) -> object:
 def get_current_user_optional(request: Request) -> UserRecord | None:
     store = get_auth_store(request)
     token = request.cookies.get(SESSION_COOKIE_NAME)
-    return store.get_user_by_session(token)
+    user = store.get_user_by_session(token)
+    if user is not None:
+        return user
+    # Staging-only public demo: with no valid session, resolve a shared demo user
+    # (role=user) so the app is usable without login. Admin endpoints still fail
+    # because the demo user is not an admin. Disabled (None) in production.
+    if getattr(request.app.state, "anonymous_demo_enabled", False):
+        return store.get_or_create_demo_user()
+    return None
 
 
 def require_user(request: Request) -> UserRecord:

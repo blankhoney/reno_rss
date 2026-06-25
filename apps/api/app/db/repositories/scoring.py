@@ -72,6 +72,10 @@ class ScoringStore(Protocol):
 
     def list_scores(self, *, article_id: int) -> list[ScoreRecord]: ...
 
+    def active_scores_for_articles(
+        self, article_ids: list[int]
+    ) -> dict[int, ScoreRecord]: ...
+
     def create_batch(
         self,
         *,
@@ -139,6 +143,16 @@ class MemoryScoringRepository:
             score for score in sorted(self._scores.values(), key=lambda item: item.id)
             if score.article_id == article_id
         ]
+
+    def active_scores_for_articles(
+        self, article_ids: list[int]
+    ) -> dict[int, ScoreRecord]:
+        wanted = set(article_ids)
+        result: dict[int, ScoreRecord] = {}
+        for score in sorted(self._scores.values(), key=lambda item: item.id):
+            if score.is_active and score.article_id in wanted:
+                result[score.article_id] = score
+        return result
 
     def create_batch(
         self,
@@ -251,6 +265,24 @@ class DatabaseScoringRepository:
                 .all()
             )
         return [_score_from_row(row) for row in rows]
+
+    def active_scores_for_articles(
+        self, article_ids: list[int]
+    ) -> dict[int, ScoreRecord]:
+        if not article_ids:
+            return {}
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(article_base_scores).where(
+                        article_base_scores.c.article_id.in_(article_ids),
+                        article_base_scores.c.is_active.is_(True),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return {row["article_id"]: _score_from_row(row) for row in rows}
 
     def create_batch(
         self,

@@ -1,7 +1,14 @@
 import { apiGet, apiPost } from "./client";
 import type { components } from "./generated/schema";
 import { sanitizeArticleHtml } from "@/lib/articles/service";
-import type { Article, ArticleContentIssue, ArticleContentStatus, ArticleStatus } from "@/lib/articles/types";
+import type {
+  Article,
+  ArticleContentIssue,
+  ArticleContentStatus,
+  ArticleScore,
+  ArticleStatus,
+  DimensionKey,
+} from "@/lib/articles/types";
 
 type ApiArticleState = {
   status?: string | null;
@@ -28,6 +35,7 @@ export type ApiArticleItem = {
   published_at?: string | null;
   content_quality?: string | null;
   score?: unknown;
+  summary_zh?: string | null;
   state?: ApiArticleState | null;
 };
 
@@ -112,9 +120,62 @@ function feedTitle(feed: ApiArticleFeed): string {
   return feed?.title?.trim() || (feed?.id != null ? `Feed #${feed.id}` : "未知来源");
 }
 
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function numberRecord(value: unknown): Record<DimensionKey, number> {
+  const result: Partial<Record<string, number>> = {};
+  if (value != null && typeof value === "object") {
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof raw === "number" && Number.isFinite(raw)) result[key] = raw;
+    }
+  }
+  return result as Record<DimensionKey, number>;
+}
+
+function stringRecord(value: unknown): Partial<Record<DimensionKey, string>> {
+  const result: Partial<Record<string, string>> = {};
+  if (value != null && typeof value === "object") {
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof raw === "string") result[key] = raw;
+    }
+  }
+  return result as Partial<Record<DimensionKey, string>>;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function stringOr(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+// FastAPI emits the active score (or null) under `score`; see app/api/routes/articles.py score_public.
+export function scoreFromApi(raw: unknown): ArticleScore | null {
+  if (raw == null || typeof raw !== "object") return null;
+  const s = raw as Record<string, unknown>;
+  const overall = numberOrNull(s.overall);
+  if (overall == null) return null;
+  return {
+    overall,
+    dimensions: numberRecord(s.dimensions),
+    tags: stringArray(s.tags),
+    reason: stringOr(s.reason, ""),
+    summaryZh: stringOr(s.summary_zh, ""),
+    summaryOriginal: stringOr(s.summary_original, ""),
+    sourceLanguage: stringOr(s.source_language, "unknown"),
+    dimensionReasons: stringRecord(s.dimension_reasons),
+    scoredAt: typeof s.scored_at === "string" ? s.scored_at : null,
+  };
+}
+
 function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article {
   const state = item.state ?? {};
   const saved = state.saved === true;
+  const score = scoreFromApi(item.score);
   return {
     id: item.id,
     userId: 0,
@@ -128,13 +189,13 @@ function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article 
     contentStatus: contentStatusFromQuality(item.content_quality),
     contentIssue: contentIssueFromQuality(item.content_quality),
     contentFetchAttempted: item.content_quality != null && item.content_quality !== "snippet",
-    summaryZh: "",
-    summaryOriginal: "",
-    sourceLanguage: "unknown",
+    summaryZh: score?.summaryZh || (item.summary_zh ?? ""),
+    summaryOriginal: score?.summaryOriginal ?? "",
+    sourceLanguage: score?.sourceLanguage ?? "unknown",
     status: articleStatusFromApi(state.status),
     starred: saved,
     publishedAt: item.published_at ?? null,
-    score: null,
+    score,
     readLater: saved,
     lastReadAt: state.status === "read" ? new Date().toISOString() : null,
   };
@@ -145,10 +206,11 @@ export function articleFromApiItem(item: ApiArticleItem): Article {
 }
 
 export function articleFromApiDetail(detail: ApiArticleDetail): Article {
+  const base = articleBaseFromApi(detail, sanitizeArticleHtml(detail.content_html ?? ""));
   return {
-    ...articleBaseFromApi(detail, sanitizeArticleHtml(detail.content_html ?? "")),
-    summaryOriginal: detail.summary_original ?? "",
-    sourceLanguage: detail.source_language ?? "unknown",
+    ...base,
+    summaryOriginal: detail.summary_original ?? base.summaryOriginal,
+    sourceLanguage: detail.source_language ?? base.sourceLanguage,
   };
 }
 

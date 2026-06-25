@@ -23,6 +23,9 @@ services:
   ai-reader-api:
     environment:
       AI_READER_CSRF_ALLOWED_ORIGINS: https://staging-ai-reader.${DOMAIN}
+      # Staging-only: resolve anonymous (no-cookie) requests to a shared demo
+      # user so the public demo needs no login. NEVER set this in prod.
+      AI_READER_ANONYMOUS_DEMO: "true"
     networks:
       app:
         aliases:

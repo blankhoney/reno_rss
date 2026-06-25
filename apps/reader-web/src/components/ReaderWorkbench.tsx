@@ -92,6 +92,9 @@ export function ReaderWorkbench({
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const view = useMemo(
     () =>
@@ -120,6 +123,8 @@ export function ReaderWorkbench({
       setRecommendationPage(null);
       setRecommendationNotice(null);
       setSelectedArticle(null);
+      setNextCursor(null);
+      setHasMore(false);
       setIsLoading(false);
       setError(null);
       return;
@@ -132,6 +137,8 @@ export function ReaderWorkbench({
       let nextRecommendationNotice: { title: string; body: string } | null = null;
       let nextArticles: Article[] = [];
       let nextSelectedId: number | null = null;
+      let nextCursor: string | null = null;
+      let nextHasMore = false;
 
       if (shouldUseHomeRecommendations(currentModule, currentSort)) {
         try {
@@ -161,6 +168,8 @@ export function ReaderWorkbench({
       if (nextArticles.length === 0) {
         const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE });
         nextArticles = page.articles;
+        nextCursor = page.nextCursor;
+        nextHasMore = page.hasMore;
         const nextView = buildWorkbenchView({
           articles: nextArticles,
           currentModule,
@@ -176,16 +185,35 @@ export function ReaderWorkbench({
       setRecommendationPage(nextRecommendationPage);
       setRecommendationNotice(nextRecommendationNotice);
       setSelectedArticle(nextSelectedArticle);
+      setNextCursor(nextCursor);
+      setHasMore(nextHasMore);
     } catch (loadError) {
       setRawArticles([]);
       setRecommendationPage(null);
       setRecommendationNotice(null);
       setSelectedArticle(null);
+      setNextCursor(null);
+      setHasMore(false);
       setError(loadError instanceof Error ? loadError.message : "文章加载失败");
     } finally {
       setIsLoading(false);
     }
   }, [currentModule, currentSort, requestedSelectedId]);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || isLoadingMore || nextCursor == null) return;
+    setIsLoadingMore(true);
+    try {
+      const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE, cursor: nextCursor });
+      setRawArticles((previous) => [...previous, ...page.articles]);
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
+    } catch (loadMoreError) {
+      setError(loadMoreError instanceof Error ? loadMoreError.message : "加载更多失败");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [hasMore, isLoadingMore, nextCursor]);
 
   useEffect(() => {
     void loadWorkbench();
@@ -215,6 +243,9 @@ export function ReaderWorkbench({
           currentSort={currentSort}
           currentLang={currentLang}
           selectedArticleId={selectedArticleId}
+          hasMore={!showingRecommendations && hasMore}
+          isLoadingMore={isLoadingMore}
+          onLoadMore={() => void loadMore()}
           notice={recommendationNotice ?? undefined}
         />
       )}

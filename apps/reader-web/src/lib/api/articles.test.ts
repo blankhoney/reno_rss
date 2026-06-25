@@ -8,6 +8,7 @@ import {
   getJob,
   listArticles,
   pollJobUntilTerminal,
+  scoreFromApi,
   terminalJobStatus,
   updateArticleState,
 } from "./articles";
@@ -49,6 +50,50 @@ test("articleFromApiItem maps FastAPI list payloads to the Article view model", 
   assert.equal(article.readLater, true);
   assert.equal(article.status, "unread");
   assert.equal(article.score, null);
+});
+
+test("scoreFromApi maps the active score payload and ignores empty ones", () => {
+  assert.equal(scoreFromApi(null), null);
+  assert.equal(scoreFromApi({ tier: "read" }), null);
+
+  const score = scoreFromApi({
+    overall: 82,
+    tier: "read",
+    dimensions: { technical_value: 70, business_value: 60 },
+    dimension_reasons: { technical_value: "strong" },
+    tags: ["ai", 7],
+    reason: "useful",
+    summary_zh: "中文摘要",
+    summary_original: "Original",
+    source_language: "en",
+    scored_at: "2026-06-25T00:00:00Z",
+  });
+
+  assert.equal(score?.overall, 82);
+  assert.equal(score?.dimensions.technical_value, 70);
+  assert.equal(score?.dimensions.business_value, 60);
+  assert.deepEqual(score?.tags, ["ai"]);
+  assert.equal(score?.summaryZh, "中文摘要");
+  assert.equal(score?.sourceLanguage, "en");
+});
+
+test("articleFromApiItem surfaces the active score and zh summary", () => {
+  const article = articleFromApiItem({
+    id: 50,
+    title: "Scored article",
+    url: "https://example.com/scored",
+    feed: null,
+    category: null,
+    published_at: null,
+    content_quality: "full",
+    score: { overall: 91, tier: "must_read", dimensions: { technical_value: 88 } },
+    summary_zh: "列表摘要",
+    state: { status: "unread", saved: false, read_progress: 0 },
+  });
+
+  assert.equal(article.score?.overall, 91);
+  assert.equal(article.score?.dimensions.technical_value, 88);
+  assert.equal(article.summaryZh, "列表摘要");
 });
 
 test("articleFromApiDetail sanitizes detail HTML and maps full content", () => {

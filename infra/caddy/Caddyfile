@@ -74,23 +74,10 @@ staging-auth.{$DOMAIN} {
 }
 
 staging-ai-reader.{$DOMAIN} {
-    @demo_landing {
-        method GET HEAD
-        path /
-        query ""
-    }
-    handle @demo_landing {
-        reverse_proxy {$AI_READER_STAGING_WEB_UPSTREAM}
-    }
-
-    @demo_public_assets {
-        method GET HEAD
-        path /_next/static/* /favicon.ico
-    }
-    handle @demo_public_assets {
-        reverse_proxy {$AI_READER_STAGING_WEB_UPSTREAM}
-    }
-
+    # Staging is a fully public functional demo — no Authelia gate on app routes.
+    # Auth is enforced by FastAPI instead: with AI_READER_ANONYMOUS_DEMO=true the
+    # API resolves anonymous requests to a shared demo user (role=user), while
+    # admin endpoints stay protected by role. Prod keeps its forward_auth gate.
     @api path /api/*
     handle /healthz {
         reverse_proxy {$AI_READER_STAGING_API_UPSTREAM}
@@ -100,10 +87,6 @@ staging-ai-reader.{$DOMAIN} {
     }
 
     handle {
-        forward_auth {$AI_READER_STAGING_AUTH_UPSTREAM} {
-            uri /api/authz/forward-auth
-            copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
-        }
         reverse_proxy {$AI_READER_STAGING_WEB_UPSTREAM}
     }
 }

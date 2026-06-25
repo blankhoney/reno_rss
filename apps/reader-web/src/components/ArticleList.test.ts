@@ -38,6 +38,54 @@ test("ArticleList renders an explicit empty state", () => {
   assert.match(html, /当前模块没有可显示的文章/);
 });
 
+test("ArticleList shows the load-more control only when more pages exist", () => {
+  const article: Article = {
+    id: 7,
+    userId: 1,
+    feedId: 2,
+    feedTitle: "Feed",
+    categoryId: null,
+    categoryTitle: "",
+    title: "Paged title",
+    url: "https://example.com/paged",
+    contentHtml: "<p>Body</p>",
+    contentStatus: "partial",
+    contentIssue: "rss_fragment",
+    contentFetchAttempted: false,
+    summaryZh: "摘要",
+    summaryOriginal: "",
+    sourceLanguage: "unknown",
+    status: "unread",
+    starred: false,
+    publishedAt: "2026-05-14T00:00:00Z",
+    score: null,
+    readLater: false,
+    lastReadAt: null,
+  };
+
+  const withMore = renderArticleList({
+    articles: [article],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+    selectedArticleId: null,
+    hasMore: true,
+    onLoadMore: () => {},
+  });
+  const withoutMore = renderArticleList({
+    articles: [article],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+    selectedArticleId: null,
+    hasMore: false,
+    onLoadMore: () => {},
+  });
+
+  assert.match(withMore, /加载更多/);
+  assert.doesNotMatch(withoutMore, /加载更多/);
+});
+
 test("ArticleList renders summaries and preserves workbench and focus reading links", () => {
   const article: Article = {
     id: 42,

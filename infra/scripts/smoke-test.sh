@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MIT
 #
 # Purpose:
-#   Verify that a freshly deployed staging or production stack is reachable and fail-closed.
+#   Verify a freshly deployed staging or production stack is reachable, that prod
+#   fails closed, and that the staging public-demo boundary holds (anonymous users
+#   get a user-scoped session while admin endpoints stay protected).
 #
 # Usage:
 #   bash infra/scripts/smoke-test.sh staging
@@ -15,8 +17,9 @@
 #   Reads DOMAIN and service configuration from the repository .env file.
 #
 # Exit codes:
-#   0 when containers are running, health endpoints respond, anonymous APIs fail
-#   closed, and staging public/protected page boundaries match expectations.
+#   0 when containers are running, health endpoints respond, the env-specific
+#   anonymous auth boundary holds (prod 401; staging articles 200 / admin 403),
+#   and on staging the app shell is publicly served.
 #   Non-zero on invalid ENV, missing/risky containers, failed health checks, or
 #   broken auth boundaries.
 #
@@ -54,6 +57,17 @@ else
     PUBLIC_URL="https://ai-reader.${DOMAIN}"
 fi
 
+# Auth boundary differs by environment: staging is a public demo where anonymous
+# requests resolve to a shared demo user (articles 200, admin still role-gated to
+# 403); prod stays fail-closed (401 for any unauthenticated API call).
+if [[ "$ENV" == "staging" ]]; then
+    EXPECT_ANON_ARTICLES=200
+    EXPECT_ANON_ADMIN=403
+else
+    EXPECT_ANON_ARTICLES=401
+    EXPECT_ANON_ADMIN=401
+fi
+
 echo "🔎 Smoke test：$ENV"
 
 # Container checks catch failed Compose recreates before HTTP probes hide the cause.
@@ -83,8 +97,12 @@ fi
 echo "  ✅ worker startup log ok"
 
 # Internal API probes distinguish service health from edge-routing failures.
-docker exec "$API_CONTAINER" python - <<'PY'
+docker exec \
+    -e EXPECT_ANON_ARTICLES="$EXPECT_ANON_ARTICLES" \
+    -e EXPECT_ANON_ADMIN="$EXPECT_ANON_ADMIN" \
+    "$API_CONTAINER" python - <<'PY'
 import json
+import os
 import urllib.error
 import urllib.request
 
@@ -100,18 +118,18 @@ def require_json_ok(path: str) -> None:
 def require_status(path: str, expected: int) -> None:
     request = urllib.request.Request(f"http://127.0.0.1:8000{path}")
     try:
-        urllib.request.urlopen(request, timeout=5)
+        with urllib.request.urlopen(request, timeout=5) as response:
+            code = response.status
     except urllib.error.HTTPError as error:
-        if error.code != expected:
-            raise SystemExit(f"{path} returned {error.code}, expected {expected}") from error
-    else:
-        raise SystemExit(f"{path} returned success, expected {expected}")
+        code = error.code
+    if code != expected:
+        raise SystemExit(f"{path} returned {code}, expected {expected}")
 
 
 require_json_ok("/healthz")
 require_json_ok("/api/healthz")
-require_status("/api/articles", 401)
-require_status("/api/admin/users", 401)
+require_status("/api/articles", int(os.environ["EXPECT_ANON_ARTICLES"]))
+require_status("/api/admin/users", int(os.environ["EXPECT_ANON_ADMIN"]))
 print("  ✅ internal api health and anonymous auth boundaries ok")
 PY
 
@@ -133,11 +151,12 @@ require_http_status() {
 
 require_http_status "/healthz" "200"
 require_http_status "/api/healthz" "200"
-require_http_status "/api/articles" "401"
-require_http_status "/api/admin/users" "401"
+require_http_status "/api/articles" "$EXPECT_ANON_ARTICLES"
+require_http_status "/api/admin/users" "$EXPECT_ANON_ADMIN"
 
-# Staging page routes can transiently 5xx while Authelia restarts, but must never expose UI.
-require_staging_protected_boundary() {
+# Staging serves app page routes publicly (no Authelia gate). They can transiently
+# 5xx while reader-web restarts, so retry until the app shell is served with 200.
+require_staging_public_app() {
     local path="/?module=all&sort=default&lang=zh"
     local attempts=12
     local delay_seconds=2
@@ -151,14 +170,9 @@ require_staging_protected_boundary() {
             code="000"
         fi
 
-        if [[ "$code" =~ ^(2|3)[0-9][0-9]$ ]]; then
-            if [[ "$code" == 200 ]] && grep -q "阅读工作台" "$body_file"; then
-                echo "❌ staging protected route exposed business UI without auth"
-                rm -f "$body_file"
-                exit 1
-            fi
+        if [[ "$code" == 200 ]] && grep -q "AI Reader" "$body_file"; then
             rm -f "$body_file"
-            echo "  ✅ staging protected route boundary ok: HTTP $code"
+            echo "  ✅ staging app route publicly served: HTTP 200"
             return
         fi
 
@@ -168,7 +182,7 @@ require_staging_protected_boundary() {
         fi
     done
 
-    echo "❌ staging protected route returned HTTP $code after ${attempts} attempts"
+    echo "❌ staging app route not publicly served (last HTTP $code)"
     exit 1
 }
 
@@ -208,18 +222,18 @@ if [[ "$ADMIN_CODE" != "403" ]]; then
 fi
 echo "  ✅ logged-in non-admin admin boundary HTTP 403"
 
-# Staging intentionally exposes only the root session shell and static assets.
+# Staging publicly serves the app shell (the demo session bootstraps without login).
 if [[ "$ENV" == "staging" ]]; then
     LANDING_BODY="$(curl -fsSL --connect-timeout 10 "$PUBLIC_URL/")"
     for text in "AI Reader" "正在验证会话" "阅读工作台"; do
         if [[ "$LANDING_BODY" != *"$text"* ]]; then
-            echo "❌ staging auth shell missing marker: $text"
+            echo "❌ staging app shell missing marker: $text"
             exit 1
         fi
     done
-    echo "  ✅ staging public auth shell ok"
+    echo "  ✅ staging public app shell ok"
 
-    require_staging_protected_boundary
+    require_staging_public_app
 fi
 
 echo "✅ Smoke test passed：$ENV"

@@ -18,12 +18,20 @@ class Settings:
     minimax_base_url: str = DEFAULT_MINIMAX_BASE_URL
     minimax_model: str = DEFAULT_MINIMAX_MODEL
     llm_timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
+    # When true, requests without a session cookie are resolved to a shared demo
+    # user (role=user) so staging can be a fully public functional demo. MUST stay
+    # False in production — only the staging compose overlay enables it.
+    anonymous_demo_user_enabled: bool = False
 
 
 def _parse_csv_set(value: str | None) -> set[str]:
     if not value:
         return set()
     return {item.strip().rstrip("/") for item in value.split(",") if item.strip()}
+
+
+def _parse_bool(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def normalize_database_url(database_url: str | None) -> str | None:
@@ -54,5 +62,8 @@ def get_settings() -> Settings:
         llm_timeout_seconds=_parse_float(
             os.environ.get("LLM_TIMEOUT_SECONDS"),
             DEFAULT_LLM_TIMEOUT_SECONDS,
+        ),
+        anonymous_demo_user_enabled=_parse_bool(
+            os.environ.get("AI_READER_ANONYMOUS_DEMO")
         ),
     )

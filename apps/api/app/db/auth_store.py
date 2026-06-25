@@ -11,6 +11,9 @@ from app.db.models import app_users
 
 SESSION_TTL = timedelta(days=30)
 
+# Reserved display name for the shared anonymous demo user (staging only).
+DEMO_USER_DISPLAY_NAME = "__demo__"
+
 
 @dataclass
 class UserRecord:
@@ -39,6 +42,8 @@ class AuthStore(Protocol):
     def get_user_by_session(self, session_token: str | None) -> UserRecord | None: ...
 
     def create_user(self, display_name: str, role: str = "user") -> tuple[UserRecord, str, str]: ...
+
+    def get_or_create_demo_user(self) -> UserRecord: ...
 
     def admin_exists(self) -> bool: ...
 
@@ -88,6 +93,13 @@ class MemoryAuthStore:
         self._user_ids_by_session_hash[user.session_token_hash] = user.id
         self._user_ids_by_recovery_hash[user.recovery_code_hash] = user.id
         return user, session_token, recovery_code
+
+    def get_or_create_demo_user(self) -> UserRecord:
+        for user in sorted(self._users_by_id.values(), key=lambda u: u.created_at):
+            if user.display_name == DEMO_USER_DISPLAY_NAME:
+                return user
+        user, _, _ = self.create_user(display_name=DEMO_USER_DISPLAY_NAME, role="user")
+        return user
 
     def admin_exists(self) -> bool:
         return any(user.role == "admin" for user in self._users_by_id.values())
@@ -192,6 +204,23 @@ class DatabaseAuthStore:
                 .one()
             )
         return _user_from_row(row), session_token, recovery_code
+
+    def get_or_create_demo_user(self) -> UserRecord:
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    select(app_users)
+                    .where(app_users.c.display_name == DEMO_USER_DISPLAY_NAME)
+                    .order_by(app_users.c.created_at.asc())
+                    .limit(1)
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is not None:
+            return _user_from_row(row)
+        user, _, _ = self.create_user(display_name=DEMO_USER_DISPLAY_NAME, role="user")
+        return user
 
     def admin_exists(self) -> bool:
         with self.engine.begin() as connection:

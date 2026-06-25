@@ -13,6 +13,9 @@ type ArticleListProps = {
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
   selectedArticleId: number | null;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
   notice?: {
     title: string;
     body: string;
@@ -70,6 +73,9 @@ export function ArticleList({
   currentSort,
   currentLang,
   selectedArticleId,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
   notice,
 }: ArticleListProps) {
   const router = useRouter();
@@ -187,6 +193,18 @@ export function ArticleList({
           );
         })}
       </ul>
+      {hasMore && onLoadMore ? (
+        <div className="articleListMore">
+          <button
+            type="button"
+            className="articleListMoreButton"
+            disabled={isLoadingMore}
+            onClick={onLoadMore}
+          >
+            {isLoadingMore ? "加载中…" : "加载更多"}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

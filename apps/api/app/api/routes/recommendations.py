@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import (
     get_article_repository,
     get_recommendation_repository,
+    get_scoring_repository,
     require_user,
 )
 from app.api.routes.articles import article_list_item_public
@@ -12,6 +13,7 @@ from app.db.repositories.recommendations import (
     RecommendationItemRecord,
     RecommendationStore,
 )
+from app.db.repositories.scoring import ScoringStore
 
 
 router = APIRouter(prefix="/api/recommendations", tags=["recommendations"])
@@ -20,14 +22,17 @@ router = APIRouter(prefix="/api/recommendations", tags=["recommendations"])
 def recommendation_item_public(
     item: RecommendationItemRecord,
     article_repository: ArticleStore,
+    scoring_repository: ScoringStore,
     current_user: UserRecord,
 ) -> dict[str, object]:
     article = article_repository.get_article(item.article_id)
     article_payload = None
     if article is not None:
+        score = scoring_repository.active_scores_for_articles([article.id]).get(article.id)
         article_payload = article_list_item_public(
             article,
             article_repository.get_state(current_user.id, article.id),
+            score,
         )
     return {
         "rank": item.rank,
@@ -44,6 +49,7 @@ def latest_recommendations(
     current_user: UserRecord = Depends(require_user),
     recommendation_repository: RecommendationStore = Depends(get_recommendation_repository),
     article_repository: ArticleStore = Depends(get_article_repository),
+    scoring_repository: ScoringStore = Depends(get_scoring_repository),
 ) -> dict[str, object]:
     edition = recommendation_repository.latest_for_user(current_user.id)
     if edition is None:
@@ -56,7 +62,7 @@ def latest_recommendations(
             "algorithm_version": edition.algorithm_version,
         },
         "items": [
-            recommendation_item_public(item, article_repository, current_user)
+            recommendation_item_public(item, article_repository, scoring_repository, current_user)
             for item in edition.items
         ],
         "candidates": [],

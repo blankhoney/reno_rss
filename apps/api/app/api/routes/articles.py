@@ -6,6 +6,7 @@ from app.api.deps import (
     ApiError,
     get_article_repository,
     get_job_repository,
+    get_scoring_repository,
     require_user,
 )
 from app.db.auth_store import UserRecord
@@ -16,6 +17,7 @@ from app.db.repositories.articles import (
     ArticleStore,
 )
 from app.db.repositories.jobs import JobStore, dedupe_key_for
+from app.db.repositories.scoring import ScoreRecord, ScoringStore
 
 
 router = APIRouter(prefix="/api", tags=["articles"])
@@ -35,9 +37,26 @@ def article_state_public(state: ArticleStateRecord) -> dict[str, object]:
     }
 
 
+def score_public(score: ScoreRecord) -> dict[str, object]:
+    return {
+        "overall": score.base_score,
+        "tier": score.recommendation_tier,
+        "dimensions": score.dimension_scores,
+        "dimension_reasons": score.dimension_reasons,
+        "tags": score.tags,
+        "reason": score.reason,
+        "summary_zh": score.summary_zh,
+        "summary_original": score.summary_original,
+        "source_language": score.source_language,
+        "confidence": score.confidence,
+        "scored_at": score.scored_at.isoformat() if score.scored_at else None,
+    }
+
+
 def article_list_item_public(
     article: ArticleRecord,
     state: ArticleStateRecord,
+    score: ScoreRecord | None = None,
 ) -> dict[str, object]:
     return {
         "id": article.id,
@@ -50,7 +69,8 @@ def article_list_item_public(
         "category": None,
         "published_at": article.published_at.isoformat() if article.published_at else None,
         "content_quality": article.content_quality,
-        "score": None,
+        "score": score_public(score) if score is not None else None,
+        "summary_zh": score.summary_zh if score is not None else "",
         "state": article_state_public(state),
         "my_feedback": None,
     }
@@ -69,18 +89,19 @@ def article_detail_public(
     article: ArticleRecord,
     state: ArticleStateRecord,
     sources: list[ArticleSourceRecord],
+    score: ScoreRecord | None = None,
 ) -> dict[str, object]:
-    item = article_list_item_public(article, state)
+    item = article_list_item_public(article, state, score)
     item.update(
         {
             "content_html": article.content_html,
             "content_text": article.content_text,
             "content_source": article.content_source,
             "content_expired": False,
-            "summary_original": None,
-            "source_language": None,
-            "dimension_scores": {},
-            "dimension_reasons": {},
+            "summary_original": score.summary_original if score is not None else None,
+            "source_language": score.source_language if score is not None else None,
+            "dimension_scores": score.dimension_scores if score is not None else {},
+            "dimension_reasons": score.dimension_reasons if score is not None else {},
             "sources": [article_source_public(source) for source in sources],
         }
     )
@@ -91,6 +112,7 @@ def article_detail_public(
 async def list_articles(
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
+    scoring_repository: ScoringStore = Depends(get_scoring_repository),
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
 ) -> dict[str, object]:
@@ -99,11 +121,14 @@ async def list_articles(
     except (ValueError, KeyError):
         raise ApiError(400, "invalid_cursor", "Invalid cursor") from None
 
+    scores = scoring_repository.active_scores_for_articles([article.id for article in page.items])
+
     return {
         "items": [
             article_list_item_public(
                 article,
                 article_repository.get_state(current_user.id, article.id),
+                scores.get(article.id),
             )
             for article in page.items
         ],
@@ -117,14 +142,17 @@ def get_article(
     article_id: int = Path(gt=0),
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
+    scoring_repository: ScoringStore = Depends(get_scoring_repository),
 ) -> dict[str, object]:
     article = article_repository.get_article(article_id)
     if article is None:
         raise ApiError(404, "not_found", "Article not found")
+    score = scoring_repository.active_scores_for_articles([article.id]).get(article.id)
     return article_detail_public(
         article,
         article_repository.get_state(current_user.id, article.id),
         article_repository.sources_for_article(article.id),
+        score,
     )
 
 
