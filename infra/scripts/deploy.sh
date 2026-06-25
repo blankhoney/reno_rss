@@ -261,7 +261,7 @@ run_prod_migration_backup
 # API_MIGRATION_READY_GATE
 wait_for_api_migration_ready
 
-# Run schema changes before refreshing Authelia or external smoke checks see the new runtime.
+# Apply schema changes before recreating Authelia, so smoke checks never see a runtime ahead of its schema.
 echo "🗄️  应用 $ENV API 数据库迁移..."
 IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" exec -T ai-reader-api alembic upgrade head
 
