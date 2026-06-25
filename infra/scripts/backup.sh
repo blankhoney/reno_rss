@@ -1,12 +1,26 @@
 #!/usr/bin/env bash
-# 备份脚本：对 miniflux 和 scoring 数据库做逻辑备份
+# SPDX-License-Identifier: MIT
 #
-# 用法：
+# Purpose:
+#   Create restorable logical backups for the production Miniflux and scoring databases.
+#
+# Usage:
 #   bash infra/scripts/backup.sh
 #
-# 备份文件保存在：./backup/YYYY-MM-DD_HH-MM-SS/
-# 格式：pg_dump -Fc（自定义压缩格式，用 pg_restore 恢复）
-# 同时生成 sha256 校验和文件，用于验证备份完整性
+# Arguments:
+#   None.
+#
+# Environment:
+#   Reads the running production PostgreSQL container name from the fixed
+#   myrss-prod Compose convention.
+#
+# Exit codes:
+#   0 when both dumps and their checksum file are written.
+#   Non-zero on any Docker, pg_dump, checksum, or cleanup failure.
+#
+# Side effects:
+#   Writes ./backup/YYYY-MM-DD_HH-MM-SS/*.dump and checksums.txt, then deletes
+#   backup directories older than seven days. Dumps use pg_dump -Fc for pg_restore.
 
 set -euo pipefail
 
@@ -19,19 +33,18 @@ BACKUP_PATH="$(cd "$BACKUP_DIR" && pwd)"
 
 echo "💾 开始备份到 $BACKUP_PATH ..."
 
-# 备份 miniflux 数据库
+# Dump each database before emitting stable markers so deploy.sh never accepts a partial backup.
 docker exec "$PG_CONTAINER" \
     pg_dump -U postgres -Fc miniflux \
     > "$BACKUP_PATH/miniflux.dump"
 echo "  ✅ miniflux.dump"
 
-# 备份 scoring 数据库
 docker exec "$PG_CONTAINER" \
     pg_dump -U postgres -Fc scoring \
     > "$BACKUP_PATH/scoring.dump"
 echo "  ✅ scoring.dump"
 
-# 生成校验和（用于验证文件未损坏）
+# Emit a machine-readable checksum file and stable marker lines for deployment gates.
 sha256sum "$BACKUP_PATH/miniflux.dump" "$BACKUP_PATH/scoring.dump" \
     > "$BACKUP_PATH/checksums.txt"
 echo "  ✅ checksums.txt"
@@ -42,7 +55,7 @@ echo "✅ 备份完成：$BACKUP_PATH"
 echo "   文件大小："
 du -sh "$BACKUP_PATH"/*
 
-# 清理 7 天前的旧备份（按目录修改时间判断）
+# Keep local backup storage bounded without touching freshly written artifacts.
 echo "🧹 清理 7 天前的旧备份..."
 find ./backup -maxdepth 1 -mindepth 1 -type d -mtime +7 -print -exec rm -rf {} +
 echo "✅ 清理完成，当前保留备份："

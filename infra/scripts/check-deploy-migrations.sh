@@ -1,11 +1,32 @@
 #!/usr/bin/env bash
-# Guard deploy.sh against starting API smoke checks before the Alembic schema is applied.
+# SPDX-License-Identifier: MIT
+#
+# Purpose:
+#   Guard deploy.sh against migration-order regressions before they reach VPS deploys.
+#
+# Usage:
+#   bash infra/scripts/check-deploy-migrations.sh [deploy_script] [backup_script]
+#
+# Arguments:
+#   $1  Optional deploy.sh path; defaults to infra/scripts/deploy.sh.
+#   $2  Optional backup.sh path; defaults to infra/scripts/backup.sh.
+#
+# Environment:
+#   None.
+#
+# Exit codes:
+#   0 when required markers and ordering invariants are present.
+#   Non-zero when a script is missing or a required deploy/backup invariant is absent.
+#
+# Side effects:
+#   Read-only. This script inspects shell source and writes diagnostics to stderr.
 
 set -euo pipefail
 
 SCRIPT_PATH="${1:-infra/scripts/deploy.sh}"
 BACKUP_SCRIPT_PATH="${2:-infra/scripts/backup.sh}"
 
+# Validate inputs first so later grep failures always mean invariant failures.
 if [[ ! -f "$SCRIPT_PATH" ]]; then
     echo "deploy script not found: $SCRIPT_PATH" >&2
     exit 1
@@ -16,6 +37,7 @@ if [[ ! -f "$BACKUP_SCRIPT_PATH" ]]; then
     exit 1
 fi
 
+# These marker checks preserve the fail-closed migration path used by staging and prod.
 if ! grep -q 'exec -T ai-reader-api alembic upgrade head' "$SCRIPT_PATH"; then
     echo "deploy.sh must run alembic upgrade head inside ai-reader-api before smoke checks" >&2
     exit 1
@@ -31,6 +53,7 @@ if ! grep -q 'API_MIGRATION_READY_GATE' "$SCRIPT_PATH"; then
     exit 1
 fi
 
+# backup.sh must expose stable machine-readable markers instead of localized text.
 if ! grep -q 'echo "BACKUP_DIR=' "$BACKUP_SCRIPT_PATH"; then
     echo "backup.sh must emit a stable BACKUP_DIR marker for deploy.sh parsing" >&2
     exit 1
@@ -56,6 +79,7 @@ if grep -q "s/^✅ 备份完成：" "$SCRIPT_PATH"; then
     exit 1
 fi
 
+# The order check catches accidental deploy refactors that start auth/smoke before schema readiness.
 if ! awk '
     /\$\{BACKEND_COMPOSE\[@\]\}" up -d/ { backend_up = NR }
     /PROD_MIGRATION_BACKUP_GATE/ { backup = NR }

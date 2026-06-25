@@ -1,18 +1,34 @@
 #!/usr/bin/env bash
-# 部署脚本：部署指定环境（staging 或 prod）到当前服务器
+# SPDX-License-Identifier: MIT
 #
-# 用法：
+# Purpose:
+#   Deploy the AI Reader stack for staging or production on the current VPS.
+#
+# Usage:
 #   bash infra/scripts/deploy.sh staging v1.2.3
 #   bash infra/scripts/deploy.sh prod    v1.2.3
 #
-# 参数：
-#   $1  ENV  — 环境名，必须是 staging 或 prod
-#   $2  TAG  — 镜像 tag，例如 v1.2.3 或 sha-abc1234
+# Arguments:
+#   $1  ENV  Environment name; must be staging or prod.
+#   $2  TAG  Image tag, for example v1.2.3 or sha-abc1234.
+#
+# Environment:
+#   Reads .env from the repository root. CI may override IMAGE_REGISTRY,
+#   AI_READER_*_IMAGE, and LOCAL_BUILD before .env is loaded.
+#
+# Exit codes:
+#   0 when Caddy, backend services, migrations, and Authelia refresh complete.
+#   Non-zero on invalid ENV, missing env values, failed backup/readiness gates,
+#   failed Compose commands, failed Caddy validation, or failed migrations.
+#
+# Side effects:
+#   Rewrites generated Authelia config/assets, creates the shared Docker network,
+#   pulls/builds images, recreates services, runs Alembic migrations, and may write
+#   a production database backup before prod migrations.
 
 set -euo pipefail
 
-# shell 环境变量优先级高于 --env-file，清除可能被外部工具（如 pi agent）污染的变量
-# 确保 docker compose 从 --env-file 读取真实值，而不是残留的占位符
+# Invariant: deployment must not inherit placeholder secrets from an invoking agent shell.
 unset MINIFLUX_API_KEY MINIFLUX_ADMIN_PASSWORD POSTGRES_SUPERUSER_PASSWORD \
       POSTGRES_MINIFLUX_PASSWORD POSTGRES_SCORING_PASSWORD SMTP_PASSWORD \
       MINIMAX_API_KEY MINIMAX_BASE_URL MINIMAX_MODEL LLM_TIMEOUT_SECONDS \
@@ -29,19 +45,17 @@ DEPLOY_AI_READER_API_IMAGE="${AI_READER_API_IMAGE:-}"
 DEPLOY_AI_READER_WORKER_IMAGE="${AI_READER_WORKER_IMAGE:-}"
 DEPLOY_LOCAL_BUILD="${LOCAL_BUILD:-}"
 
-# 校验 ENV 参数，防止误操作
+# Fail before any side effect if the requested environment is not explicitly supported.
 if [[ "$ENV" != "staging" && "$ENV" != "prod" ]]; then
     echo "❌ 错误：ENV 必须是 staging 或 prod，收到：$ENV"
     exit 1
 fi
 
-# 脚本所在目录（无论从哪里调用，路径都正确）
+# Resolve paths from the script location so deploys behave the same from CI and SSH shells.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# ── Step 0：生成 Authelia 配置文件（envsubst 替换域名等变量）──
-# 从 .env 加载变量，envsubst 把 ${DOMAIN} 替换为真实值。
-# CI/CD 传入的镜像变量优先级高于 .env 中的空值或旧值。
+# Load server-local configuration after preserving CI image overrides.
 set -a; source "$REPO_ROOT/.env"; set +a
 
 IMAGE_REGISTRY="${DEPLOY_IMAGE_REGISTRY:-${IMAGE_REGISTRY:-}}"
@@ -77,6 +91,7 @@ json_escape() {
     printf '%s' "$value"
 }
 
+# Staging keeps Authelia labels explicit so public demo credentials are visible before 2FA.
 write_authelia_demo_locale_overrides() {
     : "${DEMO_USERNAME:?staging 部署必须设置 DEMO_USERNAME}"
     : "${DEMO_PASSWORD:?staging 部署必须设置 DEMO_PASSWORD}"
@@ -100,6 +115,7 @@ EOF
     done
 }
 
+# Production migrations are gated by a fresh backup artifact and its checksum evidence.
 run_prod_migration_backup() {
     if [[ "$ENV" != "prod" ]]; then
         echo "💾 $ENV 非生产环境：跳过迁移前备份 gate"
@@ -158,6 +174,7 @@ run_prod_migration_backup() {
     fi
 }
 
+# Alembic must run only after the API container can connect to the target database.
 wait_for_api_migration_ready() {
     local max_attempts="${MIGRATION_READY_MAX_ATTEMPTS:-12}"
     local sleep_seconds="${MIGRATION_READY_SLEEP_SECONDS:-5}"
@@ -185,6 +202,7 @@ else
     echo "   镜像模式：local build"
 fi
 
+# Regenerate edge-auth assets before Caddy validates its mounted configuration.
 mkdir -p "$AUTHELIA_ASSETS_DIR"
 if [[ "$ENV" == "staging" ]]; then
     write_authelia_demo_locale_overrides
@@ -195,14 +213,10 @@ envsubst < "$REPO_ROOT/infra/authelia/configuration.yml.tmpl" \
     > "$REPO_ROOT/infra/authelia/configuration.yml"
 echo "📝 Authelia 配置已生成"
 
-# ── Step 1：确保共享 edge 网络存在 ──────────────────────────
-# edge 网络由 docker-compose.edge.yml 创建，prod/staging 共用
-# 如果已经存在，docker network create 会报错，用 || true 忽略
+# The app network is shared by staging/prod backends and the single edge Caddy instance.
 docker network create myrss-app 2>/dev/null || true
 
-# ── Step 2：启动/更新唯一的边缘入口（Caddy）────────────────
-# -p myrss-edge：project name，确保全局只有一个 Caddy 实例
-# --remove-orphans：移除上次启动后被删除的服务容器
+# Recreate the single edge entrypoint before backend smoke checks depend on routing.
 echo "📡 更新 edge 入口（Caddy）..."
 IMAGE_TAG="$TAG" docker compose \
     -p "myrss-edge" \
@@ -222,8 +236,7 @@ docker compose \
     -f "$REPO_ROOT/infra/compose/docker-compose.edge.yml" \
     exec -T caddy caddy reload --config /etc/caddy/Caddyfile
 
-# ── Step 3：启动/更新环境后端服务 ───────────────────────────
-# 叠加 base.yml + <env>.yml，ENV 参数决定使用哪套别名
+# Build the environment-specific backend stack from base plus the selected overlay.
 echo "🔧 更新 $ENV 后端服务..."
 BACKEND_COMPOSE=(
     docker compose
@@ -241,12 +254,14 @@ else
     IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --build --remove-orphans
 fi
 
+# These named markers are asserted by check-deploy-migrations.sh.
 # PROD_MIGRATION_BACKUP_GATE
 run_prod_migration_backup
 
 # API_MIGRATION_READY_GATE
 wait_for_api_migration_ready
 
+# Run schema changes before refreshing Authelia or external smoke checks see the new runtime.
 echo "🗄️  应用 $ENV API 数据库迁移..."
 IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" exec -T ai-reader-api alembic upgrade head
 

@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
-# 回滚脚本：用指定旧版本覆盖当前部署
+# SPDX-License-Identifier: MIT
 #
-# 用法：
+# Purpose:
+#   Roll back an environment by redeploying a previous image tag through deploy.sh.
+#
+# Usage:
 #   bash infra/scripts/rollback.sh prod v1.2.2
 #
-# 本质：回滚 = 用旧 tag 重新 deploy
-# 因此直接复用 deploy.sh，保持逻辑一致
+# Arguments:
+#   $1  ENV  Environment name; must be accepted by deploy.sh.
+#   $2  TAG  Previously published image tag to redeploy.
+#
+# Environment:
+#   Inherited by deploy.sh; see infra/scripts/deploy.sh for required .env keys.
+#
+# Exit codes:
+#   0 when deploy.sh succeeds for the requested tag.
+#   Non-zero when arguments are missing or deploy.sh fails.
+#
+# Side effects:
+#   Reuses deploy.sh, so it may recreate services, run migrations, and perform
+#   prod backup gates depending on the target environment.
 
 set -euo pipefail
 
@@ -14,6 +29,7 @@ TAG="${2:?必须提供要回滚到的镜像 tag}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Rollback intentionally shares deploy.sh so recovery and normal deploy gates cannot drift.
 echo "⏪ 开始回滚：ENV=$ENV  TARGET_TAG=$TAG"
 bash "$SCRIPT_DIR/deploy.sh" "$ENV" "$TAG"
 echo "✅ 回滚完成：$ENV 已回到 $TAG"

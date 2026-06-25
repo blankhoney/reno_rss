@@ -1,5 +1,28 @@
 #!/usr/bin/env bash
-# Lightweight post-deploy smoke test for staging/prod.
+# SPDX-License-Identifier: MIT
+#
+# Purpose:
+#   Verify that a freshly deployed staging or production stack is reachable and fail-closed.
+#
+# Usage:
+#   bash infra/scripts/smoke-test.sh staging
+#   bash infra/scripts/smoke-test.sh prod
+#
+# Arguments:
+#   $1  ENV  Environment name; must be staging or prod.
+#
+# Environment:
+#   Reads DOMAIN and service configuration from the repository .env file.
+#
+# Exit codes:
+#   0 when containers are running, health endpoints respond, anonymous APIs fail
+#   closed, and staging public/protected page boundaries match expectations.
+#   Non-zero on invalid ENV, missing/risky containers, failed health checks, or
+#   broken auth boundaries.
+#
+# Side effects:
+#   Creates temporary cookie/body files and one short-lived API session for a
+#   smoke user. Does not mutate article data or run worker jobs.
 
 set -euo pipefail
 
@@ -10,6 +33,7 @@ if [[ "$ENV" != "staging" && "$ENV" != "prod" ]]; then
     exit 1
 fi
 
+# Resolve the repo-local .env so smoke tests can run from CI SSH or manual shells.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -32,6 +56,7 @@ fi
 
 echo "🔎 Smoke test：$ENV"
 
+# Container checks catch failed Compose recreates before HTTP probes hide the cause.
 require_running() {
     local container="$1"
     local running
@@ -57,6 +82,7 @@ if ! docker logs --tail 80 "$WORKER_CONTAINER" 2>&1 | grep -q "worker runtime st
 fi
 echo "  ✅ worker startup log ok"
 
+# Internal API probes distinguish service health from edge-routing failures.
 docker exec "$API_CONTAINER" python - <<'PY'
 import json
 import urllib.error
@@ -89,6 +115,7 @@ require_status("/api/admin/users", 401)
 print("  ✅ internal api health and anonymous auth boundaries ok")
 PY
 
+# Public HTTP probes prove Caddy routes health and API paths to the expected services.
 require_http_status() {
     local path="$1"
     local expected="$2"
@@ -109,6 +136,7 @@ require_http_status "/api/healthz" "200"
 require_http_status "/api/articles" "401"
 require_http_status "/api/admin/users" "401"
 
+# Staging page routes can transiently 5xx while Authelia restarts, but must never expose UI.
 require_staging_protected_boundary() {
     local path="/?module=all&sort=default&lang=zh"
     local attempts=12
@@ -144,6 +172,7 @@ require_staging_protected_boundary() {
     exit 1
 }
 
+# The display-name session check proves FastAPI auth works without requiring admin secrets.
 COOKIE_JAR="$(mktemp)"
 LOGIN_BODY="$(mktemp)"
 ADMIN_BODY="$(mktemp)"
@@ -179,6 +208,7 @@ if [[ "$ADMIN_CODE" != "403" ]]; then
 fi
 echo "  ✅ logged-in non-admin admin boundary HTTP 403"
 
+# Staging intentionally exposes only the root session shell and static assets.
 if [[ "$ENV" == "staging" ]]; then
     LANDING_BODY="$(curl -fsSL --connect-timeout 10 "$PUBLIC_URL/")"
     for text in "AI Reader" "正在验证会话" "阅读工作台"; do

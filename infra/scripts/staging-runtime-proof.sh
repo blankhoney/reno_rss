@@ -1,5 +1,29 @@
 #!/usr/bin/env bash
-# Deep staging-only proof for the AI Reader v0.4 runtime chain.
+# SPDX-License-Identifier: MIT
+#
+# Purpose:
+#   Prove the deployed staging AI Reader runtime chain end to end after deploy.
+#
+# Usage:
+#   bash infra/scripts/staging-runtime-proof.sh staging
+#
+# Arguments:
+#   $1  ENV  Must be staging. Production runtime proof is intentionally unsupported.
+#
+# Environment:
+#   Reads DOMAIN and API/worker settings from the repository .env file and the
+#   running staging containers. Requires worker/API LLM_PROVIDER=mock.
+#
+# Exit codes:
+#   0 when auth, sync, content fetch, mock scoring, recommendation generation,
+#   latest Top10, and article ask SSE all succeed.
+#   Non-zero on non-staging ENV, non-mock LLM provider, failed HTTP/DB checks,
+#   timed out jobs, or missing proof artifacts.
+#
+# Side effects:
+#   Creates/refreshes deterministic proof admin/user records, may enqueue a
+#   synthetic sync job if staging has no articles, subscribes the proof user to
+#   selected article feeds, and enqueues worker jobs in staging only.
 
 set -euo pipefail
 
@@ -22,6 +46,7 @@ PUBLIC_URL="https://staging-ai-reader.${DOMAIN}"
 
 echo "Runtime proof: $ENV"
 
+# Mock provider is mandatory so CI/staging proof cannot spend real provider credits.
 worker_llm_provider="$(docker exec "$WORKER_CONTAINER" printenv LLM_PROVIDER 2>/dev/null || true)"
 worker_llm_provider="${worker_llm_provider:-mock}"
 if [[ "$worker_llm_provider" != "mock" ]]; then
@@ -30,6 +55,7 @@ if [[ "$worker_llm_provider" != "mock" ]]; then
 fi
 echo "  ok worker LLM_PROVIDER=mock"
 
+# Run the proof from inside the API container so it uses the deployed code and network.
 docker exec \
     -i \
     -e PUBLIC_ORIGIN="$PUBLIC_URL" \
@@ -64,6 +90,7 @@ PROOF_ENTRY_ID = 990_000_000_001
 PROOF_URL = "https://example.com/ai-reader/staging-runtime-proof"
 
 
+# HTTP helpers always include the public Origin so CORS/CSRF behavior matches the browser path.
 @dataclass(frozen=True)
 class HttpResult:
     status: int
@@ -241,6 +268,7 @@ def wait_job(job_id: int, *, cookie: str, label: str, timeout_seconds: int = 120
     fail(f"{label} job {job_id} did not finish within {timeout_seconds}s; last status={last_status}")
 
 
+# The fallback article keeps proof deterministic when a staging Miniflux account is empty.
 def ensure_proof_feed(engine, user_id: object) -> None:
     with engine.begin() as connection:
         connection.execute(
@@ -341,6 +369,7 @@ def latest_article_id_from_api(user_cookie: str) -> int | None:
     return int(first["id"])
 
 
+# Recommendation proof subscribes the user to the selected feed so ranking is not incidental.
 def subscribe_user_to_article_feeds(engine, *, user_id: object, article_id: int) -> int:
     with engine.begin() as connection:
         feed_ids = [
@@ -392,6 +421,7 @@ def subscribe_user_to_article_feeds(engine, *, user_id: object, article_id: int)
     return len(feed_ids)
 
 
+# The scoring sink should enqueue recommendation generation; this waits for that downstream job.
 def find_recommendation_job_id(engine, batch_id: int, *, timeout_seconds: int = 60) -> int:
     deadline = time.monotonic() + timeout_seconds
     payload = json.dumps({"source_batch_id": batch_id})
@@ -432,6 +462,7 @@ def main() -> None:
 
     engine = create_engine(settings.database_url, pool_pre_ping=True)
     try:
+        # Refresh fixed proof users instead of printing or reusing any long-lived secret.
         admin_id, admin_recovery_code = refresh_recoverable_user(
             engine,
             display_name=PROOF_ADMIN_NAME,
@@ -446,6 +477,7 @@ def main() -> None:
         user_cookie = recover_session(user_recovery_code, expected_role="user")
         print("  ok proof admin/user sessions refreshed")
 
+        # Exercise the same admin sync endpoint used by the web admin console.
         sync_response = http_json(
             "POST",
             "/api/admin/sync",
@@ -464,6 +496,7 @@ def main() -> None:
             f"articles_upserted={sync_result.get('articles_upserted')}"
         )
 
+        # Prefer real staging articles; fall back to a synthetic feed only when staging is empty.
         article_id = latest_article_id_from_api(user_cookie)
         if article_id is None:
             ensure_proof_feed(engine, user_id)
@@ -491,6 +524,7 @@ def main() -> None:
             f"feed_count={subscribed_feed_count}"
         )
 
+        # Content fetch proves the worker can process article enrichment before scoring and ask.
         fetch_response = http_json(
             "POST",
             f"/api/articles/{article_id}/fetch-content",
@@ -509,6 +543,7 @@ def main() -> None:
             f"content_quality={fetch_result.get('content_quality')}"
         )
 
+        # A one-article batch keeps the proof cheap while still traversing batch and job state.
         batch_response = http_json(
             "POST",
             "/api/admin/scoring-batches",
@@ -547,6 +582,7 @@ def main() -> None:
             f"scores_failed={score_result.get('scores_failed')}"
         )
 
+        # Recommendations are the required downstream effect of a successful scoring batch.
         recommendation_job_id = find_recommendation_job_id(engine, batch_id)
         recommendation_job = wait_job(
             recommendation_job_id,
@@ -573,6 +609,7 @@ def main() -> None:
         edition_id = edition.get("id") if isinstance(edition, dict) else "unknown"
         print(f"  ok latest recommendations edition {edition_id}: items={len(items)}")
 
+        # Ask SSE proves the user-facing streaming path sees the same article context.
         ask_response = http_raw(
             "POST",
             f"/api/articles/{article_id}/ask",

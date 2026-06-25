@@ -1,18 +1,34 @@
 #!/usr/bin/env bash
-# 恢复脚本：从备份目录恢复 miniflux 和 scoring 数据库
+# SPDX-License-Identifier: MIT
 #
-# 用法：
+# Purpose:
+#   Restore production Miniflux and scoring databases from a backup directory.
+#
+# Usage:
 #   bash infra/scripts/restore.sh ./backup/2026-05-11_12-00-00
 #
-# ⚠️  警告：恢复操作会覆盖现有数据库内容！
-# ⚠️  恢复前会先停止 miniflux、API 和 worker，防止写冲突
+# Arguments:
+#   $1  Backup directory containing miniflux.dump, scoring.dump, and checksums.txt.
+#
+# Environment:
+#   Reads production Compose files from the repository. Uses the fixed production
+#   PostgreSQL container name from the myrss-prod Compose convention.
+#
+# Exit codes:
+#   0 when checksums pass, both databases restore, and services restart.
+#   Non-zero on missing backup directory, checksum mismatch, declined confirmation,
+#   Docker/pg_restore failures, or service restart failures.
+#
+# Side effects:
+#   Destructive: stops production Miniflux/API/worker, overwrites both databases,
+#   then restarts those services.
 
 set -euo pipefail
 
 BACKUP_DIR="${1:?必须提供备份目录路径，例如 ./backup/2026-05-11_12-00-00}"
 PG_CONTAINER="myrss-prod-postgres-1"
 
-# 确认备份目录存在
+# Refuse to proceed unless the backup directory and checksums are present and valid.
 if [[ ! -d "$BACKUP_DIR" ]]; then
     echo "❌ 备份目录不存在：$BACKUP_DIR"
     exit 1
@@ -23,6 +39,7 @@ echo "🔍 验证备份文件完整性..."
 sha256sum --check "$BACKUP_DIR/checksums.txt"
 echo "  ✅ 校验和通过"
 
+# Human confirmation is required because pg_restore --clean replaces live data.
 echo "⚠️  即将恢复数据库，这会覆盖现有数据！"
 read -r -p "确认继续？输入 yes 继续：" CONFIRM
 if [[ "$CONFIRM" != "yes" ]]; then
@@ -33,28 +50,27 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# 停止依赖数据库的服务（防止恢复期间有写入）
+# Stop database writers to avoid mixed old/new state during destructive restore.
 echo "⏸️  停止 miniflux、AI Reader API 和 worker..."
 docker compose -p "myrss-prod" \
     -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
     -f "$REPO_ROOT/infra/compose/docker-compose.prod.yml" \
     stop miniflux ai-reader-api ai-reader-worker
 
-# 恢复 miniflux 数据库
+# Restore both logical dumps before bringing writers back online.
 echo "📥 恢复 miniflux..."
 docker exec -i "$PG_CONTAINER" \
     pg_restore -U postgres -d miniflux --clean --if-exists \
     < "$BACKUP_DIR/miniflux.dump"
 echo "  ✅ miniflux 恢复完成"
 
-# 恢复 scoring 数据库
 echo "📥 恢复 scoring..."
 docker exec -i "$PG_CONTAINER" \
     pg_restore -U postgres -d scoring --clean --if-exists \
     < "$BACKUP_DIR/scoring.dump"
 echo "  ✅ scoring 恢复完成"
 
-# 重新启动服务
+# Restart only the services paused for database consistency.
 echo "▶️  重启服务..."
 docker compose -p "myrss-prod" \
     -f "$REPO_ROOT/infra/compose/docker-compose.base.yml" \
