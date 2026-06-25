@@ -181,13 +181,13 @@ echo "  ✅ logged-in non-admin admin boundary HTTP 403"
 
 if [[ "$ENV" == "staging" ]]; then
     LANDING_BODY="$(curl -fsSL --connect-timeout 10 "$PUBLIC_URL/")"
-    for text in "AI Reader" "以游客身份进入" "GitHub"; do
+    for text in "AI Reader" "正在验证会话" "阅读工作台"; do
         if [[ "$LANDING_BODY" != *"$text"* ]]; then
-            echo "❌ staging demo landing missing marker: $text"
+            echo "❌ staging auth shell missing marker: $text"
             exit 1
         fi
     done
-    echo "  ✅ staging demo landing ok"
+    echo "  ✅ staging public auth shell ok"
 
     require_staging_protected_boundary
 fi
