@@ -47,7 +47,6 @@ const MODULE_GROUPS: ModuleNavGroup[] = [
     id: "manage",
     label: "管理",
     items: [
-      { id: "feeds", label: "订阅源管理" },
       { id: "admin", label: "管理控制台" },
     ],
   },

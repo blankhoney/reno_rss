@@ -1,4 +1,3 @@
-import type { ArticleScore } from "@/lib/scoring/repository";
 import sanitizeHtml from "sanitize-html";
 import { assessArticleContent } from "./contentQuality";
 import type { Article, ArticleContentIssue, ArticleContentStatus } from "./types";
@@ -16,7 +15,6 @@ export const MODULE_IDS = [
   "ai",
   "product",
   "security",
-  "feeds",
 ] as const;
 
 export type ModuleId = (typeof MODULE_IDS)[number];
@@ -114,35 +112,6 @@ export function sortArticlesForModule(
   });
 }
 
-export type MinifluxEntryModuleFilter = {
-  status: "read" | "unread" | "all";
-  starred?: boolean;
-  limit: number;
-};
-
-export function minifluxEntryFilterForModule(
-  moduleId: ModuleId,
-  limit: number,
-): MinifluxEntryModuleFilter {
-  if (moduleId === "all") return { status: "all", starred: undefined, limit };
-  if (moduleId === "read") return { status: "read", starred: undefined, limit };
-  if (moduleId === "starred") return { status: "all", starred: true, limit };
-  if (moduleId === "project") return { status: "all", starred: undefined, limit };
-  if (moduleId === "read-later") return { status: "all", starred: undefined, limit };
-  if (moduleId === "feeds") return { status: "all", starred: undefined, limit };
-  if (
-    moduleId === "technical" ||
-    moduleId === "business" ||
-    moduleId === "trend" ||
-    moduleId === "ai" ||
-    moduleId === "product" ||
-    moduleId === "security"
-  ) {
-    return { status: "all", starred: undefined, limit };
-  }
-  return { status: "unread", starred: undefined, limit };
-}
-
 export function filterArticlesForModule(articles: Article[], moduleId: ModuleId): Article[] {
   if (moduleId === "unread") return articles.filter((article) => article.status === "unread");
   if (moduleId === "read") return articles.filter((article) => article.status === "read");
@@ -205,19 +174,6 @@ function feedQualitySortTier(article: Article): number {
   return score < 45 ? 0 : 1;
 }
 
-type MinifluxArticle = Omit<
-  Article,
-  | "score"
-  | "readLater"
-  | "lastReadAt"
-  | "summaryZh"
-  | "summaryOriginal"
-  | "sourceLanguage"
-  | "contentStatus"
-  | "contentIssue"
-  | "contentFetchAttempted"
->;
-
 function shouldOpenArticleLinkInNewTab(href: string | undefined): boolean {
   if (href == null) return false;
   try {
@@ -266,29 +222,4 @@ export function classifyArticleContentStatus(html: string): ArticleContentStatus
 
 export function classifyArticleContentIssue(html: string): ArticleContentIssue {
   return assessArticleContent(html).issue;
-}
-
-export function mergeArticleData(
-  articles: MinifluxArticle[],
-  scores: Map<number, ArticleScore>,
-  states: Map<number, { readLater: boolean; lastReadAt: string | null }>,
-): Article[] {
-  return articles.map((article) => {
-    const state = states.get(article.id);
-    const contentHtml = sanitizeArticleHtml(article.contentHtml);
-    const contentAssessment = assessArticleContent(contentHtml);
-    return {
-      ...article,
-      contentHtml,
-      contentStatus: contentAssessment.status,
-      contentIssue: contentAssessment.issue,
-      contentFetchAttempted: false,
-      score: scores.get(article.id) ?? null,
-      summaryZh: scores.get(article.id)?.summaryZh ?? "",
-      summaryOriginal: scores.get(article.id)?.summaryOriginal ?? "",
-      sourceLanguage: scores.get(article.id)?.sourceLanguage ?? "unknown",
-      readLater: state?.readLater ?? false,
-      lastReadAt: state?.lastReadAt ?? null,
-    };
-  });
 }

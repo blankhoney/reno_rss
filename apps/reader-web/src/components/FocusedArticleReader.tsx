@@ -2,9 +2,8 @@
 
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import type { Article } from "@/lib/articles/types";
+import type { Article, DimensionKey } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
-import type { DimensionKey } from "@/lib/scoring/repository";
 import { createThinkTagFilter } from "@/lib/agent/stream";
 import { streamArticleAsk } from "@/lib/api/client";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -40,7 +39,7 @@ function selectedTextFromPage(): string | undefined {
 
 function summaryForLang(article: Article, lang: SummaryLangId): string {
   const summary = lang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
-  return summary.trim() || "暂无摘要，点击实时评分生成";
+  return summary.trim() || "暂无摘要，可在管理控制台完成评分后生成";
 }
 
 function switchSummaryLang(nextLang: SummaryLangId) {
@@ -142,14 +141,6 @@ export function FocusedArticleReader({
             onClick={() => void articleActions.refreshFullContent()}
           >
             {articleActions.isFetchingContent ? "刷新中" : "刷新全文"}
-          </button>
-          <button
-            type="button"
-            className="readerToolbarBtn"
-            disabled={articleActions.isScoring}
-            onClick={() => void articleActions.scoreNow()}
-          >
-            {articleActions.isScoring ? "评分中" : "实时评分"}
           </button>
           <button
             type="button"
@@ -263,7 +254,7 @@ export function FocusedArticleReader({
               ) : null}
             </>
           ) : (
-            <p className="scoreMissing">未评分。点击“实时评分”生成摘要、分数和理由。</p>
+            <p className="scoreMissing">未评分。可在管理控制台创建评分批次生成摘要、分数和理由。</p>
           )}
         </details>
 

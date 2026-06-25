@@ -17,7 +17,6 @@ import {
   latestRecommendations,
   type RecommendationPage,
 } from "@/lib/api/recommendations";
-import { DEFAULT_SCORING_SETTINGS } from "@/lib/scoring/settings";
 import { ArticleList } from "./ArticleList";
 import { ArticleReader } from "./ArticleReader";
 import { ModuleSidebar } from "./ModuleSidebar";
@@ -55,7 +54,7 @@ export function buildWorkbenchView({
   requestedSelectedId: number | null;
 }): WorkbenchView {
   const moduleResolution = resolveArticlesListModuleId(true, currentModule);
-  if (!moduleResolution.ok || moduleResolution.moduleId === "feeds") {
+  if (!moduleResolution.ok) {
     return { moduleId: null, articles: [], selectedArticleId: null };
   }
 
@@ -116,7 +115,7 @@ export function ReaderWorkbench({
 
   const loadWorkbench = useCallback(async () => {
     const moduleResolution = resolveArticlesListModuleId(true, currentModule);
-    if (!moduleResolution.ok || moduleResolution.moduleId === "feeds") {
+    if (!moduleResolution.ok) {
       setRawArticles([]);
       setRecommendationPage(null);
       setRecommendationNotice(null);
@@ -216,7 +215,6 @@ export function ReaderWorkbench({
           currentSort={currentSort}
           currentLang={currentLang}
           selectedArticleId={selectedArticleId}
-          initialScoringSettings={DEFAULT_SCORING_SETTINGS}
           notice={recommendationNotice ?? undefined}
         />
       )}

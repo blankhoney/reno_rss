@@ -1,6 +1,5 @@
 import { AuthSessionGate } from "@/components/AuthSessionGate";
 import { AdminConsole } from "@/components/AdminConsole";
-import { FeedQualityPanel } from "@/components/FeedQualityPanel";
 import { ModuleSidebar } from "@/components/ModuleSidebar";
 import { ReaderWorkbench } from "@/components/ReaderWorkbench";
 import {
@@ -35,17 +34,6 @@ export default async function HomePage({ searchParams }: PageProps) {
   const currentSort = sortResolution.ok ? sortResolution.sortId : "default";
   const currentLang = resolveSummaryLangId(typeof sp.lang === "string" ? sp.lang : null);
   const requestedSelectedId = parseArticleId(sp.article);
-
-  if (currentModule === "feeds") {
-    return (
-      <AuthSessionGate>
-        <main className="workbench feedWorkbench">
-          <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
-          <FeedQualityPanel />
-        </main>
-      </AuthSessionGate>
-    );
-  }
 
   if (currentModule === "admin") {
     return (

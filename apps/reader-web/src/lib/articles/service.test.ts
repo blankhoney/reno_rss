@@ -6,7 +6,6 @@ import {
   filterArticlesForModule,
   filterHiddenFeedsForModule,
   articleNeedsOriginalContentFetch,
-  minifluxEntryFilterForModule,
   MODULE_IDS,
   resolveArticlesListModuleId,
   resolveArticleSortId,
@@ -80,34 +79,6 @@ function article(
     lastReadAt: input.lastReadAt ?? null,
   };
 }
-
-test("minifluxEntryFilterForModule fetches all statuses for latest and scored modules", () => {
-  assert.deepEqual(minifluxEntryFilterForModule("all", 25), {
-    status: "all",
-    starred: undefined,
-    limit: 25,
-  });
-  assert.deepEqual(minifluxEntryFilterForModule("technical", 25), {
-    status: "all",
-    starred: undefined,
-    limit: 25,
-  });
-  assert.deepEqual(minifluxEntryFilterForModule("starred", 25), {
-    status: "all",
-    starred: true,
-    limit: 25,
-  });
-  assert.deepEqual(minifluxEntryFilterForModule("read-later", 25), {
-    status: "all",
-    starred: undefined,
-    limit: 25,
-  });
-  assert.deepEqual(minifluxEntryFilterForModule("project", 25), {
-    status: "all",
-    starred: undefined,
-    limit: 25,
-  });
-});
 
 test("resolveArticleSortId defaults and rejects unknown explicit values", () => {
   assert.deepEqual(resolveArticleSortId(false, null), { ok: true, sortId: "default" });

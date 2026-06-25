@@ -1,8 +1,26 @@
-import type { ArticleScore } from "@/lib/scoring/repository";
-
 export type ArticleStatus = "read" | "unread" | "skipped" | "removed";
 export type ArticleContentStatus = "full" | "partial";
 export type ArticleContentIssue = "rss_fragment" | "blocked_or_error_page" | "fetch_failed" | null;
+export type DimensionKey =
+  | "importance"
+  | "usefulness"
+  | "timeliness"
+  | "depth"
+  | "technical_value"
+  | "business_value"
+  | "trend_value";
+
+export type ArticleScore = {
+  overall: number;
+  dimensions: Record<DimensionKey, number>;
+  tags: string[];
+  reason: string;
+  summaryZh: string;
+  summaryOriginal: string;
+  sourceLanguage: string;
+  dimensionReasons: Partial<Record<DimensionKey, string>>;
+  scoredAt: string | null;
+};
 
 export type Article = {
   id: number;

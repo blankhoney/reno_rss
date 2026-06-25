@@ -12,7 +12,7 @@ import {
   type ApiJob,
 } from "@/lib/api/articles";
 
-type ActionKey = "score" | "fetchContent" | "candidate" | "project" | "read";
+type ActionKey = "fetchContent" | "candidate" | "project" | "read";
 
 type ActionLink = {
   href: string;
@@ -75,30 +75,9 @@ export function contentFetchJobMessage(job: ApiJob): string {
 
 function articleActionErrorMessage(error: string): string {
   if (error === "article_not_candidate") return "请先加入候选再立项";
-  if (error === "manual_rescore_disabled") return "手动重评已关闭";
   if (error === "entry_not_found") return "文章不存在或不在当前 Miniflux 实例";
   if (error === "fetch_content_failed") return "全文抓取失败，请打开原文阅读";
   return error.trim() || "操作失败";
-}
-
-async function postArticleAction<TBody = unknown, TResponse = unknown>(
-  entryId: number,
-  path: string,
-  body?: TBody,
-): Promise<TResponse> {
-  const response = await fetch(`/api/articles/${entryId}/${path}`, {
-    method: "POST",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = (await response.json().catch(() => null)) as
-    | ({ error?: unknown } & TResponse)
-    | null;
-
-  if (!response.ok) {
-    throw new Error(typeof data?.error === "string" ? data.error : "操作失败");
-  }
-  return (data ?? {}) as TResponse;
 }
 
 function dispatchArticleDataChanged(articleId: number) {
@@ -142,17 +121,10 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     actionMessage,
     actionError,
     actionLink,
-    isScoring: pendingAction === "score",
     isFetchingContent: pendingAction === "fetchContent",
     isTogglingCandidate: pendingAction === "candidate",
     isProjecting: pendingAction === "project",
     isMarkingRead: pendingAction === "read",
-    scoreNow: () =>
-      run("score", async () => {
-        if (article == null) return "";
-        await postArticleAction(article.id, "score", { force: true });
-        return "评分已更新";
-      }),
     refreshFullContent: () =>
       run("fetchContent", async () => {
         if (article == null) return "";
