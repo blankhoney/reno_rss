@@ -372,6 +372,47 @@
         }
       }
     },
+    "/api/articles/{article_id}/translate": {
+      "post": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Enqueue Translate Article Job",
+        "operationId": "enqueue_translate_article_job_api_articles__article_id__translate_post",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Article Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/articles/{article_id}/ask": {
       "post": {
         "tags": [
