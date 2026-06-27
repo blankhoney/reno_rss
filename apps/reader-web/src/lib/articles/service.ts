@@ -1,6 +1,6 @@
 import sanitizeHtml from "sanitize-html";
 import { assessArticleContent } from "./contentQuality";
-import type { Article, ArticleContentIssue, ArticleContentStatus } from "./types";
+import type { Article, ArticleContentIssue, ArticleContentStatus, DimensionKey } from "./types";
 
 export const MODULE_IDS = [
   "all",
@@ -141,15 +141,23 @@ export function scoreForModule(article: Article, moduleId: ModuleId): number {
   switch (moduleId) {
     case "technical":
     case "ai":
-      return score.dimensions.technical_value;
+      return Math.round(
+        (dimensionScore(article, "topic_relevance") + dimensionScore(article, "information_density")) / 2,
+      );
     case "business":
-      return score.dimensions.business_value;
+      return dimensionScore(article, "actionability");
     case "trend":
-      return Math.round((score.dimensions.trend_value + score.dimensions.timeliness) / 2);
+      return Math.round(
+        (dimensionScore(article, "novelty") + dimensionScore(article, "timeliness")) / 2,
+      );
     case "product":
-      return Math.round((score.dimensions.usefulness + score.dimensions.business_value) / 2);
+      return Math.round(
+        (dimensionScore(article, "actionability") + dimensionScore(article, "reading_cost_fit")) / 2,
+      );
     case "security":
-      return Math.round((score.dimensions.importance + score.dimensions.technical_value) / 2);
+      return Math.round(
+        (dimensionScore(article, "source_quality") + (100 - dimensionScore(article, "risk_uncertainty"))) / 2,
+      );
     default:
       return score.overall;
   }
@@ -162,10 +170,14 @@ function scoreForSort(article: Article, sortId: ArticleSortId): number {
   const score = article.score;
   if (!score) return -1;
   if (sortId === "score") return score.overall;
-  if (sortId === "technical") return score.dimensions.technical_value;
-  if (sortId === "business") return score.dimensions.business_value;
-  if (sortId === "trend") return score.dimensions.trend_value;
+  if (sortId === "technical") return dimensionScore(article, "topic_relevance");
+  if (sortId === "business") return dimensionScore(article, "actionability");
+  if (sortId === "trend") return dimensionScore(article, "novelty");
   return -1;
+}
+
+function dimensionScore(article: Article, key: DimensionKey): number {
+  return article.score?.dimensions[key] ?? 0;
 }
 
 function feedQualitySortTier(article: Article): number {

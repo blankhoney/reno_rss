@@ -28,6 +28,9 @@ class ArticleRecord:
     published_at: datetime | None
     content_text: str | None
     content_html: str | None
+    content_zh: str | None
+    content_zh_status: str | None
+    translated_at: datetime | None
     content_source: str | None
     content_quality: str | None
     content_hash: str | None
@@ -82,6 +85,15 @@ class ArticleStore(Protocol):
         saved: bool | None = None,
         read_progress: float | None = None,
     ) -> ArticleStateRecord | None: ...
+
+    def save_translation(
+        self,
+        article_id: int,
+        *,
+        content_zh: str | None,
+        status: str | None,
+        translated_at: datetime | None,
+    ) -> ArticleRecord | None: ...
 
 
 def canonicalize_url(url: str) -> str:
@@ -159,6 +171,9 @@ class MemoryArticleRepository:
                 published_at=_optional_datetime(entry.get("published_at")),
                 content_text=content_text,
                 content_html=_optional_str(entry.get("content_html")),
+                content_zh=None,
+                content_zh_status=None,
+                translated_at=None,
                 content_source=_optional_str(entry.get("content_source")),
                 content_quality=_optional_str(entry.get("content_quality")),
                 content_hash=_content_hash(content_text),
@@ -241,6 +256,27 @@ class MemoryArticleRepository:
             read_progress=read_progress if read_progress is not None else current.read_progress,
         )
         self._states[(user_id, article_id)] = updated
+        return updated
+
+    def save_translation(
+        self,
+        article_id: int,
+        *,
+        content_zh: str | None,
+        status: str | None,
+        translated_at: datetime | None,
+    ) -> ArticleRecord | None:
+        article = self._articles.get(article_id)
+        if article is None:
+            return None
+        updated = replace(
+            article,
+            content_zh=content_zh,
+            content_zh_status=status,
+            translated_at=translated_at,
+            updated_at=datetime.now(UTC),
+        )
+        self._articles[article_id] = updated
         return updated
 
 
@@ -374,6 +410,32 @@ class DatabaseArticleRepository:
                 row = self._upsert_state_generic(connection, values)
         return _state_from_row(row)
 
+    def save_translation(
+        self,
+        article_id: int,
+        *,
+        content_zh: str | None,
+        status: str | None,
+        translated_at: datetime | None,
+    ) -> ArticleRecord | None:
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    update(articles)
+                    .where(articles.c.id == article_id)
+                    .values(
+                        content_zh=content_zh,
+                        content_zh_status=status,
+                        translated_at=translated_at,
+                        updated_at=datetime.now(UTC),
+                    )
+                    .returning(articles)
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return _article_from_row(row) if row is not None else None
+
     def dispose(self) -> None:
         self.engine.dispose()
 
@@ -388,6 +450,9 @@ class DatabaseArticleRepository:
             "published_at": _optional_datetime(entry.get("published_at")),
             "content_text": content_text,
             "content_html": _optional_str(entry.get("content_html")),
+            "content_zh": _optional_str(entry.get("content_zh")),
+            "content_zh_status": _optional_str(entry.get("content_zh_status")),
+            "translated_at": _optional_datetime(entry.get("translated_at")),
             "content_source": _optional_str(entry.get("content_source")),
             "content_quality": _optional_str(entry.get("content_quality")),
             "content_hash": _content_hash(content_text),
@@ -520,6 +585,9 @@ def _article_from_row(row) -> ArticleRecord:
         published_at=row["published_at"],
         content_text=row["content_text"],
         content_html=row["content_html"],
+        content_zh=row["content_zh"],
+        content_zh_status=row["content_zh_status"],
+        translated_at=row["translated_at"],
         content_source=row["content_source"],
         content_quality=row["content_quality"],
         content_hash=row["content_hash"],

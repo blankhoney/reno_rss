@@ -126,6 +126,8 @@ async def test_article_detail_returns_sources_and_content(app, client):
     assert response.status_code == 200
     assert response.json()["id"] == article.id
     assert response.json()["content_text"] == "Full text"
+    assert response.json()["content_zh"] is None
+    assert response.json()["content_zh_status"] is None
     assert response.json()["sources"] == [
         {
             "feed_id": 1,
@@ -134,6 +136,85 @@ async def test_article_detail_returns_sources_and_content(app, client):
             "source_url": "https://example.com/post",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_article_detail_returns_cached_translation(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    translated_at = datetime(2026, 6, 25, 1, tzinfo=UTC)
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+            "content_html": "<p>Full text</p>",
+        }
+    )
+    app.state.article_repository.save_translation(
+        article.id,
+        content_zh="<p>中文正文</p>",
+        status="succeeded",
+        translated_at=translated_at,
+    )
+
+    response = await client.get(f"/api/articles/{article.id}")
+
+    assert response.status_code == 200
+    assert response.json()["content_zh"] == "<p>中文正文</p>"
+    assert response.json()["content_zh_status"] == "succeeded"
+    assert response.json()["translated_at"] == translated_at.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_translate_article_returns_cached_translation(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    translated_at = datetime(2026, 6, 25, 1, tzinfo=UTC)
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+    app.state.article_repository.save_translation(
+        article.id,
+        content_zh="<p>中文正文</p>",
+        status="succeeded",
+        translated_at=translated_at,
+    )
+
+    response = await client.post(f"/api/articles/{article.id}/translate")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "succeeded",
+        "content_zh": "<p>中文正文</p>",
+        "translated_at": translated_at.isoformat(),
+        "job_id": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_translate_article_enqueues_job_and_marks_translation_queued(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    response = await client.post(f"/api/articles/{article.id}/translate")
+    detail_response = await client.get(f"/api/articles/{article.id}")
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
+    assert isinstance(response.json()["job_id"], int)
+    assert detail_response.json()["content_zh_status"] == "queued"
 
 
 @pytest.mark.asyncio

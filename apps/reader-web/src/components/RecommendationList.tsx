@@ -1,6 +1,5 @@
 "use client";
 
-import { useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import type { RecommendationItem, RecommendationPage } from "@/lib/api/recommendations";
@@ -11,23 +10,7 @@ type RecommendationListProps = {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
-  selectedArticleId: number | null;
 };
-
-function listHref(
-  currentModule: string,
-  currentSort: ArticleSortId,
-  currentLang: SummaryLangId,
-  articleId: number,
-): string {
-  const qs = new URLSearchParams({
-    module: currentModule,
-    sort: currentSort,
-    lang: currentLang,
-    article: String(articleId),
-  });
-  return `?${qs.toString()}`;
-}
 
 function readHref(
   currentModule: string,
@@ -74,30 +57,8 @@ export function RecommendationList({
   currentModule,
   currentSort,
   currentLang,
-  selectedArticleId,
 }: RecommendationListProps) {
   const router = useRouter();
-  const clickTimerRef = useRef<number | null>(null);
-
-  function clearPendingPreview() {
-    if (clickTimerRef.current !== null) {
-      window.clearTimeout(clickTimerRef.current);
-      clickTimerRef.current = null;
-    }
-  }
-
-  function openPreview(href: string) {
-    clearPendingPreview();
-    clickTimerRef.current = window.setTimeout(() => {
-      router.push(href);
-      clickTimerRef.current = null;
-    }, 260);
-  }
-
-  function openReader(href: string) {
-    clearPendingPreview();
-    router.push(href);
-  }
 
   return (
     <section className="articleListPane" aria-label="今日 Top10">
@@ -109,6 +70,7 @@ export function RecommendationList({
               ? `${formatGeneratedAt(page.edition.generatedAt)} / ${page.edition.algorithmVersion}`
               : "等待同步和评分生成推荐版次"}
           </p>
+          <p className="recommendationEdition">Top10 · 固定榜单</p>
         </div>
         <div className="articleListActions">
           <a className="readerToolbarBtn" href={latestHref(currentLang)}>
@@ -128,33 +90,24 @@ export function RecommendationList({
         {page.items.map((item) => {
           const article = item.article;
           const articleId = article?.id ?? item.rank;
-          const isActive = article != null && selectedArticleId === article.id;
-          const previewHref = article
-            ? listHref(currentModule, currentSort, currentLang, article.id)
-            : null;
           const focusHref = article ? readHref(currentModule, currentSort, currentLang, article.id) : null;
           return (
             <li key={`${item.rank}-${articleId}`}>
               <article
-                className={`articleCard recommendationCard${isActive ? " articleCardActive" : ""}`}
-                role={previewHref ? "link" : undefined}
-                tabIndex={previewHref ? 0 : undefined}
-                aria-current={isActive ? "true" : undefined}
+                className="articleCard recommendationCard"
+                role={focusHref ? "link" : undefined}
+                tabIndex={focusHref ? 0 : undefined}
                 aria-label={
                   article
-                    ? `${article.title}，Top10 第 ${item.rank} 名，单击预览，双击进入专注阅读`
+                    ? `${article.title}，Top10 第 ${item.rank} 名，进入专注阅读`
                     : `Top10 第 ${item.rank} 名文章暂不可用`
                 }
-                data-preview-href={previewHref ?? undefined}
                 data-read-href={focusHref ?? undefined}
                 onClick={() => {
-                  if (previewHref) openPreview(previewHref);
-                }}
-                onDoubleClick={() => {
-                  if (focusHref) openReader(focusHref);
+                  if (focusHref) router.push(focusHref);
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && previewHref) openPreview(previewHref);
+                  if (event.key === "Enter" && focusHref) router.push(focusHref);
                 }}
               >
                 <div className="recommendationTopline">

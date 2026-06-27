@@ -12,13 +12,6 @@ function normalizeModule(raw: string | string[] | undefined): string {
   return "all";
 }
 
-function parseArticleId(raw: string | string[] | undefined): number | null {
-  const v = typeof raw === "string" ? raw : undefined;
-  if (!v) return null;
-  const n = Number.parseInt(v, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -33,7 +26,6 @@ export default async function HomePage({ searchParams }: PageProps) {
   );
   const currentSort = sortResolution.ok ? sortResolution.sortId : "default";
   const currentLang = resolveSummaryLangId(typeof sp.lang === "string" ? sp.lang : null);
-  const requestedSelectedId = parseArticleId(sp.article);
 
   if (currentModule === "admin") {
     return (
@@ -52,7 +44,6 @@ export default async function HomePage({ searchParams }: PageProps) {
         currentModule={currentModule}
         currentSort={currentSort}
         currentLang={currentLang}
-        requestedSelectedId={requestedSelectedId}
       />
     </AuthSessionGate>
   );

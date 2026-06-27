@@ -1,15 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectedArticleIdOrFirst } from "./selection";
+import { selectionPreview, selectionTextWithinContainer } from "./selection";
 
-test("selectedArticleIdOrFirst keeps explicit article id", () => {
-  assert.equal(selectedArticleIdOrFirst(9, [{ id: 1 }, { id: 2 }]), 9);
+test("selectionTextWithinContainer returns trimmed text for in-article selections", () => {
+  const inside = {};
+  const container = {
+    contains(node: object) {
+      return node === inside;
+    },
+  };
+  const selection = {
+    anchorNode: inside,
+    focusNode: inside,
+    rangeCount: 1,
+    toString: () => "  selected text  ",
+  };
+
+  assert.equal(selectionTextWithinContainer(container as HTMLElement, selection as Selection), "selected text");
 });
 
-test("selectedArticleIdOrFirst falls back to first list item", () => {
-  assert.equal(selectedArticleIdOrFirst(null, [{ id: 7 }, { id: 8 }]), 7);
+test("selectionTextWithinContainer ignores empty or external selections", () => {
+  const inside = {};
+  const outside = {};
+  const container = {
+    contains(node: object) {
+      return node === inside;
+    },
+  };
+
+  assert.equal(
+    selectionTextWithinContainer(container as HTMLElement, {
+      anchorNode: inside,
+      focusNode: outside,
+      rangeCount: 1,
+      toString: () => "text",
+    } as Selection),
+    null,
+  );
+  assert.equal(
+    selectionTextWithinContainer(container as HTMLElement, {
+      anchorNode: inside,
+      focusNode: inside,
+      rangeCount: 1,
+      toString: () => "   ",
+    } as Selection),
+    null,
+  );
 });
 
-test("selectedArticleIdOrFirst returns null for empty lists", () => {
-  assert.equal(selectedArticleIdOrFirst(null, []), null);
+test("selectionPreview truncates long selected text", () => {
+  assert.equal(selectionPreview("one   two   three", 20), "one two three");
+  assert.equal(selectionPreview("abcdefghijklmnopqrstuvwxyz", 8), "abcdefgh...");
 });

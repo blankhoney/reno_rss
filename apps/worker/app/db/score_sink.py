@@ -175,7 +175,7 @@ def _score_values(
         "rubric_version": str(score.get("rubric_version", "v1")),
         "model_provider": str(score.get("model_provider", "unknown")),
         "model_name": str(score.get("model_name", "unknown")),
-        "prompt_version": str(score.get("prompt_version", "rss-score-v04")),
+        "prompt_version": str(score.get("prompt_version", "rss-score-v05")),
         "input_content_hash": score.get("input_content_hash"),
         "scoring_status": str(score.get("scoring_status", "success")),
         "error": score.get("error"),

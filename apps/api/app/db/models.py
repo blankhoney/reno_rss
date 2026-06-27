@@ -100,6 +100,9 @@ articles = Table(
     Column("published_at", DateTime(timezone=True)),
     Column("content_text", Text),
     Column("content_html", Text),
+    Column("content_zh", Text),
+    Column("content_zh_status", Text),
+    Column("translated_at", DateTime(timezone=True)),
     Column("content_source", Text),
     Column("content_quality", Text),
     Column("content_hash", Text),
@@ -115,6 +118,10 @@ articles = Table(
     CheckConstraint(
         "content_quality IN ('full', 'partial', 'snippet')",
         name="ck_articles_content_quality",
+    ),
+    CheckConstraint(
+        "content_zh_status IS NULL OR content_zh_status IN ('queued', 'running', 'succeeded', 'failed')",
+        name="ck_articles_content_zh_status",
     ),
 )
 

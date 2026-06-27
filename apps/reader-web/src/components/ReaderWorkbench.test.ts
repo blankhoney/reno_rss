@@ -31,7 +31,7 @@ function article(id: number, input: Partial<Article> = {}): Article {
   };
 }
 
-test("buildWorkbenchView filters module articles and keeps an explicit selection", () => {
+test("buildWorkbenchView filters module articles", () => {
   const view = buildWorkbenchView({
     articles: [
       article(1, { status: "unread" }),
@@ -40,15 +40,13 @@ test("buildWorkbenchView filters module articles and keeps an explicit selection
     ],
     currentModule: "unread",
     currentSort: "latest",
-    requestedSelectedId: 1,
   });
 
   assert.equal(view.moduleId, "unread");
   assert.deepEqual(view.articles.map((item) => item.id), [1]);
-  assert.equal(view.selectedArticleId, 1);
 });
 
-test("buildWorkbenchView falls back to the first visible article", () => {
+test("buildWorkbenchView keeps sorted visible articles without selecting one", () => {
   const view = buildWorkbenchView({
     articles: [
       article(1, { publishedAt: "2026-06-24T00:00:00Z" }),
@@ -56,11 +54,9 @@ test("buildWorkbenchView falls back to the first visible article", () => {
     ],
     currentModule: "all",
     currentSort: "latest",
-    requestedSelectedId: null,
   });
 
   assert.deepEqual(view.articles.map((item) => item.id), [2, 1]);
-  assert.equal(view.selectedArticleId, 2);
 });
 
 test("shouldUseHomeRecommendations only enables Top10 on the default home view", () => {

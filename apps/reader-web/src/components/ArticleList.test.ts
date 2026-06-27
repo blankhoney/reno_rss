@@ -31,7 +31,6 @@ test("ArticleList renders an explicit empty state", () => {
       currentModule: "all",
       currentSort: "default",
       currentLang: "zh",
-      selectedArticleId: null,
     });
 
   assert.match(html, /暂无文章/);
@@ -58,7 +57,18 @@ test("ArticleList shows the load-more control only when more pages exist", () =>
     status: "unread",
     starred: false,
     publishedAt: "2026-05-14T00:00:00Z",
-    score: null,
+    score: {
+      overall: 88,
+      tier: "must_read",
+      dimensions: { topic_relevance: 88 },
+      tags: [],
+      reason: "值得阅读",
+      summaryZh: "这是一段中文摘要。",
+      summaryOriginal: "This is an original summary.",
+      sourceLanguage: "en",
+      dimensionReasons: {},
+      scoredAt: "2026-05-14T00:00:00Z",
+    },
     readLater: false,
     lastReadAt: null,
   };
@@ -68,7 +78,6 @@ test("ArticleList shows the load-more control only when more pages exist", () =>
     currentModule: "all",
     currentSort: "default",
     currentLang: "zh",
-    selectedArticleId: null,
     hasMore: true,
     onLoadMore: () => {},
   });
@@ -77,12 +86,13 @@ test("ArticleList shows the load-more control only when more pages exist", () =>
     currentModule: "all",
     currentSort: "default",
     currentLang: "zh",
-    selectedArticleId: null,
     hasMore: false,
     onLoadMore: () => {},
   });
 
   assert.match(withMore, /加载更多/);
+  assert.match(withMore, /已加载 1 篇 · 还有更多/);
+  assert.match(withoutMore, /已加载 1 篇 · 已全部加载/);
   assert.doesNotMatch(withoutMore, /加载更多/);
 });
 
@@ -106,7 +116,18 @@ test("ArticleList renders summaries and preserves workbench and focus reading li
     status: "unread",
     starred: false,
     publishedAt: "2026-05-14T00:00:00Z",
-    score: null,
+    score: {
+      overall: 88,
+      tier: "must_read",
+      dimensions: { topic_relevance: 88 },
+      tags: [],
+      reason: "值得阅读",
+      summaryZh: "这是一段中文摘要。",
+      summaryOriginal: "This is an original summary.",
+      sourceLanguage: "en",
+      dimensionReasons: {},
+      scoredAt: "2026-05-14T00:00:00Z",
+    },
     readLater: false,
     lastReadAt: null,
   };
@@ -116,13 +137,16 @@ test("ArticleList renders summaries and preserves workbench and focus reading li
       currentModule: "all",
       currentSort: "technical",
       currentLang: "zh",
-      selectedArticleId: 42,
     });
 
   assert.match(html, /这是一段中文摘要/);
-  assert.match(html, /data-preview-href="\?module=all&amp;sort=technical&amp;lang=zh&amp;article=42"/);
+  assert.match(html, /总分/);
+  assert.match(html, /88/);
+  assert.match(html, /层级/);
+  assert.match(html, /必读/);
+  assert.doesNotMatch(html, /data-preview-href/);
   assert.match(html, /href="\/read\/42\?module=all&amp;sort=technical&amp;lang=zh"/);
-  assert.match(html, /单击预览，双击进入专注阅读/);
+  assert.match(html, /进入专注阅读/);
   assert.match(html, /阅读/);
 });
 
@@ -156,7 +180,6 @@ test("ArticleList uses low-noise summary text for unscored articles", () => {
       currentModule: "all",
       currentSort: "default",
       currentLang: "zh",
-      selectedArticleId: null,
     });
 
   assert.match(html, /未评分/);
@@ -193,7 +216,6 @@ test("ArticleList keeps list actions on FastAPI-backed reading controls", () => 
       currentModule: "all",
       currentSort: "default",
       currentLang: "zh",
-      selectedArticleId: null,
     });
 
   assert.doesNotMatch(html, /重评/);

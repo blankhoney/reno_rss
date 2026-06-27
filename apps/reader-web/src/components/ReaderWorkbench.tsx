@@ -11,14 +11,12 @@ import {
   type ModuleId,
   type SummaryLangId,
 } from "@/lib/articles/service";
-import { selectedArticleIdOrFirst } from "@/lib/articles/selection";
-import { getArticle, listArticles } from "@/lib/api/articles";
+import { listArticles } from "@/lib/api/articles";
 import {
   latestRecommendations,
   type RecommendationPage,
 } from "@/lib/api/recommendations";
 import { ArticleList } from "./ArticleList";
-import { ArticleReader } from "./ArticleReader";
 import { ModuleSidebar } from "./ModuleSidebar";
 import { RecommendationList } from "./RecommendationList";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
@@ -28,7 +26,6 @@ const ARTICLE_LIST_PAGE_SIZE = 50;
 export type WorkbenchView = {
   moduleId: ModuleId | null;
   articles: Article[];
-  selectedArticleId: number | null;
 };
 
 export function shouldUseHomeRecommendations(
@@ -46,16 +43,14 @@ export function buildWorkbenchView({
   articles,
   currentModule,
   currentSort,
-  requestedSelectedId,
 }: {
   articles: Article[];
   currentModule: string;
   currentSort: ArticleSortId;
-  requestedSelectedId: number | null;
 }): WorkbenchView {
   const moduleResolution = resolveArticlesListModuleId(true, currentModule);
   if (!moduleResolution.ok) {
-    return { moduleId: null, articles: [], selectedArticleId: null };
+    return { moduleId: null, articles: [] };
   }
 
   const moduleId = moduleResolution.moduleId;
@@ -68,7 +63,6 @@ export function buildWorkbenchView({
   return {
     moduleId,
     articles: visibleArticles,
-    selectedArticleId: selectedArticleIdOrFirst(requestedSelectedId, visibleArticles),
   };
 }
 
@@ -76,12 +70,10 @@ export function ReaderWorkbench({
   currentModule,
   currentSort,
   currentLang,
-  requestedSelectedId,
 }: {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
-  requestedSelectedId: number | null;
 }) {
   const [rawArticles, setRawArticles] = useState<Article[]>([]);
   const [recommendationPage, setRecommendationPage] = useState<RecommendationPage | null>(null);
@@ -89,7 +81,6 @@ export function ReaderWorkbench({
     title: string;
     body: string;
   } | null>(null);
-  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -102,9 +93,8 @@ export function ReaderWorkbench({
         articles: rawArticles,
         currentModule,
         currentSort,
-        requestedSelectedId,
       }),
-    [currentModule, currentSort, rawArticles, requestedSelectedId],
+    [currentModule, currentSort, rawArticles],
   );
   const recommendationArticleList = useMemo(
     () => recommendationArticles(recommendationPage),
@@ -112,9 +102,6 @@ export function ReaderWorkbench({
   );
   const showingRecommendations =
     shouldUseHomeRecommendations(currentModule, currentSort) && recommendationArticleList.length > 0;
-  const selectedArticleId = showingRecommendations
-    ? selectedArticleIdOrFirst(requestedSelectedId, recommendationArticleList)
-    : view.selectedArticleId;
 
   const loadWorkbench = useCallback(async () => {
     const moduleResolution = resolveArticlesListModuleId(true, currentModule);
@@ -122,7 +109,6 @@ export function ReaderWorkbench({
       setRawArticles([]);
       setRecommendationPage(null);
       setRecommendationNotice(null);
-      setSelectedArticle(null);
       setNextCursor(null);
       setHasMore(false);
       setIsLoading(false);
@@ -136,7 +122,6 @@ export function ReaderWorkbench({
       let nextRecommendationPage: RecommendationPage | null = null;
       let nextRecommendationNotice: { title: string; body: string } | null = null;
       let nextArticles: Article[] = [];
-      let nextSelectedId: number | null = null;
       let nextCursor: string | null = null;
       let nextHasMore = false;
 
@@ -156,7 +141,6 @@ export function ReaderWorkbench({
         const topArticles = recommendationArticles(nextRecommendationPage);
         if (topArticles.length > 0) {
           nextArticles = topArticles;
-          nextSelectedId = selectedArticleIdOrFirst(requestedSelectedId, topArticles);
         } else {
           nextRecommendationNotice = nextRecommendationNotice ?? {
             title: "Top10 尚未生成。",
@@ -170,35 +154,24 @@ export function ReaderWorkbench({
         nextArticles = page.articles;
         nextCursor = page.nextCursor;
         nextHasMore = page.hasMore;
-        const nextView = buildWorkbenchView({
-          articles: nextArticles,
-          currentModule,
-          currentSort,
-          requestedSelectedId,
-        });
-        nextSelectedId = nextView.selectedArticleId;
       }
-
-      const nextSelectedArticle = nextSelectedId == null ? null : await getArticle(nextSelectedId);
 
       setRawArticles(nextArticles);
       setRecommendationPage(nextRecommendationPage);
       setRecommendationNotice(nextRecommendationNotice);
-      setSelectedArticle(nextSelectedArticle);
       setNextCursor(nextCursor);
       setHasMore(nextHasMore);
     } catch (loadError) {
       setRawArticles([]);
       setRecommendationPage(null);
       setRecommendationNotice(null);
-      setSelectedArticle(null);
       setNextCursor(null);
       setHasMore(false);
       setError(loadError instanceof Error ? loadError.message : "文章加载失败");
     } finally {
       setIsLoading(false);
     }
-  }, [currentModule, currentSort, requestedSelectedId]);
+  }, [currentModule, currentSort]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoadingMore || nextCursor == null) return;
@@ -234,7 +207,6 @@ export function ReaderWorkbench({
           currentModule={currentModule}
           currentSort={currentSort}
           currentLang={currentLang}
-          selectedArticleId={selectedArticleId}
         />
       ) : (
         <ArticleList
@@ -242,30 +214,18 @@ export function ReaderWorkbench({
           currentModule={currentModule}
           currentSort={currentSort}
           currentLang={currentLang}
-          selectedArticleId={selectedArticleId}
           hasMore={!showingRecommendations && hasMore}
           isLoadingMore={isLoadingMore}
           onLoadMore={() => void loadMore()}
           notice={recommendationNotice ?? undefined}
         />
       )}
-      {isLoading ? (
-        <article className="articleReaderPane" aria-label="文章内容">
-          <div className="readerEmpty">
-            <p className="readerEmptyTitle">正在加载文章</p>
-            <p className="readerEmptyHint">正在从 API 读取最新文章。</p>
-          </div>
-        </article>
-      ) : error != null ? (
-        <article className="articleReaderPane" aria-label="文章内容">
-          <div className="readerEmpty">
-            <p className="readerEmptyTitle">文章加载失败</p>
-            <p className="readerEmptyHint">{error}</p>
-          </div>
-        </article>
-      ) : (
-        <ArticleReader article={selectedArticle} currentLang={currentLang} />
-      )}
+      {isLoading || error != null ? (
+        <section className="workbenchStatus" aria-live="polite">
+          <p className="readerEmptyTitle">{isLoading ? "正在加载文章" : "文章加载失败"}</p>
+          <p className="readerEmptyHint">{isLoading ? "正在从 API 读取最新文章。" : error}</p>
+        </section>
+      ) : null}
     </main>
   );
 }

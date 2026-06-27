@@ -7,12 +7,14 @@ import type { SummaryLangId } from "@/lib/articles/service";
 import type { ArticleContentFetchResult } from "@/lib/articles/contentQuality";
 import {
   enqueueFetchContentJob,
+  getArticle,
   pollJobUntilTerminal,
+  requestArticleTranslation,
   updateArticleState,
   type ApiJob,
 } from "@/lib/api/articles";
 
-type ActionKey = "fetchContent" | "candidate" | "project" | "read";
+type ActionKey = "fetchContent" | "translate" | "candidate" | "project" | "read";
 
 type ActionLink = {
   href: string;
@@ -73,6 +75,11 @@ export function contentFetchJobMessage(job: ApiJob): string {
   return "全文刷新请求已完成";
 }
 
+export function translationJobMessage(job: ApiJob): string {
+  if (job.status === "failed") return "全文翻译失败，请稍后重试";
+  return "全文翻译已完成";
+}
+
 function articleActionErrorMessage(error: string): string {
   if (error === "article_not_candidate") return "请先加入候选再立项";
   if (error === "entry_not_found") return "文章不存在或不在当前 Miniflux 实例";
@@ -122,6 +129,7 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     actionError,
     actionLink,
     isFetchingContent: pendingAction === "fetchContent",
+    isTranslating: pendingAction === "translate",
     isTogglingCandidate: pendingAction === "candidate",
     isProjecting: pendingAction === "project",
     isMarkingRead: pendingAction === "read",
@@ -132,6 +140,37 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
         const job = await pollJobUntilTerminal(created.jobId);
         return contentFetchJobMessage(job);
       }),
+    translateFullText: async () => {
+      if (article == null || pendingAction != null) return null;
+      setPendingAction("translate");
+      setActionMessage(null);
+      setActionError(null);
+      setActionLink(null);
+      try {
+        const requested = await requestArticleTranslation(article.id);
+        if (requested.contentZh != null) {
+          setActionMessage("已切换到中文译文");
+          return requested.contentZh;
+        }
+        if (requested.jobId == null) {
+          setActionMessage("全文翻译请求已提交");
+          return null;
+        }
+        const job = await pollJobUntilTerminal(requested.jobId, { intervalMs: 1000, maxAttempts: 60 });
+        setActionMessage(translationJobMessage(job));
+        dispatchArticleDataChanged(article.id);
+        router.refresh();
+        if (job.status !== "succeeded") return null;
+        const refreshed = await getArticle(article.id);
+        return refreshed.contentZh;
+      } catch (error) {
+        const raw = error instanceof Error ? error.message : "操作失败";
+        setActionError(articleActionErrorMessage(raw));
+        return null;
+      } finally {
+        setPendingAction(null);
+      }
+    },
     toggleCandidate: () =>
       run("candidate", async () => {
         if (article == null) return "";

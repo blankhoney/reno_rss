@@ -5,7 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import type { Article, DimensionKey } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import { createThinkTagFilter } from "@/lib/agent/stream";
+import { useTypewriterStream } from "@/lib/agent/typewriter";
 import { streamArticleAsk } from "@/lib/api/client";
+import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
 import { ThemeToggle } from "./ThemeToggle";
@@ -16,26 +18,22 @@ import { useDismissableLayer } from "./useDismissableLayer";
 
 const DIMENSION_ROWS: { key: DimensionKey | "overall"; label: string }[] = [
   { key: "overall", label: "总分" },
-  { key: "importance", label: "重要性" },
-  { key: "usefulness", label: "实用性" },
-  { key: "timeliness", label: "时效" },
-  { key: "depth", label: "深度" },
-  { key: "technical_value", label: "技术价值" },
-  { key: "business_value", label: "商业价值" },
-  { key: "trend_value", label: "趋势价值" },
+  { key: "topic_relevance", label: "主题相关性" },
+  { key: "information_density", label: "信息密度" },
+  { key: "source_quality", label: "来源质量" },
+  { key: "novelty", label: "新颖度" },
+  { key: "timeliness", label: "时效性" },
+  { key: "actionability", label: "可执行性" },
+  { key: "reading_cost_fit", label: "阅读成本" },
+  { key: "risk_uncertainty", label: "风险·不确定" },
 ];
 
 const QUICK_ACTIONS = [
   { label: "总结", question: "请总结这篇文章的核心内容。" },
   { label: "要点", question: "请提炼这篇文章最重要的 5 个要点。" },
-  { label: "解释选中", question: "请解释我选中的这段内容；如果没有选中文字，请解释文章里的关键概念。" },
+  { label: "解释选中", question: "请解释我选中的这段内容。", requiresSelection: true },
   { label: "行动建议", question: "基于这篇文章，给出可执行的行动建议。" },
 ];
-
-function selectedTextFromPage(): string | undefined {
-  const text = window.getSelection()?.toString().trim();
-  return text && text.length > 0 ? text : undefined;
-}
 
 function summaryForLang(article: Article, lang: SummaryLangId): string {
   const summary = lang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
@@ -48,6 +46,21 @@ function switchSummaryLang(nextLang: SummaryLangId) {
   window.location.search = qs.toString();
 }
 
+function tierLabel(tier: string | undefined): string {
+  if (tier === "must_read") return "必读";
+  if (tier === "read") return "推荐";
+  if (tier === "skim") return "略读";
+  if (tier === "skip") return "跳过";
+  return tier ?? "未分层";
+}
+
+function translationLabel(article: Article): string {
+  if (article.contentZhStatus === "succeeded") return "译文：已就绪";
+  if (article.contentZhStatus === "queued" || article.contentZhStatus === "running") return "译文：生成中";
+  if (article.contentZhStatus === "failed") return "译文：失败";
+  return "译文：未翻译";
+}
+
 export function FocusedArticleReader({
   article,
   currentLang,
@@ -58,12 +71,21 @@ export function FocusedArticleReader({
   returnHref: string;
 }) {
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
   const [agentError, setAgentError] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
+  const [showTranslation, setShowTranslation] = useState(false);
   const drawerRef = useRef<HTMLElement | null>(null);
+  const articleRef = useRef<HTMLElement | null>(null);
   const articleActions = useArticleActions(article, currentLang);
+  const typewriter = useTypewriterStream();
+  const { selectedText, hasSelection, clearSelection } = useArticleSelection(articleRef);
+
+  useEffect(() => {
+    setTranslatedHtml(article.contentZh ?? null);
+    setShowTranslation(false);
+  }, [article.id, article.contentZh]);
 
   useDismissableLayer({
     enabled: drawerOpen,
@@ -99,30 +121,51 @@ export function FocusedArticleReader({
     setDrawerOpen(true);
     setQuestion(trimmedQuestion);
     setIsAsking(true);
-    setAnswer("");
     setAgentError(null);
+    typewriter.reset();
 
     try {
       const thinkFilter = createThinkTagFilter();
       for await (const chunk of streamArticleAsk(article.id, {
         question: trimmedQuestion,
-        selected_text: selectedTextFromPage(),
+        selected_text: selectedText.trim() || undefined,
       })) {
         const text = thinkFilter.push(chunk);
-        if (text.length > 0) setAnswer((current) => current + text);
+        if (text.length > 0) typewriter.push(text);
       }
       const finalText = thinkFilter.flush();
-      if (finalText.length > 0) setAnswer((current) => current + finalText);
+      if (finalText.length > 0) typewriter.push(finalText);
     } catch (error) {
       setAgentError(articleAskErrorMessage(error));
     } finally {
+      typewriter.finish();
       setIsAsking(false);
+    }
+  }
+
+  async function toggleTranslation() {
+    if (showTranslation) {
+      setShowTranslation(false);
+      return;
+    }
+    if (translatedHtml != null && translatedHtml.trim().length > 0) {
+      setShowTranslation(true);
+      return;
+    }
+
+    const nextTranslatedHtml = await articleActions.translateFullText();
+    if (nextTranslatedHtml != null) {
+      setTranslatedHtml(nextTranslatedHtml);
+      setShowTranslation(true);
     }
   }
 
   const score = article.score;
   const contentNotice = articleContentNotice(article);
   const agentNotice = articleAgentNotice(article);
+  const displayedHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
+  const revealedAnswer = typewriter.revealed;
+  const answerVisible = revealedAnswer.trim().length > 0 || typewriter.isRevealing;
 
   return (
     <main className="focusReader">
@@ -134,6 +177,14 @@ export function FocusedArticleReader({
           打开原文
         </a>
         <div className="focusActionBar" role="toolbar" aria-label="文章操作">
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={articleActions.isTranslating}
+            onClick={() => void toggleTranslation()}
+          >
+            {showTranslation ? "看原文" : articleActions.isTranslating ? "翻译中" : "翻译全文"}
+          </button>
           <button
             type="button"
             className="readerToolbarBtn"
@@ -173,6 +224,7 @@ export function FocusedArticleReader({
       <section className="focusStatusBar" aria-label="阅读状态">
         <span>{article.contentStatus === "partial" ? "正文：片段" : "正文：完整"}</span>
         <span>{score ? "评分：已评分" : "评分：未评分"}</span>
+        <span>{translationLabel(article)}</span>
       </section>
 
       {articleActions.actionMessage ? (
@@ -190,7 +242,7 @@ export function FocusedArticleReader({
         <p className="readerActionError">{articleActions.actionError}</p>
       ) : null}
 
-      <article className="focusArticle">
+      <article className="focusArticle" ref={articleRef}>
         <header className="focusArticleHeader">
           <p className="focusArticleMeta">
             {article.feedTitle}
@@ -225,12 +277,14 @@ export function FocusedArticleReader({
           {score ? (
             <>
               <div className="scoreGrid">
+                <ScoreBadge label="层级" value={tierLabel(score.tier)} />
                 {DIMENSION_ROWS.map((row) => {
                   const value =
-                    row.key === "overall" ? score.overall : score.dimensions[row.key];
+                    row.key === "overall" ? score.overall : (score.dimensions[row.key] ?? null);
                   return <ScoreBadge key={row.key} label={row.label} value={value} />;
                 })}
               </div>
+              <p className="scoreRiskHint">风险·不确定维度越高代表越需要谨慎，不按普通高分理解。</p>
               <p className="scoreReason">
                 <span className="scoreReasonLabel">总评</span>
                 {score.reason.trim() || "暂无评分理由。"}
@@ -260,7 +314,7 @@ export function FocusedArticleReader({
 
         {contentNotice ? <p className="contentPartialNotice">{contentNotice}</p> : null}
 
-        <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: article.contentHtml }} />
+        <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
       </article>
 
       <section
@@ -276,7 +330,7 @@ export function FocusedArticleReader({
           onClick={() => setDrawerOpen((value) => !value)}
         >
           <span>文章助手</span>
-          <span>{answer.trim().length > 0 ? "已有回答" : "总结、要点、解释选中、行动建议"}</span>
+          <span>{revealedAnswer.trim().length > 0 ? "已有回答" : "总结、要点、解释选中、行动建议"}</span>
         </button>
         <motion.div
           id="agent-drawer-body"
@@ -290,13 +344,21 @@ export function FocusedArticleReader({
             closed: { opacity: 0, y: 8 },
           }}
         >
+          {hasSelection ? (
+            <div className="agentSelectionChip">
+              <span>已选中：{selectionPreview(selectedText)}</span>
+              <button type="button" onClick={clearSelection} aria-label="清除选中内容">
+                ×
+              </button>
+            </div>
+          ) : null}
           <div className="agentQuickActions" aria-label="快捷提问">
             {QUICK_ACTIONS.map((action) => (
               <button
                 type="button"
                 className="readerToolbarBtn"
                 key={action.label}
-                disabled={!drawerOpen || isAsking}
+                disabled={!drawerOpen || isAsking || (action.requiresSelection === true && !hasSelection)}
                 onClick={() => void askAgent(action.question)}
               >
                 {action.label}
@@ -323,7 +385,12 @@ export function FocusedArticleReader({
           </div>
           {agentNotice ? <p className="agentNotice">{agentNotice}</p> : null}
           {agentError != null ? <p className="agentError">{agentError}</p> : null}
-          {answer.trim().length > 0 ? <AgentMarkdown text={answer} /> : null}
+          {answerVisible ? (
+            <div className="agentAnswer">
+              <AgentMarkdown text={revealedAnswer} />
+              {isAsking || typewriter.isRevealing ? <span className="typewriterCursor">▍</span> : null}
+            </div>
+          ) : null}
         </motion.div>
       </section>
     </main>

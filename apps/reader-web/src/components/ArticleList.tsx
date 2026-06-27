@@ -4,7 +4,6 @@ import type { Article } from "@/lib/articles/types";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import { ScoreBadge } from "./ScoreBadge";
 import { SortMenu, type SortOption } from "./SortMenu";
-import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 type ArticleListProps = {
@@ -12,7 +11,6 @@ type ArticleListProps = {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
-  selectedArticleId: number | null;
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
@@ -30,21 +28,6 @@ const SORT_OPTIONS: SortOption[] = [
   { id: "business", label: "按商业" },
   { id: "trend", label: "按趋势" },
 ];
-
-function listHref(
-  currentModule: string,
-  currentSort: ArticleSortId,
-  currentLang: SummaryLangId,
-  articleId: number,
-): string {
-  const qs = new URLSearchParams({
-    module: currentModule,
-    sort: currentSort,
-    lang: currentLang,
-    article: String(articleId),
-  });
-  return `?${qs.toString()}`;
-}
 
 function readHref(
   currentModule: string,
@@ -67,12 +50,19 @@ function articleSummary(article: Article, currentLang: SummaryLangId): string {
   return article.score ? "暂无摘要" : "未评分";
 }
 
+function tierLabel(tier: string | undefined): string | null {
+  if (tier === "must_read") return "必读";
+  if (tier === "read") return "推荐";
+  if (tier === "skim") return "略读";
+  if (tier === "skip") return "跳过";
+  return tier ?? null;
+}
+
 export function ArticleList({
   articles,
   currentModule,
   currentSort,
   currentLang,
-  selectedArticleId,
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
@@ -80,11 +70,6 @@ export function ArticleList({
 }: ArticleListProps) {
   const router = useRouter();
   const isEmpty = articles.length === 0;
-  const clickTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => clearPendingPreview();
-  }, []);
 
   function updateSort(nextSort: ArticleSortId) {
     const qs = new URLSearchParams({
@@ -92,28 +77,7 @@ export function ArticleList({
       sort: nextSort,
       lang: currentLang,
     });
-    if (selectedArticleId != null) qs.set("article", String(selectedArticleId));
     router.push(`?${qs.toString()}`);
-  }
-
-  function clearPendingPreview() {
-    if (clickTimerRef.current !== null) {
-      window.clearTimeout(clickTimerRef.current);
-      clickTimerRef.current = null;
-    }
-  }
-
-  function openPreview(href: string) {
-    clearPendingPreview();
-    clickTimerRef.current = window.setTimeout(() => {
-      router.push(href);
-      clickTimerRef.current = null;
-    }, 260);
-  }
-
-  function openReader(href: string) {
-    clearPendingPreview();
-    router.push(href);
   }
 
   return (
@@ -140,23 +104,18 @@ export function ArticleList({
       <ul className="articleList">
         {articles.map((article) => {
           const score = article.score;
-          const isActive = selectedArticleId != null && selectedArticleId === article.id;
-          const previewHref = listHref(currentModule, currentSort, currentLang, article.id);
           const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
           return (
             <li key={article.id}>
               <article
-                className={`articleCard${isActive ? " articleCardActive" : ""}`}
+                className="articleCard"
                 role="link"
                 tabIndex={0}
-                aria-current={isActive ? "true" : undefined}
-                aria-label={`${article.title}，单击预览，双击进入专注阅读`}
-                data-preview-href={previewHref}
+                aria-label={`${article.title}，进入专注阅读`}
                 data-read-href={focusHref}
-                onClick={() => openPreview(previewHref)}
-                onDoubleClick={() => openReader(focusHref)}
+                onClick={() => router.push(focusHref)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") openPreview(previewHref);
+                  if (event.key === "Enter") router.push(focusHref);
                 }}
               >
                 <div className="articleCardMeta">
@@ -170,14 +129,7 @@ export function ArticleList({
                 <div className="articleCardFooter">
                   <div className="articleCardScores">
                     <ScoreBadge label="总分" value={score?.overall ?? null} />
-                    <ScoreBadge
-                      label="技术"
-                      value={score?.dimensions.technical_value ?? null}
-                    />
-                    <ScoreBadge
-                      label="商业"
-                      value={score?.dimensions.business_value ?? null}
-                    />
+                    <ScoreBadge label="层级" value={tierLabel(score?.tier)} />
                   </div>
                   <a
                     className="articleReadLink"
@@ -193,16 +145,21 @@ export function ArticleList({
           );
         })}
       </ul>
-      {hasMore && onLoadMore ? (
-        <div className="articleListMore">
-          <button
-            type="button"
-            className="articleListMoreButton"
-            disabled={isLoadingMore}
-            onClick={onLoadMore}
-          >
-            {isLoadingMore ? "加载中…" : "加载更多"}
-          </button>
+      {!isEmpty ? (
+        <div className="articleListMore" aria-live="polite">
+          <span className="articleListMoreStatus">
+            已加载 {articles.length} 篇 · {hasMore ? "还有更多" : "已全部加载"}
+          </span>
+          {hasMore && onLoadMore ? (
+            <button
+              type="button"
+              className="articleListMoreButton"
+              disabled={isLoadingMore}
+              onClick={onLoadMore}
+            >
+              {isLoadingMore ? "加载中…" : "加载更多"}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </section>

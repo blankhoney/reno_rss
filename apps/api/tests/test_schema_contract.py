@@ -43,20 +43,30 @@ class MigrationOpRecorder:
     def create_index(self, *_args, **_kwargs):
         return None
 
+    def create_check_constraint(self, *_args, **_kwargs):
+        return None
+
+    def add_column(self, table_name, column):
+        self.tables[table_name][column.name] = column
+
     def create_table(self, name, *elements, **_kwargs):
         self.tables[name] = {
             element.name: element for element in elements if isinstance(element, sa.Column)
         }
 
 
-def load_initial_migration():
-    migration_path = Path(__file__).parents[1] / "alembic" / "versions" / "0001_initial.py"
-    spec = importlib.util.spec_from_file_location("migration_0001_initial", migration_path)
+def load_migration(filename: str):
+    migration_path = Path(__file__).parents[1] / "alembic" / "versions" / filename
+    spec = importlib.util.spec_from_file_location(filename.replace(".", "_"), migration_path)
     assert spec is not None
     assert spec.loader is not None
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     return migration
+
+
+def load_initial_migration():
+    return load_migration("0001_initial.py")
 
 
 def test_initial_migration_defines_required_tables():
@@ -146,14 +156,15 @@ def test_initial_migration_bootstraps_extension_and_seed_data():
     assert "def downgrade()" in source
 
 
-def test_initial_migration_column_nullability_matches_model():
+def test_migration_column_nullability_matches_model():
     from app.db.models import metadata
 
-    migration = load_initial_migration()
+    migrations = [load_migration("0001_initial.py"), load_migration("0002_article_translation.py")]
     recorder = MigrationOpRecorder()
-    migration.op = recorder
+    for migration in migrations:
+        migration.op = recorder
 
-    migration.upgrade()
+        migration.upgrade()
 
     mismatches = []
     for table_name, model_table in metadata.tables.items():

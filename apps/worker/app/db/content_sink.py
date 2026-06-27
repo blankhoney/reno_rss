@@ -39,6 +39,31 @@ class DatabaseContentSink:
             )
         return dict(row) if row is not None else None
 
+    def get_article_for_translation(self, article_id: int) -> dict[str, object] | None:
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT
+                            id,
+                            title,
+                            url,
+                            content_html,
+                            content_text,
+                            content_zh,
+                            content_zh_status
+                        FROM articles
+                        WHERE id = :article_id;
+                        """
+                    ),
+                    {"article_id": article_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return dict(row) if row is not None else None
+
     def save_content(self, article_id: int, content: dict[str, object]) -> None:
         content_text = str(content["content_text"])
         values = {
@@ -68,6 +93,34 @@ class DatabaseContentSink:
                     """
                 ),
                 values,
+            )
+
+    def save_translation(
+        self,
+        article_id: int,
+        *,
+        content_zh: str | None,
+        status: str,
+        translated_at: datetime | None,
+    ) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    UPDATE articles
+                    SET content_zh=:content_zh,
+                        content_zh_status=:content_zh_status,
+                        translated_at=:translated_at,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id=:article_id;
+                    """
+                ),
+                {
+                    "article_id": article_id,
+                    "content_zh": content_zh,
+                    "content_zh_status": status,
+                    "translated_at": _timestamp(translated_at) if translated_at else None,
+                },
             )
 
     def dispose(self) -> None:

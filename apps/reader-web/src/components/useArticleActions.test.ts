@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contentFetchJobMessage, contentFetchResultMessage } from "./useArticleActions";
+import { contentFetchJobMessage, contentFetchResultMessage, translationJobMessage } from "./useArticleActions";
 
 test("contentFetchResultMessage explains fetch-content outcomes", () => {
   assert.equal(
@@ -29,6 +29,37 @@ test("contentFetchResultMessage explains fetch-content outcomes", () => {
       textLength: 0,
     }),
     "全文抓取失败，请打开原文阅读",
+  );
+});
+
+test("translationJobMessage explains translation job outcomes", () => {
+  assert.equal(
+    translationJobMessage({
+      id: 11,
+      jobType: "translate_article",
+      status: "succeeded",
+      progress: {},
+      result: { outcome: "translated" },
+      lastError: null,
+      createdAt: "2026-06-25T00:00:00Z",
+      updatedAt: "2026-06-25T00:00:01Z",
+      completedAt: "2026-06-25T00:00:01Z",
+    }),
+    "全文翻译已完成",
+  );
+  assert.equal(
+    translationJobMessage({
+      id: 12,
+      jobType: "translate_article",
+      status: "failed",
+      progress: {},
+      result: {},
+      lastError: "translation_failed",
+      createdAt: "2026-06-25T00:00:00Z",
+      updatedAt: "2026-06-25T00:00:01Z",
+      completedAt: "2026-06-25T00:00:01Z",
+    }),
+    "全文翻译失败，请稍后重试",
   );
 });
 

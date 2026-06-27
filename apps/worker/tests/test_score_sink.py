@@ -72,7 +72,7 @@ def test_score_sink_writes_success_and_error_rows_with_active_history():
             "error": "provider timeout",
             "model_provider": "baseline",
             "model_name": "length-baseline",
-            "prompt_version": "rss-score-v04",
+            "prompt_version": "rss-score-v05",
         },
     )
     sink.finish_batch(10)

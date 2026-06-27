@@ -13,6 +13,7 @@ from app.jobs.generate_recommendations import generate_recommendations, rank_b4_
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
 from app.jobs.score_batch import score_batch
 from app.jobs.sync_miniflux import run_sync_miniflux_entries
+from app.jobs.translate_article import translate_article
 from app.providers.external_content import NoExternalContentProvider
 from app.providers.llm import create_provider
 from app.providers.miniflux import MinifluxClient, MinifluxConfig
@@ -39,6 +40,7 @@ def build_handler_registry() -> dict[str, Handler]:
         "fetch_article_content": _fetch_article_content,
         "generate_recommendations": _generate_recommendations,
         "score_batch": _score_batch,
+        "translate_article": _translate_article,
         "worker_echo": _worker_echo,
         "sync_miniflux_entries": _sync_miniflux_entries,
     }
@@ -106,6 +108,17 @@ def _fetch_article_content(payload) -> dict[str, object]:
             miniflux_client=MinifluxClient(MinifluxConfig.from_env()),
             external_provider=NoExternalContentProvider(),
         )
+    finally:
+        sink.dispose()
+
+
+def _translate_article(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for translate_article")
+    sink = DatabaseContentSink(database_url)
+    try:
+        return translate_article(dict(payload), sink=sink, provider=create_provider())
     finally:
         sink.dispose()
 

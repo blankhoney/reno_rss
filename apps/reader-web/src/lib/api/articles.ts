@@ -7,8 +7,11 @@ import type {
   ArticleContentStatus,
   ArticleScore,
   ArticleStatus,
+  DimensionReasons,
   DimensionKey,
+  DimensionScores,
 } from "@/lib/articles/types";
+import { DIMENSION_KEYS } from "@/lib/articles/types";
 
 type ApiArticleState = {
   status?: string | null;
@@ -41,6 +44,9 @@ export type ApiArticleItem = {
 
 export type ApiArticleDetail = ApiArticleItem & {
   content_html?: string | null;
+  content_zh?: string | null;
+  content_zh_status?: string | null;
+  translated_at?: string | null;
   content_text?: string | null;
   content_source?: string | null;
   summary_original?: string | null;
@@ -63,6 +69,13 @@ export type ArticleStatePatch = {
 export type EnqueuedJob = {
   jobId: number;
   status: string;
+};
+
+export type ArticleTranslationResult = {
+  status: string;
+  contentZh: string | null;
+  translatedAt: string | null;
+  jobId: number | null;
 };
 
 export type ApiJob = {
@@ -124,24 +137,28 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function numberRecord(value: unknown): Record<DimensionKey, number> {
-  const result: Partial<Record<string, number>> = {};
-  if (value != null && typeof value === "object") {
-    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof raw === "number" && Number.isFinite(raw)) result[key] = raw;
+function numberRecord(value: unknown): DimensionScores {
+  const result: Partial<Record<DimensionKey, number>> = {};
+  const source = value != null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  for (const key of DIMENSION_KEYS) {
+    const raw = source[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      result[key] = raw;
     }
   }
-  return result as Record<DimensionKey, number>;
+  return result as DimensionScores;
 }
 
-function stringRecord(value: unknown): Partial<Record<DimensionKey, string>> {
-  const result: Partial<Record<string, string>> = {};
-  if (value != null && typeof value === "object") {
-    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof raw === "string") result[key] = raw;
+function stringRecord(value: unknown): DimensionReasons {
+  const result: Partial<Record<DimensionKey, string>> = {};
+  const source = value != null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  for (const key of DIMENSION_KEYS) {
+    const raw = source[key];
+    if (typeof raw === "string") {
+      result[key] = raw;
     }
   }
-  return result as Partial<Record<DimensionKey, string>>;
+  return result as DimensionReasons;
 }
 
 function stringArray(value: unknown): string[] {
@@ -161,6 +178,7 @@ export function scoreFromApi(raw: unknown): ArticleScore | null {
   if (overall == null) return null;
   return {
     overall,
+    tier: stringOr(s.tier, "skip"),
     dimensions: numberRecord(s.dimensions),
     tags: stringArray(s.tags),
     reason: stringOr(s.reason, ""),
@@ -186,6 +204,9 @@ function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article 
     title: item.title,
     url: item.url,
     contentHtml,
+    contentZh: null,
+    contentZhStatus: null,
+    translatedAt: null,
     contentStatus: contentStatusFromQuality(item.content_quality),
     contentIssue: contentIssueFromQuality(item.content_quality),
     contentFetchAttempted: item.content_quality != null && item.content_quality !== "snippet",
@@ -209,9 +230,19 @@ export function articleFromApiDetail(detail: ApiArticleDetail): Article {
   const base = articleBaseFromApi(detail, sanitizeArticleHtml(detail.content_html ?? ""));
   return {
     ...base,
+    contentZh: detail.content_zh ? sanitizeArticleHtml(detail.content_zh) : null,
+    contentZhStatus: translationStatusFromApi(detail.content_zh_status),
+    translatedAt: typeof detail.translated_at === "string" ? detail.translated_at : null,
     summaryOriginal: detail.summary_original ?? base.summaryOriginal,
     sourceLanguage: detail.source_language ?? base.sourceLanguage,
   };
+}
+
+function translationStatusFromApi(value: string | null | undefined): Article["contentZhStatus"] {
+  if (value === "queued" || value === "running" || value === "succeeded" || value === "failed") {
+    return value;
+  }
+  return null;
 }
 
 export async function listArticles({
@@ -251,6 +282,21 @@ export async function enqueueFetchContentJob(articleId: number): Promise<Enqueue
   return {
     jobId: payload.job_id,
     status: payload.status,
+  };
+}
+
+export async function requestArticleTranslation(articleId: number): Promise<ArticleTranslationResult> {
+  const payload = await apiPost<{
+    status: string;
+    content_zh?: string | null;
+    translated_at?: string | null;
+    job_id?: number | null;
+  }, undefined>(`/api/articles/${articleId}/translate`);
+  return {
+    status: payload.status,
+    contentZh: payload.content_zh ? sanitizeArticleHtml(payload.content_zh) : null,
+    translatedAt: payload.translated_at ?? null,
+    jobId: payload.job_id ?? null,
   };
 }
 

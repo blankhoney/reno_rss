@@ -411,7 +411,7 @@ def _score(
         "error": error,
         "model_provider": "mock" if status == "success" else "baseline",
         "model_name": "mock" if status == "success" else "length-baseline",
-        "prompt_version": "rss-score-v04",
+        "prompt_version": "rss-score-v05",
     }
 
 

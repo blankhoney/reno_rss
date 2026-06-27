@@ -34,7 +34,7 @@ def score_batch(
             score = dict(provider.score_article(article, rubric))
             score.setdefault("model_provider", getattr(provider, "model_provider", "mock"))
             score.setdefault("model_name", getattr(provider, "model_name", "mock"))
-            score.setdefault("prompt_version", "rss-score-v04")
+            score.setdefault("prompt_version", "rss-score-v05")
         except Exception as error:
             score = _baseline_error_score(article, str(error))
             scores_failed += 1
@@ -83,7 +83,7 @@ def _baseline_error_score(article: Mapping[str, object], error: str) -> dict[str
         "recommendation_tier": tier_for_score(base_score),
         "model_provider": "baseline",
         "model_name": "length-baseline",
-        "prompt_version": "rss-score-v04",
+        "prompt_version": "rss-score-v05",
     }
 
 

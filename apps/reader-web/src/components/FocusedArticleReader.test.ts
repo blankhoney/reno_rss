@@ -61,6 +61,7 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
 
   assert.match(html, /返回工作台/);
   assert.match(html, /打开原文/);
+  assert.match(html, /翻译全文/);
   assert.match(html, /刷新全文/);
   assert.doesNotMatch(html, /实时评分/);
   assert.match(html, /管理控制台创建评分批次/);
@@ -70,6 +71,7 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.doesNotMatch(html, /<summary>操作<\/summary>/);
   assert.match(html, /正文：片段/);
   assert.match(html, /评分：未评分/);
+  assert.match(html, /译文：未翻译/);
   assert.match(html, /当前仍只有 RSS 片段/);
   assert.match(html, /文章助手/);
   assert.match(html, /总结、要点、解释选中、行动建议/);
@@ -86,14 +88,16 @@ test("FocusedArticleReader renders scored state and dimension reasons", () => {
         contentIssue: null,
         score: {
           overall: 80,
+          tier: "read",
           dimensions: {
-            importance: 81,
-            usefulness: 70,
+            topic_relevance: 81,
+            information_density: 70,
+            source_quality: 76,
+            novelty: 64,
             timeliness: 78,
-            depth: 60,
-            technical_value: 82,
-            business_value: 50,
-            trend_value: 72,
+            actionability: 82,
+            reading_cost_fit: 50,
+            risk_uncertainty: 32,
           },
           tags: ["ai"],
           reason: "值得阅读。",
@@ -101,7 +105,7 @@ test("FocusedArticleReader renders scored state and dimension reasons", () => {
           summaryOriginal: "English summary",
           sourceLanguage: "en",
           dimensionReasons: {
-            technical_value: "技术内容明确。",
+            topic_relevance: "主题明确。",
           },
           scoredAt: "2026-05-14T00:00:00.000Z",
         },
@@ -111,7 +115,17 @@ test("FocusedArticleReader renders scored state and dimension reasons", () => {
 
   assert.match(html, /正文：完整/);
   assert.match(html, /评分：已评分/);
+  assert.match(html, /推荐/);
   assert.match(html, /总分/);
+  assert.match(html, /主题相关性/);
+  assert.match(html, /信息密度/);
+  assert.match(html, /来源质量/);
+  assert.match(html, /新颖度/);
+  assert.match(html, /时效性/);
+  assert.match(html, /可执行性/);
+  assert.match(html, /阅读成本/);
+  assert.match(html, /风险·不确定/);
+  assert.match(html, /风险·不确定维度越高代表越需要谨慎/);
   assert.match(html, /维度理由/);
-  assert.match(html, /技术内容明确/);
+  assert.match(html, /主题明确/);
 });

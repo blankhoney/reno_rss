@@ -95,6 +95,9 @@ def article_detail_public(
     item.update(
         {
             "content_html": article.content_html,
+            "content_zh": article.content_zh,
+            "content_zh_status": article.content_zh_status,
+            "translated_at": article.translated_at.isoformat() if article.translated_at else None,
             "content_text": article.content_text,
             "content_source": article.content_source,
             "content_expired": False,
@@ -188,3 +191,42 @@ def enqueue_fetch_content_job(
         created_by=current_user.id,
     )
     return JSONResponse(status_code=202, content={"job_id": job.id, "status": job.status})
+
+
+@router.post("/articles/{article_id}/translate")
+def enqueue_translate_article_job(
+    article_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+    job_repository: JobStore = Depends(get_job_repository),
+) -> JSONResponse:
+    article = article_repository.get_article(article_id)
+    if article is None:
+        raise ApiError(404, "not_found", "Article not found")
+    if article.content_zh and article.content_zh_status == "succeeded":
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "succeeded",
+                "content_zh": article.content_zh,
+                "translated_at": article.translated_at.isoformat() if article.translated_at else None,
+                "job_id": None,
+            },
+        )
+
+    article_repository.save_translation(
+        article_id,
+        content_zh=article.content_zh,
+        status="queued",
+        translated_at=article.translated_at,
+    )
+    job = job_repository.enqueue(
+        "translate_article",
+        {"article_id": article_id},
+        dedupe_key=dedupe_key_for("translate_article", article_id),
+        created_by=current_user.id,
+    )
+    return JSONResponse(
+        status_code=202,
+        content={"status": job.status, "content_zh": None, "translated_at": None, "job_id": job.id},
+    )

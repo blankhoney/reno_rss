@@ -54,6 +54,8 @@ class LLMProvider(Protocol):
         rubric: Mapping[str, object],
     ) -> ArticleScore: ...
 
+    def translate_article(self, article: Mapping[str, object]) -> str: ...
+
 
 class MockProvider:
     def score_article(
@@ -98,7 +100,11 @@ class MockProvider:
         )
         summary_original = _truncate(_squash_whitespace(text), 420)
         source_language = _detect_language(text)
-        summary_zh = summary_original if source_language == "zh" else f"摘要：{summary_original}"
+        summary_zh = (
+            summary_original
+            if source_language == "zh"
+            else f"中文摘要（mock）：{summary_original}"
+        )
         score = {
             "base_score": base_score,
             "dimension_scores": dimension_scores,
@@ -117,6 +123,11 @@ class MockProvider:
         }
         return normalize_score(score)
 
+    def translate_article(self, article: Mapping[str, object]) -> str:
+        text = _squash_whitespace(_article_text(article))
+        title = _string(article.get("title")) or "未命名文章"
+        return f"<p>中文译文（mock）：{title}</p><p>{_truncate(text, 800)}</p>"
+
 
 class MiniMaxProvider:
     model_provider = "minimax"
@@ -133,6 +144,10 @@ class MiniMaxProvider:
         response = self.client.chat_completion(_score_messages(article, rubric))
         content = _response_content(response)
         return normalize_score(_load_llm_json(content))
+
+    def translate_article(self, article: Mapping[str, object]) -> str:
+        response = self.client.chat_completion(_translation_messages(article))
+        return _strip_think_blocks(_response_content(response)).strip()
 
 
 @dataclass(frozen=True)
@@ -218,7 +233,7 @@ def normalize_score(raw_score: Mapping[str, object]) -> ArticleScore:
         "dimension_reasons": _normalize_dimension_reasons(
             raw_score.get("dimension_reasons")
         ),
-        "summary_zh": _truncate(_string(raw_score.get("summary_zh")), 420),
+        "summary_zh": _truncate(_string(raw_score.get("summary_zh")), 800),
         "summary_original": _truncate(_string(raw_score.get("summary_original")), 420),
         "source_language": _truncate(
             _string(raw_score.get("source_language")) or "unknown",
@@ -241,9 +256,20 @@ def _score_messages(
         {
             "role": "system",
             "content": (
-                "Score the article using the AI Reader v0.4 rubric. Return only one "
-                "strict JSON object with base_score, dimension_scores, "
-                "dimension_reasons, summaries, tags, reason, risk_flags, and confidence."
+                "You are the AI Reader scoring engine. Score one RSS article with a self-contained "
+                "8-dimension rubric and return only a strict JSON object. Dimensions are: "
+                "topic_relevance (fit to AI/product/engineering reading goals), "
+                "information_density (amount of useful information), source_quality "
+                "(credibility and primary-source quality), novelty (new insight vs repeated news), "
+                "timeliness (freshness), actionability (clear next steps), reading_cost_fit "
+                "(worth the time required), and risk_uncertainty (higher means more risk, hype, "
+                "weak evidence, or uncertainty). Each dimension is 0-100. base_score is 0-100; "
+                "tiers are must_read 85-100, read 70-84, skim 50-69, skip 0-49. Return exactly "
+                "these JSON keys: base_score, dimension_scores, dimension_reasons, summary_zh, "
+                "summary_original, source_language, tags, reason, risk_flags, confidence. "
+                "summary_zh must be a real Chinese summary, not copied English; for non-Chinese "
+                "articles translate and summarize into Chinese with 2-4 concise points. "
+                "Do not output markdown, code fences, comments, or <think>."
             ),
         },
         {
@@ -253,6 +279,23 @@ def _score_messages(
                 ensure_ascii=False,
                 default=str,
             ),
+        },
+    ]
+
+
+def _translation_messages(article: Mapping[str, object]) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Translate the article body into Simplified Chinese. Preserve paragraph/list/code "
+                "structure as a safe HTML fragment. Do not include markdown fences, commentary, or "
+                "<think>. Return only the translated HTML fragment."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps({"article": dict(article)}, ensure_ascii=False, default=str),
         },
     ]
 

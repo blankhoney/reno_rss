@@ -52,7 +52,6 @@ function renderRecommendationList(page: RecommendationPage) {
         currentModule: "all",
         currentSort: "default",
         currentLang: "zh",
-        selectedArticleId: 42,
       }),
     ),
   );
@@ -87,7 +86,9 @@ test("RecommendationList renders edition metadata and explainable Top10 cards", 
   assert.match(html, /92\.5/);
   assert.match(html, /High score/);
   assert.match(html, /low_signal/);
-  assert.match(html, /data-preview-href="\?module=all&amp;sort=default&amp;lang=zh&amp;article=42"/);
+  assert.match(html, /Top10 · 固定榜单/);
+  assert.doesNotMatch(html, /data-preview-href/);
+  assert.match(html, /data-read-href="\/read\/42\?module=all&amp;sort=default&amp;lang=zh"/);
 });
 
 test("RecommendationList renders an actionable pending state for empty editions", () => {

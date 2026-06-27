@@ -8,6 +8,7 @@ import {
   getJob,
   listArticles,
   pollJobUntilTerminal,
+  requestArticleTranslation,
   scoreFromApi,
   terminalJobStatus,
   updateArticleState,
@@ -59,8 +60,8 @@ test("scoreFromApi maps the active score payload and ignores empty ones", () => 
   const score = scoreFromApi({
     overall: 82,
     tier: "read",
-    dimensions: { technical_value: 70, business_value: 60 },
-    dimension_reasons: { technical_value: "strong" },
+    dimensions: { topic_relevance: 70, actionability: 60, technical_value: 1 },
+    dimension_reasons: { topic_relevance: "strong", technical_value: "ignored" },
     tags: ["ai", 7],
     reason: "useful",
     summary_zh: "中文摘要",
@@ -70,8 +71,12 @@ test("scoreFromApi maps the active score payload and ignores empty ones", () => 
   });
 
   assert.equal(score?.overall, 82);
-  assert.equal(score?.dimensions.technical_value, 70);
-  assert.equal(score?.dimensions.business_value, 60);
+  assert.equal(score?.tier, "read");
+  assert.equal(score?.dimensions.topic_relevance, 70);
+  assert.equal(score?.dimensions.actionability, 60);
+  assert.equal(score?.dimensions.technical_value, undefined);
+  assert.equal(score?.dimensionReasons.topic_relevance, "strong");
+  assert.equal(score?.dimensionReasons.technical_value, undefined);
   assert.deepEqual(score?.tags, ["ai"]);
   assert.equal(score?.summaryZh, "中文摘要");
   assert.equal(score?.sourceLanguage, "en");
@@ -86,13 +91,14 @@ test("articleFromApiItem surfaces the active score and zh summary", () => {
     category: null,
     published_at: null,
     content_quality: "full",
-    score: { overall: 91, tier: "must_read", dimensions: { technical_value: 88 } },
+    score: { overall: 91, tier: "must_read", dimensions: { topic_relevance: 88 } },
     summary_zh: "列表摘要",
     state: { status: "unread", saved: false, read_progress: 0 },
   });
 
   assert.equal(article.score?.overall, 91);
-  assert.equal(article.score?.dimensions.technical_value, 88);
+  assert.equal(article.score?.tier, "must_read");
+  assert.equal(article.score?.dimensions.topic_relevance, 88);
   assert.equal(article.summaryZh, "列表摘要");
 });
 
@@ -106,6 +112,9 @@ test("articleFromApiDetail sanitizes detail HTML and maps full content", () => {
     published_at: null,
     content_quality: "full",
     content_html: '<p>Full text</p><script>alert("x")</script>',
+    content_zh: '<p>中文正文</p><script>alert("x")</script>',
+    content_zh_status: "succeeded",
+    translated_at: "2026-06-25T01:00:00Z",
     content_text: "Full text",
     content_source: "readability",
     summary_original: "Original summary",
@@ -118,6 +127,9 @@ test("articleFromApiDetail sanitizes detail HTML and maps full content", () => {
   assert.equal(article.contentStatus, "full");
   assert.equal(article.contentIssue, null);
   assert.equal(article.contentHtml, "<p>Full text</p>");
+  assert.equal(article.contentZh, "<p>中文正文</p>");
+  assert.equal(article.contentZhStatus, "succeeded");
+  assert.equal(article.translatedAt, "2026-06-25T01:00:00Z");
   assert.equal(article.categoryTitle, "AI");
   assert.equal(article.summaryOriginal, "Original summary");
   assert.equal(article.sourceLanguage, "en");
@@ -273,6 +285,36 @@ test("enqueueFetchContentJob and getJob use the FastAPI job endpoints", async ()
     assert.equal(job.status, "succeeded");
     assert.deepEqual(job.result, { outcome: "applied", content_quality: "full" });
     assert.equal(terminalJobStatus(job.status), true);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("requestArticleTranslation posts to FastAPI and sanitizes cached content", async () => {
+  let capturedInput: RequestInfo | URL | undefined;
+  let capturedInit: RequestInit | undefined;
+  const restoreFetch = withMockFetch((input, init) => {
+    capturedInput = input;
+    capturedInit = init;
+    return new Response(
+      JSON.stringify({
+        status: "succeeded",
+        content_zh: '<p>译文</p><script>alert("x")</script>',
+        translated_at: "2026-06-25T00:00:00Z",
+        job_id: null,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  try {
+    const result = await requestArticleTranslation(42);
+
+    assert.equal(capturedInput, "/api/articles/42/translate");
+    assert.equal(capturedInit?.method, "POST");
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.contentZh, "<p>译文</p>");
+    assert.equal(result.jobId, null);
   } finally {
     restoreFetch();
   }

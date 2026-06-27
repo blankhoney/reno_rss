@@ -26,6 +26,7 @@ def test_mock_provider_returns_v04_dimensions_and_derived_tier():
     assert set(score["dimension_reasons"]) == set(DIMENSION_KEYS)
     assert score["scoring_status"] == "success"
     assert score["recommendation_tier"] == tier_for_score(score["base_score"])
+    assert str(score["summary_zh"]).startswith("中文摘要（mock）：")
     assert score == provider.score_article(article, {"version": "v0.4"})
 
 
@@ -46,7 +47,7 @@ def test_minimax_provider_strips_think_extracts_json_and_normalizes_values():
             "topic_relevance": "Relevant",
             "information_density": "Sparse",
         },
-        "summary_zh": "中" * 500,
+        "summary_zh": "中" * 900,
         "summary_original": "A" * 500,
         "source_language": "English language label that is too long",
         "tags": [" AI ", "", "RAG", "ai", "AGENT"],
@@ -79,11 +80,12 @@ def test_minimax_provider_strips_think_extracts_json_and_normalizes_values():
     assert score["tags"] == ["ai", "rag", "agent"]
     assert score["risk_flags"] == ["duplicate", "clickbait", "custom"]
     assert len(score["reason"]) == 240
-    assert len(score["summary_zh"]) == 420
+    assert len(score["summary_zh"]) == 800
     assert len(score["summary_original"]) == 420
     assert len(score["source_language"]) == 24
     assert score["confidence"] == 1.0
     assert score["scoring_status"] == "success"
+    assert "summary_zh must be a real Chinese summary" in client.messages[0]["content"]
 
 
 def test_score_batch_scores_all_articles_and_preserves_batch_id():
