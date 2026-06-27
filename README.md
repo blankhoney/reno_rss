@@ -221,7 +221,7 @@ bash infra/scripts/smoke-test.sh staging
 bash infra/scripts/smoke-test.sh prod
 ```
 
-The staging CI path also runs `infra/scripts/staging-runtime-proof.sh`, which proves the sync/content-fetch/scoring/recommendation/ask chain with `LLM_PROVIDER=mock`.
+The staging CI path also runs `infra/scripts/staging-runtime-proof.sh`. It proves the sync/content-fetch/scoring/recommendation/ask chain when API and worker both use `LLM_PROVIDER=mock`, and skips the deep proof when either service is configured for a real provider.
 
 ## CI/CD
 
@@ -257,7 +257,7 @@ This is also a teaching repository. Read [AGENTS.md](AGENTS.md) and the repo-loc
 - `/api/*` is routed to FastAPI and must fail closed for anonymous or non-admin callers where required.
 - Article HTML is untrusted and is sanitized before rendering.
 - Article ask responses strip `<think>` blocks before display.
-- Automated smoke/runtime proof uses `LLM_PROVIDER=mock` and must not spend real LLM tokens.
+- Automated smoke/runtime proof must not spend real LLM tokens; the deep runtime proof runs only with `LLM_PROVIDER=mock`.
 
 ## License
 

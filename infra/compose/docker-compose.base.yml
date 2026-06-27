@@ -61,6 +61,11 @@ services:
     environment:
       SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
       AI_READER_CSRF_ALLOWED_ORIGINS: ${AI_READER_CSRF_ALLOWED_ORIGINS:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
+      MINIMAX_MODEL: ${MINIMAX_MODEL}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS}
     networks:
       - app          # Caddy 通过 app 网络访问 API
       - data         # 写入 scoring 数据库

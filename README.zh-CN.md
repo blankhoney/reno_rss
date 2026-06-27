@@ -221,7 +221,7 @@ bash infra/scripts/smoke-test.sh staging
 bash infra/scripts/smoke-test.sh prod
 ```
 
-staging CI 路径还会运行 `infra/scripts/staging-runtime-proof.sh`，用 `LLM_PROVIDER=mock` 证明同步、正文补全、评分、推荐和问答链路。
+staging CI 路径还会运行 `infra/scripts/staging-runtime-proof.sh`。当 API 和 worker 都使用 `LLM_PROVIDER=mock` 时，它会证明同步、正文补全、评分、推荐和问答链路；任一服务配置为真实 provider 时，会跳过 deep proof。
 
 ## CI/CD
 
@@ -257,7 +257,7 @@ GitHub Actions 提供：
 - `/api/*` 路由到 FastAPI，匿名或非管理员请求必须按需要 fail closed。
 - 文章 HTML 不可信，渲染前必须净化。
 - 文章问答展示前会剥离 `<think>` 块。
-- 自动 smoke/runtime proof 使用 `LLM_PROVIDER=mock`，不能消耗真实 LLM token。
+- 自动 smoke/runtime proof 不能消耗真实 LLM token；deep runtime proof 只在 `LLM_PROVIDER=mock` 时运行。
 
 ## 许可证
 

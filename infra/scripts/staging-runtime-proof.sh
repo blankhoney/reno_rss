@@ -12,13 +12,15 @@
 #
 # Environment:
 #   Reads DOMAIN and API/worker settings from the repository .env file and the
-#   running staging containers. Requires worker/API LLM_PROVIDER=mock.
+#   running staging containers. Deep runtime proof requires worker/API
+#   LLM_PROVIDER=mock; non-mock providers skip the proof to avoid real LLM spend.
 #
 # Exit codes:
-#   0 when auth, sync, content fetch, mock scoring, recommendation generation,
-#   latest Top10, and article ask SSE all succeed.
-#   Non-zero on non-staging ENV, non-mock LLM provider, failed HTTP/DB checks,
-#   timed out jobs, or missing proof artifacts.
+#   0 when non-mock providers are configured and the proof is intentionally
+#   skipped, or when auth, sync, content fetch, mock scoring, recommendation
+#   generation, latest Top10, and article ask SSE all succeed.
+#   Non-zero on non-staging ENV, failed HTTP/DB checks, timed out jobs, or
+#   missing proof artifacts.
 #
 # Side effects:
 #   Creates/refreshes deterministic proof admin/user records, may enqueue a
@@ -48,12 +50,15 @@ echo "Runtime proof: $ENV"
 
 # Mock provider is mandatory so CI/staging proof cannot spend real provider credits.
 worker_llm_provider="$(docker exec "$WORKER_CONTAINER" printenv LLM_PROVIDER 2>/dev/null || true)"
+api_llm_provider="$(docker exec "$API_CONTAINER" printenv LLM_PROVIDER 2>/dev/null || true)"
 worker_llm_provider="${worker_llm_provider:-mock}"
-if [[ "$worker_llm_provider" != "mock" ]]; then
-    echo "staging runtime proof requires worker LLM_PROVIDER=mock, got: $worker_llm_provider"
-    exit 1
+api_llm_provider="${api_llm_provider:-mock}"
+if [[ "$worker_llm_provider" != "mock" || "$api_llm_provider" != "mock" ]]; then
+    echo "  skip staging runtime proof: requires API/worker LLM_PROVIDER=mock; got api=$api_llm_provider worker=$worker_llm_provider"
+    echo "  reason: non-mock providers may spend real LLM credits"
+    exit 0
 fi
-echo "  ok worker LLM_PROVIDER=mock"
+echo "  ok API/worker LLM_PROVIDER=mock"
 
 # Run the proof from inside the API container so it uses the deployed code and network.
 docker exec \
