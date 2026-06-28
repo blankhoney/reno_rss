@@ -11,9 +11,12 @@ type ArticleListProps = {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
-  hasMore?: boolean;
-  isLoadingMore?: boolean;
-  onLoadMore?: () => void;
+  pageIndex?: number;
+  hasPrev?: boolean;
+  hasNext?: boolean;
+  isPaging?: boolean;
+  onPrev?: () => void;
+  onNext?: () => void;
   notice?: {
     title: string;
     body: string;
@@ -63,9 +66,12 @@ export function ArticleList({
   currentModule,
   currentSort,
   currentLang,
-  hasMore = false,
-  isLoadingMore = false,
-  onLoadMore,
+  pageIndex = 0,
+  hasPrev = false,
+  hasNext = false,
+  isPaging = false,
+  onPrev,
+  onNext,
   notice,
 }: ArticleListProps) {
   const router = useRouter();
@@ -146,21 +152,27 @@ export function ArticleList({
         })}
       </ul>
       {!isEmpty ? (
-        <div className="articleListMore" aria-live="polite">
-          <span className="articleListMoreStatus">
-            已加载 {articles.length} 篇 · {hasMore ? "还有更多" : "已全部加载"}
+        <nav className="articleListPager" aria-label="翻页">
+          <button
+            type="button"
+            className="articleListPagerBtn"
+            disabled={!hasPrev || isPaging || !onPrev}
+            onClick={onPrev}
+          >
+            ‹ 上一页
+          </button>
+          <span className="articleListPagerStatus" aria-live="polite">
+            第 {pageIndex + 1} 页
           </span>
-          {hasMore && onLoadMore ? (
-            <button
-              type="button"
-              className="articleListMoreButton"
-              disabled={isLoadingMore}
-              onClick={onLoadMore}
-            >
-              {isLoadingMore ? "加载中…" : "加载更多"}
-            </button>
-          ) : null}
-        </div>
+          <button
+            type="button"
+            className="articleListPagerBtn"
+            disabled={!hasNext || isPaging || !onNext}
+            onClick={onNext}
+          >
+            下一页 ›
+          </button>
+        </nav>
       ) : null}
     </section>
   );

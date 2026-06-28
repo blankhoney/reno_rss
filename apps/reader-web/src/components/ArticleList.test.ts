@@ -37,7 +37,7 @@ test("ArticleList renders an explicit empty state", () => {
   assert.match(html, /当前模块没有可显示的文章/);
 });
 
-test("ArticleList shows the load-more control only when more pages exist", () => {
+test("ArticleList renders pager controls with disabled state", () => {
   const article: Article = {
     id: 7,
     userId: 1,
@@ -78,22 +78,31 @@ test("ArticleList shows the load-more control only when more pages exist", () =>
     currentModule: "all",
     currentSort: "default",
     currentLang: "zh",
-    hasMore: true,
-    onLoadMore: () => {},
+    pageIndex: 0,
+    hasPrev: false,
+    hasNext: true,
+    onPrev: () => {},
+    onNext: () => {},
   });
   const withoutMore = renderArticleList({
     articles: [article],
     currentModule: "all",
     currentSort: "default",
     currentLang: "zh",
-    hasMore: false,
-    onLoadMore: () => {},
+    pageIndex: 2,
+    hasPrev: true,
+    hasNext: false,
+    onPrev: () => {},
+    onNext: () => {},
   });
 
-  assert.match(withMore, /加载更多/);
-  assert.match(withMore, /已加载 1 篇 · 还有更多/);
-  assert.match(withoutMore, /已加载 1 篇 · 已全部加载/);
-  assert.doesNotMatch(withoutMore, /加载更多/);
+  assert.match(withMore, /‹ 上一页/);
+  assert.match(withMore, /第 1 页/);
+  assert.match(withMore, /下一页 ›/);
+  assert.match(withMore, /<button type="button" class="articleListPagerBtn" disabled="">‹ 上一页/);
+  assert.match(withoutMore, /第 3 页/);
+  assert.match(withoutMore, /下一页 ›<\/button>/);
+  assert.match(withoutMore, /<button type="button" class="articleListPagerBtn" disabled="">下一页/);
 });
 
 test("ArticleList renders summaries and preserves workbench and focus reading links", () => {

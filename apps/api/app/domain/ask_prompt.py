@@ -37,7 +37,7 @@ def build_article_ask_context(
     article_text = _article_text(content_text, content_html)
     summary = sanitize_text(summary_zh)
     reason = sanitize_text(scoring_reason)
-    selected_quote = _selected_quote(selected_text, article_text)
+    selected_quote = _selected_quote(selected_text)
     has_usable_context = bool(article_text or summary or reason)
 
     system = (
@@ -58,7 +58,7 @@ def build_article_ask_context(
             f"标签：{_join_values(tags) or '无'}",
             f"风险标记：{_join_values(risk_flags) or '无'}",
             "",
-            "用户选中文字：",
+            "用户选中文字（来自页面，可能为译文/跨段）：",
             selected_quote or "无",
             "",
             "文章正文：",
@@ -161,13 +161,8 @@ def _html_to_text(content_html: str | None) -> str:
     return re.sub(r"<[^>]+>", " ", content_html)
 
 
-def _selected_quote(selected_text: str | None, article_text: str) -> str:
-    quote = sanitize_text(selected_text)
-    if not quote or not article_text:
-        return ""
-    if quote in article_text:
-        return quote
-    return ""
+def _selected_quote(selected_text: str | None) -> str:
+    return sanitize_text(selected_text)
 
 
 def _join_values(values: list[object]) -> str:

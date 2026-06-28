@@ -12,6 +12,17 @@ export function selectionTextWithinContainer(
   return text.length > 0 ? text : null;
 }
 
+export function selectionRectWithinContainer(
+  container: Pick<HTMLElement, "contains"> | null,
+  selection: Pick<
+    Selection,
+    "anchorNode" | "focusNode" | "rangeCount" | "toString" | "getRangeAt"
+  > | null,
+): DOMRect | null {
+  if (selectionTextWithinContainer(container, selection) == null) return null;
+  return selection?.getRangeAt(0).getBoundingClientRect() ?? null;
+}
+
 export function selectionPreview(text: string, limit = 36): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= limit) return normalized;
@@ -20,11 +31,18 @@ export function selectionPreview(text: string, limit = 36): string {
 
 export function useArticleSelection(containerRef: RefObject<HTMLElement | null>) {
   const [selectedText, setSelectedText] = useState("");
+  const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
 
   useEffect(() => {
     function captureSelection() {
-      const text = selectionTextWithinContainer(containerRef.current, window.getSelection());
-      if (text != null) setSelectedText(text);
+      const selection = window.getSelection();
+      const text = selectionTextWithinContainer(containerRef.current, selection);
+      if (text != null) {
+        setSelectedText(text);
+        setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
+      } else {
+        setSelectionRect(null);
+      }
     }
 
     const container = containerRef.current;
@@ -39,6 +57,10 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
   return {
     selectedText,
     hasSelection: selectedText.trim().length > 0,
-    clearSelection: () => setSelectedText(""),
+    selectionRect,
+    clearSelection: () => {
+      setSelectedText("");
+      setSelectionRect(null);
+    },
   };
 }

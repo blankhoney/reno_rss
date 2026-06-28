@@ -231,6 +231,31 @@
         }
       }
     },
+    "/api/articles/stats": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Article Stats",
+        "operationId": "article_stats_api_articles_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "type": "object",
+                  "title": "Response Article Stats Api Articles Stats Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/articles/{article_id}": {
       "get": {
         "tags": [

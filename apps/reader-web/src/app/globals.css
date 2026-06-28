@@ -431,7 +431,7 @@ button {
 
 .workbench {
   display: grid;
-  grid-template-columns: 180px minmax(380px, 760px);
+  grid-template-columns: 180px minmax(0, 1fr) clamp(260px, 22vw, 320px);
   min-height: 100vh;
 }
 
@@ -948,37 +948,38 @@ button {
   line-height: 1.5;
 }
 
-.articleListMore {
+.articleListPager {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   padding: 12px 0 4px;
 }
 
-.articleListMoreStatus {
+.articleListPagerStatus {
   color: var(--muted);
   font-size: 0.82rem;
+  font-weight: 600;
 }
 
-.articleListMoreButton {
+.articleListPagerBtn {
   border: 1px solid var(--border);
   border-radius: 7px;
-  padding: 8px 20px;
+  padding: 8px 12px;
   color: var(--accent);
   background: var(--panel);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
+  min-width: 92px;
 }
 
-.articleListMoreButton:hover:not(:disabled) {
+.articleListPagerBtn:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-muted);
 }
 
-.articleListMoreButton:disabled {
+.articleListPagerBtn:disabled {
   color: var(--muted);
   cursor: default;
 }
@@ -1136,6 +1137,113 @@ button {
 .scoreBadge strong {
   color: var(--text);
   font-size: 0.78rem;
+}
+
+.workbenchRail {
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 100vh;
+}
+
+.workbenchRailSection {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.workbenchRailTitle {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.workbenchRailList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.workbenchRailItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.workbenchRailItem:hover {
+  border-color: var(--border-strong);
+}
+
+.workbenchRailRank {
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.workbenchRailItemTitle {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbenchRailItem .scoreBadge {
+  grid-column: 2;
+  width: fit-content;
+}
+
+.workbenchRailEmpty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.workbenchStats {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.workbenchStats div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.workbenchStats div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.workbenchStats dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.workbenchStats dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 700;
 }
 
 .workbenchStatus {
@@ -1759,6 +1867,32 @@ button {
   line-height: 1.85;
 }
 
+.selectionPopover {
+  position: fixed;
+  z-index: 30;
+  transform: translate(-50%, -100%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px;
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+}
+
+.selectionPopover button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--accent);
+  background: transparent;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.selectionPopover button:hover {
+  background: var(--accent-muted);
+}
+
 .agentDrawer {
   position: fixed;
   left: max(18px, calc((100vw - 720px) / 2));
@@ -1914,10 +2048,15 @@ button {
 
   .moduleSidebar,
   .articleListPane,
+  .workbenchRail,
   .workbenchStatus {
     border-right: 0;
     border-bottom: 1px solid var(--border);
     min-height: unset;
+  }
+
+  .workbenchRail {
+    border-left: 0;
   }
 
   .workbenchStatus {

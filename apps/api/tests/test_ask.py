@@ -158,7 +158,7 @@ async def test_ask_can_use_active_summary_and_score_reason_when_body_is_missing(
 
 
 @pytest.mark.asyncio
-async def test_ask_uses_html_projection_and_ignores_missing_selected_text(app, client):
+async def test_ask_includes_selected_text_even_when_not_in_article_body(app, client):
     await client.post("/api/auth/login", json={"display_name": "Blank"})
     provider = RecordingAskProvider(["可以回答"])
     app.state.ask_provider = provider
@@ -180,7 +180,30 @@ async def test_ask_uses_html_projection_and_ignores_missing_selected_text(app, c
     assert response.status_code == 200
     serialized_messages = str(provider.calls)
     assert "HTML body text." in serialized_messages
-    assert "not in article" not in serialized_messages
+    assert "用户选中文字（来自页面，可能为译文/跨段）" in serialized_messages
+    assert "not in article" in serialized_messages
+
+
+@pytest.mark.asyncio
+async def test_ask_marks_missing_selected_text_as_none(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    provider = RecordingAskProvider(["可以回答"])
+    app.state.ask_provider = provider
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Plain text",
+            "content_text": "Article body.",
+        }
+    )
+
+    response = await client.post(f"/api/articles/{article.id}/ask", json={"question": "总结"})
+
+    assert response.status_code == 200
+    serialized_messages = str(provider.calls)
+    assert "用户选中文字（来自页面，可能为译文/跨段）：\\n无" in serialized_messages
 
 
 @pytest.mark.asyncio

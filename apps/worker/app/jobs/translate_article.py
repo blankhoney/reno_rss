@@ -41,6 +41,9 @@ def translate_article(
     except Exception:
         sink.save_translation(article_id, content_zh=None, status="failed", translated_at=None)
         raise
+    if not translated_html:
+        sink.save_translation(article_id, content_zh=None, status="failed", translated_at=None)
+        raise ValueError("translation produced empty output")
 
     translated_at = now or datetime.now(UTC)
     sink.save_translation(

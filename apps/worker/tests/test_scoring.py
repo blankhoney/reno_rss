@@ -7,6 +7,9 @@ from app.providers.llm import (
     DIMENSION_KEYS,
     MiniMaxProvider,
     MockProvider,
+    TRANSLATE_INPUT_LIMIT,
+    _looks_chinese,
+    _strip_think_blocks,
     create_provider,
     tier_for_score,
 )
@@ -26,8 +29,67 @@ def test_mock_provider_returns_v04_dimensions_and_derived_tier():
     assert set(score["dimension_reasons"]) == set(DIMENSION_KEYS)
     assert score["scoring_status"] == "success"
     assert score["recommendation_tier"] == tier_for_score(score["base_score"])
-    assert str(score["summary_zh"]).startswith("中文摘要（mock）：")
+    assert str(score["summary_zh"]).startswith("【示例摘要】")
+    assert "dense guide with code" not in str(score["summary_zh"]).lower()
     assert score == provider.score_article(article, {"version": "v0.4"})
+
+
+def test_mock_provider_non_chinese_summary_is_clear_chinese_placeholder():
+    provider = MockProvider()
+    article = {
+        "id": 101,
+        "title": "Practical RAG evaluation guide",
+        "content_text": "A dense guide with code, benchmarks, and deployment checks.",
+    }
+
+    score = provider.score_article(article, {"version": "v0.4"})
+
+    assert _looks_chinese(score["summary_zh"])
+    assert "A dense guide with code" not in score["summary_zh"]
+    assert "A dense guide with code" in score["summary_original"]
+
+
+def test_looks_chinese_detects_cjk_text():
+    assert _looks_chinese("这是中文摘要")
+    assert not _looks_chinese("English summary")
+
+
+def test_strip_think_blocks_handles_closed_and_unclosed_blocks():
+    assert _strip_think_blocks("A<think>hidden</think>B") == "AB"
+    assert _strip_think_blocks("A<think>hidden") == "A"
+
+
+def test_minimax_translation_truncates_article_body_before_request():
+    class FakeClient:
+        def __init__(self) -> None:
+            self.messages = None
+
+        def chat_completion(self, messages):
+            self.messages = messages
+            return "<p>中文正文</p>"
+
+    client = FakeClient()
+    long_html = "H" * TRANSLATE_INPUT_LIMIT + "HTML_TAIL"
+    long_text = "T" * TRANSLATE_INPUT_LIMIT + "TEXT_TAIL"
+
+    result = MiniMaxProvider(client).translate_article(
+        {
+            "title": "Article",
+            "url": "https://example.com/post",
+            "content_html": long_html,
+            "content_text": long_text,
+        }
+    )
+
+    assert result == "<p>中文正文</p>"
+    assert client.messages
+    payload = json.loads(client.messages[1]["content"])
+    article = payload["article"]
+    assert article["title"] == "Article"
+    assert len(article["content_html"]) == TRANSLATE_INPUT_LIMIT
+    assert len(article["content_text"]) == TRANSLATE_INPUT_LIMIT
+    assert "HTML_TAIL" not in article["content_html"]
+    assert "TEXT_TAIL" not in article["content_text"]
 
 
 def test_minimax_provider_strips_think_extracts_json_and_normalizes_values():

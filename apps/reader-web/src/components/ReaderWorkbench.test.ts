@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Article } from "@/lib/articles/types";
-import { buildWorkbenchView, shouldUseHomeRecommendations } from "./ReaderWorkbench";
+import {
+  appendCursorForNextPage,
+  buildWorkbenchView,
+  cursorForPage,
+} from "./ReaderWorkbench";
 
 function article(id: number, input: Partial<Article> = {}): Article {
   return {
@@ -59,8 +63,13 @@ test("buildWorkbenchView keeps sorted visible articles without selecting one", (
   assert.deepEqual(view.articles.map((item) => item.id), [2, 1]);
 });
 
-test("shouldUseHomeRecommendations only enables Top10 on the default home view", () => {
-  assert.equal(shouldUseHomeRecommendations("all", "default"), true);
-  assert.equal(shouldUseHomeRecommendations("all", "latest"), false);
-  assert.equal(shouldUseHomeRecommendations("unread", "default"), false);
+test("cursor helpers append next cursors and resolve previous pages", () => {
+  const firstStack = appendCursorForNextPage([null], 0, "cursor-2");
+  const replacedStack = appendCursorForNextPage([null, "stale", "discard"], 0, "fresh");
+
+  assert.deepEqual(firstStack, [null, "cursor-2"]);
+  assert.deepEqual(replacedStack, [null, "fresh"]);
+  assert.equal(cursorForPage(firstStack, 0), null);
+  assert.equal(cursorForPage(firstStack, 1), "cursor-2");
+  assert.equal(cursorForPage(firstStack, 99), null);
 });

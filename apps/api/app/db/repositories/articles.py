@@ -7,7 +7,7 @@ from typing import Protocol
 from uuid import UUID
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import Engine, and_, create_engine, desc, select, update
+from sqlalchemy import Engine, and_, create_engine, desc, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -71,6 +71,8 @@ class ArticleStore(Protocol):
     def sources_for_article(self, article_id: int) -> list[ArticleSourceRecord]: ...
 
     def list_articles(self, *, limit: int, cursor: str | None = None) -> ArticlePage: ...
+
+    def count_articles(self) -> int: ...
 
     def get_article(self, article_id: int) -> ArticleRecord | None: ...
 
@@ -231,6 +233,9 @@ class MemoryArticleRepository:
         next_cursor = encode_article_cursor(page_items[-1]) if has_more and page_items else None
         return ArticlePage(items=page_items, next_cursor=next_cursor, has_more=has_more)
 
+    def count_articles(self) -> int:
+        return len(self._articles)
+
     def get_article(self, article_id: int) -> ArticleRecord | None:
         return self._articles.get(article_id)
 
@@ -344,6 +349,10 @@ class DatabaseArticleRepository:
         has_more = len(rows) > limit
         next_cursor = encode_article_cursor(items[-1]) if has_more and items else None
         return ArticlePage(items=items, next_cursor=next_cursor, has_more=has_more)
+
+    def count_articles(self) -> int:
+        with self.engine.begin() as connection:
+            return int(connection.execute(select(func.count()).select_from(articles)).scalar_one())
 
     def get_article(self, article_id: int) -> ArticleRecord | None:
         with self.engine.begin() as connection:

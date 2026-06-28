@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 import json
+import logging
+import os
 import re
 from collections.abc import Mapping, Sequence
 from typing import Protocol, TypedDict
@@ -30,6 +31,9 @@ RISK_FLAG_ALIASES = {
 DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/v1"
 DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
+TRANSLATE_INPUT_LIMIT = 12_000
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ArticleScore(TypedDict):
@@ -103,7 +107,7 @@ class MockProvider:
         summary_zh = (
             summary_original
             if source_language == "zh"
-            else f"中文摘要（mock）：{summary_original}"
+            else "【示例摘要】这是 mock provider 生成的中文占位摘要，未接入真实翻译。"
         )
         score = {
             "base_score": base_score,
@@ -143,10 +147,13 @@ class MiniMaxProvider:
     ) -> ArticleScore:
         response = self.client.chat_completion(_score_messages(article, rubric))
         content = _response_content(response)
-        return normalize_score(_load_llm_json(content))
+        score = normalize_score(_load_llm_json(content))
+        if score["source_language"] != "zh" and not _looks_chinese(score["summary_zh"]):
+            _LOGGER.warning("summary_zh not Chinese for non-zh article (provider=minimax)")
+        return score
 
     def translate_article(self, article: Mapping[str, object]) -> str:
-        response = self.client.chat_completion(_translation_messages(article))
+        response = self.client.chat_completion(_translation_messages(_limited_translation_article(article)))
         return _strip_think_blocks(_response_content(response)).strip()
 
 
@@ -312,7 +319,27 @@ def _load_llm_json(content: str) -> Mapping[str, object]:
 
 
 def _strip_think_blocks(content: str) -> str:
-    return re.sub(r"<think\b[^>]*>.*?</think>", "", content, flags=re.IGNORECASE | re.DOTALL)
+    without_closed_blocks = re.sub(
+        r"<think\b[^>]*>.*?</think>",
+        "",
+        content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return re.sub(
+        r"<think\b[^>]*>.*$",
+        "",
+        without_closed_blocks,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+
+def _limited_translation_article(article: Mapping[str, object]) -> dict[str, object]:
+    limited = dict(article)
+    for key in ("content_html", "content_text"):
+        value = limited.get(key)
+        if value is not None:
+            limited[key] = _string(value)[:TRANSLATE_INPUT_LIMIT]
+    return limited
 
 
 def _extract_first_json_object(content: str) -> str:
@@ -465,6 +492,10 @@ def _squash_whitespace(value: str) -> str:
 
 def _detect_language(value: str) -> str:
     return "zh" if re.search(r"[\u4e00-\u9fff]", value) else "en"
+
+
+def _looks_chinese(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text))
 
 
 def _mock_tags(value: str) -> list[str]:

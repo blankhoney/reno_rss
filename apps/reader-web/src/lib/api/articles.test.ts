@@ -5,6 +5,7 @@ import {
   articleFromApiDetail,
   articleFromApiItem,
   enqueueFetchContentJob,
+  getArticleStats,
   getJob,
   listArticles,
   pollJobUntilTerminal,
@@ -221,6 +222,26 @@ test("listArticles fetches a cursor page from FastAPI", async () => {
     assert.equal(page.articles[0]?.title, "One");
     assert.equal(page.nextCursor, "next");
     assert.equal(page.hasMore, true);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("getArticleStats maps the readonly stats endpoint", async () => {
+  let capturedInput: RequestInfo | URL | undefined;
+  const restoreFetch = withMockFetch((input) => {
+    capturedInput = input;
+    return new Response(JSON.stringify({ total: 20, scored: 13, unscored: 7 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  try {
+    const stats = await getArticleStats();
+
+    assert.equal(capturedInput, "/api/articles/stats");
+    assert.deepEqual(stats, { total: 20, scored: 13, unscored: 7 });
   } finally {
     restoreFetch();
   }

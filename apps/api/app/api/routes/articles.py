@@ -140,6 +140,17 @@ async def list_articles(
     }
 
 
+@router.get("/articles/stats")
+def article_stats(
+    _current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+    scoring_repository: ScoringStore = Depends(get_scoring_repository),
+) -> dict[str, int]:
+    total = article_repository.count_articles()
+    scored = scoring_repository.count_active_scored_articles()
+    return {"total": total, "scored": scored, "unscored": max(total - scored, 0)}
+
+
 @router.get("/articles/{article_id}")
 def get_article(
     article_id: int = Path(gt=0),

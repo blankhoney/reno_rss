@@ -11,33 +11,26 @@ import {
   type ModuleId,
   type SummaryLangId,
 } from "@/lib/articles/service";
-import { listArticles } from "@/lib/api/articles";
+import {
+  getArticleStats,
+  listArticles,
+  type ArticleStats,
+} from "@/lib/api/articles";
 import {
   latestRecommendations,
   type RecommendationPage,
 } from "@/lib/api/recommendations";
 import { ArticleList } from "./ArticleList";
 import { ModuleSidebar } from "./ModuleSidebar";
-import { RecommendationList } from "./RecommendationList";
+import { WorkbenchRail } from "./WorkbenchRail";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
 
-const ARTICLE_LIST_PAGE_SIZE = 50;
+const ARTICLE_LIST_PAGE_SIZE = 12;
 
 export type WorkbenchView = {
   moduleId: ModuleId | null;
   articles: Article[];
 };
-
-export function shouldUseHomeRecommendations(
-  currentModule: string,
-  currentSort: ArticleSortId,
-): boolean {
-  return currentModule === "all" && currentSort === "default";
-}
-
-function recommendationArticles(page: RecommendationPage | null): Article[] {
-  return page?.items.flatMap((item) => (item.article ? [item.article] : [])) ?? [];
-}
 
 export function buildWorkbenchView({
   articles,
@@ -66,6 +59,21 @@ export function buildWorkbenchView({
   };
 }
 
+export function appendCursorForNextPage(
+  cursorStack: (string | null)[],
+  pageIndex: number,
+  nextCursor: string,
+): (string | null)[] {
+  return [...cursorStack.slice(0, pageIndex + 1), nextCursor];
+}
+
+export function cursorForPage(
+  cursorStack: (string | null)[],
+  pageIndex: number,
+): string | null {
+  return cursorStack[pageIndex] ?? null;
+}
+
 export function ReaderWorkbench({
   currentModule,
   currentSort,
@@ -77,6 +85,7 @@ export function ReaderWorkbench({
 }) {
   const [rawArticles, setRawArticles] = useState<Article[]>([]);
   const [recommendationPage, setRecommendationPage] = useState<RecommendationPage | null>(null);
+  const [articleStats, setArticleStats] = useState<ArticleStats | null>(null);
   const [recommendationNotice, setRecommendationNotice] = useState<{
     title: string;
     body: string;
@@ -85,7 +94,9 @@ export function ReaderWorkbench({
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [cursorStack, setCursorStack] = useState<(string | null)[]>([null]);
+  const [isPaging, setIsPaging] = useState(false);
 
   const view = useMemo(
     () =>
@@ -96,130 +107,136 @@ export function ReaderWorkbench({
       }),
     [currentModule, currentSort, rawArticles],
   );
-  const recommendationArticleList = useMemo(
-    () => recommendationArticles(recommendationPage),
-    [recommendationPage],
-  );
-  const showingRecommendations =
-    shouldUseHomeRecommendations(currentModule, currentSort) && recommendationArticleList.length > 0;
+  const loadPage = useCallback(async (cursor: string | null, initial = false) => {
+    if (initial) {
+      setIsLoading(true);
+    } else {
+      setIsPaging(true);
+    }
+    setError(null);
+    try {
+      const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE, cursor });
+      setRawArticles(page.articles);
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
+    } catch (loadError) {
+      if (initial) setRawArticles([]);
+      setNextCursor(null);
+      setHasMore(false);
+      setError(loadError instanceof Error ? loadError.message : "文章加载失败");
+    } finally {
+      if (initial) {
+        setIsLoading(false);
+      } else {
+        setIsPaging(false);
+      }
+    }
+  }, []);
 
-  const loadWorkbench = useCallback(async () => {
+  const loadRail = useCallback(async () => {
+    const [recommendationsResult, statsResult] = await Promise.allSettled([
+      latestRecommendations(),
+      getArticleStats(),
+    ]);
+    const notices: string[] = [];
+
+    if (recommendationsResult.status === "fulfilled") {
+      setRecommendationPage(recommendationsResult.value);
+    } else {
+      setRecommendationPage(null);
+      notices.push(
+        recommendationsResult.reason instanceof Error
+          ? recommendationsResult.reason.message
+          : "Top10 加载失败",
+      );
+    }
+
+    if (statsResult.status === "fulfilled") {
+      setArticleStats(statsResult.value);
+    } else {
+      setArticleStats(null);
+      notices.push(statsResult.reason instanceof Error ? statsResult.reason.message : "统计加载失败");
+    }
+
+    setRecommendationNotice(
+      notices.length > 0
+        ? {
+            title: "右栏数据暂不可用。",
+            body: notices.join(" "),
+          }
+        : null,
+    );
+  }, []);
+
+  const goNext = useCallback(() => {
+    if (!hasMore || isPaging || nextCursor == null) return;
+    const cursor = nextCursor;
+    setCursorStack((previous) => appendCursorForNextPage(previous, pageIndex, cursor));
+    setPageIndex((current) => current + 1);
+    void loadPage(cursor);
+  }, [hasMore, isPaging, loadPage, nextCursor, pageIndex]);
+
+  const goPrev = useCallback(() => {
+    if (pageIndex <= 0 || isPaging) return;
+    const previousPageIndex = pageIndex - 1;
+    setPageIndex(previousPageIndex);
+    void loadPage(cursorForPage(cursorStack, previousPageIndex));
+  }, [cursorStack, isPaging, loadPage, pageIndex]);
+
+  useEffect(() => {
     const moduleResolution = resolveArticlesListModuleId(true, currentModule);
     if (!moduleResolution.ok) {
       setRawArticles([]);
       setRecommendationPage(null);
+      setArticleStats(null);
       setRecommendationNotice(null);
       setNextCursor(null);
       setHasMore(false);
+      setPageIndex(0);
+      setCursorStack([null]);
       setIsLoading(false);
       setError(null);
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
-    try {
-      let nextRecommendationPage: RecommendationPage | null = null;
-      let nextRecommendationNotice: { title: string; body: string } | null = null;
-      let nextArticles: Article[] = [];
-      let nextCursor: string | null = null;
-      let nextHasMore = false;
-
-      if (shouldUseHomeRecommendations(currentModule, currentSort)) {
-        try {
-          nextRecommendationPage = await latestRecommendations();
-        } catch (recommendationError) {
-          nextRecommendationNotice = {
-            title: "Top10 暂不可用。",
-            body:
-              recommendationError instanceof Error
-                ? recommendationError.message
-                : "已回退到最新文章列表。",
-          };
-        }
-
-        const topArticles = recommendationArticles(nextRecommendationPage);
-        if (topArticles.length > 0) {
-          nextArticles = topArticles;
-        } else {
-          nextRecommendationNotice = nextRecommendationNotice ?? {
-            title: "Top10 尚未生成。",
-            body: "需要先完成同步和评分，当前显示最新文章列表。",
-          };
-        }
-      }
-
-      if (nextArticles.length === 0) {
-        const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE });
-        nextArticles = page.articles;
-        nextCursor = page.nextCursor;
-        nextHasMore = page.hasMore;
-      }
-
-      setRawArticles(nextArticles);
-      setRecommendationPage(nextRecommendationPage);
-      setRecommendationNotice(nextRecommendationNotice);
-      setNextCursor(nextCursor);
-      setHasMore(nextHasMore);
-    } catch (loadError) {
-      setRawArticles([]);
-      setRecommendationPage(null);
-      setRecommendationNotice(null);
-      setNextCursor(null);
-      setHasMore(false);
-      setError(loadError instanceof Error ? loadError.message : "文章加载失败");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentModule, currentSort]);
-
-  const loadMore = useCallback(async () => {
-    if (!hasMore || isLoadingMore || nextCursor == null) return;
-    setIsLoadingMore(true);
-    try {
-      const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE, cursor: nextCursor });
-      setRawArticles((previous) => [...previous, ...page.articles]);
-      setNextCursor(page.nextCursor);
-      setHasMore(page.hasMore);
-    } catch (loadMoreError) {
-      setError(loadMoreError instanceof Error ? loadMoreError.message : "加载更多失败");
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }, [hasMore, isLoadingMore, nextCursor]);
+    setPageIndex(0);
+    setCursorStack([null]);
+    void loadPage(null, true);
+    void loadRail();
+  }, [currentModule, currentSort, loadPage, loadRail]);
 
   useEffect(() => {
-    void loadWorkbench();
-  }, [loadWorkbench]);
-
-  useEffect(() => {
-    const reload = () => void loadWorkbench();
+    const reload = () => {
+      void loadPage(cursorForPage(cursorStack, pageIndex));
+      void loadRail();
+    };
     window.addEventListener(ARTICLE_DATA_CHANGED_EVENT, reload);
     return () => window.removeEventListener(ARTICLE_DATA_CHANGED_EVENT, reload);
-  }, [loadWorkbench]);
+  }, [cursorStack, loadPage, loadRail, pageIndex]);
 
   return (
     <main className="workbench">
       <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
-      {showingRecommendations && recommendationPage ? (
-        <RecommendationList
-          page={recommendationPage}
-          currentModule={currentModule}
-          currentSort={currentSort}
-          currentLang={currentLang}
-        />
-      ) : (
-        <ArticleList
-          articles={view.articles}
-          currentModule={currentModule}
-          currentSort={currentSort}
-          currentLang={currentLang}
-          hasMore={!showingRecommendations && hasMore}
-          isLoadingMore={isLoadingMore}
-          onLoadMore={() => void loadMore()}
-          notice={recommendationNotice ?? undefined}
-        />
-      )}
+      <ArticleList
+        articles={view.articles}
+        currentModule={currentModule}
+        currentSort={currentSort}
+        currentLang={currentLang}
+        pageIndex={pageIndex}
+        hasPrev={pageIndex > 0}
+        hasNext={hasMore}
+        isPaging={isPaging}
+        onPrev={goPrev}
+        onNext={goNext}
+        notice={recommendationNotice ?? undefined}
+      />
+      <WorkbenchRail
+        recommendations={recommendationPage}
+        stats={articleStats}
+        currentModule={currentModule}
+        currentSort={currentSort}
+        currentLang={currentLang}
+      />
       {isLoading || error != null ? (
         <section className="workbenchStatus" aria-live="polite">
           <p className="readerEmptyTitle">{isLoading ? "正在加载文章" : "文章加载失败"}</p>

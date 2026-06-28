@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectionPreview, selectionTextWithinContainer } from "./selection";
+import {
+  selectionPreview,
+  selectionRectWithinContainer,
+  selectionTextWithinContainer,
+} from "./selection";
 
 test("selectionTextWithinContainer returns trimmed text for in-article selections", () => {
   const inside = {};
@@ -44,6 +48,37 @@ test("selectionTextWithinContainer ignores empty or external selections", () => 
       rangeCount: 1,
       toString: () => "   ",
     } as Selection),
+    null,
+  );
+});
+
+test("selectionRectWithinContainer returns the selected range rect", () => {
+  const inside = {};
+  const rect = { top: 10, left: 20, width: 80, height: 18 } as DOMRect;
+  const container = {
+    contains(node: object) {
+      return node === inside;
+    },
+  };
+  const selection = {
+    anchorNode: inside,
+    focusNode: inside,
+    rangeCount: 1,
+    toString: () => "selected text",
+    getRangeAt: () => ({
+      getBoundingClientRect: () => rect,
+    }),
+  };
+
+  assert.equal(
+    selectionRectWithinContainer(container as HTMLElement, selection as unknown as Selection),
+    rect,
+  );
+  assert.equal(
+    selectionRectWithinContainer(container as HTMLElement, {
+      ...selection,
+      toString: () => "   ",
+    } as unknown as Selection),
     null,
   );
 });

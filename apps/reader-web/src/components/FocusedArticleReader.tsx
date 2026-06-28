@@ -80,7 +80,7 @@ export function FocusedArticleReader({
   const articleRef = useRef<HTMLElement | null>(null);
   const articleActions = useArticleActions(article, currentLang);
   const typewriter = useTypewriterStream();
-  const { selectedText, hasSelection, clearSelection } = useArticleSelection(articleRef);
+  const { selectedText, hasSelection, selectionRect, clearSelection } = useArticleSelection(articleRef);
 
   useEffect(() => {
     setTranslatedHtml(article.contentZh ?? null);
@@ -316,6 +316,26 @@ export function FocusedArticleReader({
 
         <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
       </article>
+
+      {selectionRect && hasSelection ? (
+        <div
+          className="selectionPopover"
+          role="toolbar"
+          aria-label="选中文字操作"
+          style={{
+            top: Math.max(8, selectionRect.top - 8),
+            left: selectionRect.left + selectionRect.width / 2,
+          }}
+        >
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void askAgent("请解释我选中的这段内容。")}
+          >
+            解释选中
+          </button>
+        </div>
+      ) : null}
 
       <section
         className={drawerOpen ? "agentDrawer agentDrawerOpen" : "agentDrawer"}

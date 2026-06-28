@@ -93,6 +93,19 @@ def test_translate_article_marks_failed_before_reraising():
     ]
 
 
+def test_translate_article_marks_empty_translation_failed():
+    sink = RecordingTranslationSink(_article())
+    provider = TranslationProvider("   ")
+
+    with pytest.raises(ValueError, match="translation produced empty output"):
+        translate_article({"article_id": 1}, sink=sink, provider=provider)
+
+    assert sink.saved == [
+        {"content_zh": None, "status": "running", "translated_at": None},
+        {"content_zh": None, "status": "failed", "translated_at": None},
+    ]
+
+
 def test_worker_registry_includes_translate_article_handler():
     from app.main import build_handler_registry
 

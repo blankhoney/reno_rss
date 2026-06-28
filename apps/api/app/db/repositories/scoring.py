@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import Engine, create_engine, select, update
+from sqlalchemy import Engine, create_engine, func, select, update
 
 from app.db.models import article_base_scores, scoring_batch_items, scoring_batches
 
@@ -75,6 +75,8 @@ class ScoringStore(Protocol):
     def active_scores_for_articles(
         self, article_ids: list[int]
     ) -> dict[int, ScoreRecord]: ...
+
+    def count_active_scored_articles(self) -> int: ...
 
     def create_batch(
         self,
@@ -153,6 +155,15 @@ class MemoryScoringRepository:
             if score.is_active and score.article_id in wanted:
                 result[score.article_id] = score
         return result
+
+    def count_active_scored_articles(self) -> int:
+        return len(
+            {
+                score.article_id
+                for score in self._scores.values()
+                if score.is_active and score.scoring_status == "success"
+            }
+        )
 
     def create_batch(
         self,
@@ -283,6 +294,17 @@ class DatabaseScoringRepository:
                 .all()
             )
         return {row["article_id"]: _score_from_row(row) for row in rows}
+
+    def count_active_scored_articles(self) -> int:
+        with self.engine.begin() as connection:
+            return int(
+                connection.execute(
+                    select(func.count(func.distinct(article_base_scores.c.article_id))).where(
+                        article_base_scores.c.is_active.is_(True),
+                        article_base_scores.c.scoring_status == "success",
+                    )
+                ).scalar_one()
+            )
 
     def create_batch(
         self,

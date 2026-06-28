@@ -60,6 +60,12 @@ export type ArticleListPage = {
   hasMore: boolean;
 };
 
+export type ArticleStats = {
+  total: number;
+  scored: number;
+  unscored: number;
+};
+
 export type ArticleStatePatch = {
   status?: "read" | "unread" | "skipped";
   saved?: boolean;
@@ -259,6 +265,17 @@ export async function listArticles({
     articles: (payload.items ?? []).map(articleFromApiItem),
     nextCursor: payload.next_cursor ?? null,
     hasMore: payload.has_more === true,
+  };
+}
+
+export async function getArticleStats(): Promise<ArticleStats> {
+  const payload = await apiGet<{ total?: number; scored?: number; unscored?: number }>(
+    "/api/articles/stats",
+  );
+  return {
+    total: payload.total ?? 0,
+    scored: payload.scored ?? 0,
+    unscored: payload.unscored ?? 0,
   };
 }
 

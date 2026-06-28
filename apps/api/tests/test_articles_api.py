@@ -226,6 +226,13 @@ async def test_articles_require_auth_when_anonymous_demo_disabled(app, client):
 
 
 @pytest.mark.asyncio
+async def test_article_stats_require_auth_when_anonymous_demo_disabled(app, client):
+    assert app.state.anonymous_demo_enabled is False
+    response = await client.get("/api/articles/stats")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_anonymous_demo_serves_articles_but_not_admin(app, client):
     # Staging public demo: anonymous requests resolve to a shared demo user.
     app.state.anonymous_demo_enabled = True
@@ -245,6 +252,50 @@ async def test_anonymous_demo_serves_articles_but_not_admin(app, client):
     assert len(articles_response.json()["items"]) == 1
     # Demo user is role=user, so admin endpoints stay protected.
     assert admin_response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_article_stats_count_total_scored_and_unscored(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    first = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/first",
+            "title": "First",
+        }
+    )
+    second = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 102,
+            "url": "https://example.com/second",
+            "title": "Second",
+        }
+    )
+    app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 103,
+            "url": "https://example.com/third",
+            "title": "Third",
+        }
+    )
+    app.state.scoring_repository.create_score(
+        article_id=first.id,
+        base_score=82,
+        is_active=True,
+    )
+    app.state.scoring_repository.create_score(
+        article_id=second.id,
+        base_score=70,
+        is_active=False,
+    )
+
+    response = await client.get("/api/articles/stats")
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 3, "scored": 1, "unscored": 2}
 
 
 @pytest.mark.asyncio
