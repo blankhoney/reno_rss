@@ -34,23 +34,36 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
 
   useEffect(() => {
-    function captureSelection() {
-      const selection = window.getSelection();
-      const text = selectionTextWithinContainer(containerRef.current, selection);
+    // While dragging, keep the captured text current but never show or reposition
+    // the popover: a fixed popover that appears under the moving cursor flickers and
+    // can intercept the gesture, collapsing the selection on pointer release.
+    function syncSelectedText() {
+      const text = selectionTextWithinContainer(containerRef.current, window.getSelection());
       if (text != null) {
         setSelectedText(text);
-        setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
       } else {
+        // Selection collapsed or left the article: hide the popover, keep last text.
         setSelectionRect(null);
       }
     }
 
+    // Reveal/position the popover only once the selection has settled (pointer released).
+    function revealPopoverOnSettle() {
+      const selection = window.getSelection();
+      const text = selectionTextWithinContainer(containerRef.current, selection);
+      if (text == null) return;
+      setSelectedText(text);
+      setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
+    }
+
     const container = containerRef.current;
-    container?.addEventListener("mouseup", captureSelection);
-    document.addEventListener("selectionchange", captureSelection);
+    container?.addEventListener("mouseup", revealPopoverOnSettle);
+    container?.addEventListener("touchend", revealPopoverOnSettle);
+    document.addEventListener("selectionchange", syncSelectedText);
     return () => {
-      container?.removeEventListener("mouseup", captureSelection);
-      document.removeEventListener("selectionchange", captureSelection);
+      container?.removeEventListener("mouseup", revealPopoverOnSettle);
+      container?.removeEventListener("touchend", revealPopoverOnSettle);
+      document.removeEventListener("selectionchange", syncSelectedText);
     };
   }, [containerRef]);
 

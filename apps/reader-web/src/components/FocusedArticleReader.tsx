@@ -93,27 +93,6 @@ export function FocusedArticleReader({
     onDismiss: () => setDrawerOpen(false),
   });
 
-  useEffect(() => {
-    if (!drawerOpen || isAsking) return;
-    const closeOnScroll = () => setDrawerOpen(false);
-    const closeOnPageWheel = (event: WheelEvent) => {
-      if ((event.target as Element | null)?.closest(".agentDrawer")) return;
-      setDrawerOpen(false);
-    };
-    const closeOnPageTouchMove = (event: TouchEvent) => {
-      if ((event.target as Element | null)?.closest(".agentDrawer")) return;
-      setDrawerOpen(false);
-    };
-    window.addEventListener("scroll", closeOnScroll, { passive: true });
-    window.addEventListener("wheel", closeOnPageWheel, { passive: true, capture: true });
-    window.addEventListener("touchmove", closeOnPageTouchMove, { passive: true, capture: true });
-    return () => {
-      window.removeEventListener("scroll", closeOnScroll);
-      window.removeEventListener("wheel", closeOnPageWheel, { capture: true });
-      window.removeEventListener("touchmove", closeOnPageTouchMove, { capture: true });
-    };
-  }, [drawerOpen, isAsking]);
-
   async function askAgent(nextQuestion = question) {
     const trimmedQuestion = nextQuestion.trim();
     if (trimmedQuestion.length === 0) return;
@@ -322,6 +301,7 @@ export function FocusedArticleReader({
           className="selectionPopover"
           role="toolbar"
           aria-label="选中文字操作"
+          onMouseDown={(event) => event.preventDefault()}
           style={{
             top: Math.max(8, selectionRect.top - 8),
             left: selectionRect.left + selectionRect.width / 2,
