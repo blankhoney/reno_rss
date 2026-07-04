@@ -1,6 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
+import httpx
+import pytest
+
 from app.jobs.fetch_content import fetch_article_content
+from app.runner import RetryableJobError
 
 
 class RecordingContentSink:
@@ -88,6 +92,41 @@ def test_fetch_article_content_falls_back_to_external_then_snippet():
     assert snippet_result["content_source"] == "snippet_only"
     assert snippet_sink.saved is not None
     assert snippet_sink.saved["content_quality"] == "snippet"
+
+
+def test_fetch_article_content_converts_miniflux_transient_error_to_retryable():
+    sink = RecordingContentSink(_article())
+
+    with pytest.raises(RetryableJobError, match="miniflux fetch transient network failure") as error:
+        fetch_article_content(
+            {"article_id": 1},
+            sink=sink,
+            miniflux_client=FakeMinifluxClient(httpx.TimeoutException("miniflux timed out")),
+            external_provider=FakeExternalProvider(None),
+        )
+
+    assert isinstance(error.value.__cause__, httpx.TimeoutException)
+    assert sink.saved is None
+
+
+def test_fetch_article_content_converts_external_transient_error_to_retryable():
+    class FailingExternalProvider:
+        def fetch(self, url: str) -> str | None:
+            assert url == "https://example.com/post"
+            raise httpx.TransportError("external fetch failed")
+
+    sink = RecordingContentSink(_article())
+
+    with pytest.raises(RetryableJobError, match="external fetch transient network failure") as error:
+        fetch_article_content(
+            {"article_id": 1},
+            sink=sink,
+            miniflux_client=FakeMinifluxClient(""),
+            external_provider=FailingExternalProvider(),
+        )
+
+    assert isinstance(error.value.__cause__, httpx.TransportError)
+    assert sink.saved is None
 
 
 def _article(content_html: str = "<p>Short body</p>"):

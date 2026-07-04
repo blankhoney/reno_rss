@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,7 @@ from app.db.repositories.articles import (
 )
 from app.db.repositories.jobs import JobStore, dedupe_key_for
 from app.db.repositories.scoring import ScoreRecord, ScoringStore
+from app.core.ratelimit import limiter, llm_rate_limit, write_rate_limit
 
 
 router = APIRouter(prefix="/api", tags=["articles"])
@@ -171,8 +172,10 @@ def get_article(
 
 
 @router.post("/articles/{article_id}/state")
+@limiter.limit(write_rate_limit)
 def update_article_state(
     payload: ArticleStateRequest,
+    request: Request,
     article_id: int = Path(gt=0),
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
@@ -190,7 +193,9 @@ def update_article_state(
 
 
 @router.post("/articles/{article_id}/fetch-content")
+@limiter.limit(write_rate_limit)
 def enqueue_fetch_content_job(
+    request: Request,
     article_id: int = Path(gt=0),
     current_user: UserRecord = Depends(require_user),
     job_repository: JobStore = Depends(get_job_repository),
@@ -205,7 +210,9 @@ def enqueue_fetch_content_job(
 
 
 @router.post("/articles/{article_id}/translate")
+@limiter.limit(llm_rate_limit)
 def enqueue_translate_article_job(
+    request: Request,
     article_id: int = Path(gt=0),
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),

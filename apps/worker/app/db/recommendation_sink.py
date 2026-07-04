@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import json
 
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.engine import Connection
 
 from app.jobs.generate_recommendations import RecommendationContext
 
@@ -45,6 +46,9 @@ class DatabaseRecommendationSink:
         algorithm_version: str,
     ) -> None:
         with self.engine.begin() as connection:
+            if self.source_batch_id is not None:
+                self._delete_existing_source_edition(connection, user_id, algorithm_version)
+
             row = (
                 connection.execute(
                     text(
@@ -92,6 +96,46 @@ class DatabaseRecommendationSink:
                         "source": item["source"],
                     },
                 )
+
+    def _delete_existing_source_edition(
+        self,
+        connection: Connection,
+        user_id: object,
+        algorithm_version: str,
+    ) -> None:
+        params = {
+            "user_id": user_id,
+            "source_batch_id": self.source_batch_id,
+            "algorithm_version": algorithm_version,
+        }
+        connection.execute(
+            text(
+                """
+                DELETE FROM recommendation_items
+                WHERE edition_id IN (
+                    SELECT id
+                    FROM recommendation_editions
+                    WHERE user_id = :user_id
+                      AND source_batch_id = :source_batch_id
+                      AND edition_type = 'homepage_top10'
+                      AND algorithm_version = :algorithm_version
+                );
+                """
+            ),
+            params,
+        )
+        connection.execute(
+            text(
+                """
+                DELETE FROM recommendation_editions
+                WHERE user_id = :user_id
+                  AND source_batch_id = :source_batch_id
+                  AND edition_type = 'homepage_top10'
+                  AND algorithm_version = :algorithm_version;
+                """
+            ),
+            params,
+        )
 
     def dispose(self) -> None:
         self.engine.dispose()

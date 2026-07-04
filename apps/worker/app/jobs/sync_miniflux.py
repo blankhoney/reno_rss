@@ -1,6 +1,10 @@
 from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import httpx
+
+from app.runner import RetryableJobError
+
 
 TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
 
@@ -35,7 +39,11 @@ def run_sync_miniflux_entries(
 
     limit = _optional_int(payload, "limit", default=100)
     after_entry_id = _optional_int(payload, "after_entry_id", default=None)
-    entries = client.list_entries(limit=limit, after_entry_id=after_entry_id)
+    try:
+        entries = client.list_entries(limit=limit, after_entry_id=after_entry_id)
+    except (httpx.TimeoutException, httpx.TransportError) as error:
+        detail = str(error) or error.__class__.__name__
+        raise RetryableJobError(f"miniflux sync transient network failure: {detail}") from error
     return sync_miniflux_entries({**payload, "entries": entries}, sink)
 
 

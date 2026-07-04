@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
-import type { ArticleContentFetchResult } from "@/lib/articles/contentQuality";
 import {
   enqueueFetchContentJob,
   getArticle,
@@ -31,22 +30,6 @@ function savedHref(entryId: number, lang: SummaryLangId): string {
     article: String(entryId),
   });
   return `/?${qs.toString()}`;
-}
-
-export function contentFetchResultMessage(result: ArticleContentFetchResult): string {
-  if (result.outcome === "applied" && result.quality === "full") {
-    return "全文已刷新，已切换到较完整正文";
-  }
-  if (result.outcome === "applied") {
-    return "已获取到更多内容，但当前仍可能只有 RSS 片段";
-  }
-  if (result.outcome === "rejected") {
-    return "源站返回错误页或登录墙，当前仍显示 RSS 片段";
-  }
-  if (result.outcome === "unchanged") {
-    return "源站没有返回更完整正文，当前仍显示已有内容";
-  }
-  return "全文抓取失败，请打开原文阅读";
 }
 
 function resultString(result: unknown, key: string): string | null {

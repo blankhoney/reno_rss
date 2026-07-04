@@ -2,10 +2,14 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.deps import ApiError, api_error_handler, request_validation_error_handler
+from app.core.budget import DailyCallBudget
 from app.api.routes import admin, articles, ask, auth, feeds, jobs, recommendations
 from app.core.config import APP_VERSION, get_settings
+from app.core.ratelimit import limiter
 from app.core.security import has_valid_csrf_origin
 from app.db.auth_store import create_auth_store
 from app.db.repositories.articles import create_article_repository
@@ -28,10 +32,15 @@ def create_app() -> FastAPI:
     app.state.scoring_repository = create_scoring_repository(settings.database_url)
     app.state.recommendation_repository = create_recommendation_repository(settings.database_url)
     app.state.ask_provider = ask.create_ask_provider(settings)
+    app.state.llm_budget = DailyCallBudget(settings.llm_daily_call_budget)
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
     app.state.anonymous_demo_enabled = settings.anonymous_demo_user_enabled
+    limiter.reset()
+    app.state.limiter = limiter
     app.add_exception_handler(ApiError, api_error_handler)
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)
+    app.add_exception_handler(RateLimitExceeded, rate_limit_error_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
     @app.middleware("http")
     async def csrf_origin_middleware(request: Request, call_next) -> Response:
@@ -62,6 +71,18 @@ def create_app() -> FastAPI:
     app.include_router(recommendations.router)
 
     return app
+
+
+async def rate_limit_error_handler(request: Request, exc: RateLimitExceeded) -> Response:
+    return await api_error_handler(
+        request,
+        ApiError(
+            429,
+            "rate_limited",
+            "Rate limit exceeded",
+            {"detail": str(getattr(exc, "detail", exc))},
+        ),
+    )
 
 
 app = create_app()

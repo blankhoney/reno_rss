@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
+import httpx
+
 from app.content_quality import article_text_from_html, assess_article_content, decide_fetched_article_content
 from app.providers.external_content import ExternalContentProvider, NoExternalContentProvider
+from app.runner import RetryableJobError
 
 
 class ContentSink(Protocol):
@@ -38,6 +41,9 @@ def fetch_article_content(
     if miniflux_entry_id is not None:
         try:
             fetched_html = miniflux_client.fetch_content(int(miniflux_entry_id))
+        except (httpx.TimeoutException, httpx.TransportError) as error:
+            detail = str(error) or error.__class__.__name__
+            raise RetryableJobError(f"miniflux fetch transient network failure: {detail}") from error
         except Exception:
             fetched_html = ""
         if fetched_html:
@@ -53,7 +59,11 @@ def fetch_article_content(
                     outcome="applied",
                 )
 
-    external_html = external_provider.fetch(str(article["url"]))
+    try:
+        external_html = external_provider.fetch(str(article["url"]))
+    except (httpx.TimeoutException, httpx.TransportError) as error:
+        detail = str(error) or error.__class__.__name__
+        raise RetryableJobError(f"external fetch transient network failure: {detail}") from error
     if external_html:
         decision = decide_fetched_article_content(current_html, external_html)
         if decision.fetch_result["outcome"] == "applied":

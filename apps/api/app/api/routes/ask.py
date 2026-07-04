@@ -5,7 +5,7 @@ import json
 from typing import Protocol
 
 import httpx
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +17,7 @@ from app.api.deps import (
     require_user,
 )
 from app.core.config import Settings
+from app.core.ratelimit import limiter, llm_rate_limit
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import ArticleRecord, ArticleStore
 from app.db.repositories.scoring import ScoreRecord, ScoringStore
@@ -39,7 +40,20 @@ class AskProvider(Protocol):
 
 
 class DeterministicAskProvider:
+    spends_llm_budget = False
+
+    def __init__(self, *, reason: str = "unconfigured") -> None:
+        self.reason = reason
+
     def answer_article_question(self, messages: list[dict[str, str]]) -> Iterable[str]:
+        if self.reason == "budget_exhausted":
+            return [
+                "结论：今日 LLM 调用额度已用满，已切换为占位回答。\n"
+                "依据：服务端没有继续调用真实模型，因此不会产生额外费用。\n"
+                "引用：请以文章正文和已有评分摘要为准。\n"
+                "不确定点：占位回答未重新分析文章。\n"
+                "行动建议：明天额度重置后重试，或请管理员调整预算。"
+            ]
         return [
             "结论：当前问答模型未配置。\n"
             "依据：服务端已组装文章上下文，但没有可用的实时 LLM provider。\n"
@@ -50,6 +64,8 @@ class DeterministicAskProvider:
 
 
 class MiniMaxAskProvider:
+    spends_llm_budget = True
+
     def __init__(
         self,
         *,
@@ -106,13 +122,14 @@ def create_ask_provider(settings: Settings) -> AskProvider:
 
 
 @router.post("/{article_id}/ask")
+@limiter.limit(llm_rate_limit)
 def ask_article(
     payload: AskRequest,
+    request: Request,
     article_id: int = Path(gt=0),
     _current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
     scoring_repository: ScoringStore = Depends(get_scoring_repository),
-    ask_provider: AskProvider = Depends(get_ask_provider),
 ) -> StreamingResponse:
     article = article_repository.get_article(article_id)
     if article is None:
@@ -134,6 +151,7 @@ def ask_article(
     if not context.has_usable_context:
         raise ApiError(409, "content_required", "Article content is required before asking")
 
+    ask_provider = get_ask_provider(request)
     messages = [
         {"role": "system", "content": context.messages.system},
         {"role": "user", "content": context.messages.user},

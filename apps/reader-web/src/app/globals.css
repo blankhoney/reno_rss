@@ -96,154 +96,6 @@ button {
   font: inherit;
 }
 
-.demoLanding {
-  min-height: 100vh;
-  padding: 56px clamp(20px, 6vw, 84px);
-  background:
-    radial-gradient(circle at 85% 10%, var(--accent-glow), transparent 30%),
-    linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
-  display: grid;
-  align-content: center;
-  gap: 26px;
-}
-
-.demoHero {
-  max-width: 860px;
-}
-
-.demoEyebrow {
-  color: var(--accent);
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  margin: 0 0 12px;
-  text-transform: uppercase;
-}
-
-.demoHero h1 {
-  font-size: clamp(2.8rem, 8vw, 5.8rem);
-  line-height: 0.96;
-  letter-spacing: -0.02em;
-  margin: 0;
-}
-
-.demoLead {
-  color: var(--text-soft);
-  font-size: clamp(1.08rem, 2vw, 1.35rem);
-  line-height: 1.7;
-  max-width: 720px;
-  margin: 24px 0 0;
-}
-
-.demoActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 28px;
-}
-
-.demoPrimaryButton,
-.demoSecondaryButton {
-  border-radius: 999px;
-  padding: 12px 18px;
-  font-weight: 800;
-  transition:
-    background-color var(--motion-fast) var(--ease-standard),
-    color var(--motion-fast) var(--ease-standard),
-    transform var(--motion-fast) var(--ease-standard),
-    box-shadow var(--motion-fast) var(--ease-standard);
-}
-
-.demoPrimaryButton {
-  border: 0;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  box-shadow: 0 12px 24px var(--accent-glow);
-}
-
-.demoPrimaryButton:hover:not(:disabled),
-.demoSecondaryButton:hover {
-  transform: translateY(-1px);
-}
-
-.demoPrimaryButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-  box-shadow: none;
-}
-
-.demoSecondaryButton {
-  border: 1px solid var(--border);
-  background: var(--panel-translucent);
-  color: var(--text);
-}
-
-.demoCredentials {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 22px;
-}
-
-.demoCredentials p {
-  margin: 0;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel-translucent);
-  padding: 10px 12px;
-  min-width: 170px;
-}
-
-.demoCredentials span {
-  display: block;
-  color: var(--muted);
-  font-size: 0.76rem;
-  font-weight: 700;
-}
-
-.demoCredentials strong {
-  display: block;
-  margin-top: 4px;
-  overflow-wrap: anywhere;
-}
-
-.demoHint,
-.demoWarning {
-  color: var(--muted);
-  line-height: 1.6;
-  margin: 16px 0 0;
-  max-width: 720px;
-}
-
-.demoWarning {
-  color: var(--warning);
-}
-
-.demoFeatureGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  max-width: 1040px;
-}
-
-.demoFeatureGrid article {
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel-translucent);
-  padding: 16px;
-}
-
-.demoFeatureGrid h2 {
-  font-size: 1rem;
-  margin: 0 0 8px;
-}
-
-.demoFeatureGrid p {
-  color: var(--muted);
-  line-height: 1.6;
-  margin: 0;
-}
-
 .authGate {
   min-height: 100vh;
   display: grid;
@@ -849,7 +701,6 @@ button {
 }
 
 .feedQualityHeader p,
-.feedQualityLoading,
 .feedQualityError {
   margin: 6px 0 0;
   color: var(--muted);
@@ -857,67 +708,6 @@ button {
 
 .feedQualityError {
   color: var(--danger);
-}
-
-.feedQualityList {
-  display: grid;
-  gap: 10px;
-  max-width: 980px;
-}
-
-.feedQualityCard {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-  padding: 13px;
-  display: grid;
-  gap: 10px;
-}
-
-.feedQualityCardHidden {
-  opacity: 0.62;
-}
-
-.feedQualityMain {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.feedQualityMain h2 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.feedQualityMeta,
-.feedQualityReasons {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 0.86rem;
-}
-
-.feedQualityStats {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(74px, 1fr));
-  gap: 8px;
-}
-
-.feedQualityStats div {
-  border-radius: 7px;
-  background: var(--bg);
-  padding: 7px 8px;
-}
-
-.feedQualityStats dt {
-  color: var(--muted);
-  font-size: 0.74rem;
-}
-
-.feedQualityStats dd {
-  margin: 2px 0 0;
-  font-weight: 700;
 }
 
 .articleList {
@@ -2034,14 +1824,6 @@ button {
 }
 
 @media (max-width: 900px) {
-  .demoLanding {
-    padding: 32px 18px;
-  }
-
-  .demoFeatureGrid {
-    grid-template-columns: 1fr;
-  }
-
   .workbench {
     grid-template-columns: 1fr;
   }
@@ -2085,13 +1867,8 @@ button {
     font-size: 1rem;
   }
 
-  .feedQualityHeader,
-  .feedQualityMain {
+  .feedQualityHeader {
     flex-direction: column;
-  }
-
-  .feedQualityStats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .adminConsoleGrid {

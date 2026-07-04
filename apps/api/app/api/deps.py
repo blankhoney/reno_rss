@@ -88,7 +88,17 @@ def get_recommendation_repository(request: Request) -> RecommendationStore:
 
 
 def get_ask_provider(request: Request) -> object:
-    return request.app.state.ask_provider
+    provider = request.app.state.ask_provider
+    if not getattr(provider, "spends_llm_budget", True):
+        return provider
+
+    budget = request.app.state.llm_budget
+    if budget.try_consume():
+        return provider
+
+    from app.api.routes.ask import DeterministicAskProvider
+
+    return DeterministicAskProvider(reason="budget_exhausted")
 
 
 def get_current_user_optional(request: Request) -> UserRecord | None:
