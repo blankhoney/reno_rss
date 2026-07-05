@@ -223,6 +223,7 @@ def test_b4_excludes_read_and_skipped_articles():
         ],
         feedback_by_article={},
         article_status_by_article={1: "read", 2: "skipped", 3: "unread"},
+        now=datetime(2026, 6, 22, tzinfo=UTC),
     )
 
     assert [item.article_id for item in ranked] == [3]
