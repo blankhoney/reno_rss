@@ -71,6 +71,7 @@ services:
       WRITE_RATELIMIT: ${WRITE_RATELIMIT:-30/minute}
       AUTH_RATELIMIT: ${AUTH_RATELIMIT:-5/minute;30/hour}
       API_RATELIMIT_DEFAULT: ${API_RATELIMIT_DEFAULT:-120/minute}
+      SLOW_REQUEST_MS: ${SLOW_REQUEST_MS:-500}
     networks:
       - app          # Caddy 通过 app 网络访问 API
       - data         # 写入 scoring 数据库
