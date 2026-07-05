@@ -5,6 +5,7 @@ import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import { getArticle } from "@/lib/api/articles";
 import { FocusedArticleReader } from "./FocusedArticleReader";
+import { FocusedArticleSkeleton } from "./Skeleton";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
 
 export function FocusedArticleScreen({
@@ -49,17 +50,7 @@ export function FocusedArticleScreen({
   }, [articleId, loadArticle]);
 
   if (isLoading) {
-    return (
-      <main className="focusReader">
-        <a className="readerToolbarBtn" href={returnHref}>
-          返回工作台
-        </a>
-        <div className="readerEmpty">
-          <p className="readerEmptyTitle">正在加载文章</p>
-          <p className="readerEmptyHint">正在从 API 读取文章详情。</p>
-        </div>
-      </main>
-    );
+    return <FocusedArticleSkeleton returnHref={returnHref} />;
   }
 
   if (error != null || article == null) {

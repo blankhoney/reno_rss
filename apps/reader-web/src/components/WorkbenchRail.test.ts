@@ -98,6 +98,24 @@ test("WorkbenchRail renders empty states", () => {
   assert.match(html, /统计待加载/);
 });
 
+test("WorkbenchRail separates loading skeletons from generated-empty states", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(WorkbenchRail, {
+      recommendations: null,
+      stats: null,
+      currentModule: "all",
+      currentSort: "default",
+      currentLang: "zh",
+      isLoading: true,
+    }),
+  );
+
+  assert.match(html, /右栏加载中/);
+  assert.match(html, /统计加载中/);
+  assert.doesNotMatch(html, /Top10 尚未生成/);
+  assert.doesNotMatch(html, /统计待加载/);
+});
+
 test("WorkbenchRail renders retry affordance for rail load failures", () => {
   const html = renderToStaticMarkup(
     React.createElement(WorkbenchRail, {

@@ -10,13 +10,18 @@ import {
   updateArticleState,
   type ApiJob,
 } from "@/lib/api/articles";
+import { emitToast, type ToastAction, type ToastVariant } from "./Toast";
 
 type ActionKey = "fetchContent" | "translate" | "candidate" | "project" | "read";
 
-type ActionLink = {
-  href: string;
-  label: string;
-};
+type ActionLink = ToastAction;
+type ActionResult =
+  | string
+  | {
+      message: string;
+      action?: ActionLink | null;
+      variant?: ToastVariant;
+    };
 
 export const ARTICLE_DATA_CHANGED_EVENT = "ai-reader:articles-changed";
 
@@ -72,19 +77,23 @@ function dispatchArticleDataChanged(articleId: number) {
   window.dispatchEvent(new CustomEvent(ARTICLE_DATA_CHANGED_EVENT, { detail: { articleId } }));
 }
 
+function normalizeActionResult(result: ActionResult): {
+  message: string;
+  action?: ActionLink | null;
+  variant?: ToastVariant;
+} {
+  return typeof result === "string" ? { message: result } : result;
+}
+
 export function useArticleActions(article: Article | null, currentLang: SummaryLangId) {
   const [pendingAction, setPendingAction] = useState<ActionKey | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actionLink, setActionLink] = useState<ActionLink | null>(null);
   const actionAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     actionAbortRef.current?.abort();
     setPendingAction(null);
-    setActionMessage(null);
     setActionError(null);
-    setActionLink(null);
   }, [article?.id]);
 
   useEffect(() => {
@@ -93,19 +102,21 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     };
   }, []);
 
-  async function run(action: ActionKey, request: (signal: AbortSignal) => Promise<string>) {
+  async function run(action: ActionKey, request: (signal: AbortSignal) => Promise<ActionResult>) {
     if (article == null || pendingAction != null) return;
     const abortController = new AbortController();
     actionAbortRef.current?.abort();
     actionAbortRef.current = abortController;
     setPendingAction(action);
-    setActionMessage(null);
     setActionError(null);
-    setActionLink(null);
     try {
-      const message = await request(abortController.signal);
+      const result = normalizeActionResult(await request(abortController.signal));
       if (abortController.signal.aborted) return;
-      setActionMessage(message);
+      emitToast({
+        title: result.message,
+        variant: result.variant ?? "success",
+        action: result.action ?? null,
+      });
       dispatchArticleDataChanged(article.id);
     } catch (error) {
       if (isAbortError(error)) return;
@@ -120,9 +131,7 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
   }
 
   return {
-    actionMessage,
     actionError,
-    actionLink,
     isFetchingContent: pendingAction === "fetchContent",
     isTranslating: pendingAction === "translate",
     isTogglingCandidate: pendingAction === "candidate",
@@ -141,19 +150,17 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
       actionAbortRef.current?.abort();
       actionAbortRef.current = abortController;
       setPendingAction("translate");
-      setActionMessage(null);
       setActionError(null);
-      setActionLink(null);
       try {
         const requested = await requestArticleTranslation(article.id, { signal: abortController.signal });
         if (abortController.signal.aborted) return null;
         if (requested.contentZh != null) {
-          setActionMessage("已切换到中文译文");
+          emitToast({ title: "已切换到中文译文", variant: "success" });
           dispatchArticleDataChanged(article.id);
           return requested.contentZh;
         }
         if (requested.jobId == null) {
-          setActionMessage("全文翻译请求已提交");
+          emitToast({ title: "全文翻译请求已提交", variant: "success" });
           return null;
         }
         const job = await pollJobUntilTerminal(requested.jobId, {
@@ -162,7 +169,10 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
           signal: abortController.signal,
         });
         if (abortController.signal.aborted) return null;
-        setActionMessage(translationJobMessage(job));
+        emitToast({
+          title: translationJobMessage(job),
+          variant: job.status === "failed" ? "error" : "success",
+        });
         dispatchArticleDataChanged(article.id);
         if (job.status !== "succeeded") return null;
         return null;
@@ -188,8 +198,10 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
       run("project", async () => {
         if (article == null) return "";
         await updateArticleState(article.id, { saved: true });
-        setActionLink({ href: savedHref(article.id, currentLang), label: "查看候选" });
-        return "已加入候选";
+        return {
+          message: "已加入候选",
+          action: { href: savedHref(article.id, currentLang), label: "查看候选" },
+        };
       }),
     markRead: () =>
       run("read", async () => {

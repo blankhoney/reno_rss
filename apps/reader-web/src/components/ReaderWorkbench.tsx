@@ -91,6 +91,7 @@ export function ReaderWorkbench({
     body: string;
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRailLoading, setIsRailLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -134,39 +135,44 @@ export function ReaderWorkbench({
   }, []);
 
   const loadRail = useCallback(async () => {
+    setIsRailLoading(true);
     setRecommendationNotice(null);
-    const [recommendationsResult, statsResult] = await Promise.allSettled([
-      latestRecommendations(),
-      getArticleStats(),
-    ]);
-    const notices: string[] = [];
+    try {
+      const [recommendationsResult, statsResult] = await Promise.allSettled([
+        latestRecommendations(),
+        getArticleStats(),
+      ]);
+      const notices: string[] = [];
 
-    if (recommendationsResult.status === "fulfilled") {
-      setRecommendationPage(recommendationsResult.value);
-    } else {
-      setRecommendationPage(null);
-      notices.push(
-        recommendationsResult.reason instanceof Error
-          ? recommendationsResult.reason.message
-          : "Top10 加载失败",
+      if (recommendationsResult.status === "fulfilled") {
+        setRecommendationPage(recommendationsResult.value);
+      } else {
+        setRecommendationPage(null);
+        notices.push(
+          recommendationsResult.reason instanceof Error
+            ? recommendationsResult.reason.message
+            : "Top10 加载失败",
+        );
+      }
+
+      if (statsResult.status === "fulfilled") {
+        setArticleStats(statsResult.value);
+      } else {
+        setArticleStats(null);
+        notices.push(statsResult.reason instanceof Error ? statsResult.reason.message : "统计加载失败");
+      }
+
+      setRecommendationNotice(
+        notices.length > 0
+          ? {
+              title: "右栏数据暂不可用。",
+              body: notices.join(" "),
+            }
+          : null,
       );
+    } finally {
+      setIsRailLoading(false);
     }
-
-    if (statsResult.status === "fulfilled") {
-      setArticleStats(statsResult.value);
-    } else {
-      setArticleStats(null);
-      notices.push(statsResult.reason instanceof Error ? statsResult.reason.message : "统计加载失败");
-    }
-
-    setRecommendationNotice(
-      notices.length > 0
-        ? {
-            title: "右栏数据暂不可用。",
-            body: notices.join(" "),
-          }
-        : null,
-    );
   }, []);
 
   const goNext = useCallback(() => {
@@ -195,6 +201,7 @@ export function ReaderWorkbench({
       setRecommendationPage(null);
       setArticleStats(null);
       setRecommendationNotice(null);
+      setIsRailLoading(false);
       setNextCursor(null);
       setHasMore(false);
       setPageIndex(0);
@@ -231,6 +238,7 @@ export function ReaderWorkbench({
         hasPrev={pageIndex > 0}
         hasNext={hasMore}
         isPaging={isPaging}
+        isLoading={isLoading}
         onPrev={goPrev}
         onNext={goNext}
       />
@@ -240,18 +248,17 @@ export function ReaderWorkbench({
         currentModule={currentModule}
         currentSort={currentSort}
         currentLang={currentLang}
+        isLoading={isRailLoading}
         notice={recommendationNotice ?? undefined}
         onRetry={() => void loadRail()}
       />
-      {isLoading || error != null ? (
+      {error != null ? (
         <section className="workbenchStatus" aria-live="polite">
-          <p className="readerEmptyTitle">{isLoading ? "正在加载文章" : "文章加载失败"}</p>
-          <p className="readerEmptyHint">{isLoading ? "正在从 API 读取最新文章。" : error}</p>
-          {error != null ? (
-            <button type="button" className="readerToolbarBtn" onClick={retryArticleList}>
-              重试
-            </button>
-          ) : null}
+          <p className="readerEmptyTitle">文章加载失败</p>
+          <p className="readerEmptyHint">{error}</p>
+          <button type="button" className="readerToolbarBtn" onClick={retryArticleList}>
+            重试
+          </button>
         </section>
       ) : null}
     </main>

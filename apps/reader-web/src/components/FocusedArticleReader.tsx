@@ -62,6 +62,12 @@ function translationLabel(article: Article): string {
   return "译文：未翻译";
 }
 
+function translationStatusClassName(article: Article): string {
+  return article.contentZhStatus === "failed"
+    ? "focusStatusChip focusStatusChipDanger"
+    : "focusStatusChip";
+}
+
 export function FocusedArticleReader({
   article,
   currentLang,
@@ -244,22 +250,11 @@ export function FocusedArticleReader({
       </header>
 
       <section className="focusStatusBar" aria-label="阅读状态">
-        <span>{article.contentStatus === "partial" ? "正文：片段" : "正文：完整"}</span>
-        <span>{score ? "评分：已评分" : "评分：未评分"}</span>
-        <span>{translationLabel(article)}</span>
+        <span className="focusStatusChip">{article.contentStatus === "partial" ? "正文：片段" : "正文：完整"}</span>
+        <span className="focusStatusChip">{score ? "评分：已评分" : "评分：未评分"}</span>
+        <span className={translationStatusClassName(article)}>{translationLabel(article)}</span>
       </section>
 
-      {articleActions.actionMessage ? (
-        <p className="readerActionMessage">
-          {articleActions.actionMessage}
-          {articleActions.actionLink ? (
-            <>
-              {" "}
-              <a href={articleActions.actionLink.href}>{articleActions.actionLink.label}</a>
-            </>
-          ) : null}
-        </p>
-      ) : null}
       {articleActions.actionError ? (
         <p className="readerActionError">{articleActions.actionError}</p>
       ) : null}

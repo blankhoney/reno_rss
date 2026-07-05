@@ -39,6 +39,26 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-fast: 140ms;
   --motion-standard: 190ms;
+  --motion-slow: 280ms;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+
+  --z-topbar: 8;
+  --z-popover: 30;
+  --z-drawer: 20;
+  --z-toast: 50;
 }
 
 :root[data-theme="dark"] {
@@ -505,10 +525,10 @@ button {
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
-  z-index: 6;
+  z-index: var(--z-popover);
   width: 150px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--panel);
   box-shadow: var(--shadow-lg);
   padding: 6px;
@@ -550,10 +570,10 @@ button {
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
-  z-index: 5;
+  z-index: var(--z-popover);
   width: 260px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--panel);
   box-shadow: var(--shadow-lg);
   padding: 12px;
@@ -777,7 +797,7 @@ button {
 .articleCard {
   display: block;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px;
   background: var(--panel);
   cursor: pointer;
@@ -917,11 +937,16 @@ button {
   align-items: center;
   gap: 5px;
   padding: 3px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: var(--bg);
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.scoreBadgeEmpty {
+  border-style: dashed;
+  opacity: 0.62;
 }
 
 .scoreBadge strong {
@@ -1059,6 +1084,134 @@ button {
 
 .readerEmptyHint {
   margin: 0;
+}
+
+.skeletonBlock {
+  display: block;
+  min-width: 20px;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--border) 78%, transparent) 0%,
+      color-mix(in srgb, var(--panel) 65%, var(--border)) 42%,
+      color-mix(in srgb, var(--border) 78%, transparent) 80%
+    );
+  background-size: 220% 100%;
+  animation: skeletonShimmer var(--motion-slow) var(--ease-standard) infinite;
+}
+
+.skeletonLine {
+  height: 12px;
+}
+
+.skeletonTitleLine {
+  height: 16px;
+  margin-top: 9px;
+}
+
+.skeletonHeroLine {
+  height: 28px;
+}
+
+.skeletonPill {
+  height: 22px;
+  border-radius: var(--radius-full);
+}
+
+.articleListSkeleton {
+  pointer-events: none;
+}
+
+.articleCardSkeleton {
+  cursor: default;
+}
+
+.articleCardSkeleton .skeletonLine + .skeletonLine {
+  margin-top: 8px;
+}
+
+.workbenchRailSkeletonList {
+  display: grid;
+  gap: 8px;
+}
+
+.workbenchRailItemSkeleton {
+  pointer-events: none;
+}
+
+.workbenchStatsSkeleton .skeletonLine,
+.workbenchStatsSkeleton .skeletonPill {
+  flex: 0 0 auto;
+}
+
+.focusArticleSkeleton .focusSection {
+  display: grid;
+  gap: 10px;
+}
+
+.focusContentSkeleton {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  max-width: 38em;
+}
+
+.toastHost {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-toast);
+  display: grid;
+  gap: var(--space-2);
+  width: min(340px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toastCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  padding: 10px 12px;
+  pointer-events: auto;
+}
+
+.toastCard-success {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border));
+}
+
+.toastCard-info {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+.toastCard-error {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+}
+
+.toastTitle {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.toastBody {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.toastAction {
+  display: inline-flex;
+  margin-top: 7px;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .readerToolbar {
@@ -1558,7 +1711,7 @@ button {
 .focusTopbar {
   position: sticky;
   top: 0;
-  z-index: 8;
+  z-index: var(--z-topbar);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1589,13 +1742,20 @@ button {
   gap: 8px;
 }
 
-.focusStatusBar span {
+.focusStatusChip {
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: 4px 8px;
   background: var(--panel);
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.focusStatusChipDanger {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--panel));
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .focusArticle {
@@ -1659,7 +1819,7 @@ button {
 
 .selectionPopover {
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-popover);
   transform: translate(-50%, -100%);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1688,7 +1848,7 @@ button {
   left: max(18px, calc((100vw - 720px) / 2));
   right: max(18px, calc((100vw - 720px) / 2));
   bottom: 16px;
-  z-index: 20;
+  z-index: var(--z-drawer);
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--panel);
@@ -1823,6 +1983,28 @@ button {
   }
 }
 
+@keyframes skeletonShimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@keyframes articleReturnHighlight {
+  0% {
+    background-color: var(--accent-muted);
+    box-shadow: 0 0 0 2px var(--accent-muted);
+  }
+
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
 @media (max-width: 900px) {
   .workbench {
     grid-template-columns: 1fr;
@@ -1884,6 +2066,12 @@ button {
   .agentDrawerAskRow {
     grid-template-columns: 1fr;
   }
+
+  .toastHost {
+    right: var(--space-3);
+    bottom: var(--space-3);
+    width: calc(100vw - 24px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1894,5 +2082,10 @@ button {
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .skeletonBlock {
+    animation: none !important;
+    background-position: 0 0 !important;
   }
 }

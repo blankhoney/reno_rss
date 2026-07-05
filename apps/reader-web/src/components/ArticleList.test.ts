@@ -37,6 +37,20 @@ test("ArticleList renders an explicit empty state", () => {
   assert.match(html, /当前模块没有可显示的文章/);
 });
 
+test("ArticleList renders skeleton cards while loading instead of empty copy", () => {
+  const html = renderArticleList({
+      articles: [],
+      currentModule: "all",
+      currentSort: "default",
+      currentLang: "zh",
+      isLoading: true,
+    });
+
+  assert.match(html, /文章加载中/);
+  assert.equal((html.match(/articleCardSkeleton/g) ?? []).length, 12);
+  assert.doesNotMatch(html, /暂无文章/);
+});
+
 test("ArticleList renders pager controls with disabled state", () => {
   const article: Article = {
     id: 7,
@@ -192,6 +206,8 @@ test("ArticleList uses low-noise summary text for unscored articles", () => {
     });
 
   assert.match(html, /未评分/);
+  assert.match(html, /评分/);
+  assert.doesNotMatch(html, /层级/);
   assert.doesNotMatch(html, /未生成摘要/);
 });
 

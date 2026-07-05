@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { MotionRoot } from "@/components/MotionRoot";
+import { ToastHost } from "@/components/Toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <MotionRoot>{children}</MotionRoot>
+        <ToastHost />
       </body>
     </html>
   );

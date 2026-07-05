@@ -4,6 +4,7 @@ import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import type { ArticleStats } from "@/lib/api/articles";
 import type { RecommendationPage } from "@/lib/api/recommendations";
 import { ScoreBadge } from "./ScoreBadge";
+import { WorkbenchRailSkeleton, WorkbenchStatsSkeleton } from "./Skeleton";
 
 type WorkbenchRailProps = {
   recommendations: RecommendationPage | null;
@@ -11,6 +12,7 @@ type WorkbenchRailProps = {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
+  isLoading?: boolean;
   notice?: {
     title: string;
     body: string;
@@ -38,6 +40,7 @@ export function WorkbenchRail({
   currentModule,
   currentSort,
   currentLang,
+  isLoading = false,
   notice,
   onRetry,
 }: WorkbenchRailProps) {
@@ -58,7 +61,9 @@ export function WorkbenchRail({
       ) : null}
       <section className="workbenchRailSection">
         <h2 className="workbenchRailTitle">Top10</h2>
-        {items.length > 0 ? (
+        {isLoading ? (
+          <WorkbenchRailSkeleton />
+        ) : items.length > 0 ? (
           <ol className="workbenchRailList">
             {items.map((item, index) => {
               const article = item.article;
@@ -85,7 +90,9 @@ export function WorkbenchRail({
 
       <section className="workbenchRailSection">
         <h2 className="workbenchRailTitle">语料统计</h2>
-        {stats ? (
+        {isLoading ? (
+          <WorkbenchStatsSkeleton />
+        ) : stats ? (
           <dl className="workbenchStats">
             <div>
               <dt>共</dt>

@@ -129,3 +129,15 @@ test("FocusedArticleReader renders scored state and dimension reasons", () => {
   assert.match(html, /维度理由/);
   assert.match(html, /主题明确/);
 });
+
+test("FocusedArticleReader marks failed translation status as danger", () => {
+  const html = renderFocusedReader(
+    article({
+      contentZhStatus: "failed",
+    }),
+    "/?module=all&sort=default&lang=zh&article=42",
+  );
+
+  assert.match(html, /译文：失败/);
+  assert.match(html, /focusStatusChipDanger/);
+});
