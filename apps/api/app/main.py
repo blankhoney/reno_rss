@@ -10,6 +10,7 @@ from app.core.budget import DailyCallBudget
 from app.api.routes import admin, articles, ask, auth, feeds, jobs, recommendations
 from app.core.config import APP_VERSION, get_settings
 from app.core.ratelimit import limiter
+from app.core.request_timing import RequestTimingMiddleware
 from app.core.security import has_valid_csrf_origin
 from app.db.auth_store import create_auth_store
 from app.db.repositories.articles import create_article_repository
@@ -53,6 +54,11 @@ def create_app() -> FastAPI:
                 ApiError(403, "forbidden", "Invalid request origin"),
             )
         return await call_next(request)
+
+    app.add_middleware(
+        RequestTimingMiddleware,
+        slow_request_ms=settings.slow_request_ms,
+    )
 
     @app.get("/healthz")
     async def healthz() -> dict[str, object]:
