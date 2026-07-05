@@ -1,4 +1,8 @@
+import httpx
+import pytest
+
 from app.jobs.sync_miniflux import run_sync_miniflux_entries, sync_miniflux_entries
+from app.runner import RetryableJobError
 
 
 class RecordingSink:
@@ -144,6 +148,17 @@ def test_run_sync_fetches_entries_from_client_when_payload_has_no_entries():
     assert result["entries_seen"] == 1
     assert result["articles_upserted"] == 1
     assert sink.articles[0]["title"] == "Fetched entry"
+
+
+def test_run_sync_converts_transient_network_error_to_retryable():
+    class FailingClient:
+        def list_entries(self, *, limit: int, after_entry_id: int | None = None):
+            raise httpx.TransportError("miniflux connection reset")
+
+    with pytest.raises(RetryableJobError, match="miniflux sync transient network failure") as error:
+        run_sync_miniflux_entries({}, sink=RecordingSink(), client=FailingClient())
+
+    assert isinstance(error.value.__cause__, httpx.TransportError)
 
 
 def test_sync_resolves_miniflux_feed_to_local_feed_before_article_and_source():

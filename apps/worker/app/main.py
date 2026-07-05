@@ -87,11 +87,12 @@ def _sync_miniflux_entries(payload) -> dict[str, object]:
         raise RuntimeError("SCORING_DATABASE_URL is required for sync_miniflux_entries")
     sink = DatabaseArticleSink(database_url)
     try:
-        return run_sync_miniflux_entries(
-            dict(payload),
-            sink=sink,
-            client=MinifluxClient(MinifluxConfig.from_env()),
-        )
+        with MinifluxClient(MinifluxConfig.from_env()) as client:
+            return run_sync_miniflux_entries(
+                dict(payload),
+                sink=sink,
+                client=client,
+            )
     finally:
         sink.dispose()
 
@@ -102,12 +103,13 @@ def _fetch_article_content(payload) -> dict[str, object]:
         raise RuntimeError("SCORING_DATABASE_URL is required for fetch_article_content")
     sink = DatabaseContentSink(database_url)
     try:
-        return fetch_article_content(
-            dict(payload),
-            sink=sink,
-            miniflux_client=MinifluxClient(MinifluxConfig.from_env()),
-            external_provider=NoExternalContentProvider(),
-        )
+        with MinifluxClient(MinifluxConfig.from_env()) as client:
+            return fetch_article_content(
+                dict(payload),
+                sink=sink,
+                miniflux_client=client,
+                external_provider=NoExternalContentProvider(),
+            )
     finally:
         sink.dispose()
 

@@ -41,6 +41,31 @@ class MinifluxClient:
     def __init__(self, config: MinifluxConfig) -> None:
         self._config = config
         self._base_url = config.base_url.rstrip("/")
+        self._client = httpx.Client(
+            headers=self._config.auth_headers(),
+            timeout=self._config.timeout_seconds,
+        )
+        self._closed = False
+
+    def close(self) -> None:
+        if not self._closed:
+            self._client.close()
+            self._closed = True
+
+    def dispose(self) -> None:
+        self.close()
+
+    def __enter__(self) -> MinifluxClient:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def list_entries(self, *, limit: int, after_entry_id: int | None = None) -> list[dict[str, object]]:
         params: dict[str, object] = {
@@ -51,13 +76,9 @@ class MinifluxClient:
         if after_entry_id is not None:
             params["after_entry_id"] = after_entry_id
 
-        with httpx.Client(
-            headers=self._config.auth_headers(),
-            timeout=self._config.timeout_seconds,
-        ) as client:
-            response = client.get(f"{self._base_url}/v1/entries", params=params)
-            response.raise_for_status()
-            payload = response.json()
+        response = self._client.get(f"{self._base_url}/v1/entries", params=params)
+        response.raise_for_status()
+        payload = response.json()
         entries = payload.get("entries", [])
         if not isinstance(entries, list):
             raise TypeError("Miniflux entries response must contain an entries list")
@@ -65,21 +86,17 @@ class MinifluxClient:
 
     def fetch_content(self, entry_id: int, update_content: bool = True) -> str:
         params = {"update_content": str(update_content).lower()}
-        with httpx.Client(
-            headers=self._config.auth_headers(),
-            timeout=self._config.timeout_seconds,
-        ) as client:
-            response = client.get(
-                f"{self._base_url}/v1/entries/{entry_id}/fetch-content",
-                params=params,
-            )
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "")
-            if "application/json" in content_type:
-                payload = response.json()
-                content = payload.get("content", "")
-                return content if isinstance(content, str) else ""
-            text = response.text
+        response = self._client.get(
+            f"{self._base_url}/v1/entries/{entry_id}/fetch-content",
+            params=params,
+        )
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            payload = response.json()
+            content = payload.get("content", "")
+            return content if isinstance(content, str) else ""
+        text = response.text
         try:
             payload = httpx.Response(200, content=text).json()
         except ValueError:

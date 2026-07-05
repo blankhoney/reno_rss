@@ -3,7 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol
 
-from app.providers.llm import DIMENSION_KEYS, LLMProvider, tier_for_score
+from app.providers.llm import LLMProvider
+
+
+ERROR_MESSAGE_LIMIT = 240
+PROMPT_VERSION = "rss-score-v05"
 
 
 class ScoreSink(Protocol):
@@ -27,6 +31,7 @@ def score_batch(
 
     articles = sink.list_batch_articles(batch_id)
     scores_saved = 0
+    scores_succeeded = 0
     scores_failed = 0
     for article in articles:
         article_id = _article_id(article)
@@ -34,13 +39,17 @@ def score_batch(
             score = dict(provider.score_article(article, rubric))
             score.setdefault("model_provider", getattr(provider, "model_provider", "mock"))
             score.setdefault("model_name", getattr(provider, "model_name", "mock"))
-            score.setdefault("prompt_version", "rss-score-v05")
+            score.setdefault("prompt_version", PROMPT_VERSION)
+            score.setdefault("scoring_status", "success")
         except Exception as error:
-            score = _baseline_error_score(article, str(error))
-            scores_failed += 1
+            score = _provider_error_score(provider, error)
         score["batch_id"] = batch_id
         sink.save_score(article_id, score)
         scores_saved += 1
+        if score.get("scoring_status") == "success":
+            scores_succeeded += 1
+        else:
+            scores_failed += 1
 
     _call_optional(sink, "finish_batch", batch_id)
     _call_optional(sink, "enqueue_recommendations", batch_id)
@@ -48,6 +57,7 @@ def score_batch(
         "batch_id": batch_id,
         "articles_seen": len(articles),
         "scores_saved": scores_saved,
+        "scores_succeeded": scores_succeeded,
         "scores_failed": scores_failed,
     }
 
@@ -60,31 +70,37 @@ def _article_id(article: Mapping[str, object]) -> object:
     raise KeyError("article must include 'id' or 'article_id'")
 
 
-def _baseline_error_score(article: Mapping[str, object], error: str) -> dict[str, object]:
-    combined = " ".join(
-        str(article.get(key) or "")
-        for key in ("title", "content_text", "content_html", "url")
-        if article.get(key)
-    )
-    base_score = min(100, len(combined) // 50)
+def _provider_error_score(provider: LLMProvider, error: Exception) -> dict[str, object]:
     return {
-        "base_score": base_score,
-        "dimension_scores": {key: base_score for key in DIMENSION_KEYS},
-        "dimension_reasons": {key: "评分失败，需重新评分。" for key in DIMENSION_KEYS},
+        "base_score": 0,
+        "dimension_scores": {},
+        "dimension_reasons": {},
         "summary_zh": "",
         "summary_original": "",
         "source_language": "unknown",
         "tags": [],
-        "reason": "评分失败，需重新评分。",
+        "reason": "Scoring failed before a valid provider score was produced.",
         "risk_flags": [],
         "confidence": 0.0,
         "scoring_status": "error",
-        "error": error[:240],
-        "recommendation_tier": tier_for_score(base_score),
-        "model_provider": "baseline",
-        "model_name": "length-baseline",
-        "prompt_version": "rss-score-v05",
+        "error": _bounded_error_message(error),
+        "recommendation_tier": "skip",
+        "model_provider": _provider_metadata(provider, "model_provider"),
+        "model_name": _provider_metadata(provider, "model_name"),
+        "prompt_version": PROMPT_VERSION,
     }
+
+
+def _bounded_error_message(error: Exception) -> str:
+    message = str(error) or error.__class__.__name__
+    return message[:ERROR_MESSAGE_LIMIT]
+
+
+def _provider_metadata(provider: LLMProvider, name: str) -> str:
+    value = getattr(provider, name, None)
+    if value is None or value == "":
+        return "unknown"
+    return str(value)
 
 
 def _call_optional(sink: object, method_name: str, batch_id: object) -> None:

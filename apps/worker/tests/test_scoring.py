@@ -207,6 +207,7 @@ def test_score_batch_scores_all_articles_and_preserves_batch_id():
         "batch_id": "batch-7",
         "articles_seen": 2,
         "scores_saved": 2,
+        "scores_succeeded": 2,
         "scores_failed": 0,
     }
 
@@ -219,7 +220,7 @@ def test_create_provider_selects_mock_and_minimax_fails_closed(monkeypatch):
         create_provider("minimax")
 
 
-def test_score_batch_writes_baseline_error_for_single_article_failure():
+def test_score_batch_writes_provider_error_for_single_article_failure():
     class RecordingSink:
         def __init__(self) -> None:
             self.saved: list[tuple[int, dict[str, object]]] = []
@@ -242,6 +243,9 @@ def test_score_batch_writes_baseline_error_for_single_article_failure():
             self.recommendation_batches.append(batch_id)
 
     class FlakyProvider:
+        model_provider = "minimax"
+        model_name = "MiniMax-M2.7"
+
         def score_article(self, article, _rubric):
             if article["id"] == 202:
                 raise RuntimeError("provider timeout")
@@ -255,18 +259,25 @@ def test_score_batch_writes_baseline_error_for_single_article_failure():
         "batch_id": "batch-7",
         "articles_seen": 2,
         "scores_saved": 2,
+        "scores_succeeded": 1,
         "scores_failed": 1,
     }
     assert sink.saved[0][1]["scoring_status"] == "success"
     assert sink.saved[1][0] == 202
-    assert sink.saved[1][1]["scoring_status"] == "error"
-    assert sink.saved[1][1]["model_provider"] == "baseline"
-    assert sink.saved[1][1]["recommendation_tier"] == tier_for_score(sink.saved[1][1]["base_score"])
+    failed_score = sink.saved[1][1]
+    assert failed_score["scoring_status"] == "error"
+    assert failed_score["error"] == "provider timeout"
+    assert failed_score["base_score"] == 0
+    assert failed_score["dimension_scores"] == {}
+    assert failed_score["dimension_reasons"] == {}
+    assert failed_score["recommendation_tier"] == "skip"
+    assert failed_score["model_provider"] == "minimax"
+    assert failed_score["model_name"] == "MiniMax-M2.7"
     assert sink.finished_batches == ["batch-7"]
     assert sink.recommendation_batches == ["batch-7"]
 
 
-def test_score_batch_truncates_baseline_error_to_240_chars():
+def test_score_batch_truncates_provider_error_to_240_chars():
     class RecordingSink:
         def __init__(self) -> None:
             self.saved: list[dict[str, object]] = []
@@ -289,3 +300,5 @@ def test_score_batch_truncates_baseline_error_to_240_chars():
     assert isinstance(error, str)
     assert len(error) == 240
     assert error == "x" * 240
+    assert sink.saved[0]["base_score"] == 0
+    assert sink.saved[0]["dimension_scores"] == {}

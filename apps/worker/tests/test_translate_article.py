@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 
 from app.jobs.translate_article import translate_article
+from app.runner import RetryableJobError
 
 
 class RecordingTranslationSink:
@@ -87,6 +89,20 @@ def test_translate_article_marks_failed_before_reraising():
     with pytest.raises(RuntimeError, match="provider down"):
         translate_article({"article_id": 1}, sink=sink, provider=provider)
 
+    assert sink.saved == [
+        {"content_zh": None, "status": "running", "translated_at": None},
+        {"content_zh": None, "status": "failed", "translated_at": None},
+    ]
+
+
+def test_translate_article_converts_transient_network_error_to_retryable():
+    sink = RecordingTranslationSink(_article())
+    provider = TranslationProvider(httpx.TimeoutException("provider timed out"))
+
+    with pytest.raises(RetryableJobError, match="translation transient network failure") as error:
+        translate_article({"article_id": 1}, sink=sink, provider=provider)
+
+    assert isinstance(error.value.__cause__, httpx.TimeoutException)
     assert sink.saved == [
         {"content_zh": None, "status": "running", "translated_at": None},
         {"content_zh": None, "status": "failed", "translated_at": None},

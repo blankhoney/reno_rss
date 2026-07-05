@@ -6,37 +6,6 @@ export type ArticleContentAssessment = {
   textLength: number;
 };
 
-export type ArticleContentFetchResult =
-  | {
-      outcome: "applied";
-      quality: ArticleContentStatus;
-      issue: ArticleContentIssue;
-      textLength: number;
-    }
-  | {
-      outcome: "rejected";
-      reason: "blocked_or_error_page";
-      issue: "blocked_or_error_page";
-      textLength: number;
-    }
-  | {
-      outcome: "unchanged";
-      reason: "not_better";
-      issue: ArticleContentIssue;
-      textLength: number;
-    }
-  | {
-      outcome: "failed";
-      reason: "fetch_content_failed";
-      issue: "fetch_failed";
-      textLength: 0;
-    };
-
-export type FetchedArticleContentDecision = {
-  html: string;
-  fetchResult: ArticleContentFetchResult;
-};
-
 const MIN_FULL_TEXT_LENGTH = 280;
 const MAX_ERROR_PAGE_TEXT_LENGTH = 1400;
 
@@ -88,55 +57,4 @@ export function assessArticleContent(html: string): ArticleContentAssessment {
     return { status: "partial", issue: "rss_fragment", textLength: text.length };
   }
   return { status: "full", issue: null, textLength: text.length };
-}
-
-export function decideFetchedArticleContent(
-  currentHtml: string,
-  fetchedHtml: string,
-): FetchedArticleContentDecision {
-  const current = assessArticleContent(currentHtml);
-  const fetched = assessArticleContent(fetchedHtml);
-
-  if (fetched.issue === "blocked_or_error_page") {
-    return {
-      html: currentHtml,
-      fetchResult: {
-        outcome: "rejected",
-        reason: "blocked_or_error_page",
-        issue: "blocked_or_error_page",
-        textLength: fetched.textLength,
-      },
-    };
-  }
-
-  if (fetched.textLength <= Math.max(current.textLength + 24, current.textLength * 1.08)) {
-    return {
-      html: currentHtml,
-      fetchResult: {
-        outcome: "unchanged",
-        reason: "not_better",
-        issue: current.issue,
-        textLength: fetched.textLength,
-      },
-    };
-  }
-
-  return {
-    html: fetchedHtml,
-    fetchResult: {
-      outcome: "applied",
-      quality: fetched.status,
-      issue: fetched.issue,
-      textLength: fetched.textLength,
-    },
-  };
-}
-
-export function failedArticleContentFetchResult(): ArticleContentFetchResult {
-  return {
-    outcome: "failed",
-    reason: "fetch_content_failed",
-    issue: "fetch_failed",
-    textLength: 0,
-  };
 }

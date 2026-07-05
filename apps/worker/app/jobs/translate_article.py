@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Protocol
 
+import httpx
+
 from app.providers.llm import LLMProvider
+from app.runner import RetryableJobError
 
 
 class TranslationSink(Protocol):
@@ -38,6 +41,10 @@ def translate_article(
     sink.save_translation(article_id, content_zh=None, status="running", translated_at=None)
     try:
         translated_html = provider.translate_article(article).strip()
+    except (httpx.TimeoutException, httpx.TransportError) as error:
+        sink.save_translation(article_id, content_zh=None, status="failed", translated_at=None)
+        detail = str(error) or error.__class__.__name__
+        raise RetryableJobError(f"translation transient network failure: {detail}") from error
     except Exception:
         sink.save_translation(article_id, content_zh=None, status="failed", translated_at=None)
         raise

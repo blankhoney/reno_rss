@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Article } from "./types";
-import { assessArticleContent, decideFetchedArticleContent } from "./contentQuality";
+import { assessArticleContent } from "./contentQuality";
 import {
   filterArticlesForModule,
   filterHiddenFeedsForModule,
@@ -309,27 +309,4 @@ test("assessArticleContent detects source error pages and login walls", () => {
     assessArticleContent(`<p>Just a moment. ${"checking browser ".repeat(180)}</p>`).issue,
     "blocked_or_error_page",
   );
-});
-
-test("decideFetchedArticleContent applies useful content and rejects blocked pages", () => {
-  const current = "<p>Comments</p>";
-  const full = `<p>${"full article body ".repeat(90)}</p>`;
-  const applied = decideFetchedArticleContent(current, full);
-  assert.equal(applied.html, full);
-  assert.deepEqual(applied.fetchResult.outcome, "applied");
-  assert.deepEqual(applied.fetchResult.outcome === "applied" ? applied.fetchResult.quality : null, "full");
-
-  const blocked = decideFetchedArticleContent(
-    current,
-    "<p>Something went wrong. Try again. Privacy related extensions may cause issues.</p>",
-  );
-  assert.equal(blocked.html, current);
-  assert.equal(blocked.fetchResult.outcome, "rejected");
-  assert.equal(blocked.fetchResult.outcome === "rejected" ? blocked.fetchResult.reason : null, "blocked_or_error_page");
-  assert.equal(blocked.fetchResult.issue, "blocked_or_error_page");
-  assert.ok(blocked.fetchResult.textLength > 0);
-
-  const unchanged = decideFetchedArticleContent("<p>Short body</p>", "<p>Short body</p>");
-  assert.equal(unchanged.html, "<p>Short body</p>");
-  assert.equal(unchanged.fetchResult.outcome, "unchanged");
 });

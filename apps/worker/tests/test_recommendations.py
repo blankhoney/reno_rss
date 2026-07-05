@@ -258,6 +258,64 @@ def test_database_recommendation_sink_builds_context_and_writes_edition():
     ]
 
 
+def test_database_recommendation_sink_replaces_same_source_edition_on_rerun():
+    from sqlalchemy import create_engine, text
+
+    from app.db.recommendation_sink import DatabaseRecommendationSink
+
+    engine = create_engine("sqlite:///:memory:")
+    _create_recommendation_schema(engine)
+    sink = DatabaseRecommendationSink(engine=engine, source_batch_id=42)
+
+    sink.save_recommendation_edition(
+        "user-1",
+        [
+            {
+                "article_id": 1,
+                "rank": 1,
+                "rank_score": 85,
+                "tier": "must_read",
+                "reason": "first run",
+                "source": "subscription",
+            }
+        ],
+        "b4.v1",
+    )
+    sink.save_recommendation_edition(
+        "user-1",
+        [
+            {
+                "article_id": 2,
+                "rank": 1,
+                "rank_score": 91,
+                "tier": "must_read",
+                "reason": "replacement run",
+                "source": "exploration",
+            }
+        ],
+        "b4.v1",
+    )
+
+    with engine.begin() as connection:
+        editions = (
+            connection.execute(text("SELECT * FROM recommendation_editions ORDER BY id"))
+            .mappings()
+            .all()
+        )
+        items = (
+            connection.execute(text("SELECT * FROM recommendation_items ORDER BY rank"))
+            .mappings()
+            .all()
+        )
+
+    assert len(editions) == 1
+    assert editions[0]["user_id"] == "user-1"
+    assert editions[0]["source_batch_id"] == 42
+    assert [(item["edition_id"], item["article_id"], item["rank"], item["reason"]) for item in items] == [
+        (editions[0]["id"], 2, 1, "replacement run")
+    ]
+
+
 def _create_recommendation_schema(engine):
     from datetime import UTC, datetime
     import json
