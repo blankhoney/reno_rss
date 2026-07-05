@@ -1,8 +1,10 @@
-import { apiGet, apiPost, type ApiRequestInit } from "./client";
+import { apiGet, apiPost, apiPut, type ApiRequestInit } from "./client";
 import type { components } from "./generated/schema";
 import { sanitizeArticleHtml } from "@/lib/articles/service";
 import type {
   Article,
+  ArticleFeedback,
+  ArticleFeedbackType,
   ArticleContentIssue,
   ArticleContentStatus,
   ArticleScore,
@@ -11,12 +13,20 @@ import type {
   DimensionKey,
   DimensionScores,
 } from "@/lib/articles/types";
-import { DIMENSION_KEYS } from "@/lib/articles/types";
+import { ARTICLE_FEEDBACK_TYPES, DIMENSION_KEYS } from "@/lib/articles/types";
 
 type ApiArticleState = {
   status?: string | null;
   saved?: boolean | null;
   read_progress?: number | null;
+};
+
+type ApiArticleFeedback = {
+  user_score?: number | null;
+  feedback_type?: string | null;
+  reason?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type ApiArticleFeed = {
@@ -40,6 +50,7 @@ export type ApiArticleItem = {
   score?: unknown;
   summary_zh?: string | null;
   state?: ApiArticleState | null;
+  my_feedback?: ApiArticleFeedback | null;
 };
 
 export type ApiArticleDetail = ApiArticleItem & {
@@ -70,6 +81,12 @@ export type ArticleStatePatch = {
   status?: "read" | "unread" | "skipped";
   saved?: boolean;
   readProgress?: number;
+};
+
+export type ArticleFeedbackPatch = {
+  userScore: number;
+  feedbackType: ArticleFeedbackType;
+  reason?: string;
 };
 
 export type EnqueuedJob = {
@@ -139,6 +156,12 @@ function articleStatusFromApi(status: string | null | undefined): ArticleStatus 
   return "unread";
 }
 
+function feedbackTypeFromApi(value: string | null | undefined): ArticleFeedbackType {
+  return ARTICLE_FEEDBACK_TYPES.includes(value as ArticleFeedbackType)
+    ? (value as ArticleFeedbackType)
+    : "other";
+}
+
 function feedTitle(feed: ApiArticleFeed): string {
   return feed?.title?.trim() || (feed?.id != null ? `Feed #${feed.id}` : "未知来源");
 }
@@ -200,6 +223,18 @@ export function scoreFromApi(raw: unknown): ArticleScore | null {
   };
 }
 
+export function feedbackFromApi(raw: ApiArticleFeedback | null | undefined): ArticleFeedback | null {
+  if (raw == null) return null;
+  if (typeof raw.user_score !== "number" || !Number.isFinite(raw.user_score)) return null;
+  return {
+    userScore: raw.user_score,
+    feedbackType: feedbackTypeFromApi(raw.feedback_type),
+    reason: raw.reason ?? "",
+    createdAt: typeof raw.created_at === "string" ? raw.created_at : null,
+    updatedAt: typeof raw.updated_at === "string" ? raw.updated_at : null,
+  };
+}
+
 function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article {
   const state = item.state ?? {};
   const saved = state.saved === true;
@@ -227,6 +262,7 @@ function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article 
     starred: saved,
     publishedAt: item.published_at ?? null,
     score,
+    myFeedback: feedbackFromApi(item.my_feedback),
     readLater: saved,
     lastReadAt: state.status === "read" ? new Date().toISOString() : null,
   };
@@ -294,6 +330,29 @@ export async function updateArticleState(articleId: number, patch: ArticleStateP
     read_progress: patch.readProgress,
   };
   await apiPost(`/api/articles/${articleId}/state`, body);
+}
+
+export async function saveArticleFeedback(
+  articleId: number,
+  patch: ArticleFeedbackPatch,
+): Promise<ArticleFeedback> {
+  const payload = await apiPut<
+    { feedback?: ApiArticleFeedback },
+    {
+      user_score: number;
+      feedback_type: string;
+      reason: string;
+    }
+  >(`/api/articles/${articleId}/feedback`, {
+    user_score: patch.userScore,
+    feedback_type: patch.feedbackType,
+    reason: patch.reason ?? "",
+  });
+  const feedback = feedbackFromApi(payload.feedback);
+  if (feedback === null) {
+    throw new Error("API returned invalid article feedback");
+  }
+  return feedback;
 }
 
 export async function enqueueFetchContentJob(

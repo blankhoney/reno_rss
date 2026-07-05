@@ -11,7 +11,7 @@ from sqlalchemy import Engine, and_, create_engine, desc, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import article_sources, articles, user_article_states
+from app.db.models import article_sources, articles, user_article_feedback_scores, user_article_states
 
 
 TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
@@ -59,6 +59,15 @@ class ArticleStateRecord:
 
 
 @dataclass(frozen=True)
+class ArticleFeedbackRecord:
+    user_score: int
+    feedback_type: str
+    reason: str
+    created_at: datetime | None
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True)
 class ArticlePage:
     items: list[ArticleRecord]
     next_cursor: str | None
@@ -78,6 +87,8 @@ class ArticleStore(Protocol):
 
     def get_state(self, user_id: UUID, article_id: int) -> ArticleStateRecord: ...
 
+    def get_states(self, user_id: UUID, article_ids: list[int]) -> dict[int, ArticleStateRecord]: ...
+
     def upsert_state(
         self,
         user_id: UUID,
@@ -87,6 +98,24 @@ class ArticleStore(Protocol):
         saved: bool | None = None,
         read_progress: float | None = None,
     ) -> ArticleStateRecord | None: ...
+
+    def get_feedback(self, user_id: UUID, article_id: int) -> ArticleFeedbackRecord | None: ...
+
+    def get_feedbacks(
+        self,
+        user_id: UUID,
+        article_ids: list[int],
+    ) -> dict[int, ArticleFeedbackRecord]: ...
+
+    def upsert_feedback(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        user_score: int,
+        feedback_type: str,
+        reason: str,
+    ) -> ArticleFeedbackRecord | None: ...
 
     def save_translation(
         self,
@@ -148,6 +177,7 @@ class MemoryArticleRepository:
         self._article_ids_by_dedup_key: dict[str, int] = {}
         self._sources_by_feed_entry: dict[tuple[int, int], ArticleSourceRecord] = {}
         self._states: dict[tuple[UUID, int], ArticleStateRecord] = {}
+        self._feedbacks: dict[tuple[UUID, int], ArticleFeedbackRecord] = {}
         self._next_id = 1
 
     def upsert_from_source(self, entry: dict[str, object]) -> ArticleRecord:
@@ -242,6 +272,9 @@ class MemoryArticleRepository:
     def get_state(self, user_id: UUID, article_id: int) -> ArticleStateRecord:
         return self._states.get((user_id, article_id), _default_state())
 
+    def get_states(self, user_id: UUID, article_ids: list[int]) -> dict[int, ArticleStateRecord]:
+        return {article_id: self.get_state(user_id, article_id) for article_id in article_ids}
+
     def upsert_state(
         self,
         user_id: UUID,
@@ -262,6 +295,44 @@ class MemoryArticleRepository:
         )
         self._states[(user_id, article_id)] = updated
         return updated
+
+    def get_feedback(self, user_id: UUID, article_id: int) -> ArticleFeedbackRecord | None:
+        return self._feedbacks.get((user_id, article_id))
+
+    def get_feedbacks(
+        self,
+        user_id: UUID,
+        article_ids: list[int],
+    ) -> dict[int, ArticleFeedbackRecord]:
+        article_id_set = set(article_ids)
+        return {
+            article_id: feedback
+            for (feedback_user_id, article_id), feedback in self._feedbacks.items()
+            if feedback_user_id == user_id and article_id in article_id_set
+        }
+
+    def upsert_feedback(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        user_score: int,
+        feedback_type: str,
+        reason: str,
+    ) -> ArticleFeedbackRecord | None:
+        if article_id not in self._articles:
+            return None
+        now = datetime.now(UTC)
+        current = self.get_feedback(user_id, article_id)
+        feedback = ArticleFeedbackRecord(
+            user_score=user_score,
+            feedback_type=feedback_type,
+            reason=reason,
+            created_at=current.created_at if current is not None else now,
+            updated_at=now,
+        )
+        self._feedbacks[(user_id, article_id)] = feedback
+        return feedback
 
     def save_translation(
         self,
@@ -364,18 +435,28 @@ class DatabaseArticleRepository:
         return _article_from_row(row) if row is not None else None
 
     def get_state(self, user_id: UUID, article_id: int) -> ArticleStateRecord:
+        return self.get_states(user_id, [article_id])[article_id]
+
+    def get_states(self, user_id: UUID, article_ids: list[int]) -> dict[int, ArticleStateRecord]:
+        unique_article_ids = _unique_article_ids(article_ids)
+        if not unique_article_ids:
+            return {}
         with self.engine.begin() as connection:
-            row = (
+            rows = (
                 connection.execute(
                     select(user_article_states).where(
                         user_article_states.c.user_id == user_id,
-                        user_article_states.c.article_id == article_id,
+                        user_article_states.c.article_id.in_(unique_article_ids),
                     )
                 )
                 .mappings()
-                .one_or_none()
+                .all()
             )
-        return _state_from_row(row) if row is not None else _default_state()
+        states = {int(row["article_id"]): _state_from_row(row) for row in rows}
+        return {
+            article_id: states.get(article_id, _default_state())
+            for article_id in unique_article_ids
+        }
 
     def upsert_state(
         self,
@@ -418,6 +499,80 @@ class DatabaseArticleRepository:
             else:
                 row = self._upsert_state_generic(connection, values)
         return _state_from_row(row)
+
+    def get_feedback(self, user_id: UUID, article_id: int) -> ArticleFeedbackRecord | None:
+        return self.get_feedbacks(user_id, [article_id]).get(article_id)
+
+    def get_feedbacks(
+        self,
+        user_id: UUID,
+        article_ids: list[int],
+    ) -> dict[int, ArticleFeedbackRecord]:
+        unique_article_ids = _unique_article_ids(article_ids)
+        if not unique_article_ids:
+            return {}
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(user_article_feedback_scores).where(
+                        user_article_feedback_scores.c.user_id == user_id,
+                        user_article_feedback_scores.c.article_id.in_(unique_article_ids),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return {int(row["article_id"]): _feedback_from_row(row) for row in rows}
+
+    def upsert_feedback(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        user_score: int,
+        feedback_type: str,
+        reason: str,
+    ) -> ArticleFeedbackRecord | None:
+        if self.get_article(article_id) is None:
+            return None
+        now = datetime.now(UTC)
+        insert_values = {
+            "user_id": user_id,
+            "article_id": article_id,
+            "user_score": user_score,
+            "feedback_type": feedback_type,
+            "reason": reason,
+            "created_at": now,
+            "updated_at": now,
+        }
+        update_values = {
+            "user_score": user_score,
+            "feedback_type": feedback_type,
+            "reason": reason,
+            "updated_at": now,
+        }
+        with self.engine.begin() as connection:
+            if self.engine.dialect.name == "postgresql":
+                row = (
+                    connection.execute(
+                        pg_insert(user_article_feedback_scores)
+                        .values(**insert_values)
+                        .on_conflict_do_update(
+                            constraint="uq_feedback_user_article",
+                            set_=update_values,
+                        )
+                        .returning(user_article_feedback_scores)
+                    )
+                    .mappings()
+                    .one()
+                )
+            else:
+                row = self._upsert_feedback_generic(
+                    connection,
+                    insert_values,
+                    update_values,
+                )
+        return _feedback_from_row(row)
 
     def save_translation(
         self,
@@ -576,6 +731,46 @@ class DatabaseArticleRepository:
             .one()
         )
 
+    def _upsert_feedback_generic(
+        self,
+        connection,
+        insert_values: dict[str, object],
+        update_values: dict[str, object],
+    ):
+        row = (
+            connection.execute(
+                select(user_article_feedback_scores).where(
+                    user_article_feedback_scores.c.user_id == insert_values["user_id"],
+                    user_article_feedback_scores.c.article_id == insert_values["article_id"],
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            return (
+                connection.execute(
+                    user_article_feedback_scores.insert()
+                    .values(**insert_values)
+                    .returning(user_article_feedback_scores)
+                )
+                .mappings()
+                .one()
+            )
+        return (
+            connection.execute(
+                update(user_article_feedback_scores)
+                .where(
+                    user_article_feedback_scores.c.user_id == insert_values["user_id"],
+                    user_article_feedback_scores.c.article_id == insert_values["article_id"],
+                )
+                .values(**update_values)
+                .returning(user_article_feedback_scores)
+            )
+            .mappings()
+            .one()
+        )
+
 
 def create_article_repository(database_url: str | None) -> ArticleStore:
     if database_url:
@@ -628,8 +823,22 @@ def _state_from_row(row) -> ArticleStateRecord:
     )
 
 
+def _feedback_from_row(row) -> ArticleFeedbackRecord:
+    return ArticleFeedbackRecord(
+        user_score=int(row["user_score"]),
+        feedback_type=row["feedback_type"],
+        reason=row["reason"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def _default_state() -> ArticleStateRecord:
     return ArticleStateRecord(status="unread", saved=False, read_progress=0)
+
+
+def _unique_article_ids(article_ids: list[int]) -> list[int]:
+    return list(dict.fromkeys(article_ids))
 
 
 def _content_hash(content_text: str | None) -> str | None:

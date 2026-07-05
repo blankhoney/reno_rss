@@ -174,6 +174,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/articles/{article_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Article Feedback */
+        put: operations["update_article_feedback_api_articles__article_id__feedback_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/articles/{article_id}/fetch-content": {
         parameters: {
             query?: never;
@@ -418,6 +435,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ArticleFeedbackRequest */
+        ArticleFeedbackRequest: {
+            /** User Score */
+            user_score: number;
+            /**
+             * Feedback Type
+             * @enum {string}
+             */
+            feedback_type: "underrated" | "overrated" | "too_promotional" | "low_density" | "outdated" | "duplicate" | "wrong_category" | "other";
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
         /** ArticleStateRequest */
         ArticleStateRequest: {
             /** Status */
@@ -757,6 +789,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ArticleStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_article_feedback_api_articles__article_id__feedback_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                article_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArticleFeedbackRequest"];
             };
         };
         responses: {

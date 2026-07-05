@@ -30,6 +30,7 @@ function article(id: number, input: Partial<Article> = {}): Article {
     starred: input.starred ?? false,
     publishedAt: input.publishedAt ?? "2026-06-25T00:00:00Z",
     score: null,
+    myFeedback: input.myFeedback ?? null,
     readLater: input.readLater ?? false,
     lastReadAt: input.lastReadAt ?? null,
   };

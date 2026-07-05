@@ -38,6 +38,7 @@ function article(id: number): Article {
       dimensionReasons: {},
       scoredAt: "2026-06-25T00:00:00Z",
     },
+    myFeedback: null,
     readLater: false,
     lastReadAt: null,
   };

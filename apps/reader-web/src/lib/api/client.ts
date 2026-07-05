@@ -1,6 +1,6 @@
 import type { components, paths } from "./generated/schema";
 
-type ApiMethod = "get" | "post";
+type ApiMethod = "get" | "post" | "put";
 
 type PathsWithMethod<Method extends ApiMethod> = {
   [Path in keyof paths]: paths[Path] extends Record<Method, infer Operation>
@@ -97,6 +97,40 @@ export async function apiPost<ResponseBody = unknown, RequestBody = unknown>(
   const response = await fetch(sameOriginPath(path), {
     ...init,
     method: "POST",
+    credentials: "include",
+    headers: buildHeaders(
+      init.headers,
+      hasBody
+        ? {
+            accept: "application/json",
+            "content-type": "application/json",
+          }
+        : { accept: "application/json" },
+    ),
+    body: hasBody ? JSON.stringify(body) : undefined,
+  });
+  return parseJsonResponse<ResponseBody>(response);
+}
+
+export async function apiPut<Path extends PathsWithMethod<"put">>(
+  path: Path,
+  body?: JsonRequestBody<OperationFor<Path, "put">>,
+  init?: ApiRequestInit,
+): Promise<JsonSuccess<OperationFor<Path, "put">>>;
+export async function apiPut<ResponseBody = unknown, RequestBody = unknown>(
+  path: string,
+  body?: RequestBody,
+  init?: ApiRequestInit,
+): Promise<ResponseBody>;
+export async function apiPut<ResponseBody = unknown, RequestBody = unknown>(
+  path: string,
+  body?: RequestBody,
+  init: ApiRequestInit = {},
+): Promise<ResponseBody> {
+  const hasBody = body !== undefined;
+  const response = await fetch(sameOriginPath(path), {
+    ...init,
+    method: "PUT",
     credentials: "include",
     headers: buildHeaders(
       init.headers,

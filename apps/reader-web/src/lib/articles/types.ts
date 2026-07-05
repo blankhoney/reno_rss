@@ -4,6 +4,19 @@ export type ArticleContentIssue = "rss_fragment" | "blocked_or_error_page" | "fe
 export type ArticleTranslationStatus = "queued" | "running" | "succeeded" | "failed" | null;
 export type RecommendationTier = "must_read" | "read" | "skim" | "skip" | string;
 
+export const ARTICLE_FEEDBACK_TYPES = [
+  "underrated",
+  "overrated",
+  "too_promotional",
+  "low_density",
+  "outdated",
+  "duplicate",
+  "wrong_category",
+  "other",
+] as const;
+
+export type ArticleFeedbackType = (typeof ARTICLE_FEEDBACK_TYPES)[number];
+
 export const DIMENSION_KEYS = [
   "topic_relevance",
   "information_density",
@@ -32,6 +45,14 @@ export type ArticleScore = {
   scoredAt: string | null;
 };
 
+export type ArticleFeedback = {
+  userScore: number;
+  feedbackType: ArticleFeedbackType;
+  reason: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 export type Article = {
   id: number;
   userId: number;
@@ -57,6 +78,7 @@ export type Article = {
   starred: boolean;
   publishedAt: string | null;
   score: ArticleScore | null;
+  myFeedback: ArticleFeedback | null;
   readLater: boolean;
   lastReadAt: string | null;
 };

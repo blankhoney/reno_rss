@@ -27,6 +27,7 @@ function article(input: Partial<Article> = {}): Article {
     starred: false,
     publishedAt: "2026-05-14T00:00:00Z",
     score: null,
+    myFeedback: null,
     readLater: false,
     lastReadAt: null,
     ...input,
@@ -71,6 +72,8 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.doesNotMatch(html, /<summary>操作<\/summary>/);
   assert.match(html, /正文：片段/);
   assert.match(html, /评分：未评分/);
+  assert.match(html, /反馈校准/);
+  assert.match(html, /保存反馈/);
   assert.match(html, /译文：未翻译/);
   assert.match(html, /当前仍只有 RSS 片段/);
   assert.match(html, /文章助手/);
@@ -128,6 +131,26 @@ test("FocusedArticleReader renders scored state and dimension reasons", () => {
   assert.match(html, /风险·不确定维度越高代表越需要谨慎/);
   assert.match(html, /维度理由/);
   assert.match(html, /主题明确/);
+});
+
+test("FocusedArticleReader prefills saved feedback controls", () => {
+  const html = renderFocusedReader(
+    article({
+      myFeedback: {
+        userScore: 35,
+        feedbackType: "low_density",
+        reason: "信息太散。",
+        createdAt: "2026-06-25T00:00:00Z",
+        updatedAt: "2026-06-25T00:00:01Z",
+      },
+    }),
+    "/?module=all&sort=default&lang=zh&article=42",
+  );
+
+  assert.match(html, /value="35"/);
+  assert.match(html, /信息密度低/);
+  assert.match(html, /aria-pressed="true"/);
+  assert.match(html, /信息太散。/);
 });
 
 test("FocusedArticleReader marks failed translation status as danger", () => {

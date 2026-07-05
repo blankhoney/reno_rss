@@ -5,11 +5,13 @@ import {
   articleFromApiDetail,
   articleFromApiItem,
   enqueueFetchContentJob,
+  feedbackFromApi,
   getArticleStats,
   getJob,
   listArticles,
   pollJobUntilTerminal,
   requestArticleTranslation,
+  saveArticleFeedback,
   scoreFromApi,
   terminalJobStatus,
   updateArticleState,
@@ -41,6 +43,13 @@ test("articleFromApiItem maps FastAPI list payloads to the Article view model", 
     content_quality: "snippet",
     score: null,
     state: { status: "unread", saved: true, read_progress: 0.25 },
+    my_feedback: {
+      user_score: 88,
+      feedback_type: "underrated",
+      reason: "Worth more attention.",
+      created_at: "2026-06-25T00:00:00Z",
+      updated_at: "2026-06-25T00:00:01Z",
+    },
   });
 
   assert.equal(article.id, 42);
@@ -52,6 +61,9 @@ test("articleFromApiItem maps FastAPI list payloads to the Article view model", 
   assert.equal(article.readLater, true);
   assert.equal(article.status, "unread");
   assert.equal(article.score, null);
+  assert.equal(article.myFeedback?.userScore, 88);
+  assert.equal(article.myFeedback?.feedbackType, "underrated");
+  assert.equal(article.myFeedback?.reason, "Worth more attention.");
 });
 
 test("scoreFromApi maps the active score payload and ignores empty ones", () => {
@@ -83,6 +95,24 @@ test("scoreFromApi maps the active score payload and ignores empty ones", () => 
   assert.equal(score?.sourceLanguage, "en");
 });
 
+test("feedbackFromApi maps current-user feedback and falls back unknown types", () => {
+  assert.equal(feedbackFromApi(null), null);
+  assert.equal(feedbackFromApi({ feedback_type: "underrated" }), null);
+
+  const feedback = feedbackFromApi({
+    user_score: 72,
+    feedback_type: "unknown_type",
+    reason: "Manual calibration",
+    created_at: "2026-06-25T00:00:00Z",
+    updated_at: "2026-06-25T00:00:01Z",
+  });
+
+  assert.equal(feedback?.userScore, 72);
+  assert.equal(feedback?.feedbackType, "other");
+  assert.equal(feedback?.reason, "Manual calibration");
+  assert.equal(feedback?.updatedAt, "2026-06-25T00:00:01Z");
+});
+
 test("articleFromApiItem surfaces the active score and zh summary", () => {
   const article = articleFromApiItem({
     id: 50,
@@ -101,6 +131,51 @@ test("articleFromApiItem surfaces the active score and zh summary", () => {
   assert.equal(article.score?.tier, "must_read");
   assert.equal(article.score?.dimensions.topic_relevance, 88);
   assert.equal(article.summaryZh, "列表摘要");
+});
+
+test("saveArticleFeedback PUTs the feedback payload and maps the response", async () => {
+  let capturedInput: RequestInfo | URL | undefined;
+  let capturedInit: RequestInit | undefined;
+  const restoreFetch = withMockFetch((input, init) => {
+    capturedInput = input;
+    capturedInit = init;
+    return new Response(
+      JSON.stringify({
+        feedback: {
+          user_score: 64,
+          feedback_type: "low_density",
+          reason: "Thin article.",
+          created_at: "2026-06-25T00:00:00Z",
+          updated_at: "2026-06-25T00:00:01Z",
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  try {
+    const feedback = await saveArticleFeedback(42, {
+      userScore: 64,
+      feedbackType: "low_density",
+      reason: "Thin article.",
+    });
+
+    assert.equal(capturedInput, "/api/articles/42/feedback");
+    assert.equal(capturedInit?.method, "PUT");
+    assert.equal(headerValue(capturedInit?.headers, "content-type"), "application/json");
+    assert.equal(
+      capturedInit?.body,
+      JSON.stringify({
+        user_score: 64,
+        feedback_type: "low_density",
+        reason: "Thin article.",
+      }),
+    );
+    assert.equal(feedback.userScore, 64);
+    assert.equal(feedback.feedbackType, "low_density");
+  } finally {
+    restoreFetch();
+  }
 });
 
 test("articleFromApiDetail sanitizes detail HTML and maps full content", () => {

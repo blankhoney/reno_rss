@@ -8,12 +8,12 @@ from app.api.deps import (
 )
 from app.api.routes.articles import article_list_item_public
 from app.db.auth_store import UserRecord
-from app.db.repositories.articles import ArticleStore
+from app.db.repositories.articles import ArticleFeedbackRecord, ArticleStateRecord, ArticleStore
 from app.db.repositories.recommendations import (
     RecommendationItemRecord,
     RecommendationStore,
 )
-from app.db.repositories.scoring import ScoringStore
+from app.db.repositories.scoring import ScoreRecord, ScoringStore
 
 
 router = APIRouter(prefix="/api/recommendations", tags=["recommendations"])
@@ -22,17 +22,18 @@ router = APIRouter(prefix="/api/recommendations", tags=["recommendations"])
 def recommendation_item_public(
     item: RecommendationItemRecord,
     article_repository: ArticleStore,
-    scoring_repository: ScoringStore,
-    current_user: UserRecord,
+    state: ArticleStateRecord,
+    score: ScoreRecord | None,
+    feedback: ArticleFeedbackRecord | None,
 ) -> dict[str, object]:
     article = article_repository.get_article(item.article_id)
     article_payload = None
     if article is not None:
-        score = scoring_repository.active_scores_for_articles([article.id]).get(article.id)
         article_payload = article_list_item_public(
             article,
-            article_repository.get_state(current_user.id, article.id),
+            state,
             score,
+            feedback,
         )
     return {
         "rank": item.rank,
@@ -54,6 +55,10 @@ def latest_recommendations(
     edition = recommendation_repository.latest_for_user(current_user.id)
     if edition is None:
         return {"edition": None, "items": [], "candidates": []}
+    article_ids = [item.article_id for item in edition.items]
+    states = article_repository.get_states(current_user.id, article_ids)
+    scores = scoring_repository.active_scores_for_articles(article_ids)
+    feedbacks = article_repository.get_feedbacks(current_user.id, article_ids)
     return {
         "edition": {
             "id": edition.id,
@@ -62,7 +67,13 @@ def latest_recommendations(
             "algorithm_version": edition.algorithm_version,
         },
         "items": [
-            recommendation_item_public(item, article_repository, scoring_repository, current_user)
+            recommendation_item_public(
+                item,
+                article_repository,
+                states[item.article_id],
+                scores.get(item.article_id),
+                feedbacks.get(item.article_id),
+            )
             for item in edition.items
         ],
         "candidates": [],

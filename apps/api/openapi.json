@@ -356,6 +356,61 @@
         }
       }
     },
+    "/api/articles/{article_id}/feedback": {
+      "put": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Update Article Feedback",
+        "operationId": "update_article_feedback_api_articles__article_id__feedback_put",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Article Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleFeedbackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Article Feedback Api Articles  Article Id  Feedback Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/articles/{article_id}/fetch-content": {
       "post": {
         "tags": [
@@ -996,6 +1051,41 @@
   },
   "components": {
     "schemas": {
+      "ArticleFeedbackRequest": {
+        "properties": {
+          "user_score": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "User Score"
+          },
+          "feedback_type": {
+            "type": "string",
+            "enum": [
+              "underrated",
+              "overrated",
+              "too_promotional",
+              "low_density",
+              "outdated",
+              "duplicate",
+              "wrong_category",
+              "other"
+            ],
+            "title": "Feedback Type"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_score",
+          "feedback_type"
+        ],
+        "title": "ArticleFeedbackRequest"
+      },
       "ArticleStateRequest": {
         "properties": {
           "status": {
