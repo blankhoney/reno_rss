@@ -83,6 +83,7 @@ test("ArticleList renders pager controls with disabled state", () => {
       dimensionReasons: {},
       scoredAt: "2026-05-14T00:00:00Z",
     },
+    myFeedback: null,
     readLater: false,
     lastReadAt: null,
   };
@@ -151,6 +152,7 @@ test("ArticleList renders summaries and preserves workbench and focus reading li
       dimensionReasons: {},
       scoredAt: "2026-05-14T00:00:00Z",
     },
+    myFeedback: null,
     readLater: false,
     lastReadAt: null,
   };
@@ -196,6 +198,7 @@ test("ArticleList uses low-noise summary text for unscored articles", () => {
           starred: false,
           publishedAt: "2026-05-14T00:00:00Z",
           score: null,
+          myFeedback: null,
           readLater: false,
           lastReadAt: null,
         },
@@ -234,6 +237,7 @@ test("ArticleList keeps list actions on FastAPI-backed reading controls", () => 
           starred: false,
           publishedAt: "2026-05-14T00:00:00Z",
           score: null,
+          myFeedback: null,
           readLater: false,
           lastReadAt: null,
         },

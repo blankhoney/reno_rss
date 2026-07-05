@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ApiError, apiGet, apiPost, streamArticleAsk } from "./client";
+import { ApiError, apiGet, apiPost, apiPut, streamArticleAsk } from "./client";
 
 function withMockFetch(
   handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response,
@@ -172,6 +172,35 @@ test("apiPost supports bodyless POST requests", async () => {
     assert.equal(capturedInit?.credentials, "include");
     assert.equal(headerValue(capturedInit?.headers, "content-type"), null);
     assert.equal(capturedInit?.body, undefined);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("apiPut sends JSON requests with cookies", async () => {
+  let capturedInput: RequestInfo | URL | undefined;
+  let capturedInit: RequestInit | undefined;
+  const restoreFetch = withMockFetch((input, init) => {
+    capturedInput = input;
+    capturedInit = init;
+    return new Response(JSON.stringify({ feedback: { user_score: 80 } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  try {
+    const result = await apiPut<{ feedback: { user_score: number } }, { user_score: number }>(
+      "/api/articles/42/feedback",
+      { user_score: 80 },
+    );
+
+    assert.deepEqual(result, { feedback: { user_score: 80 } });
+    assert.equal(capturedInput, "/api/articles/42/feedback");
+    assert.equal(capturedInit?.method, "PUT");
+    assert.equal(capturedInit?.credentials, "include");
+    assert.equal(headerValue(capturedInit?.headers, "content-type"), "application/json");
+    assert.equal(capturedInit?.body, JSON.stringify({ user_score: 80 }));
   } finally {
     restoreFetch();
   }

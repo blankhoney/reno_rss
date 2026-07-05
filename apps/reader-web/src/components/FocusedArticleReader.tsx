@@ -3,15 +3,18 @@
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import type { Article, DimensionKey } from "@/lib/articles/types";
+import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/types";
+import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import { createThinkTagFilter } from "@/lib/agent/stream";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
+import { saveArticleFeedback } from "@/lib/api/articles";
 import { streamArticleAsk } from "@/lib/api/client";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ScoreBadge } from "./ScoreBadge";
 import { ThemeToggle } from "./ThemeToggle";
+import { emitToast } from "./Toast";
 import { articleAskErrorMessage } from "./articleAsk";
 import { articleAgentNotice, articleContentNotice } from "./articleContentNotice";
 import { useArticleActions } from "./useArticleActions";
@@ -36,6 +39,17 @@ const QUICK_ACTIONS = [
   { label: "行动建议", question: "基于这篇文章，给出可执行的行动建议。" },
 ];
 
+const FEEDBACK_OPTIONS: { type: ArticleFeedbackType; label: string }[] = [
+  { type: "underrated", label: "低估" },
+  { type: "overrated", label: "高估" },
+  { type: "too_promotional", label: "营销过重" },
+  { type: "low_density", label: "信息密度低" },
+  { type: "outdated", label: "过时" },
+  { type: "duplicate", label: "重复" },
+  { type: "wrong_category", label: "分类错误" },
+  { type: "other", label: "其他" },
+];
+
 function summaryForLang(article: Article, lang: SummaryLangId): string {
   const summary = lang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
   return summary.trim() || "暂无摘要，可在管理控制台完成评分后生成";
@@ -45,6 +59,16 @@ function summaryLangPath(nextLang: SummaryLangId): string {
   const qs = new URLSearchParams(window.location.search);
   qs.set("lang", nextLang);
   return `${window.location.pathname}?${qs.toString()}`;
+}
+
+function normalizeFeedbackType(value: string | undefined): ArticleFeedbackType {
+  return ARTICLE_FEEDBACK_TYPES.includes(value as ArticleFeedbackType)
+    ? (value as ArticleFeedbackType)
+    : "other";
+}
+
+function initialFeedbackScore(article: Article): string {
+  return String(article.myFeedback?.userScore ?? article.score?.overall ?? 50);
 }
 
 function tierLabel(tier: string | undefined): string {
@@ -83,6 +107,13 @@ export function FocusedArticleReader({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [feedbackScore, setFeedbackScore] = useState(() => initialFeedbackScore(article));
+  const [feedbackType, setFeedbackType] = useState<ArticleFeedbackType>(() =>
+    normalizeFeedbackType(article.myFeedback?.feedbackType),
+  );
+  const [feedbackReason, setFeedbackReason] = useState(article.myFeedback?.reason ?? "");
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [isSavingFeedback, setIsSavingFeedback] = useState(false);
   const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
   const articleRef = useRef<HTMLElement | null>(null);
@@ -99,6 +130,11 @@ export function FocusedArticleReader({
     showTranslationWhenReadyRef.current = false;
     setIsAsking(false);
     setAgentError(null);
+    setFeedbackScore(initialFeedbackScore(article));
+    setFeedbackType(normalizeFeedbackType(article.myFeedback?.feedbackType));
+    setFeedbackReason(article.myFeedback?.reason ?? "");
+    setFeedbackError(null);
+    setIsSavingFeedback(false);
   }, [article.id]);
 
   useEffect(() => {
@@ -185,6 +221,32 @@ export function FocusedArticleReader({
       setShowTranslation(true);
     } else {
       showTranslationWhenReadyRef.current = true;
+    }
+  }
+
+  async function submitFeedback() {
+    const userScore = Number(feedbackScore);
+    if (!Number.isInteger(userScore) || userScore < 0 || userScore > 100) {
+      setFeedbackError("请输入 0 到 100 的反馈分值。");
+      return;
+    }
+
+    setIsSavingFeedback(true);
+    setFeedbackError(null);
+    try {
+      const savedFeedback = await saveArticleFeedback(article.id, {
+        userScore,
+        feedbackType,
+        reason: feedbackReason.trim(),
+      });
+      setFeedbackScore(String(savedFeedback.userScore));
+      setFeedbackType(savedFeedback.feedbackType);
+      setFeedbackReason(savedFeedback.reason);
+      emitToast({ title: "反馈已保存", variant: "success" });
+    } catch {
+      setFeedbackError("反馈保存失败，请稍后重试。");
+    } finally {
+      setIsSavingFeedback(false);
     }
   }
 
@@ -327,6 +389,56 @@ export function FocusedArticleReader({
           ) : (
             <p className="scoreMissing">未评分。可在管理控制台创建评分批次生成摘要、分数和理由。</p>
           )}
+          <div className="scoreFeedbackPanel" aria-label="反馈校准">
+            <div className="scoreFeedbackHeader">
+              <p className="scoreFeedbackTitle">反馈校准</p>
+              <label className="scoreFeedbackInputLabel">
+                我的分数
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={feedbackScore}
+                  onChange={(event) => setFeedbackScore(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="scoreFeedbackChips" role="group" aria-label="反馈类型">
+              {FEEDBACK_OPTIONS.map((option) => (
+                <button
+                  key={option.type}
+                  type="button"
+                  className={
+                    option.type === feedbackType
+                      ? "scoreFeedbackChip scoreFeedbackChipActive"
+                      : "scoreFeedbackChip"
+                  }
+                  aria-pressed={option.type === feedbackType}
+                  onClick={() => setFeedbackType(option.type)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <label className="scoreFeedbackReason">
+              备注
+              <textarea
+                value={feedbackReason}
+                rows={2}
+                onChange={(event) => setFeedbackReason(event.target.value)}
+              />
+            </label>
+            {feedbackError ? <p className="readerActionError scoreFeedbackError">{feedbackError}</p> : null}
+            <button
+              type="button"
+              className="readerToolbarBtn readerToolbarBtnPrimary"
+              disabled={isSavingFeedback}
+              onClick={() => void submitFeedback()}
+            >
+              {isSavingFeedback ? "保存中" : "保存反馈"}
+            </button>
+          </div>
         </details>
 
         {contentNotice ? <p className="contentPartialNotice">{contentNotice}</p> : null}

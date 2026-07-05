@@ -76,6 +76,7 @@ function article(
       dimensionReasons: {},
       scoredAt: null,
     },
+    myFeedback: input.myFeedback ?? null,
     readLater: input.readLater ?? false,
     lastReadAt: input.lastReadAt ?? null,
   };

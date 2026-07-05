@@ -364,3 +364,95 @@ async def test_article_state_upserts_for_current_user(app, client):
         "saved": True,
         "read_progress": 0.75,
     }
+
+
+@pytest.mark.asyncio
+async def test_article_feedback_upserts_and_surfaces_on_read_paths(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    first_response = await client.put(
+        f"/api/articles/{article.id}/feedback",
+        json={"user_score": 95, "feedback_type": "underrated", "reason": "More useful than scored."},
+    )
+    second_response = await client.put(
+        f"/api/articles/{article.id}/feedback",
+        json={"user_score": 30, "feedback_type": "overrated", "reason": "Too shallow."},
+    )
+    list_response = await client.get("/api/articles")
+    detail_response = await client.get(f"/api/articles/{article.id}")
+
+    assert first_response.status_code == 200
+    assert first_response.json()["feedback"]["feedback_type"] == "underrated"
+    assert second_response.status_code == 200
+    assert second_response.json()["feedback"]["user_score"] == 30
+    assert second_response.json()["feedback"]["feedback_type"] == "overrated"
+    assert second_response.json()["feedback"]["reason"] == "Too shallow."
+    assert list_response.json()["items"][0]["my_feedback"]["feedback_type"] == "overrated"
+    assert detail_response.json()["my_feedback"]["user_score"] == 30
+
+
+@pytest.mark.asyncio
+async def test_article_feedback_validates_score_and_type(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    bad_score = await client.put(
+        f"/api/articles/{article.id}/feedback",
+        json={"user_score": 101, "feedback_type": "underrated"},
+    )
+    bad_type = await client.put(
+        f"/api/articles/{article.id}/feedback",
+        json={"user_score": 50, "feedback_type": "not_a_feedback_type"},
+    )
+
+    assert bad_score.status_code == 422
+    assert bad_type.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_article_feedback_returns_not_found_for_missing_article(client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+
+    response = await client.put(
+        "/api/articles/999/feedback",
+        json={"user_score": 50, "feedback_type": "other"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_anonymous_demo_can_submit_article_feedback(app, client):
+    app.state.anonymous_demo_enabled = True
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    response = await client.put(
+        f"/api/articles/{article.id}/feedback",
+        json={"user_score": 80, "feedback_type": "other", "reason": "demo feedback"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["feedback"]["reason"] == "demo feedback"

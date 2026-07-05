@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import (
     ApiError,
@@ -11,6 +11,7 @@ from app.api.deps import (
 )
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import (
+    ArticleFeedbackRecord,
     ArticleRecord,
     ArticleSourceRecord,
     ArticleStateRecord,
@@ -19,9 +20,11 @@ from app.db.repositories.articles import (
 from app.db.repositories.jobs import JobStore, dedupe_key_for
 from app.db.repositories.scoring import ScoreRecord, ScoringStore
 from app.core.ratelimit import limiter, llm_rate_limit, write_rate_limit
+from app.domain.ranking import FEEDBACK_BASE_ADJUSTMENTS
 
 
 router = APIRouter(prefix="/api", tags=["articles"])
+FEEDBACK_TYPES = tuple(FEEDBACK_BASE_ADJUSTMENTS.keys())
 
 
 class ArticleStateRequest(BaseModel):
@@ -30,11 +33,35 @@ class ArticleStateRequest(BaseModel):
     read_progress: float | None = Field(default=None, ge=0, le=1)
 
 
+class ArticleFeedbackRequest(BaseModel):
+    user_score: int = Field(ge=0, le=100)
+    feedback_type: str = Field(json_schema_extra={"enum": list(FEEDBACK_TYPES)})
+    reason: str = ""
+
+    @field_validator("feedback_type")
+    @classmethod
+    def validate_feedback_type(cls, value: str) -> str:
+        if value not in FEEDBACK_TYPES:
+            allowed = ", ".join(FEEDBACK_TYPES)
+            raise ValueError(f"feedback_type must be one of: {allowed}")
+        return value
+
+
 def article_state_public(state: ArticleStateRecord) -> dict[str, object]:
     return {
         "status": state.status,
         "saved": state.saved,
         "read_progress": state.read_progress,
+    }
+
+
+def article_feedback_public(feedback: ArticleFeedbackRecord) -> dict[str, object]:
+    return {
+        "user_score": feedback.user_score,
+        "feedback_type": feedback.feedback_type,
+        "reason": feedback.reason,
+        "created_at": feedback.created_at.isoformat() if feedback.created_at else None,
+        "updated_at": feedback.updated_at.isoformat() if feedback.updated_at else None,
     }
 
 
@@ -58,6 +85,7 @@ def article_list_item_public(
     article: ArticleRecord,
     state: ArticleStateRecord,
     score: ScoreRecord | None = None,
+    feedback: ArticleFeedbackRecord | None = None,
 ) -> dict[str, object]:
     return {
         "id": article.id,
@@ -73,7 +101,7 @@ def article_list_item_public(
         "score": score_public(score) if score is not None else None,
         "summary_zh": score.summary_zh if score is not None else "",
         "state": article_state_public(state),
-        "my_feedback": None,
+        "my_feedback": article_feedback_public(feedback) if feedback is not None else None,
     }
 
 
@@ -91,8 +119,9 @@ def article_detail_public(
     state: ArticleStateRecord,
     sources: list[ArticleSourceRecord],
     score: ScoreRecord | None = None,
+    feedback: ArticleFeedbackRecord | None = None,
 ) -> dict[str, object]:
-    item = article_list_item_public(article, state, score)
+    item = article_list_item_public(article, state, score, feedback)
     item.update(
         {
             "content_html": article.content_html,
@@ -125,14 +154,18 @@ async def list_articles(
     except (ValueError, KeyError):
         raise ApiError(400, "invalid_cursor", "Invalid cursor") from None
 
-    scores = scoring_repository.active_scores_for_articles([article.id for article in page.items])
+    article_ids = [article.id for article in page.items]
+    scores = scoring_repository.active_scores_for_articles(article_ids)
+    states = article_repository.get_states(current_user.id, article_ids)
+    feedbacks = article_repository.get_feedbacks(current_user.id, article_ids)
 
     return {
         "items": [
             article_list_item_public(
                 article,
-                article_repository.get_state(current_user.id, article.id),
+                states[article.id],
                 scores.get(article.id),
+                feedbacks.get(article.id),
             )
             for article in page.items
         ],
@@ -168,6 +201,7 @@ def get_article(
         article_repository.get_state(current_user.id, article.id),
         article_repository.sources_for_article(article.id),
         score,
+        article_repository.get_feedback(current_user.id, article.id),
     )
 
 
@@ -190,6 +224,27 @@ def update_article_state(
     if state is None:
         raise ApiError(404, "not_found", "Article not found")
     return {"state": article_state_public(state)}
+
+
+@router.put("/articles/{article_id}/feedback")
+@limiter.limit(write_rate_limit)
+def update_article_feedback(
+    payload: ArticleFeedbackRequest,
+    request: Request,
+    article_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+) -> dict[str, object]:
+    feedback = article_repository.upsert_feedback(
+        current_user.id,
+        article_id,
+        user_score=payload.user_score,
+        feedback_type=payload.feedback_type,
+        reason=payload.reason,
+    )
+    if feedback is None:
+        raise ApiError(404, "not_found", "Article not found")
+    return {"feedback": article_feedback_public(feedback)}
 
 
 @router.post("/articles/{article_id}/fetch-content")

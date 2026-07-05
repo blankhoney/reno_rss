@@ -78,6 +78,7 @@ function articleFromRecommendationPayload(article: ApiRecommendationArticle): Ar
     content_quality: article.content_quality,
     score: article.score,
     state: article.state,
+    my_feedback: article.my_feedback,
   });
 }
 

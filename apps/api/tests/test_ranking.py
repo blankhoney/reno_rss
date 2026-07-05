@@ -229,6 +229,37 @@ def test_b4_excludes_read_and_skipped_articles():
     assert [item.article_id for item in ranked] == [3]
 
 
+def test_b4_feedback_adjusts_ranking_order():
+    from app.domain.ranking import Candidate, rank_b4
+
+    ranked = rank_b4(
+        user_priority_by_feed={1: 0},
+        candidates=[
+            Candidate(
+                article_id=1,
+                feed_ids=[1],
+                base_score=85,
+                published_at=datetime(2026, 6, 21, tzinfo=UTC),
+                risk_uncertainty=20,
+            ),
+            Candidate(
+                article_id=2,
+                feed_ids=[1],
+                base_score=82,
+                published_at=datetime(2026, 6, 21, tzinfo=UTC),
+                risk_uncertainty=20,
+            ),
+        ],
+        feedback_by_article={
+            1: {"feedback_type": "overrated", "user_score": 20},
+            2: {"feedback_type": "underrated", "user_score": 100},
+        },
+        now=datetime(2026, 6, 22, tzinfo=UTC),
+    )
+
+    assert [item.article_id for item in ranked] == [2, 1]
+
+
 @pytest.mark.asyncio
 async def test_latest_recommendations_requires_session(client):
     response = await client.get("/api/recommendations/latest")
@@ -273,3 +304,47 @@ async def test_latest_recommendations_returns_current_user_edition(app, client):
     assert response.json()["items"][0]["rank"] == 1
     assert response.json()["items"][0]["article"]["id"] == article.id
     assert response.json()["items"][0]["rank_score"] == 92.5
+
+
+@pytest.mark.asyncio
+async def test_latest_recommendations_surfaces_current_user_feedback(app, client):
+    from app.domain.ranking import RankedItem
+
+    login = await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Recommended",
+            "published_at": datetime(2026, 6, 21, tzinfo=UTC),
+        }
+    )
+    await client.put(
+        f"/api/articles/{article.id}/feedback",
+        json={"user_score": 95, "feedback_type": "underrated", "reason": "Great read."},
+    )
+    app.state.recommendation_repository.save_edition(
+        user_id=login.json()["user"]["id"],
+        items=[
+            RankedItem(
+                article_id=article.id,
+                rank=1,
+                rank_score=92.5,
+                tier="must_read",
+                reason="High score",
+                source="subscription",
+            )
+        ],
+        algorithm_version="b4.v1",
+    )
+
+    response = await client.get("/api/recommendations/latest")
+
+    assert response.status_code == 200
+    feedback = response.json()["items"][0]["article"]["my_feedback"]
+    assert feedback["user_score"] == 95
+    assert feedback["feedback_type"] == "underrated"
+    assert feedback["reason"] == "Great read."
+    assert feedback["created_at"] is not None
+    assert feedback["updated_at"] is not None

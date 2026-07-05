@@ -36,6 +36,11 @@ test("recommendationsFromApi maps an edition with explainable items", () => {
           published_at: "2026-06-25T01:00:00Z",
           content_quality: "snippet",
           state: { status: "unread", saved: false, read_progress: 0 },
+          my_feedback: {
+            user_score: 95,
+            feedback_type: "underrated",
+            reason: "Great read.",
+          },
         },
         rank_score: 92.5,
         tier: "must_read",
@@ -53,6 +58,7 @@ test("recommendationsFromApi maps an edition with explainable items", () => {
   assert.equal(page.items[0]?.article?.title, "Top article");
   assert.equal(page.items[0]?.rankScore, 92.5);
   assert.equal(page.items[0]?.tier, "must_read");
+  assert.equal(page.items[0]?.article?.myFeedback?.feedbackType, "underrated");
   assert.deepEqual(page.items[0]?.riskFlags, ["low_signal"]);
 });
 
