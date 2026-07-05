@@ -31,7 +31,10 @@ type JsonRequestBody<Operation> = Operation extends {
   : never;
 
 export type ApiRequestInit = Omit<RequestInit, "body" | "credentials" | "method">;
+export type StreamArticleAskInit = ApiRequestInit & { timeoutMs?: number };
 export type ArticleAskRequest = components["schemas"]["AskRequest"];
+
+const DEFAULT_ASK_STREAM_TIMEOUT_MS = 90_000;
 
 type ApiErrorOptions = {
   status: number;
@@ -112,45 +115,62 @@ export async function apiPost<ResponseBody = unknown, RequestBody = unknown>(
 export async function* streamArticleAsk(
   articleId: number,
   body: ArticleAskRequest,
-  init: ApiRequestInit = {},
+  init: StreamArticleAskInit = {},
 ): AsyncGenerator<string> {
   if (!Number.isInteger(articleId) || articleId <= 0) {
     throw new TypeError("articleId must be a positive integer");
   }
 
-  const response = await fetch(sameOriginPath(`/api/articles/${articleId}/ask`), {
-    ...init,
-    method: "POST",
-    credentials: "include",
-    headers: buildHeaders(init.headers, {
-      accept: "text/event-stream",
-      "content-type": "application/json",
-    }),
-    body: JSON.stringify(body),
-  });
+  const { timeoutMs = DEFAULT_ASK_STREAM_TIMEOUT_MS, signal: externalSignal, ...requestInit } = init;
+  const { signal, cleanup, timedOut } = linkedSignalWithTimeout(externalSignal, timeoutMs);
 
-  if (!response.ok) {
-    throw await apiErrorFromResponse(response);
-  }
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!isEventStreamContentType(contentType)) {
-    await response.body?.cancel();
-    throw new ApiError({
-      status: response.status,
-      code: "invalid_response",
-      message: `Expected SSE response from API, got ${contentType || "empty content-type"}`,
-      details: { contentType },
+  try {
+    const response = await fetch(sameOriginPath(`/api/articles/${articleId}/ask`), {
+      ...requestInit,
+      method: "POST",
+      credentials: "include",
+      signal,
+      headers: buildHeaders(requestInit.headers, {
+        accept: "text/event-stream",
+        "content-type": "application/json",
+      }),
+      body: JSON.stringify(body),
     });
-  }
-  if (!response.body) {
-    throw new ApiError({
-      status: response.status,
-      code: "invalid_response",
-      message: "Expected streaming API response body",
-    });
-  }
 
-  yield* parseSseTextStream(response.body);
+    if (!response.ok) {
+      throw await apiErrorFromResponse(response);
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!isEventStreamContentType(contentType)) {
+      await response.body?.cancel();
+      throw new ApiError({
+        status: response.status,
+        code: "invalid_response",
+        message: `Expected SSE response from API, got ${contentType || "empty content-type"}`,
+        details: { contentType },
+      });
+    }
+    if (!response.body) {
+      throw new ApiError({
+        status: response.status,
+        code: "invalid_response",
+        message: "Expected streaming API response body",
+      });
+    }
+
+    yield* parseSseTextStream(response.body);
+  } catch (error) {
+    if (timedOut()) {
+      throw new ApiError({
+        status: 408,
+        code: "request_timeout",
+        message: "AI answer request timed out",
+      });
+    }
+    throw error;
+  } finally {
+    cleanup();
+  }
 }
 
 function sameOriginPath(path: string): string {
@@ -256,6 +276,47 @@ function isJsonContentType(contentType: string): boolean {
 
 function isEventStreamContentType(contentType: string): boolean {
   return /\btext\/event-stream\b/i.test(contentType);
+}
+
+function linkedSignalWithTimeout(
+  externalSignal: AbortSignal | null | undefined,
+  timeoutMs: number,
+): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  timedOut: () => boolean;
+} {
+  const controller = new AbortController();
+  let didTimeout = false;
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+
+  const abortFromExternal = () => {
+    controller.abort(externalSignal?.reason);
+  };
+
+  if (externalSignal?.aborted) {
+    abortFromExternal();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+  }
+
+  if (timeoutMs > 0) {
+    timeoutId = globalThis.setTimeout(() => {
+      didTimeout = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      if (timeoutId != null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+      externalSignal?.removeEventListener("abort", abortFromExternal);
+    },
+    timedOut: () => didTimeout,
+  };
 }
 
 async function* parseSseTextStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {

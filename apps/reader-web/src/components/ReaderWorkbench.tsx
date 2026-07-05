@@ -134,6 +134,7 @@ export function ReaderWorkbench({
   }, []);
 
   const loadRail = useCallback(async () => {
+    setRecommendationNotice(null);
     const [recommendationsResult, statsResult] = await Promise.allSettled([
       latestRecommendations(),
       getArticleStats(),
@@ -183,6 +184,10 @@ export function ReaderWorkbench({
     void loadPage(cursorForPage(cursorStack, previousPageIndex));
   }, [cursorStack, isPaging, loadPage, pageIndex]);
 
+  const retryArticleList = useCallback(() => {
+    void loadPage(cursorForPage(cursorStack, pageIndex), rawArticles.length === 0);
+  }, [cursorStack, loadPage, pageIndex, rawArticles.length]);
+
   useEffect(() => {
     const moduleResolution = resolveArticlesListModuleId(true, currentModule);
     if (!moduleResolution.ok) {
@@ -228,7 +233,6 @@ export function ReaderWorkbench({
         isPaging={isPaging}
         onPrev={goPrev}
         onNext={goNext}
-        notice={recommendationNotice ?? undefined}
       />
       <WorkbenchRail
         recommendations={recommendationPage}
@@ -236,11 +240,18 @@ export function ReaderWorkbench({
         currentModule={currentModule}
         currentSort={currentSort}
         currentLang={currentLang}
+        notice={recommendationNotice ?? undefined}
+        onRetry={() => void loadRail()}
       />
       {isLoading || error != null ? (
         <section className="workbenchStatus" aria-live="polite">
           <p className="readerEmptyTitle">{isLoading ? "正在加载文章" : "文章加载失败"}</p>
           <p className="readerEmptyHint">{isLoading ? "正在从 API 读取最新文章。" : error}</p>
+          {error != null ? (
+            <button type="button" className="readerToolbarBtn" onClick={retryArticleList}>
+              重试
+            </button>
+          ) : null}
         </section>
       ) : null}
     </main>

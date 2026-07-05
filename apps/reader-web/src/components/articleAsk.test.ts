@@ -28,3 +28,20 @@ test("articleAskErrorMessage keeps other API errors readable", () => {
     "Article not found",
   );
 });
+
+test("articleAskErrorMessage explains timeout and abort outcomes", () => {
+  assert.equal(
+    articleAskErrorMessage(
+      new ApiError({
+        status: 408,
+        code: "request_timeout",
+        message: "AI answer request timed out",
+      }),
+    ),
+    "AI 回答超时，请稍后重试。",
+  );
+  assert.equal(
+    articleAskErrorMessage(new DOMException("The operation was aborted.", "AbortError")),
+    "已取消生成。",
+  );
+});
