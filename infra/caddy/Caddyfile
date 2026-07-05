@@ -2,11 +2,23 @@
 # 变量 {$DOMAIN} 在运行时从环境变量 DOMAIN 读取
 # 例：reader.{$DOMAIN} → reader.example.com
 
+(secure_headers) {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        X-Frame-Options "DENY"
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    }
+}
+
 # ─────────────────────────────────────────────
 # 生产环境
 # ─────────────────────────────────────────────
 
 reader.{$DOMAIN} {
+    import secure_headers
+
     # /healthz 不走认证，供容器内部健康探针使用
     # 注意：这个路径对公网可见，但只返回 Miniflux 存活状态，无敏感信息
     handle /healthz {
@@ -27,11 +39,15 @@ reader.{$DOMAIN} {
 }
 
 auth.{$DOMAIN} {
+    import secure_headers
+
     # 认证入口直接反代到 Authelia，不需要再过认证
     reverse_proxy {$AI_READER_AUTH_UPSTREAM}
 }
 
 ai-reader.{$DOMAIN} {
+    import secure_headers
+
     @api path /api/*
 
     handle /healthz {
@@ -56,6 +72,8 @@ ai-reader.{$DOMAIN} {
 # ─────────────────────────────────────────────
 
 staging-reader.{$DOMAIN} {
+    import secure_headers
+
     handle /healthz {
         reverse_proxy miniflux-staging:8080
     }
@@ -70,10 +88,14 @@ staging-reader.{$DOMAIN} {
 }
 
 staging-auth.{$DOMAIN} {
+    import secure_headers
+
     reverse_proxy {$AI_READER_STAGING_AUTH_UPSTREAM}
 }
 
 staging-ai-reader.{$DOMAIN} {
+    import secure_headers
+
     # Staging is a fully public functional demo — no Authelia gate on app routes.
     # Auth is enforced by FastAPI instead: with AI_READER_ANONYMOUS_DEMO=true the
     # API resolves anonymous requests to a shared demo user (role=user), while

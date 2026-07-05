@@ -42,6 +42,11 @@ access_control:
         - 'staging-ai-reader.${DOMAIN}'
       policy: two_factor
 
+regulation:
+  max_retries: 4
+  find_time: 2m
+  ban_time: 10m
+
 session:
   name: authelia_session
   same_site: lax

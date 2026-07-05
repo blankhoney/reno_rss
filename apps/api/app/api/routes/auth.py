@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import ApiError, get_auth_store, require_user
+from app.core.ratelimit import auth_rate_limit, limiter
 from app.core.security import SESSION_COOKIE_NAME, clear_session_cookie, set_session_cookie
 from app.db.auth_store import AuthStore, UserRecord
 
@@ -36,6 +37,7 @@ def user_public(user: UserRecord) -> dict[str, object]:
 
 
 @router.post("/login")
+@limiter.limit(auth_rate_limit)
 def login(
     payload: LoginRequest,
     request: Request,
@@ -52,8 +54,10 @@ def login(
 
 
 @router.post("/recover")
+@limiter.limit(auth_rate_limit)
 def recover(
     payload: RecoverRequest,
+    request: Request,
     response: Response,
     store: AuthStore = Depends(get_auth_store),
 ) -> dict[str, object]:

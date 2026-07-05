@@ -27,6 +27,10 @@ def write_rate_limit(*_args: object, **_kwargs: object) -> str:
     return get_settings().write_ratelimit
 
 
+def auth_rate_limit(*_args: object, **_kwargs: object) -> str:
+    return get_settings().auth_ratelimit
+
+
 # In-memory storage is enough for the current single API container. It resets
 # on restart and is not shared across future multi-worker deployments.
 limiter = Limiter(key_func=client_ip, default_limits=[api_rate_limit])
