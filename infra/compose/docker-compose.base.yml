@@ -3,7 +3,7 @@
 # docker compose -p myrss-<env> -f docker-compose.base.yml -f docker-compose.<env>.yml up -d
 services:
   authelia:
-    image: authelia/authelia:latest
+    image: authelia/authelia:4.39.20
     restart: unless-stopped
     volumes:
       - ../authelia/configuration.yml:/config/configuration.yml:ro
@@ -37,7 +37,7 @@ services:
       - data         # 只在 data 网络，Caddy 无法访问
 
   miniflux:
-    image: miniflux/miniflux:latest
+    image: miniflux/miniflux:2.3.2
     restart: unless-stopped
     depends_on:
       - postgres
@@ -69,6 +69,7 @@ services:
       LLM_DAILY_CALL_BUDGET: ${LLM_DAILY_CALL_BUDGET:-500}
       LLM_RATELIMIT: ${LLM_RATELIMIT:-5/minute;100/day}
       WRITE_RATELIMIT: ${WRITE_RATELIMIT:-30/minute}
+      AUTH_RATELIMIT: ${AUTH_RATELIMIT:-5/minute;30/hour}
       API_RATELIMIT_DEFAULT: ${API_RATELIMIT_DEFAULT:-120/minute}
     networks:
       - app          # Caddy 通过 app 网络访问 API

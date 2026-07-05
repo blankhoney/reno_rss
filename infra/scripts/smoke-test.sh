@@ -154,6 +154,26 @@ require_http_status "/api/healthz" "200"
 require_http_status "/api/articles" "$EXPECT_ANON_ARTICLES"
 require_http_status "/api/admin/users" "$EXPECT_ANON_ADMIN"
 
+require_security_headers() {
+    local headers_file
+    headers_file="$(mktemp)"
+    curl -sS -o /dev/null -D "$headers_file" --connect-timeout 10 "$PUBLIC_URL/api/healthz"
+    if ! tr -d '\r' < "$headers_file" | grep -qi '^Strict-Transport-Security: max-age=31536000; includeSubDomains$'; then
+        echo "❌ missing Strict-Transport-Security header"
+        rm -f "$headers_file"
+        exit 1
+    fi
+    if ! tr -d '\r' < "$headers_file" | grep -qi '^X-Content-Type-Options: nosniff$'; then
+        echo "❌ missing X-Content-Type-Options header"
+        rm -f "$headers_file"
+        exit 1
+    fi
+    rm -f "$headers_file"
+    echo "  ✅ security headers ok"
+}
+
+require_security_headers
+
 # Staging serves app page routes publicly (no Authelia gate). They can transiently
 # 5xx while reader-web restarts, so retry until the app shell is served with 200.
 require_staging_public_app() {

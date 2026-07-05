@@ -151,7 +151,7 @@ Fill these groups in `.env` or in server-local secret stores:
 | Miniflux | `MINIFLUX_ADMIN`, `MINIFLUX_ADMIN_PASSWORD`, `MINIFLUX_DATABASE_URL`, `MINIFLUX_API_BASE_URL`, `MINIFLUX_API_KEY` |
 | PostgreSQL | `POSTGRES_*`, `SCORING_DATABASE_URL` |
 | Reader/API defaults | `READER_TENANT_ID`, `READER_MINIFLUX_USER_ID` |
-| LLM, API safety, and worker | `LLM_PROVIDER`, `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_DAILY_CALL_BUDGET`, `LLM_RATELIMIT`, `WRITE_RATELIMIT`, `API_RATELIMIT_DEFAULT`, `WORKER_CONCURRENCY`, `WORKER_POLL_SECONDS`, `WORKER_JOB_LEASE_SECONDS`, `WORKER_RETRY_BACKOFF_SECONDS`, `WORKER_RETRY_BACKOFF_MAX_SECONDS`, `WORKER_LOG_LEVEL`, `EXTERNAL_CONTENT_PROVIDER` |
+| LLM, API safety, and worker | `LLM_PROVIDER`, `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_DAILY_CALL_BUDGET`, `LLM_RATELIMIT`, `WRITE_RATELIMIT`, `AUTH_RATELIMIT`, `API_RATELIMIT_DEFAULT`, `WORKER_CONCURRENCY`, `WORKER_POLL_SECONDS`, `WORKER_JOB_LEASE_SECONDS`, `WORKER_RETRY_BACKOFF_SECONDS`, `WORKER_RETRY_BACKOFF_MAX_SECONDS`, `WORKER_LOG_LEVEL`, `EXTERNAL_CONTENT_PROVIDER` |
 | Staging labels | `DEMO_USERNAME`, `DEMO_PASSWORD`, `DEMO_AUTHELIA_BASE_URL`, `DEMO_TARGET_URL`, `DEMO_ALLOWED_ORIGIN` |
 | Authelia | `SMTP_*`, `AUTHELIA_USERS_DATABASE_FILE` |
 
@@ -232,7 +232,8 @@ Full delivery behavior is specified in [SPEC-CICD.md](SPEC-CICD.md).
 - Never commit real `.env`, Authelia user databases, API keys, SSH keys, cookies, or VPS runtime secrets.
 - `.env.example` must remain placeholder-only.
 - `/api/*` is routed to FastAPI and must fail closed for anonymous or non-admin callers where required.
-- Public write and LLM endpoints are rate-limited, and direct ask calls fall back to deterministic answers after the configured daily LLM budget is exhausted.
+- Public auth, write, and LLM endpoints are rate-limited, and direct ask calls fall back to deterministic answers after the configured daily LLM budget is exhausted.
+- Caddy adds baseline browser security headers on reader/auth/API routes.
 - Article HTML is untrusted and is sanitized before rendering.
 - Article ask responses strip `<think>` blocks before display.
 - Automated smoke/runtime proof must not spend real LLM tokens; the deep runtime proof runs only with `LLM_PROVIDER=mock`.

@@ -79,3 +79,47 @@ async def test_write_rate_limit_applies_to_article_state(app, client):
 
     assert limited.status_code == 429
     assert limited.json()["error"]["code"] == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_auth_rate_limit_applies_to_login(client):
+    headers = {"X-Forwarded-For": "198.51.100.71"}
+    for index in range(5):
+        response = await client.post(
+            "/api/auth/login",
+            json={"display_name": f"Login User {index}"},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        client.cookies.clear()
+
+    limited = await client.post(
+        "/api/auth/login",
+        json={"display_name": "Login User 6"},
+        headers=headers,
+    )
+
+    assert limited.status_code == 429
+    assert limited.json()["error"]["code"] == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_auth_rate_limit_applies_to_recovery_code_attempts(client):
+    headers = {"X-Forwarded-For": "198.51.100.72"}
+    for _index in range(5):
+        response = await client.post(
+            "/api/auth/recover",
+            json={"recovery_code": "invalid-recovery-code"},
+            headers=headers,
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "invalid_recovery_code"
+
+    limited = await client.post(
+        "/api/auth/recover",
+        json={"recovery_code": "invalid-recovery-code"},
+        headers=headers,
+    )
+
+    assert limited.status_code == 429
+    assert limited.json()["error"]["code"] == "rate_limited"

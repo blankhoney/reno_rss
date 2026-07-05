@@ -9,6 +9,7 @@ DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
 DEFAULT_API_RATELIMIT = "120/minute"
 DEFAULT_LLM_RATELIMIT = "5/minute;100/day"
 DEFAULT_WRITE_RATELIMIT = "30/minute"
+DEFAULT_AUTH_RATELIMIT = "5/minute;30/hour"
 DEFAULT_LLM_DAILY_CALL_BUDGET = 500
 
 
@@ -25,6 +26,7 @@ class Settings:
     api_ratelimit_default: str = DEFAULT_API_RATELIMIT
     llm_ratelimit: str = DEFAULT_LLM_RATELIMIT
     write_ratelimit: str = DEFAULT_WRITE_RATELIMIT
+    auth_ratelimit: str = DEFAULT_AUTH_RATELIMIT
     # In-memory API-process budget for direct ask calls. Worker LLM calls are
     # guarded separately by scheduler caps and operator-side provider limits.
     llm_daily_call_budget: int = DEFAULT_LLM_DAILY_CALL_BUDGET
@@ -82,6 +84,7 @@ def get_settings() -> Settings:
         api_ratelimit_default=os.environ.get("API_RATELIMIT_DEFAULT", DEFAULT_API_RATELIMIT),
         llm_ratelimit=os.environ.get("LLM_RATELIMIT", DEFAULT_LLM_RATELIMIT),
         write_ratelimit=os.environ.get("WRITE_RATELIMIT", DEFAULT_WRITE_RATELIMIT),
+        auth_ratelimit=os.environ.get("AUTH_RATELIMIT", DEFAULT_AUTH_RATELIMIT),
         llm_daily_call_budget=_parse_int(
             os.environ.get("LLM_DAILY_CALL_BUDGET"),
             DEFAULT_LLM_DAILY_CALL_BUDGET,
