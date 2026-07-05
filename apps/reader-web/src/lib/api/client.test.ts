@@ -213,9 +213,58 @@ test("streamArticleAsk assembles SSE chunks until done", async () => {
     assert.equal(capturedInput, "/api/articles/99/ask");
     assert.equal(capturedInit?.method, "POST");
     assert.equal(capturedInit?.credentials, "include");
+    assert.ok(capturedInit?.signal instanceof AbortSignal);
     assert.equal(headerValue(capturedInit?.headers, "accept"), "text/event-stream");
     assert.equal(headerValue(capturedInit?.headers, "content-type"), "application/json");
     assert.equal(capturedInit?.body, JSON.stringify({ question: "解释这段", selected_text: "Important quote" }));
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("streamArticleAsk converts stalled streams to timeout errors", async () => {
+  const restoreFetch = withMockFetch((_input, init) => {
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      });
+    });
+  });
+
+  try {
+    await assert.rejects(
+      collectChunks(streamArticleAsk(99, { question: "总结" }, { timeoutMs: 1 })),
+      (error) => {
+        assert.ok(error instanceof ApiError);
+        assert.equal(error.status, 408);
+        assert.equal(error.code, "request_timeout");
+        return true;
+      },
+    );
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("streamArticleAsk propagates external aborts", async () => {
+  const controller = new AbortController();
+  const restoreFetch = withMockFetch((_input, init) => {
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      });
+    });
+  });
+
+  try {
+    const chunks = collectChunks(
+      streamArticleAsk(99, { question: "总结" }, { signal: controller.signal, timeoutMs: 0 }),
+    );
+    controller.abort();
+
+    await assert.rejects(chunks, {
+      name: "AbortError",
+    });
   } finally {
     restoreFetch();
   }

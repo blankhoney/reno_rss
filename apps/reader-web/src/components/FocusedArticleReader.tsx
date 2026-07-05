@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Article, DimensionKey } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
@@ -40,10 +41,10 @@ function summaryForLang(article: Article, lang: SummaryLangId): string {
   return summary.trim() || "暂无摘要，可在管理控制台完成评分后生成";
 }
 
-function switchSummaryLang(nextLang: SummaryLangId) {
+function summaryLangPath(nextLang: SummaryLangId): string {
   const qs = new URLSearchParams(window.location.search);
   qs.set("lang", nextLang);
-  window.location.search = qs.toString();
+  return `${window.location.pathname}?${qs.toString()}`;
 }
 
 function tierLabel(tier: string | undefined): string {
@@ -76,16 +77,40 @@ export function FocusedArticleReader({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
+  const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
   const articleRef = useRef<HTMLElement | null>(null);
+  const askAbortRef = useRef<AbortController | null>(null);
+  const showTranslationWhenReadyRef = useRef(false);
   const articleActions = useArticleActions(article, currentLang);
   const typewriter = useTypewriterStream();
   const { selectedText, hasSelection, selectionRect, clearSelection } = useArticleSelection(articleRef);
 
   useEffect(() => {
+    askAbortRef.current?.abort();
     setTranslatedHtml(article.contentZh ?? null);
     setShowTranslation(false);
-  }, [article.id, article.contentZh]);
+    showTranslationWhenReadyRef.current = false;
+    setIsAsking(false);
+    setAgentError(null);
+  }, [article.id]);
+
+  useEffect(() => {
+    setTranslatedHtml(article.contentZh ?? null);
+    if (article.contentZh != null && article.contentZh.trim().length > 0 && showTranslationWhenReadyRef.current) {
+      setTranslatedHtml(article.contentZh);
+      setShowTranslation(true);
+      showTranslationWhenReadyRef.current = false;
+    } else if (article.contentZh == null || article.contentZh.trim().length === 0) {
+      setShowTranslation(false);
+    }
+  }, [article.contentZh]);
+
+  useEffect(() => {
+    return () => {
+      askAbortRef.current?.abort();
+    };
+  }, []);
 
   useDismissableLayer({
     enabled: drawerOpen,
@@ -96,7 +121,10 @@ export function FocusedArticleReader({
   async function askAgent(nextQuestion = question) {
     const trimmedQuestion = nextQuestion.trim();
     if (trimmedQuestion.length === 0) return;
+    const abortController = new AbortController();
 
+    askAbortRef.current?.abort();
+    askAbortRef.current = abortController;
     setDrawerOpen(true);
     setQuestion(trimmedQuestion);
     setIsAsking(true);
@@ -108,18 +136,31 @@ export function FocusedArticleReader({
       for await (const chunk of streamArticleAsk(article.id, {
         question: trimmedQuestion,
         selected_text: selectedText.trim() || undefined,
-      })) {
+      }, { signal: abortController.signal })) {
         const text = thinkFilter.push(chunk);
         if (text.length > 0) typewriter.push(text);
       }
       const finalText = thinkFilter.flush();
       if (finalText.length > 0) typewriter.push(finalText);
     } catch (error) {
+      if (abortController.signal.aborted) return;
       setAgentError(articleAskErrorMessage(error));
     } finally {
+      if (askAbortRef.current === abortController) {
+        askAbortRef.current = null;
+      }
       typewriter.finish();
       setIsAsking(false);
     }
+  }
+
+  function cancelAsk() {
+    askAbortRef.current?.abort();
+  }
+
+  function switchSummaryLang(nextLang: SummaryLangId) {
+    if (nextLang === currentLang) return;
+    router.push(summaryLangPath(nextLang), { scroll: false });
   }
 
   async function toggleTranslation() {
@@ -136,6 +177,8 @@ export function FocusedArticleReader({
     if (nextTranslatedHtml != null) {
       setTranslatedHtml(nextTranslatedHtml);
       setShowTranslation(true);
+    } else {
+      showTranslationWhenReadyRef.current = true;
     }
   }
 
@@ -382,6 +425,11 @@ export function FocusedArticleReader({
             >
               {isAsking ? "生成中" : "询问"}
             </button>
+            {isAsking ? (
+              <button type="button" className="readerToolbarBtn" onClick={cancelAsk}>
+                停止
+              </button>
+            ) : null}
           </div>
           {agentNotice ? <p className="agentNotice">{agentNotice}</p> : null}
           {agentError != null ? <p className="agentError">{agentError}</p> : null}

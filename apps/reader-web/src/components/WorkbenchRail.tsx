@@ -11,6 +11,11 @@ type WorkbenchRailProps = {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
+  notice?: {
+    title: string;
+    body: string;
+  };
+  onRetry?: () => void;
 };
 
 function readHref(
@@ -33,11 +38,24 @@ export function WorkbenchRail({
   currentModule,
   currentSort,
   currentLang,
+  notice,
+  onRetry,
 }: WorkbenchRailProps) {
   const items = recommendations?.items.filter((item) => item.article != null) ?? [];
 
   return (
     <aside className="workbenchRail" aria-label="工作台信息">
+      {notice ? (
+        <section className="workbenchRailSection" aria-live="polite">
+          <h2 className="workbenchRailTitle">{notice.title}</h2>
+          <p className="workbenchRailEmpty">{notice.body}</p>
+          {onRetry ? (
+            <button type="button" className="readerToolbarBtn" onClick={onRetry}>
+              重试
+            </button>
+          ) : null}
+        </section>
+      ) : null}
       <section className="workbenchRailSection">
         <h2 className="workbenchRailTitle">Top10</h2>
         {items.length > 0 ? (

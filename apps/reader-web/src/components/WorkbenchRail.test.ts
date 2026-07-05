@@ -97,3 +97,21 @@ test("WorkbenchRail renders empty states", () => {
   assert.match(html, /Top10 尚未生成/);
   assert.match(html, /统计待加载/);
 });
+
+test("WorkbenchRail renders retry affordance for rail load failures", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(WorkbenchRail, {
+      recommendations: { edition: null, items: [] },
+      stats: null,
+      currentModule: "all",
+      currentSort: "default",
+      currentLang: "zh",
+      notice: { title: "右栏数据暂不可用。", body: "Top10 加载失败" },
+      onRetry() {},
+    }),
+  );
+
+  assert.match(html, /右栏数据暂不可用/);
+  assert.match(html, /Top10 加载失败/);
+  assert.match(html, />重试</);
+});

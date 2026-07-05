@@ -189,6 +189,18 @@ test("pollJobUntilTerminal returns the first terminal job", async () => {
   }
 });
 
+test("pollJobUntilTerminal stops when aborted", async () => {
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    pollJobUntilTerminal(9, { signal: controller.signal }),
+    {
+      name: "AbortError",
+    },
+  );
+});
+
 test("listArticles fetches a cursor page from FastAPI", async () => {
   let capturedInput: RequestInfo | URL | undefined;
   const restoreFetch = withMockFetch((input) => {

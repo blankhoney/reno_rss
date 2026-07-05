@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import {
   enqueueFetchContentJob,
-  getArticle,
   pollJobUntilTerminal,
   requestArticleTranslation,
   updateArticleState,
@@ -75,34 +73,48 @@ function dispatchArticleDataChanged(articleId: number) {
 }
 
 export function useArticleActions(article: Article | null, currentLang: SummaryLangId) {
-  const router = useRouter();
   const [pendingAction, setPendingAction] = useState<ActionKey | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLink, setActionLink] = useState<ActionLink | null>(null);
+  const actionAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    actionAbortRef.current?.abort();
     setPendingAction(null);
     setActionMessage(null);
     setActionError(null);
     setActionLink(null);
   }, [article?.id]);
 
-  async function run(action: ActionKey, request: () => Promise<string>) {
+  useEffect(() => {
+    return () => {
+      actionAbortRef.current?.abort();
+    };
+  }, []);
+
+  async function run(action: ActionKey, request: (signal: AbortSignal) => Promise<string>) {
     if (article == null || pendingAction != null) return;
+    const abortController = new AbortController();
+    actionAbortRef.current?.abort();
+    actionAbortRef.current = abortController;
     setPendingAction(action);
     setActionMessage(null);
     setActionError(null);
     setActionLink(null);
     try {
-      const message = await request();
+      const message = await request(abortController.signal);
+      if (abortController.signal.aborted) return;
       setActionMessage(message);
       dispatchArticleDataChanged(article.id);
-      router.refresh();
     } catch (error) {
+      if (isAbortError(error)) return;
       const raw = error instanceof Error ? error.message : "操作失败";
       setActionError(articleActionErrorMessage(raw));
     } finally {
+      if (actionAbortRef.current === abortController) {
+        actionAbortRef.current = null;
+      }
       setPendingAction(null);
     }
   }
@@ -117,40 +129,52 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     isProjecting: pendingAction === "project",
     isMarkingRead: pendingAction === "read",
     refreshFullContent: () =>
-      run("fetchContent", async () => {
+      run("fetchContent", async (signal) => {
         if (article == null) return "";
-        const created = await enqueueFetchContentJob(article.id);
-        const job = await pollJobUntilTerminal(created.jobId);
+        const created = await enqueueFetchContentJob(article.id, { signal });
+        const job = await pollJobUntilTerminal(created.jobId, { signal });
         return contentFetchJobMessage(job);
       }),
     translateFullText: async () => {
       if (article == null || pendingAction != null) return null;
+      const abortController = new AbortController();
+      actionAbortRef.current?.abort();
+      actionAbortRef.current = abortController;
       setPendingAction("translate");
       setActionMessage(null);
       setActionError(null);
       setActionLink(null);
       try {
-        const requested = await requestArticleTranslation(article.id);
+        const requested = await requestArticleTranslation(article.id, { signal: abortController.signal });
+        if (abortController.signal.aborted) return null;
         if (requested.contentZh != null) {
           setActionMessage("已切换到中文译文");
+          dispatchArticleDataChanged(article.id);
           return requested.contentZh;
         }
         if (requested.jobId == null) {
           setActionMessage("全文翻译请求已提交");
           return null;
         }
-        const job = await pollJobUntilTerminal(requested.jobId, { intervalMs: 1000, maxAttempts: 60 });
+        const job = await pollJobUntilTerminal(requested.jobId, {
+          intervalMs: 1000,
+          maxAttempts: 60,
+          signal: abortController.signal,
+        });
+        if (abortController.signal.aborted) return null;
         setActionMessage(translationJobMessage(job));
         dispatchArticleDataChanged(article.id);
-        router.refresh();
         if (job.status !== "succeeded") return null;
-        const refreshed = await getArticle(article.id);
-        return refreshed.contentZh;
+        return null;
       } catch (error) {
+        if (isAbortError(error)) return null;
         const raw = error instanceof Error ? error.message : "操作失败";
         setActionError(articleActionErrorMessage(raw));
         return null;
       } finally {
+        if (actionAbortRef.current === abortController) {
+          actionAbortRef.current = null;
+        }
         setPendingAction(null);
       }
     },
@@ -174,4 +198,8 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
         return "已标记为已读";
       }),
   };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }

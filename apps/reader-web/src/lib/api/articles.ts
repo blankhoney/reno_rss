@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from "./client";
+import { apiGet, apiPost, type ApiRequestInit } from "./client";
 import type { components } from "./generated/schema";
 import { sanitizeArticleHtml } from "@/lib/articles/service";
 import type {
@@ -116,7 +116,11 @@ type ApiJobResponse = {
 
 type PollOptions = {
   intervalMs?: number;
+  maxIntervalMs?: number;
   maxAttempts?: number;
+  backoffFactor?: number;
+  jitterRatio?: number;
+  signal?: AbortSignal;
 };
 
 function contentStatusFromQuality(quality: string | null | undefined): ArticleContentStatus {
@@ -292,9 +296,14 @@ export async function updateArticleState(articleId: number, patch: ArticleStateP
   await apiPost(`/api/articles/${articleId}/state`, body);
 }
 
-export async function enqueueFetchContentJob(articleId: number): Promise<EnqueuedJob> {
+export async function enqueueFetchContentJob(
+  articleId: number,
+  init?: ApiRequestInit,
+): Promise<EnqueuedJob> {
   const payload = await apiPost<{ job_id: number; status: string }, undefined>(
     `/api/articles/${articleId}/fetch-content`,
+    undefined,
+    init,
   );
   return {
     jobId: payload.job_id,
@@ -302,13 +311,16 @@ export async function enqueueFetchContentJob(articleId: number): Promise<Enqueue
   };
 }
 
-export async function requestArticleTranslation(articleId: number): Promise<ArticleTranslationResult> {
+export async function requestArticleTranslation(
+  articleId: number,
+  init?: ApiRequestInit,
+): Promise<ArticleTranslationResult> {
   const payload = await apiPost<{
     status: string;
     content_zh?: string | null;
     translated_at?: string | null;
     job_id?: number | null;
-  }, undefined>(`/api/articles/${articleId}/translate`);
+  }, undefined>(`/api/articles/${articleId}/translate`, undefined, init);
   return {
     status: payload.status,
     contentZh: payload.content_zh ? sanitizeArticleHtml(payload.content_zh) : null,
@@ -317,8 +329,8 @@ export async function requestArticleTranslation(articleId: number): Promise<Arti
   };
 }
 
-export async function getJob(jobId: number): Promise<ApiJob> {
-  const payload = await apiGet<ApiJobResponse>(`/api/jobs/${jobId}`);
+export async function getJob(jobId: number, init?: ApiRequestInit): Promise<ApiJob> {
+  const payload = await apiGet<ApiJobResponse>(`/api/jobs/${jobId}`, init);
   return {
     id: payload.id,
     jobType: payload.job_type,
@@ -338,14 +350,65 @@ export function terminalJobStatus(status: string): boolean {
 
 export async function pollJobUntilTerminal(
   jobId: number,
-  { intervalMs = 1000, maxAttempts = 30 }: PollOptions = {},
+  {
+    intervalMs = 1000,
+    maxIntervalMs = 5000,
+    maxAttempts = 30,
+    backoffFactor = 1.6,
+    jitterRatio = 0.2,
+    signal,
+  }: PollOptions = {},
 ): Promise<ApiJob> {
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const job = await getJob(jobId);
+    throwIfAborted(signal);
+    const job = await getJob(jobId, { signal });
     if (terminalJobStatus(job.status)) return job;
     if (attempt < maxAttempts - 1) {
-      await new Promise((resolve) => globalThis.setTimeout(resolve, intervalMs));
+      await sleep(pollDelayMs(attempt, intervalMs, maxIntervalMs, backoffFactor, jitterRatio), signal);
     }
   }
-  return getJob(jobId);
+  throwIfAborted(signal);
+  return getJob(jobId, { signal });
+}
+
+function pollDelayMs(
+  attempt: number,
+  intervalMs: number,
+  maxIntervalMs: number,
+  backoffFactor: number,
+  jitterRatio: number,
+): number {
+  if (intervalMs <= 0 || maxIntervalMs <= 0) return 0;
+  const base = Math.min(intervalMs * Math.max(1, backoffFactor) ** attempt, maxIntervalMs);
+  const jitter = base * Math.max(0, jitterRatio) * Math.random();
+  return Math.round(base + jitter);
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+
+    function abort() {
+      globalThis.clearTimeout(timeoutId);
+      reject(abortError(signal));
+    }
+
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw abortError(signal);
+  }
+}
+
+function abortError(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) return signal.reason;
+  return new DOMException("The operation was aborted.", "AbortError");
 }
