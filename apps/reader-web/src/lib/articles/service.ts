@@ -202,7 +202,7 @@ export function sanitizeArticleHtml(html: string): string {
     allowedAttributes: {
       ...sanitizeHtml.defaults.allowedAttributes,
       a: ["href", "name", "target", "rel"],
-      img: ["src", "alt", "title", "width", "height", "loading"],
+      img: ["src", "alt", "title", "width", "height", "loading", "decoding"],
     },
     allowedSchemes: ["http", "https", "mailto"],
     nonTextTags: ["script", "style", "textarea", "option", "xmp"],
@@ -220,6 +220,14 @@ export function sanitizeArticleHtml(html: string): string {
           },
         };
       },
+      img: (tagName, attribs) => ({
+        tagName,
+        attribs: {
+          ...attribs,
+          loading: "lazy",
+          decoding: "async",
+        },
+      }),
     },
   });
 }

@@ -260,6 +260,17 @@ test("sanitizeArticleHtml removes script tags and inline event handlers", () => 
   assert.match(html, /Hi/);
 });
 
+test("sanitizeArticleHtml keeps image hardening while adding lazy render attributes", () => {
+  const html = sanitizeArticleHtml(
+    '<p><img src="https://example.com/a.jpg" alt="A" onerror="bad()"><a href="javascript:bad()">bad</a></p>',
+  );
+
+  assert.match(html, /<img src="https:\/\/example.com\/a.jpg" alt="A" loading="lazy" decoding="async" \/>/);
+  assert.equal(html.includes("onerror"), false);
+  assert.equal(html.includes("javascript:"), false);
+  assert.equal(html.includes("<script"), false);
+});
+
 test("sanitizeArticleHtml discards xmp raw text content", () => {
   const html = sanitizeArticleHtml(
     '<p>Before</p><xmp><script>alert(1)</script><img src="x" onerror="alert(2)"></xmp><p>After</p>',

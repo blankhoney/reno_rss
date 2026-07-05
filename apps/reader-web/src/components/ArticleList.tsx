@@ -3,6 +3,7 @@
 import type { Article } from "@/lib/articles/types";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import { ScoreBadge } from "./ScoreBadge";
+import { ArticleListSkeleton } from "./Skeleton";
 import { SortMenu, type SortOption } from "./SortMenu";
 import { useRouter } from "next/navigation";
 
@@ -15,6 +16,7 @@ type ArticleListProps = {
   hasPrev?: boolean;
   hasNext?: boolean;
   isPaging?: boolean;
+  isLoading?: boolean;
   onPrev?: () => void;
   onNext?: () => void;
   notice?: {
@@ -70,6 +72,7 @@ export function ArticleList({
   hasPrev = false,
   hasNext = false,
   isPaging = false,
+  isLoading = false,
   onPrev,
   onNext,
   notice,
@@ -101,57 +104,66 @@ export function ArticleList({
           </p>
         </div>
       ) : null}
-      {isEmpty ? (
+      {isLoading ? <ArticleListSkeleton count={12} /> : null}
+      {!isLoading && isEmpty ? (
         <div className="articleListEmpty">
           <p className="articleListEmptyTitle">暂无文章</p>
           <p className="articleListEmptyHint">当前模块没有可显示的文章。</p>
         </div>
       ) : null}
-      <ul className="articleList">
-        {articles.map((article) => {
-          const score = article.score;
-          const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
-          return (
-            <li key={article.id}>
-              <article
-                className="articleCard"
-                role="link"
-                tabIndex={0}
-                aria-label={`${article.title}，进入专注阅读`}
-                data-read-href={focusHref}
-                onClick={() => router.push(focusHref)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") router.push(focusHref);
-                }}
-              >
-                <div className="articleCardMeta">
-                  <span className="articleFeed">{article.feedTitle}</span>
-                  {article.categoryTitle ? (
-                    <span className="articleCategory">{article.categoryTitle}</span>
-                  ) : null}
-                </div>
-                <div className="articleCardTitle">{article.title}</div>
-                <p className="articleCardSummary">{articleSummary(article, currentLang)}</p>
-                <div className="articleCardFooter">
-                  <div className="articleCardScores">
-                    <ScoreBadge label="总分" value={score?.overall ?? null} />
-                    <ScoreBadge label="层级" value={tierLabel(score?.tier)} />
+      {!isLoading ? (
+        <ul className="articleList">
+          {articles.map((article) => {
+            const score = article.score;
+            const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
+            return (
+              <li key={article.id}>
+                <article
+                  className="articleCard"
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`${article.title}，进入专注阅读`}
+                  data-read-href={focusHref}
+                  onClick={() => router.push(focusHref)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") router.push(focusHref);
+                  }}
+                >
+                  <div className="articleCardMeta">
+                    <span className="articleFeed">{article.feedTitle}</span>
+                    {article.categoryTitle ? (
+                      <span className="articleCategory">{article.categoryTitle}</span>
+                    ) : null}
                   </div>
-                  <a
-                    className="articleReadLink"
-                    href={focusHref}
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={(event) => event.stopPropagation()}
-                  >
-                    阅读
-                  </a>
-                </div>
-              </article>
-            </li>
-          );
-        })}
-      </ul>
-      {!isEmpty ? (
+                  <div className="articleCardTitle">{article.title}</div>
+                  <p className="articleCardSummary">{articleSummary(article, currentLang)}</p>
+                  <div className="articleCardFooter">
+                    <div className="articleCardScores">
+                      {score ? (
+                        <>
+                          <ScoreBadge label="总分" value={score.overall} />
+                          <ScoreBadge label="层级" value={tierLabel(score.tier)} />
+                        </>
+                      ) : (
+                        <ScoreBadge label="评分" value={null} />
+                      )}
+                    </div>
+                    <a
+                      className="articleReadLink"
+                      href={focusHref}
+                      onClick={(event) => event.stopPropagation()}
+                      onDoubleClick={(event) => event.stopPropagation()}
+                    >
+                      阅读
+                    </a>
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {!isLoading && !isEmpty ? (
         <nav className="articleListPager" aria-label="翻页">
           <button
             type="button"
