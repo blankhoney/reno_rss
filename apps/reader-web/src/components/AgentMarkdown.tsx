@@ -5,7 +5,8 @@ type Block =
   | { type: "paragraph"; text: string }
   | { type: "unordered-list"; items: string[] }
   | { type: "ordered-list"; items: string[] }
-  | { type: "quote"; text: string };
+  | { type: "quote"; text: string }
+  | { type: "code"; lang: string | null; code: string };
 
 const INLINE_TOKEN = /(`[^`]+`|\*\*[^*]+\*\*|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\))/g;
 const REQUIRED_SECTION_HEADING =
@@ -26,6 +27,7 @@ function isSafeHttpUrl(rawUrl: string): boolean {
 function isBlockStart(line: string): boolean {
   return (
     /^#{1,3}\s+/.test(line) ||
+    /^```/.test(line) ||
     /^[-*]\s+/.test(line) ||
     /^\d+[.)]\s+/.test(line) ||
     /^>\s?/.test(line)
@@ -59,6 +61,27 @@ function parseBlocks(text: string): Block[] {
         text: heading[2],
       });
       index += 1;
+      continue;
+    }
+
+    const codeFence = /^```([A-Za-z0-9_-]+)?\s*$/.exec(trimmed);
+    if (codeFence != null) {
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length) {
+        const codeLine = lines[index] ?? "";
+        if (/^```\s*$/.test(codeLine.trim())) {
+          index += 1;
+          break;
+        }
+        codeLines.push(codeLine);
+        index += 1;
+      }
+      blocks.push({
+        type: "code",
+        lang: codeFence[1] ?? null,
+        code: codeLines.join("\n"),
+      });
       continue;
     }
 
@@ -145,21 +168,30 @@ function renderInline(text: string): ReactNode[] {
   return nodes;
 }
 
-export function AgentMarkdown({ text }: { text: string }) {
+export function AgentMarkdown({ text, trailing = null }: { text: string; trailing?: ReactNode }) {
   const blocks = parseBlocks(text.trim());
 
   return (
     <div className="agentMarkdown">
       {blocks.map((block, index) => {
+        const trailingNode = index === blocks.length - 1 ? trailing : null;
         if (block.type === "heading") {
           const Heading = `h${block.level}` as "h1" | "h2" | "h3";
-          return <Heading key={index}>{renderInline(block.text)}</Heading>;
+          return (
+            <Heading key={index}>
+              {renderInline(block.text)}
+              {trailingNode}
+            </Heading>
+          );
         }
         if (block.type === "unordered-list") {
           return (
             <ul key={index}>
               {block.items.map((item, itemIndex) => (
-                <li key={itemIndex}>{renderInline(item)}</li>
+                <li key={itemIndex}>
+                  {renderInline(item)}
+                  {itemIndex === block.items.length - 1 ? trailingNode : null}
+                </li>
               ))}
             </ul>
           );
@@ -168,7 +200,10 @@ export function AgentMarkdown({ text }: { text: string }) {
           return (
             <ol key={index}>
               {block.items.map((item, itemIndex) => (
-                <li key={itemIndex}>{renderInline(item)}</li>
+                <li key={itemIndex}>
+                  {renderInline(item)}
+                  {itemIndex === block.items.length - 1 ? trailingNode : null}
+                </li>
               ))}
             </ol>
           );
@@ -176,11 +211,26 @@ export function AgentMarkdown({ text }: { text: string }) {
         if (block.type === "quote") {
           return (
             <blockquote key={index}>
-              <p>{renderInline(block.text)}</p>
+              <p>
+                {renderInline(block.text)}
+                {trailingNode}
+              </p>
             </blockquote>
           );
         }
-        return <p key={index}>{renderInline(block.text)}</p>;
+        if (block.type === "code") {
+          return (
+            <pre key={index}>
+              <code>{block.code}</code>
+            </pre>
+          );
+        }
+        return (
+          <p key={index}>
+            {renderInline(block.text)}
+            {trailingNode}
+          </p>
+        );
       })}
     </div>
   );

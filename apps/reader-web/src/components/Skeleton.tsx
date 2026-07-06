@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import Link from "next/link";
 
 function styleWithWidth(width?: string): CSSProperties | undefined {
   return width ? { width } : undefined;
@@ -79,9 +80,9 @@ export function FocusedArticleSkeleton({ returnHref }: { returnHref: string }) {
   return (
     <main className="focusReader" aria-busy="true">
       <header className="focusTopbar">
-        <a className="readerToolbarBtn" href={returnHref}>
+        <Link className="readerToolbarBtn" href={returnHref} prefetch={false}>
           返回工作台
-        </a>
+        </Link>
         <SkeletonBlock className="skeletonPill" width="72px" />
         <SkeletonBlock className="skeletonPill" width="88px" />
       </header>

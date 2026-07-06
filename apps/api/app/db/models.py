@@ -154,6 +154,7 @@ user_article_states = Table(
     Column("article_id", BigInteger, ForeignKey("articles.id"), primary_key=True),
     Column("status", Text, nullable=False, server_default=text("'unread'")),
     Column("saved", Boolean, server_default=text("false")),
+    Column("project", Boolean, nullable=False, server_default=text("false")),
     Column("read_progress", Numeric(4, 3)),
     updated_at_column(),
     CheckConstraint("status IN ('unread', 'read', 'skipped')", name="ck_user_article_states_status"),
@@ -435,6 +436,12 @@ Index(
     "ix_user_article_states_saved",
     user_article_states.c.user_id,
     user_article_states.c.saved,
+    user_article_states.c.article_id,
+)
+Index(
+    "ix_user_article_states_project",
+    user_article_states.c.user_id,
+    user_article_states.c.project,
     user_article_states.c.article_id,
 )
 Index("ix_user_article_states_article", user_article_states.c.article_id)

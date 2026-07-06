@@ -3,8 +3,10 @@ import test from "node:test";
 import type { Article } from "@/lib/articles/types";
 import {
   appendCursorForNextPage,
+  articleReturnSelector,
   buildWorkbenchView,
   cursorForPage,
+  parseReturnArticleId,
 } from "./ReaderWorkbench";
 
 function article(id: number, input: Partial<Article> = {}): Article {
@@ -28,6 +30,7 @@ function article(id: number, input: Partial<Article> = {}): Article {
     sourceLanguage: "unknown",
     status: input.status ?? "unread",
     starred: input.starred ?? false,
+    project: input.project ?? false,
     publishedAt: input.publishedAt ?? "2026-06-25T00:00:00Z",
     score: null,
     myFeedback: input.myFeedback ?? null,
@@ -73,4 +76,13 @@ test("cursor helpers append next cursors and resolve previous pages", () => {
   assert.equal(cursorForPage(firstStack, 0), null);
   assert.equal(cursorForPage(firstStack, 1), "cursor-2");
   assert.equal(cursorForPage(firstStack, 99), null);
+});
+
+test("return article helpers parse valid ids and build the list selector", () => {
+  assert.equal(parseReturnArticleId("?module=all&article=42"), 42);
+  assert.equal(parseReturnArticleId("article=7"), 7);
+  assert.equal(parseReturnArticleId("?article=0"), null);
+  assert.equal(parseReturnArticleId("?article=abc"), null);
+  assert.equal(parseReturnArticleId("?module=all"), null);
+  assert.equal(articleReturnSelector(42), '[data-article-id="42"]');
 });

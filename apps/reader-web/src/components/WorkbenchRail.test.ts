@@ -25,6 +25,7 @@ function article(id: number): Article {
     sourceLanguage: "unknown",
     status: "unread",
     starred: false,
+    project: false,
     publishedAt: "2026-06-25T00:00:00Z",
     score: {
       overall: 88,
@@ -74,6 +75,9 @@ test("WorkbenchRail renders Top10 links and corpus stats", () => {
   });
 
   assert.match(html, /Top10/);
+  assert.match(html, /workbenchRailToggle/);
+  assert.match(html, /aria-controls="workbench-top10"/);
+  assert.match(html, /aria-expanded="false"/);
   assert.match(html, /Article 42/);
   assert.match(html, /href="\/read\/42\?module=all&amp;sort=default&amp;lang=zh"/);
   assert.match(html, /共/);

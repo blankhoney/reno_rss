@@ -29,6 +29,8 @@ def test_mock_provider_returns_v04_dimensions_and_derived_tier():
     assert set(score["dimension_reasons"]) == set(DIMENSION_KEYS)
     assert score["scoring_status"] == "success"
     assert score["recommendation_tier"] == tier_for_score(score["base_score"])
+    assert score["reason"] == "MockProvider 基线：综合主题、密度、来源、行动性与风险信号。"
+    assert set(score["dimension_reasons"].values()) == {"MockProvider 规则分。"}
     assert str(score["summary_zh"]).startswith("【示例摘要】")
     assert "dense guide with code" not in str(score["summary_zh"]).lower()
     assert score == provider.score_article(article, {"version": "v0.4"})

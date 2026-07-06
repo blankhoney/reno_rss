@@ -25,6 +25,7 @@ function article(input: Partial<Article> = {}): Article {
     sourceLanguage: "en",
     status: "unread",
     starred: false,
+    project: false,
     publishedAt: "2026-05-14T00:00:00Z",
     score: null,
     myFeedback: null,
@@ -65,15 +66,19 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.match(html, /翻译全文/);
   assert.match(html, /刷新全文/);
   assert.doesNotMatch(html, /实时评分/);
-  assert.match(html, /管理控制台创建评分批次/);
+  assert.match(html, /评分完成后将生成摘要、分数和理由/);
+  assert.doesNotMatch(html, /管理控制台创建评分批次/);
   assert.match(html, /加入候选/);
   assert.match(html, /立项/);
   assert.match(html, /标记已读/);
+  assert.match(html, /focusSecondaryActions/);
+  assert.match(html, /更多文章操作/);
   assert.doesNotMatch(html, /<summary>操作<\/summary>/);
   assert.match(html, /正文：片段/);
   assert.match(html, /评分：未评分/);
   assert.match(html, /反馈校准/);
   assert.match(html, /保存反馈/);
+  assert.doesNotMatch(html, /aria-pressed="true"/);
   assert.match(html, /译文：未翻译/);
   assert.match(html, /当前仍只有 RSS 片段/);
   assert.match(html, /文章助手/);
@@ -81,6 +86,19 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, /agentDrawerBody/);
   assert.match(html, /inert=""/);
+});
+
+test("FocusedArticleReader uses neutral summary copy before scoring", () => {
+  const html = renderFocusedReader(
+    article({
+      summaryZh: "",
+      summaryOriginal: "",
+    }),
+    "/?module=all&sort=default&lang=zh&article=42",
+  );
+
+  assert.match(html, /暂无摘要，评分完成后自动生成。/);
+  assert.doesNotMatch(html, /管理控制台/);
 });
 
 test("FocusedArticleReader renders scored state and dimension reasons", () => {

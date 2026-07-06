@@ -4,8 +4,9 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ApiError } from "@/lib/api/client";
-import { AuthSessionView, authErrorMessage } from "./AuthSessionGate";
+import { AuthSessionGate, AuthSessionView, authErrorMessage } from "./AuthSessionGate";
 import type { AuthUser } from "@/lib/api/auth";
+import { clearSessionCache, primeSessionCache } from "@/lib/auth/sessionCache";
 
 const user: AuthUser = {
   id: "1",
@@ -93,4 +94,20 @@ test("authErrorMessage translates FastAPI recovery errors by code", () => {
     ),
     "恢复码无效",
   );
+});
+
+test("AuthSessionGate renders children on the first pass when a fresh cache exists", () => {
+  primeSessionCache(user, Date.now());
+  const html = renderToStaticMarkup(
+    React.createElement(
+      AuthSessionGate,
+      null,
+      React.createElement("div", { className: "child-marker" }, "Reader workbench"),
+    ),
+  );
+  clearSessionCache();
+
+  assert.match(html, /Reader workbench/);
+  assert.match(html, /Ada/);
+  assert.doesNotMatch(html, /正在验证会话/);
 });

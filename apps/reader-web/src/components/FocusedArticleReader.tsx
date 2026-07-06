@@ -1,18 +1,20 @@
 "use client";
 
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/types";
 import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
-import { createThinkTagFilter } from "@/lib/agent/stream";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
 import { saveArticleFeedback } from "@/lib/api/articles";
 import { streamArticleAsk } from "@/lib/api/client";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { AnimatedPanel } from "./AnimatedPanel";
 import { ScoreBadge } from "./ScoreBadge";
+import { SkeletonBlock } from "./Skeleton";
 import { ThemeToggle } from "./ThemeToggle";
 import { emitToast } from "./Toast";
 import { articleAskErrorMessage } from "./articleAsk";
@@ -52,7 +54,7 @@ const FEEDBACK_OPTIONS: { type: ArticleFeedbackType; label: string }[] = [
 
 function summaryForLang(article: Article, lang: SummaryLangId): string {
   const summary = lang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
-  return summary.trim() || "暂无摘要，可在管理控制台完成评分后生成";
+  return summary.trim() || "暂无摘要，评分完成后自动生成。";
 }
 
 function summaryLangPath(nextLang: SummaryLangId): string {
@@ -61,10 +63,10 @@ function summaryLangPath(nextLang: SummaryLangId): string {
   return `${window.location.pathname}?${qs.toString()}`;
 }
 
-function normalizeFeedbackType(value: string | undefined): ArticleFeedbackType {
+function normalizeFeedbackType(value: string | undefined): ArticleFeedbackType | null {
   return ARTICLE_FEEDBACK_TYPES.includes(value as ArticleFeedbackType)
     ? (value as ArticleFeedbackType)
-    : "other";
+    : null;
 }
 
 function initialFeedbackScore(article: Article): string {
@@ -108,20 +110,57 @@ export function FocusedArticleReader({
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
   const [feedbackScore, setFeedbackScore] = useState(() => initialFeedbackScore(article));
-  const [feedbackType, setFeedbackType] = useState<ArticleFeedbackType>(() =>
+  const [feedbackType, setFeedbackType] = useState<ArticleFeedbackType | null>(() =>
     normalizeFeedbackType(article.myFeedback?.feedbackType),
   );
   const [feedbackReason, setFeedbackReason] = useState(article.myFeedback?.reason ?? "");
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [isSavingFeedback, setIsSavingFeedback] = useState(false);
+  const [secondaryActionsOpen, setSecondaryActionsOpen] = useState(false);
   const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
+  const secondaryMenuRef = useRef<HTMLDivElement | null>(null);
+  const secondaryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const articleRef = useRef<HTMLElement | null>(null);
+  const scoreDetailsRef = useRef<HTMLDetailsElement | null>(null);
+  const feedbackPanelRef = useRef<HTMLDivElement | null>(null);
+  const feedbackScoreInputRef = useRef<HTMLInputElement | null>(null);
+  const answerRef = useRef<HTMLDivElement | null>(null);
   const askAbortRef = useRef<AbortController | null>(null);
   const showTranslationWhenReadyRef = useRef(false);
   const articleActions = useArticleActions(article, currentLang);
   const typewriter = useTypewriterStream();
   const { selectedText, hasSelection, selectionRect, clearSelection } = useArticleSelection(articleRef);
+  const revealedAnswer = typewriter.revealed;
+  const answerVisible = revealedAnswer.trim().length > 0 || typewriter.isRevealing;
+  const answerPending = isAsking && !answerVisible && agentError == null;
+  const cursorVisible = isAsking || typewriter.isRevealing;
+  const secondaryActions = [
+    {
+      key: "refresh",
+      label: articleActions.isFetchingContent ? "刷新中" : "刷新全文",
+      disabled: articleActions.isFetchingContent,
+      run: () => void articleActions.refreshFullContent(),
+    },
+    {
+      key: "candidate",
+      label: article.starred ? "移出候选" : "加入候选",
+      disabled: articleActions.isTogglingCandidate,
+      run: () => void articleActions.toggleCandidate(),
+    },
+    {
+      key: "project",
+      label: articleActions.isProjecting ? "立项中" : "立项",
+      disabled: articleActions.isProjecting,
+      run: () => void articleActions.enqueueProject(),
+    },
+    {
+      key: "read",
+      label: articleActions.isMarkingRead ? "标记中" : "标记已读",
+      disabled: articleActions.isMarkingRead,
+      run: () => void articleActions.markRead(),
+    },
+  ];
 
   useEffect(() => {
     askAbortRef.current?.abort();
@@ -154,10 +193,22 @@ export function FocusedArticleReader({
     };
   }, []);
 
+  useEffect(() => {
+    const markdown = answerRef.current?.querySelector<HTMLElement>(".agentMarkdown");
+    if (markdown != null) markdown.scrollTop = markdown.scrollHeight;
+  }, [revealedAnswer, typewriter.isRevealing]);
+
   useDismissableLayer({
     enabled: drawerOpen,
     layerRef: drawerRef,
     onDismiss: () => setDrawerOpen(false),
+  });
+
+  useDismissableLayer({
+    enabled: secondaryActionsOpen,
+    layerRef: secondaryMenuRef,
+    ignoreRefs: [secondaryMenuButtonRef],
+    onDismiss: () => setSecondaryActionsOpen(false),
   });
 
   async function askAgent(nextQuestion = question) {
@@ -174,16 +225,12 @@ export function FocusedArticleReader({
     typewriter.reset();
 
     try {
-      const thinkFilter = createThinkTagFilter();
       for await (const chunk of streamArticleAsk(article.id, {
         question: trimmedQuestion,
         selected_text: selectedText.trim() || undefined,
       }, { signal: abortController.signal })) {
-        const text = thinkFilter.push(chunk);
-        if (text.length > 0) typewriter.push(text);
+        if (chunk.length > 0) typewriter.push(chunk);
       }
-      const finalText = thinkFilter.flush();
-      if (finalText.length > 0) typewriter.push(finalText);
     } catch (error) {
       if (abortController.signal.aborted) return;
       setAgentError(articleAskErrorMessage(error));
@@ -230,6 +277,10 @@ export function FocusedArticleReader({
       setFeedbackError("请输入 0 到 100 的反馈分值。");
       return;
     }
+    if (feedbackType == null) {
+      setFeedbackError("请选择反馈类型。");
+      return;
+    }
 
     setIsSavingFeedback(true);
     setFeedbackError(null);
@@ -250,19 +301,28 @@ export function FocusedArticleReader({
     }
   }
 
+  function openFeedbackPanel() {
+    scoreDetailsRef.current?.setAttribute("open", "");
+    feedbackPanelRef.current?.scrollIntoView({ block: "center" });
+    window.requestAnimationFrame(() => feedbackScoreInputRef.current?.focus());
+  }
+
   const score = article.score;
   const contentNotice = articleContentNotice(article);
   const agentNotice = articleAgentNotice(article);
   const displayedHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
-  const revealedAnswer = typewriter.revealed;
-  const answerVisible = revealedAnswer.trim().length > 0 || typewriter.isRevealing;
 
   return (
-    <main className="focusReader">
+    <motion.main
+      className="focusReader"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.19, ease: "easeOut" }}
+    >
       <header className="focusTopbar">
-        <a className="readerToolbarBtn" href={returnHref}>
+        <Link className="readerToolbarBtn" href={returnHref} prefetch={false}>
           返回工作台
-        </a>
+        </Link>
         <a className="readerToolbarBtn readerToolbarBtnPrimary" href={article.url} target="_blank" rel="noreferrer">
           打开原文
         </a>
@@ -275,38 +335,59 @@ export function FocusedArticleReader({
           >
             {showTranslation ? "看原文" : articleActions.isTranslating ? "翻译中" : "翻译全文"}
           </button>
-          <button
-            type="button"
-            className="readerToolbarBtn"
-            disabled={articleActions.isFetchingContent}
-            onClick={() => void articleActions.refreshFullContent()}
-          >
-            {articleActions.isFetchingContent ? "刷新中" : "刷新全文"}
-          </button>
-          <button
-            type="button"
-            className="readerToolbarBtn"
-            disabled={articleActions.isTogglingCandidate}
-            onClick={() => void articleActions.toggleCandidate()}
-          >
-            {article.starred ? "移出候选" : "加入候选"}
-          </button>
-          <button
-            type="button"
-            className="readerToolbarBtn"
-            disabled={articleActions.isProjecting}
-            onClick={() => void articleActions.enqueueProject()}
-          >
-            {articleActions.isProjecting ? "立项中" : "立项"}
-          </button>
-          <button
-            type="button"
-            className="readerToolbarBtn"
-            disabled={articleActions.isMarkingRead}
-            onClick={() => void articleActions.markRead()}
-          >
-            {articleActions.isMarkingRead ? "标记中" : "标记已读"}
-          </button>
+          <div className="focusSecondaryActions">
+            {secondaryActions.map((action) => (
+              <button
+                key={action.key}
+                type="button"
+                className="readerToolbarBtn"
+                disabled={action.disabled}
+                onClick={action.run}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+          <div className="focusOverflowMenu" ref={secondaryMenuRef}>
+            <button
+              ref={secondaryMenuButtonRef}
+              type="button"
+              className="readerToolbarBtn focusOverflowMenuButton"
+              aria-haspopup="menu"
+              aria-expanded={secondaryActionsOpen}
+              aria-label="更多文章操作"
+              onClick={() => setSecondaryActionsOpen((value) => !value)}
+            >
+              ⋯
+            </button>
+            <AnimatePresence initial={false}>
+              {secondaryActionsOpen ? (
+                <AnimatedPanel
+                  key="focus-overflow-menu"
+                  variant="popover"
+                  className="focusOverflowPopover"
+                  role="menu"
+                  aria-label="更多文章操作"
+                >
+                  {secondaryActions.map((action) => (
+                    <button
+                      key={action.key}
+                      type="button"
+                      className="focusOverflowOption"
+                      role="menuitem"
+                      disabled={action.disabled}
+                      onClick={() => {
+                        setSecondaryActionsOpen(false);
+                        action.run();
+                      }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </AnimatedPanel>
+              ) : null}
+            </AnimatePresence>
+          </div>
         </div>
         <ThemeToggle />
       </header>
@@ -315,6 +396,9 @@ export function FocusedArticleReader({
         <span className="focusStatusChip">{article.contentStatus === "partial" ? "正文：片段" : "正文：完整"}</span>
         <span className="focusStatusChip">{score ? "评分：已评分" : "评分：未评分"}</span>
         <span className={translationStatusClassName(article)}>{translationLabel(article)}</span>
+        <button type="button" className="focusStatusChip focusStatusAction" onClick={openFeedbackPanel}>
+          反馈校准
+        </button>
       </section>
 
       {articleActions.actionError ? (
@@ -351,7 +435,7 @@ export function FocusedArticleReader({
           <p>{summaryForLang(article, currentLang)}</p>
         </details>
 
-        <details className="focusSection">
+        <details className="focusSection" ref={scoreDetailsRef}>
           <summary>评分</summary>
           {score ? (
             <>
@@ -387,14 +471,15 @@ export function FocusedArticleReader({
               ) : null}
             </>
           ) : (
-            <p className="scoreMissing">未评分。可在管理控制台创建评分批次生成摘要、分数和理由。</p>
+            <p className="scoreMissing">未评分。评分完成后将生成摘要、分数和理由。</p>
           )}
-          <div className="scoreFeedbackPanel" aria-label="反馈校准">
+          <div className="scoreFeedbackPanel" aria-label="反馈校准" ref={feedbackPanelRef}>
             <div className="scoreFeedbackHeader">
               <p className="scoreFeedbackTitle">反馈校准</p>
               <label className="scoreFeedbackInputLabel">
                 我的分数
                 <input
+                  ref={feedbackScoreInputRef}
                   type="number"
                   min="0"
                   max="100"
@@ -540,14 +625,22 @@ export function FocusedArticleReader({
           </div>
           {agentNotice ? <p className="agentNotice">{agentNotice}</p> : null}
           {agentError != null ? <p className="agentError">{agentError}</p> : null}
+          {answerPending ? (
+            <div className="agentAnswerPending" aria-label="答案生成中" aria-live="polite">
+              <SkeletonBlock className="skeletonLine" width="86%" />
+              <SkeletonBlock className="skeletonLine" width="64%" />
+            </div>
+          ) : null}
           {answerVisible ? (
-            <div className="agentAnswer">
-              <AgentMarkdown text={revealedAnswer} />
-              {isAsking || typewriter.isRevealing ? <span className="typewriterCursor">▍</span> : null}
+            <div className="agentAnswer" ref={answerRef}>
+              <AgentMarkdown
+                text={revealedAnswer}
+                trailing={cursorVisible ? <span className="typewriterCursor">▍</span> : null}
+              />
             </div>
           ) : null}
         </motion.div>
       </section>
-    </main>
+    </motion.main>
   );
 }

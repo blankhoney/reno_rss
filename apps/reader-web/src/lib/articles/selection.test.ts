@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  isSelectionDismissKey,
   selectionPreview,
   selectionRectWithinContainer,
   selectionTextWithinContainer,
@@ -86,4 +87,10 @@ test("selectionRectWithinContainer returns the selected range rect", () => {
 test("selectionPreview truncates long selected text", () => {
   assert.equal(selectionPreview("one   two   three", 20), "one two three");
   assert.equal(selectionPreview("abcdefghijklmnopqrstuvwxyz", 8), "abcdefgh...");
+});
+
+test("isSelectionDismissKey only treats Escape as a popover dismiss key", () => {
+  assert.equal(isSelectionDismissKey("Escape"), true);
+  assert.equal(isSelectionDismissKey("Enter"), false);
+  assert.equal(isSelectionDismissKey(" "), false);
 });

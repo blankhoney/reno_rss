@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import Link from "next/link";
 
 export type ToastVariant = "success" | "info" | "error";
 
@@ -67,17 +69,32 @@ export function ToastHost() {
 
   return (
     <div className="toastHost" role="status" aria-live="polite" aria-atomic="true">
-      {items.map((item) => (
-        <div className={`toastCard toastCard-${item.variant}`} key={item.id}>
-          <p className="toastTitle">{item.title}</p>
-          {item.body ? <p className="toastBody">{item.body}</p> : null}
-          {item.action ? (
-            <a className="toastAction" href={item.action.href}>
-              {item.action.label}
-            </a>
-          ) : null}
-        </div>
-      ))}
+      <AnimatePresence initial={false}>
+        {items.map((item) => (
+          <motion.div
+            className={`toastCard toastCard-${item.variant}`}
+            key={item.id}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.19, ease: "easeOut" }}
+          >
+            <p className="toastTitle">{item.title}</p>
+            {item.body ? <p className="toastBody">{item.body}</p> : null}
+            {item.action ? (
+              item.action.href.startsWith("/") ? (
+                <Link className="toastAction" href={item.action.href} prefetch={false}>
+                  {item.action.label}
+                </Link>
+              ) : (
+                <a className="toastAction" href={item.action.href}>
+                  {item.action.label}
+                </a>
+              )
+            ) : null}
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

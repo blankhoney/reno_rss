@@ -25,9 +25,9 @@ type ActionResult =
 
 export const ARTICLE_DATA_CHANGED_EVENT = "ai-reader:articles-changed";
 
-function savedHref(entryId: number, lang: SummaryLangId): string {
+function projectHref(entryId: number, lang: SummaryLangId): string {
   const qs = new URLSearchParams({
-    module: "starred",
+    module: "project",
     sort: "default",
     lang,
     article: String(entryId),
@@ -197,10 +197,10 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     enqueueProject: () =>
       run("project", async () => {
         if (article == null) return "";
-        await updateArticleState(article.id, { saved: true });
+        await updateArticleState(article.id, { project: true });
         return {
-          message: "已加入候选",
-          action: { href: savedHref(article.id, currentLang), label: "查看候选" },
+          message: "已立项",
+          action: { href: projectHref(article.id, currentLang), label: "查看立项" },
         };
       }),
     markRead: () =>
