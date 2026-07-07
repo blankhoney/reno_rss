@@ -32,53 +32,96 @@ export function extractOpenAICompatibleEventText(data: string): string {
 
 export function createThinkTagFilter() {
   let insideThink = false;
-  let pendingTag = "";
+  let buffer = "";
 
   return {
     push(chunk: string): string {
-      let output = "";
+      buffer += chunk;
+      const output: string[] = [];
 
-      for (const char of chunk) {
-        if (pendingTag.length > 0) {
-          pendingTag += char;
-          const lower = pendingTag.toLowerCase();
-          if ("<think>".startsWith(lower) || "</think>".startsWith(lower)) {
-            if (lower === "<think>") {
-              insideThink = true;
-              pendingTag = "";
-            } else if (lower === "</think>") {
-              insideThink = false;
-              pendingTag = "";
-            }
-            continue;
+      while (buffer.length > 0) {
+        const lower = buffer.toLowerCase();
+        if (insideThink) {
+          const closeIndex = lower.indexOf("</think>");
+          if (closeIndex < 0) {
+            const tailLength = partialTagPrefixLength(buffer, "</think>");
+            buffer = tailLength > 0 ? buffer.slice(-tailLength) : "";
+            break;
           }
-
-          if (!insideThink) output += pendingTag;
-          pendingTag = "";
+          buffer = buffer.slice(closeIndex + "</think>".length);
+          insideThink = false;
           continue;
         }
 
-        if (char === "<") {
-          pendingTag = char;
-          continue;
+        const openTag = findOpenThinkTag(buffer);
+        if (openTag == null) {
+          const tailLength = partialTagPrefixLength(buffer, "<think");
+          const emitLength = buffer.length - tailLength;
+          if (emitLength === 0) break;
+          output.push(buffer.slice(0, emitLength));
+          buffer = buffer.slice(emitLength);
+          break;
         }
 
-        if (!insideThink) output += char;
+        output.push(buffer.slice(0, openTag.start));
+        if (openTag.end == null) {
+          buffer = buffer.slice(openTag.start);
+          break;
+        }
+        buffer = buffer.slice(openTag.end);
+        insideThink = true;
       }
 
-      return output;
+      return output.join("");
     },
 
     flush(): string {
-      if (pendingTag.length === 0 || insideThink) {
-        pendingTag = "";
+      if (buffer.length === 0 || insideThink) {
+        buffer = "";
         return "";
       }
-      const output = pendingTag;
-      pendingTag = "";
+      const output = stripThinkTagsFromBufferedText(buffer);
+      buffer = "";
       return output;
     },
   };
+}
+
+function findOpenThinkTag(text: string): { start: number; end: number | null } | null {
+  const lower = text.toLowerCase();
+  let searchFrom = 0;
+  const marker = "<think";
+
+  while (true) {
+    const start = lower.indexOf(marker, searchFrom);
+    if (start < 0) return null;
+
+    const boundaryIndex = start + marker.length;
+    if (boundaryIndex >= lower.length) return { start, end: null };
+
+    const boundary = lower[boundaryIndex] ?? "";
+    if (boundary === ">") return { start, end: boundaryIndex + 1 };
+    if (/\s/.test(boundary)) {
+      const end = lower.indexOf(">", boundaryIndex + 1);
+      return { start, end: end < 0 ? null : end + 1 };
+    }
+
+    searchFrom = start + 1;
+  }
+}
+
+function partialTagPrefixLength(text: string, tag: string): number {
+  const lower = text.toLowerCase();
+  for (let length = Math.min(tag.length - 1, lower.length); length > 0; length -= 1) {
+    if (lower.endsWith(tag.slice(0, length))) return length;
+  }
+  return 0;
+}
+
+function stripThinkTagsFromBufferedText(text: string): string {
+  return text
+    .replace(/<think\b[^>]*>.*?<\/think>/gis, "")
+    .replace(/<think\b[^>]*>.*$/is, "");
 }
 
 export function stripThinkTags(text: string): string {

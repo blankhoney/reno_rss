@@ -54,6 +54,13 @@ def _minimax_stream_line(content):
     )
 
 
+def _minimax_reasoning_stream_line(reasoning):
+    return "data: " + json.dumps(
+        {"choices": [{"delta": {"reasoning_content": reasoning}}]},
+        ensure_ascii=False,
+    )
+
+
 @pytest.mark.asyncio
 async def test_ask_requires_session(client):
     response = await client.post("/api/articles/1/ask", json={"question": "总结"})
@@ -81,6 +88,30 @@ def test_create_app_selects_minimax_ask_provider_when_key_is_configured(monkeypa
     app = create_app()
 
     assert isinstance(app.state.ask_provider, MiniMaxAskProvider)
+
+
+def test_create_ask_provider_uses_minimax_generation_settings():
+    from app.api.routes.ask import MiniMaxAskProvider, create_ask_provider
+    from app.core.config import Settings
+
+    settings = Settings(
+        llm_provider="minimax",
+        minimax_api_key="test-key",
+        minimax_temperature=0.4,
+        minimax_top_p=0.8,
+        minimax_max_completion_tokens=2048,
+        minimax_reasoning_split=False,
+        minimax_thinking_type="adaptive",
+    )
+
+    provider = create_ask_provider(settings)
+
+    assert isinstance(provider, MiniMaxAskProvider)
+    assert provider.temperature == 0.4
+    assert provider.top_p == 0.8
+    assert provider.max_completion_tokens == 2048
+    assert provider.reasoning_split is False
+    assert provider.thinking_type == "adaptive"
 
 
 @pytest.mark.asyncio
@@ -268,6 +299,11 @@ async def test_ask_streams_minimax_chunks_without_logging_bodies(app, client, ca
         api_key="test-key",
         base_url="https://llm.example/v1",
         model="MiniMax-Test",
+        temperature=0.3,
+        top_p=0.85,
+        max_completion_tokens=4096,
+        reasoning_split=True,
+        thinking_type="disabled",
         timeout_seconds=9.0,
         stream_factory=stream_factory,
     )
@@ -292,7 +328,11 @@ async def test_ask_streams_minimax_chunks_without_logging_bodies(app, client, ca
     assert captured_request["headers"] == {"Authorization": "Bearer test-key"}
     assert captured_request["json"]["model"] == "MiniMax-Test"
     assert captured_request["json"]["stream"] is True
-    assert captured_request["json"]["temperature"] == 0.2
+    assert captured_request["json"]["temperature"] == 0.3
+    assert captured_request["json"]["top_p"] == 0.85
+    assert captured_request["json"]["max_completion_tokens"] == 4096
+    assert captured_request["json"]["reasoning_split"] is True
+    assert captured_request["json"]["thinking"] == {"type": "disabled"}
     assert captured_request["timeout"] == 9.0
     assert "Server truth with private body." in str(captured_request["json"]["messages"])
     assert "Server truth with private body." not in caplog.text
@@ -319,3 +359,71 @@ async def test_ask_strips_think_block_across_stream_chunks(app, client):
     assert "secret" not in response.text
     assert "data: 结论：" in response.text
     assert "data: 可读" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ask_strips_think_tag_with_attributes(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    app.state.ask_provider = ChunkingAskProvider(
+        ["结论：", "<think type=\"reasoning\">secret</think>", "可读"]
+    )
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Agent Article",
+            "content_text": "Server truth.",
+        }
+    )
+
+    response = await client.post(f"/api/articles/{article.id}/ask", json={"question": "总结"})
+
+    assert response.status_code == 200
+    assert "secret" not in response.text
+    assert "<think" not in response.text
+    assert "data: 结论：" in response.text
+    assert "data: 可读" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ask_ignores_provider_reasoning_content_delta(app, client):
+    from app.api.routes.ask import MiniMaxAskProvider
+
+    def stream_factory(method, url, *, headers, json, timeout):
+        return FakeMiniMaxStream(
+            [
+                _minimax_reasoning_stream_line("hidden provider reasoning"),
+                _minimax_stream_line("结论：可读"),
+                "data: [DONE]",
+            ]
+        )
+
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    app.state.ask_provider = MiniMaxAskProvider(
+        api_key="test-key",
+        base_url="https://llm.example/v1",
+        model="MiniMax-Test",
+        temperature=0.2,
+        top_p=0.9,
+        max_completion_tokens=4096,
+        reasoning_split=True,
+        thinking_type="disabled",
+        timeout_seconds=9.0,
+        stream_factory=stream_factory,
+    )
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Agent Article",
+            "content_text": "Server truth.",
+        }
+    )
+
+    response = await client.post(f"/api/articles/{article.id}/ask", json={"question": "总结"})
+
+    assert response.status_code == 200
+    assert "hidden provider reasoning" not in response.text
+    assert "data: 结论：可读" in response.text

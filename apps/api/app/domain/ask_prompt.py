@@ -100,7 +100,7 @@ def strip_think_blocks(text: str) -> str:
 def stream_without_think_blocks(chunks: Iterable[object]) -> Iterable[str]:
     buffer = ""
     in_think = False
-    open_tag = "<think>"
+    open_tag_start = "<think"
     close_tag = "</think>"
 
     for chunk in chunks:
@@ -118,9 +118,9 @@ def stream_without_think_blocks(chunks: Iterable[object]) -> Iterable[str]:
                 in_think = False
                 continue
 
-            open_index = lower.find(open_tag)
-            if open_index < 0:
-                tail_length = _partial_tag_prefix_length(buffer, open_tag)
+            open_tag = _find_open_think_tag(buffer)
+            if open_tag is None:
+                tail_length = _partial_tag_prefix_length(buffer, open_tag_start)
                 emit_length = len(buffer) - tail_length
                 if emit_length == 0:
                     break
@@ -128,8 +128,14 @@ def stream_without_think_blocks(chunks: Iterable[object]) -> Iterable[str]:
                 buffer = buffer[emit_length:]
                 break
 
+            open_index, open_end = open_tag
+            if open_end is None:
+                output.append(buffer[:open_index])
+                buffer = buffer[open_index:]
+                break
+
             output.append(buffer[:open_index])
-            buffer = buffer[open_index + len(open_tag) :]
+            buffer = buffer[open_end:]
             in_think = True
 
         text = "".join(output)
@@ -148,6 +154,30 @@ def _partial_tag_prefix_length(text: str, tag: str) -> int:
         if lower.endswith(tag[:length]):
             return length
     return 0
+
+
+def _find_open_think_tag(text: str) -> tuple[int, int | None] | None:
+    lower = text.lower()
+    search_from = 0
+    marker = "<think"
+
+    while True:
+        start = lower.find(marker, search_from)
+        if start < 0:
+            return None
+
+        boundary_index = start + len(marker)
+        if boundary_index >= len(lower):
+            return (start, None)
+
+        boundary = lower[boundary_index]
+        if boundary == ">":
+            return (start, boundary_index + 1)
+        if boundary.isspace():
+            end = lower.find(">", boundary_index + 1)
+            return (start, None if end < 0 else end + 1)
+
+        search_from = start + 1
 
 
 def _article_text(content_text: str | None, content_html: str | None) -> str:

@@ -6,6 +6,8 @@ import pytest
 from app.providers.llm import (
     DIMENSION_KEYS,
     MiniMaxProvider,
+    MinimaxConfig,
+    MinimaxLLMClient,
     MockProvider,
     TRANSLATE_INPUT_LIMIT,
     _looks_chinese,
@@ -92,6 +94,59 @@ def test_minimax_translation_truncates_article_body_before_request():
     assert len(article["content_text"]) == TRANSLATE_INPUT_LIMIT
     assert "HTML_TAIL" not in article["content_html"]
     assert "TEXT_TAIL" not in article["content_text"]
+
+
+def test_minimax_client_uses_generation_settings(monkeypatch):
+    captured_request = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "中文结果"}}]}
+
+    def fake_post(url, *, headers, json, timeout):
+        captured_request.update(
+            {
+                "url": url,
+                "headers": headers,
+                "json": json,
+                "timeout": timeout,
+            }
+        )
+        return FakeResponse()
+
+    monkeypatch.setattr("app.providers.llm.httpx.post", fake_post)
+    client = MinimaxLLMClient(
+        MinimaxConfig(
+            api_key="test-key",
+            base_url="https://llm.example/v1",
+            model="MiniMax-Test",
+            temperature=0.35,
+            top_p=0.82,
+            max_completion_tokens=4096,
+            reasoning_split=True,
+            thinking_type="disabled",
+            timeout_seconds=8.0,
+        )
+    )
+
+    result = client.chat_completion([{"role": "user", "content": "总结"}])
+
+    assert result == "中文结果"
+    assert captured_request["url"] == "https://llm.example/v1/chat/completions"
+    assert captured_request["headers"] == {"Authorization": "Bearer test-key"}
+    assert captured_request["json"] == {
+        "model": "MiniMax-Test",
+        "messages": [{"role": "user", "content": "总结"}],
+        "temperature": 0.35,
+        "top_p": 0.82,
+        "max_completion_tokens": 4096,
+        "reasoning_split": True,
+        "thinking": {"type": "disabled"},
+    }
+    assert captured_request["timeout"] == 8.0
 
 
 def test_minimax_provider_strips_think_extracts_json_and_normalizes_values():
