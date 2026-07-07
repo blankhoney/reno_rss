@@ -21,6 +21,9 @@ test("ModuleSidebar groups the navigation and keeps the active module visible", 
   assert.match(html, /href="https:\/\/github.com\/blankhoney\/reno_rss"/);
   assert.match(html, /target="_blank"/);
   assert.match(html, /rel="noreferrer noopener"/);
+  assert.match(html, /mobileTopbar/);
+  assert.match(html, /aria-controls="mobile-module-drawer"/);
+  assert.match(html, /aria-expanded="false"/);
 });
 
 test("ModuleSidebar exposes the FastAPI admin console as the management surface", () => {

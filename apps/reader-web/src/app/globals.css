@@ -58,6 +58,7 @@
   --z-topbar: 8;
   --z-popover: 30;
   --z-drawer: 20;
+  --z-overlay: 40;
   --z-toast: 50;
 }
 
@@ -318,6 +319,34 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  align-self: start;
+}
+
+.moduleSidebarPending .moduleNav {
+  visibility: hidden;
+}
+
+.mobileTopbar,
+.mobileNavOverlay {
+  display: none;
+}
+
+.mobileNavButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .brandBlock {
@@ -562,52 +591,6 @@ button {
   font-weight: 600;
 }
 
-.settingsPanel {
-  position: relative;
-}
-
-.settingsPopover {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  z-index: var(--z-popover);
-  width: 260px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--panel);
-  box-shadow: var(--shadow-lg);
-  padding: 12px;
-  display: grid;
-  gap: 10px;
-  transform-origin: top right;
-}
-
-.settingsRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 0.9rem;
-}
-
-.settingsNumber {
-  width: 72px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 8px;
-}
-
-.settingsActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.settingsMessage {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
 .bulkScoreStatus {
   margin: -4px 0 0;
   color: var(--muted);
@@ -639,12 +622,6 @@ button {
   padding: 5px 8px;
   font-size: 0.82rem;
   font-weight: 600;
-}
-
-.feedQualityPane {
-  padding: 22px;
-  min-height: 100vh;
-  background: var(--bg);
 }
 
 .adminConsolePane {
@@ -737,6 +714,11 @@ button {
   display: grid;
   gap: 10px;
   overflow: auto;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.articleListPaging {
+  opacity: 0.55;
 }
 
 .articleListEmpty {
@@ -800,7 +782,9 @@ button {
   border-radius: var(--radius-md);
   padding: 10px;
   background: var(--panel);
+  color: inherit;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .articleCard:hover {
@@ -815,6 +799,23 @@ button {
 .articleCardActive {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-muted);
+}
+
+.articleCardReturnTarget {
+  animation: articleReturnHighlight 1600ms var(--ease-standard) 1;
+}
+
+.articleCardRead .articleCardTitle {
+  color: var(--muted);
+}
+
+.articleCardRead .articleCardMeta::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  align-self: center;
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
 }
 
 .articleCardMeta {
@@ -879,57 +880,9 @@ button {
   font-weight: 600;
 }
 
-.articleReadLink:hover {
+.articleCard:hover .articleReadLink {
   border-color: var(--accent);
   background: var(--accent-muted);
-}
-
-.recommendationEdition {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 0.8rem;
-  line-height: 1.4;
-}
-
-.recommendationCard {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.recommendationTopline,
-.recommendationMetrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-
-.recommendationRank {
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.recommendationPill,
-.recommendationRisk {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 7px;
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 0.74rem;
-  line-height: 1.35;
-}
-
-.recommendationReason {
-  margin: 0;
-  color: var(--text);
-  font-size: 0.83rem;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
 }
 
 .scoreBadge {
@@ -962,6 +915,11 @@ button {
   flex-direction: column;
   gap: 14px;
   min-height: 100vh;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  align-self: start;
 }
 
 .workbenchRailSection {
@@ -977,6 +935,14 @@ button {
   color: var(--muted);
   font-size: 0.78rem;
   text-transform: uppercase;
+}
+
+.workbenchRailToggle {
+  display: none;
+}
+
+.workbenchRailCollapsible {
+  display: block;
 }
 
 .workbenchRailList {
@@ -1099,7 +1065,7 @@ button {
       color-mix(in srgb, var(--border) 78%, transparent) 80%
     );
   background-size: 220% 100%;
-  animation: skeletonShimmer var(--motion-slow) var(--ease-standard) infinite;
+  animation: skeletonShimmer 1400ms var(--ease-standard) infinite;
 }
 
 .skeletonLine {
@@ -1167,6 +1133,10 @@ button {
   gap: var(--space-2);
   width: min(340px, calc(100vw - 32px));
   pointer-events: none;
+}
+
+body:has(.focusReader) .toastHost {
+  bottom: 96px;
 }
 
 .toastCard {
@@ -1809,6 +1779,56 @@ button {
   gap: 8px;
 }
 
+.focusSecondaryActions {
+  display: contents;
+}
+
+.focusOverflowMenu {
+  position: relative;
+}
+
+.focusOverflowMenuButton {
+  display: none;
+}
+
+.focusOverflowPopover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: var(--z-popover);
+  min-width: 150px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  display: grid;
+  gap: 3px;
+  transform-origin: top right;
+}
+
+.focusOverflowOption {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.focusOverflowOption:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.focusOverflowOption:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 .focusTopbar > .themeToggle {
   margin-left: auto;
 }
@@ -1835,6 +1855,15 @@ button {
   background: color-mix(in srgb, var(--danger) 12%, var(--panel));
   color: var(--danger);
   font-weight: 700;
+}
+
+.focusStatusAction {
+  cursor: pointer;
+}
+
+.focusStatusAction:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .focusArticle {
@@ -1934,8 +1963,8 @@ button {
   box-shadow: var(--shadow-xl);
   overflow: hidden;
   transition:
-    box-shadow 180ms ease,
-    transform 180ms ease;
+    box-shadow var(--motion-standard) var(--ease-standard),
+    transform var(--motion-standard) var(--ease-standard);
 }
 
 .agentDrawerHandle {
@@ -1972,34 +2001,17 @@ button {
   border-top: 1px solid transparent;
   padding: 0 12px;
   overflow: hidden;
+  overscroll-behavior: contain;
   max-height: 0;
-  opacity: 0;
-  transform: translateY(8px);
   visibility: hidden;
-  transition:
-    max-height 220ms ease,
-    opacity 180ms ease,
-    transform 220ms ease,
-    padding 220ms ease,
-    border-color 220ms ease,
-    visibility 0s linear 220ms;
 }
 
 .agentDrawerOpen .agentDrawerBody {
   border-top-color: var(--border);
   padding: 12px;
   max-height: calc(50vh - 42px);
-  opacity: 1;
-  transform: translateY(0);
   visibility: visible;
   overflow: auto;
-  transition:
-    max-height 220ms ease,
-    opacity 180ms ease,
-    transform 220ms ease,
-    padding 220ms ease,
-    border-color 220ms ease,
-    visibility 0s linear 0s;
 }
 
 .agentSelectionChip {
@@ -2041,6 +2053,31 @@ button {
 
 .agentAnswer {
   position: relative;
+}
+
+.agentAnswerPending {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg);
+}
+
+.agentMarkdown pre {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.agentMarkdown pre code {
+  font-size: inherit;
 }
 
 .typewriterCursor {
@@ -2089,6 +2126,58 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .mobileTopbar {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-topbar);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobileTopbarActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .moduleSidebar {
+    display: none;
+  }
+
+  .mobileNavOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    display: block;
+  }
+
+  .mobileNavScrim {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(0, 0, 0, 0.32);
+  }
+
+  .mobileNavDrawer {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(320px, 86vw);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    box-shadow: var(--shadow-xl);
+  }
+
   .moduleSidebar,
   .articleListPane,
   .workbenchRail,
@@ -2100,6 +2189,32 @@ button {
 
   .workbenchRail {
     border-left: 0;
+  }
+
+  .workbenchRailToggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    padding: 0;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .workbenchRailDesktopTitle {
+    display: none;
+  }
+
+  .workbenchRailCollapsible {
+    display: none;
+    margin-top: 10px;
+  }
+
+  .workbenchRailCollapsibleOpen {
+    display: block;
   }
 
   .workbenchStatus {
@@ -2126,6 +2241,14 @@ button {
 
   .focusContent {
     font-size: 1rem;
+  }
+
+  .focusSecondaryActions {
+    display: none;
+  }
+
+  .focusOverflowMenuButton {
+    display: inline-flex;
   }
 
   .feedQualityHeader {

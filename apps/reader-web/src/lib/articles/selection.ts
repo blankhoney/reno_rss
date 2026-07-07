@@ -29,6 +29,10 @@ export function selectionPreview(text: string, limit = 36): string {
   return `${normalized.slice(0, limit)}...`;
 }
 
+export function isSelectionDismissKey(key: string): boolean {
+  return key === "Escape";
+}
+
 export function useArticleSelection(containerRef: RefObject<HTMLElement | null>) {
   const [selectedText, setSelectedText] = useState("");
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
@@ -56,14 +60,32 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
       setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
     }
 
+    function hidePopover() {
+      setSelectionRect(null);
+    }
+
+    function dismissSelection(event: KeyboardEvent) {
+      if (!isSelectionDismissKey(event.key)) return;
+      setSelectedText("");
+      setSelectionRect(null);
+      window.getSelection()?.removeAllRanges();
+    }
+
     const container = containerRef.current;
+    const scrollOptions: AddEventListenerOptions = { capture: true, passive: true };
     container?.addEventListener("mouseup", revealPopoverOnSettle);
     container?.addEventListener("touchend", revealPopoverOnSettle);
     document.addEventListener("selectionchange", syncSelectedText);
+    document.addEventListener("scroll", hidePopover, scrollOptions);
+    document.addEventListener("keydown", dismissSelection);
+    window.addEventListener("resize", hidePopover);
     return () => {
       container?.removeEventListener("mouseup", revealPopoverOnSettle);
       container?.removeEventListener("touchend", revealPopoverOnSettle);
       document.removeEventListener("selectionchange", syncSelectedText);
+      document.removeEventListener("scroll", hidePopover, scrollOptions);
+      document.removeEventListener("keydown", dismissSelection);
+      window.removeEventListener("resize", hidePopover);
     };
   }, [containerRef]);
 
@@ -74,6 +96,7 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
     clearSelection: () => {
       setSelectedText("");
       setSelectionRect(null);
+      window.getSelection()?.removeAllRanges();
     },
   };
 }

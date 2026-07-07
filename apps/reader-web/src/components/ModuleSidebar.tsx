@@ -1,10 +1,11 @@
 "use client";
 
-import { AnimatePresence } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
-import { AnimatedPanel } from "./AnimatedPanel";
 import { ThemeToggle } from "./ThemeToggle";
+import { useDismissableLayer } from "./useDismissableLayer";
 
 type ModuleNavItem = { id: string; label: string; disabled?: boolean };
 type ModuleNavGroup = { id: string; label: string; items: ModuleNavItem[] };
@@ -94,10 +95,15 @@ export function ModuleSidebar({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() =>
     initialCollapsedGroups(currentModule),
   );
+  const [hasHydrated, setHasHydrated] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const hamburgerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     const stored = readStoredCollapsedGroups();
     if (stored) setCollapsedGroups(stored);
+    setHasHydrated(true);
   }, [currentModule]);
 
   function toggleGroup(groupId: string) {
@@ -114,8 +120,30 @@ export function ModuleSidebar({
     });
   }
 
-  return (
-    <aside className="moduleSidebar">
+  function closeDrawer() {
+    setDrawerOpen(false);
+    window.requestAnimationFrame(() => hamburgerRef.current?.focus());
+  }
+
+  useDismissableLayer({
+    enabled: drawerOpen,
+    layerRef: drawerRef,
+    ignoreRefs: [hamburgerRef],
+    onDismiss: closeDrawer,
+  });
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    drawerRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [drawerOpen]);
+
+  function renderBrandBlock() {
+    return (
       <div className="brandBlock">
         <div className="brandRow">
           <div className="brand">AI Reader</div>
@@ -130,60 +158,128 @@ export function ModuleSidebar({
           GitHub 源码
         </a>
       </div>
-      <nav className="moduleNav" aria-label="阅读模块">
-        {MODULE_GROUPS.map((group) => {
-          const collapsed = collapsedGroups.has(group.id);
-          const activeGroup = activeGroupId === group.id;
-          return (
-            <section className="moduleNavGroup" key={group.id}>
-              <button
-                type="button"
-                className={`moduleNavGroupButton${activeGroup ? " moduleNavGroupButtonActive" : ""}`}
-                aria-expanded={!collapsed}
-                onClick={() => toggleGroup(group.id)}
+    );
+  }
+
+  function renderNavGroups(onNavigate?: () => void) {
+    return MODULE_GROUPS.map((group) => {
+      const collapsed = collapsedGroups.has(group.id);
+      const activeGroup = activeGroupId === group.id;
+      return (
+        <section className="moduleNavGroup" key={group.id}>
+          <button
+            type="button"
+            className={`moduleNavGroupButton${activeGroup ? " moduleNavGroupButtonActive" : ""}`}
+            aria-expanded={!collapsed}
+            onClick={() => toggleGroup(group.id)}
+          >
+            <span>{group.label}</span>
+            <span aria-hidden="true">{collapsed ? "+" : "-"}</span>
+          </button>
+          <AnimatePresence initial={false}>
+            {collapsed ? null : (
+              <motion.div
+                key={`${group.id}-items`}
+                className="moduleNavGroupItems"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                style={{ overflow: "hidden" }}
               >
-                <span>{group.label}</span>
-                <span aria-hidden="true">{collapsed ? "+" : "-"}</span>
-              </button>
-              <AnimatePresence initial={false}>
-                {collapsed ? null : (
-                  <AnimatedPanel
-                    key={`${group.id}-items`}
-                    variant="collapse"
-                    className="moduleNavGroupItems"
-                  >
-                    {group.items.map((m) => {
-                      if (m.disabled) {
-                        return (
-                          <span
-                            key={m.id}
-                            className="moduleNavLink moduleNavLinkComingSoon"
-                            aria-disabled="true"
-                            aria-label={`${m.label}，即将推出`}
-                          >
-                            {m.label}
-                          </span>
-                        );
-                      }
-                      const active = currentModule === m.id;
-                      return (
-                        <a
-                          key={m.id}
-                          className={`moduleNavLink${active ? " moduleNavLinkActive" : ""}`}
-                          href={moduleHref(m.id, currentSort, currentLang)}
-                          aria-current={active ? "page" : undefined}
-                        >
-                          {m.label}
-                        </a>
-                      );
-                    })}
-                  </AnimatedPanel>
-                )}
-              </AnimatePresence>
-            </section>
-          );
-        })}
-      </nav>
-    </aside>
+                {group.items.map((m) => {
+                  if (m.disabled) {
+                    return (
+                      <span
+                        key={m.id}
+                        className="moduleNavLink moduleNavLinkComingSoon"
+                        aria-disabled="true"
+                        aria-label={`${m.label}，即将推出`}
+                      >
+                        {m.label}
+                      </span>
+                    );
+                  }
+                  const active = currentModule === m.id;
+                  return (
+                    <Link
+                      key={m.id}
+                      className={`moduleNavLink${active ? " moduleNavLinkActive" : ""}`}
+                      href={moduleHref(m.id, currentSort, currentLang)}
+                      prefetch={false}
+                      aria-current={active ? "page" : undefined}
+                      onClick={onNavigate}
+                    >
+                      {m.label}
+                    </Link>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </section>
+      );
+    });
+  }
+
+  return (
+    <>
+      <div className="mobileTopbar">
+        <div className="brand">AI Reader</div>
+        <div className="mobileTopbarActions">
+          <ThemeToggle />
+          <button
+            ref={hamburgerRef}
+            type="button"
+            className="mobileNavButton"
+            aria-label="打开阅读模块"
+            aria-expanded={drawerOpen}
+            aria-controls="mobile-module-drawer"
+            onClick={() => setDrawerOpen((value) => !value)}
+          >
+            ☰
+          </button>
+        </div>
+      </div>
+      <aside className={hasHydrated ? "moduleSidebar" : "moduleSidebar moduleSidebarPending"}>
+        {renderBrandBlock()}
+        <nav className="moduleNav" aria-label="阅读模块">
+          {renderNavGroups()}
+        </nav>
+      </aside>
+      <AnimatePresence initial={false}>
+        {drawerOpen ? (
+          <motion.div
+            className="mobileNavOverlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="mobileNavScrim"
+              aria-label="关闭阅读模块"
+              onClick={closeDrawer}
+            />
+            <motion.aside
+              id="mobile-module-drawer"
+              ref={drawerRef}
+              className="mobileNavDrawer"
+              role="dialog"
+              aria-modal="true"
+              aria-label="阅读模块"
+              tabIndex={-1}
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+            >
+              {renderBrandBlock()}
+              <nav className="moduleNav" aria-label="阅读模块">
+                {renderNavGroups(closeDrawer)}
+              </nav>
+            </motion.aside>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </>
   );
 }

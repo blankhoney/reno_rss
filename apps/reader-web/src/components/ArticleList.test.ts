@@ -70,6 +70,7 @@ test("ArticleList renders pager controls with disabled state", () => {
     sourceLanguage: "unknown",
     status: "unread",
     starred: false,
+    project: false,
     publishedAt: "2026-05-14T00:00:00Z",
     score: {
       overall: 88,
@@ -139,6 +140,7 @@ test("ArticleList renders summaries and preserves workbench and focus reading li
     sourceLanguage: "en",
     status: "unread",
     starred: false,
+    project: false,
     publishedAt: "2026-05-14T00:00:00Z",
     score: {
       overall: 88,
@@ -172,6 +174,8 @@ test("ArticleList renders summaries and preserves workbench and focus reading li
   assert.doesNotMatch(html, /data-preview-href/);
   assert.match(html, /href="\/read\/42\?module=all&amp;sort=technical&amp;lang=zh"/);
   assert.match(html, /进入专注阅读/);
+  assert.match(html, /data-article-id="42"/);
+  assert.doesNotMatch(html, /role="link"/);
   assert.match(html, /阅读/);
 });
 
@@ -196,6 +200,7 @@ test("ArticleList uses low-noise summary text for unscored articles", () => {
           sourceLanguage: "unknown",
           status: "unread",
           starred: false,
+          project: false,
           publishedAt: "2026-05-14T00:00:00Z",
           score: null,
           myFeedback: null,
@@ -208,10 +213,87 @@ test("ArticleList uses low-noise summary text for unscored articles", () => {
       currentLang: "zh",
     });
 
-  assert.match(html, /未评分/);
+  assert.match(html, /暂无摘要/);
   assert.match(html, /评分/);
+  assert.match(html, /未评/);
   assert.doesNotMatch(html, /层级/);
+  assert.doesNotMatch(html, /<p class="articleCardSummary">未评分<\/p>/);
   assert.doesNotMatch(html, /未生成摘要/);
+});
+
+test("ArticleList highlights the article restored from focus reading", () => {
+  const article: Article = {
+    id: 42,
+    userId: 1,
+    feedId: 2,
+    feedTitle: "Feed",
+    categoryId: 3,
+    categoryTitle: "AI",
+    title: "Example title",
+    url: "https://example.com",
+    contentHtml: "<p>Body</p>",
+    contentStatus: "partial",
+    contentIssue: "rss_fragment",
+    contentFetchAttempted: false,
+    summaryZh: "摘要",
+    summaryOriginal: "",
+    sourceLanguage: "unknown",
+    status: "unread",
+    starred: false,
+    project: false,
+    publishedAt: "2026-05-14T00:00:00Z",
+    score: null,
+    myFeedback: null,
+    readLater: false,
+    lastReadAt: null,
+  };
+
+  const html = renderArticleList({
+    articles: [article],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+    highlightArticleId: 42,
+  });
+
+  assert.match(html, /articleCardReturnTarget/);
+});
+
+test("ArticleList marks read articles for quieter visual treatment", () => {
+  const article: Article = {
+    id: 44,
+    userId: 1,
+    feedId: 2,
+    feedTitle: "Feed",
+    categoryId: 3,
+    categoryTitle: "AI",
+    title: "Read title",
+    url: "https://example.com/read",
+    contentHtml: "<p>Body</p>",
+    contentStatus: "partial",
+    contentIssue: "rss_fragment",
+    contentFetchAttempted: false,
+    summaryZh: "摘要",
+    summaryOriginal: "",
+    sourceLanguage: "unknown",
+    status: "read",
+    starred: false,
+    project: false,
+    publishedAt: "2026-05-14T00:00:00Z",
+    score: null,
+    myFeedback: null,
+    readLater: false,
+    lastReadAt: "2026-05-14T00:00:01Z",
+  };
+
+  const html = renderArticleList({
+    articles: [article],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+  });
+
+  assert.match(html, /articleCardRead/);
 });
 
 test("ArticleList keeps list actions on FastAPI-backed reading controls", () => {
@@ -235,6 +317,7 @@ test("ArticleList keeps list actions on FastAPI-backed reading controls", () => 
           sourceLanguage: "unknown",
           status: "unread",
           starred: false,
+          project: false,
           publishedAt: "2026-05-14T00:00:00Z",
           score: null,
           myFeedback: null,

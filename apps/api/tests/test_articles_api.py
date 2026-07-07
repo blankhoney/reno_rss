@@ -362,8 +362,73 @@ async def test_article_state_upserts_for_current_user(app, client):
     assert response.json()["state"] == {
         "status": "read",
         "saved": True,
+        "project": False,
         "read_progress": 0.75,
     }
+
+
+@pytest.mark.asyncio
+async def test_article_project_state_requires_saved_candidate(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    rejected = await client.post(
+        f"/api/articles/{article.id}/state",
+        json={"project": True},
+    )
+    saved = await client.post(
+        f"/api/articles/{article.id}/state",
+        json={"saved": True},
+    )
+    projected = await client.post(
+        f"/api/articles/{article.id}/state",
+        json={"project": True},
+    )
+    removed_from_candidates = await client.post(
+        f"/api/articles/{article.id}/state",
+        json={"saved": False},
+    )
+
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "article_not_candidate"
+    assert saved.status_code == 200
+    assert saved.json()["state"]["saved"] is True
+    assert saved.json()["state"]["project"] is False
+    assert projected.status_code == 200
+    assert projected.json()["state"]["saved"] is True
+    assert projected.json()["state"]["project"] is True
+    assert removed_from_candidates.status_code == 200
+    assert removed_from_candidates.json()["state"]["saved"] is False
+    assert removed_from_candidates.json()["state"]["project"] is False
+
+
+@pytest.mark.asyncio
+async def test_article_project_state_can_be_set_with_saved_in_same_request(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    response = await client.post(
+        f"/api/articles/{article.id}/state",
+        json={"saved": True, "project": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"]["saved"] is True
+    assert response.json()["state"]["project"] is True
 
 
 @pytest.mark.asyncio

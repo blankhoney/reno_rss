@@ -76,6 +76,7 @@ export type Article = {
   sourceLanguage: string;
   status: ArticleStatus;
   starred: boolean;
+  project: boolean;
   publishedAt: string | null;
   score: ArticleScore | null;
   myFeedback: ArticleFeedback | null;

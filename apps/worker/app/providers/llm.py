@@ -113,14 +113,14 @@ class MockProvider:
             "base_score": base_score,
             "dimension_scores": dimension_scores,
             "dimension_reasons": {
-                key: "MockProvider deterministic rule score."
+                key: "MockProvider 规则分。"
                 for key in DIMENSION_KEYS
             },
             "summary_zh": summary_zh,
             "summary_original": summary_original,
             "source_language": source_language,
             "tags": _mock_tags(text),
-            "reason": "MockProvider baseline based on topic, density, source, action, and risk signals.",
+            "reason": "MockProvider 基线：综合主题、密度、来源、行动性与风险信号。",
             "risk_flags": ["marketing"] if risk_hits else [],
             "confidence": 0.6,
             "scoring_status": "success",

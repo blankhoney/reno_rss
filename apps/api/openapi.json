@@ -1111,6 +1111,17 @@
             ],
             "title": "Saved"
           },
+          "project": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
           "read_progress": {
             "anyOf": [
               {

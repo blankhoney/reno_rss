@@ -18,6 +18,7 @@ import { ARTICLE_FEEDBACK_TYPES, DIMENSION_KEYS } from "@/lib/articles/types";
 type ApiArticleState = {
   status?: string | null;
   saved?: boolean | null;
+  project?: boolean | null;
   read_progress?: number | null;
 };
 
@@ -80,6 +81,7 @@ export type ArticleStats = {
 export type ArticleStatePatch = {
   status?: "read" | "unread" | "skipped";
   saved?: boolean;
+  project?: boolean;
   readProgress?: number;
 };
 
@@ -260,6 +262,7 @@ function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article 
     sourceLanguage: score?.sourceLanguage ?? "unknown",
     status: articleStatusFromApi(state.status),
     starred: saved,
+    project: state.project === true,
     publishedAt: item.published_at ?? null,
     score,
     myFeedback: feedbackFromApi(item.my_feedback),
@@ -327,6 +330,7 @@ export async function updateArticleState(articleId: number, patch: ArticleStateP
   const body: components["schemas"]["ArticleStateRequest"] = {
     status: patch.status,
     saved: patch.saved,
+    project: patch.project,
     read_progress: patch.readProgress,
   };
   await apiPost(`/api/articles/${articleId}/state`, body);

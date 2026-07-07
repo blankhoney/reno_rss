@@ -55,6 +55,7 @@ class ArticleSourceRecord:
 class ArticleStateRecord:
     status: str
     saved: bool
+    project: bool
     read_progress: float
 
 
@@ -96,6 +97,7 @@ class ArticleStore(Protocol):
         *,
         status: str | None = None,
         saved: bool | None = None,
+        project: bool | None = None,
         read_progress: float | None = None,
     ) -> ArticleStateRecord | None: ...
 
@@ -282,15 +284,19 @@ class MemoryArticleRepository:
         *,
         status: str | None = None,
         saved: bool | None = None,
+        project: bool | None = None,
         read_progress: float | None = None,
     ) -> ArticleStateRecord | None:
         if article_id not in self._articles:
             return None
         current = self.get_state(user_id, article_id)
+        next_saved = saved if saved is not None else current.saved
+        next_project = False if next_saved is False else project if project is not None else current.project
         updated = replace(
             current,
             status=status if status is not None else current.status,
-            saved=saved if saved is not None else current.saved,
+            saved=next_saved,
+            project=next_project,
             read_progress=read_progress if read_progress is not None else current.read_progress,
         )
         self._states[(user_id, article_id)] = updated
@@ -465,16 +471,20 @@ class DatabaseArticleRepository:
         *,
         status: str | None = None,
         saved: bool | None = None,
+        project: bool | None = None,
         read_progress: float | None = None,
     ) -> ArticleStateRecord | None:
         if self.get_article(article_id) is None:
             return None
         current = self.get_state(user_id, article_id)
+        next_saved = saved if saved is not None else current.saved
+        next_project = False if next_saved is False else project if project is not None else current.project
         values = {
             "user_id": user_id,
             "article_id": article_id,
             "status": status if status is not None else current.status,
-            "saved": saved if saved is not None else current.saved,
+            "saved": next_saved,
+            "project": next_project,
             "read_progress": read_progress if read_progress is not None else current.read_progress,
             "updated_at": datetime.now(UTC),
         }
@@ -819,6 +829,7 @@ def _state_from_row(row) -> ArticleStateRecord:
     return ArticleStateRecord(
         status=row["status"],
         saved=bool(row["saved"]),
+        project=bool(row["project"]),
         read_progress=float(progress) if progress is not None else 0,
     )
 
@@ -834,7 +845,7 @@ def _feedback_from_row(row) -> ArticleFeedbackRecord:
 
 
 def _default_state() -> ArticleStateRecord:
-    return ArticleStateRecord(status="unread", saved=False, read_progress=0)
+    return ArticleStateRecord(status="unread", saved=False, project=False, read_progress=0)
 
 
 def _unique_article_ids(article_ids: list[int]) -> list[int]:

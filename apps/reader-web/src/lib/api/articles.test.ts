@@ -42,7 +42,7 @@ test("articleFromApiItem maps FastAPI list payloads to the Article view model", 
     published_at: "2026-06-25T01:00:00Z",
     content_quality: "snippet",
     score: null,
-    state: { status: "unread", saved: true, read_progress: 0.25 },
+    state: { status: "unread", saved: true, project: true, read_progress: 0.25 },
     my_feedback: {
       user_score: 88,
       feedback_type: "underrated",
@@ -58,6 +58,7 @@ test("articleFromApiItem maps FastAPI list payloads to the Article view model", 
   assert.equal(article.contentStatus, "partial");
   assert.equal(article.contentIssue, "rss_fragment");
   assert.equal(article.starred, true);
+  assert.equal(article.project, true);
   assert.equal(article.readLater, true);
   assert.equal(article.status, "unread");
   assert.equal(article.score, null);
@@ -334,25 +335,25 @@ test("getArticleStats maps the readonly stats endpoint", async () => {
   }
 });
 
-test("updateArticleState posts status, saved state, and read progress", async () => {
+test("updateArticleState posts status, saved, project, and read progress", async () => {
   let capturedInput: RequestInfo | URL | undefined;
   let capturedInit: RequestInit | undefined;
   const restoreFetch = withMockFetch((input, init) => {
     capturedInput = input;
     capturedInit = init;
-    return new Response(JSON.stringify({ state: { status: "read", saved: true, read_progress: 1 } }), {
+    return new Response(JSON.stringify({ state: { status: "read", saved: true, project: true, read_progress: 1 } }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
   });
 
   try {
-    await updateArticleState(42, { status: "read", saved: true, readProgress: 1 });
+    await updateArticleState(42, { status: "read", saved: true, project: true, readProgress: 1 });
 
     assert.equal(capturedInput, "/api/articles/42/state");
     assert.equal(capturedInit?.method, "POST");
     assert.equal(headerValue(capturedInit?.headers, "content-type"), "application/json");
-    assert.equal(capturedInit?.body, JSON.stringify({ status: "read", saved: true, read_progress: 1 }));
+    assert.equal(capturedInit?.body, JSON.stringify({ status: "read", saved: true, project: true, read_progress: 1 }));
   } finally {
     restoreFetch();
   }

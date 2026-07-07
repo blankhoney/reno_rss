@@ -30,6 +30,7 @@ FEEDBACK_TYPES = tuple(FEEDBACK_BASE_ADJUSTMENTS.keys())
 class ArticleStateRequest(BaseModel):
     status: str | None = Field(default=None, pattern="^(read|unread|skipped)$")
     saved: bool | None = None
+    project: bool | None = None
     read_progress: float | None = Field(default=None, ge=0, le=1)
 
 
@@ -51,6 +52,7 @@ def article_state_public(state: ArticleStateRecord) -> dict[str, object]:
     return {
         "status": state.status,
         "saved": state.saved,
+        "project": state.project,
         "read_progress": state.read_progress,
     }
 
@@ -214,11 +216,19 @@ def update_article_state(
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
 ) -> dict[str, object]:
+    if article_repository.get_article(article_id) is None:
+        raise ApiError(404, "not_found", "Article not found")
+    if payload.project is True:
+        current_state = article_repository.get_state(current_user.id, article_id)
+        next_saved = payload.saved if payload.saved is not None else current_state.saved
+        if not next_saved:
+            raise ApiError(409, "article_not_candidate", "Article must be saved before project")
     state = article_repository.upsert_state(
         current_user.id,
         article_id,
         status=payload.status,
         saved=payload.saved,
+        project=payload.project,
         read_progress=payload.read_progress,
     )
     if state is None:

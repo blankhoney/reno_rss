@@ -55,6 +55,7 @@ function article(
     sourceLanguage: input.sourceLanguage ?? "unknown",
     status: input.status ?? "unread",
     starred: input.starred ?? false,
+    project: input.project ?? false,
     publishedAt: input.publishedAt ?? "2026-05-13T00:00:00.000Z",
     score: input.score ?? {
       overall,
@@ -172,14 +173,15 @@ test("filterArticlesForModule keeps only read-later items for read-later module"
 
 test("filterArticlesForModule applies v0.4 read and saved state locally", () => {
   const items = [
-    article(1, { status: "unread", starred: false, readLater: false }),
-    article(2, { status: "read", starred: false, readLater: false }),
-    article(3, { status: "unread", starred: true, readLater: true }),
+    article(1, { status: "unread", starred: false, project: false, readLater: false }),
+    article(2, { status: "read", starred: false, project: true, readLater: false }),
+    article(3, { status: "unread", starred: true, project: false, readLater: true }),
   ];
 
   assert.deepEqual(filterArticlesForModule(items, "unread").map((item) => item.id), [1, 3]);
   assert.deepEqual(filterArticlesForModule(items, "read").map((item) => item.id), [2]);
   assert.deepEqual(filterArticlesForModule(items, "starred").map((item) => item.id), [3]);
+  assert.deepEqual(filterArticlesForModule(items, "project").map((item) => item.id), [2]);
   assert.deepEqual(filterArticlesForModule(items, "read-later").map((item) => item.id), [3]);
 });
 

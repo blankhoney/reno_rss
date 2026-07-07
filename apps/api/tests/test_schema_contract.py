@@ -159,7 +159,11 @@ def test_initial_migration_bootstraps_extension_and_seed_data():
 def test_migration_column_nullability_matches_model():
     from app.db.models import metadata
 
-    migrations = [load_migration("0001_initial.py"), load_migration("0002_article_translation.py")]
+    migrations = [
+        load_migration("0001_initial.py"),
+        load_migration("0002_article_translation.py"),
+        load_migration("0003_user_article_state_project.py"),
+    ]
     recorder = MigrationOpRecorder()
     for migration in migrations:
         migration.op = recorder

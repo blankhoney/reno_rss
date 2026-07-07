@@ -65,3 +65,29 @@ test("AgentMarkdown drops model meta preamble before required sections", () => {
   assert.match(html, /<h2>结论<\/h2>/);
   assert.match(html, /可以回答。/);
 });
+
+test("AgentMarkdown renders fenced code blocks without parsing inline markdown inside", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(AgentMarkdown, {
+      text: [
+        "## 结论",
+        "```ts",
+        "const value = `**raw**`;",
+        "```",
+      ].join("\n"),
+    }),
+  );
+
+  assert.match(html, /<pre><code>const value = `\*\*raw\*\*`;<\/code><\/pre>/);
+});
+
+test("AgentMarkdown appends trailing nodes inside the final text block", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(AgentMarkdown, {
+      text: "## 结论\n最后一句",
+      trailing: React.createElement("span", { className: "typewriterCursor" }, "cursor"),
+    }),
+  );
+
+  assert.match(html, /最后一句<span class="typewriterCursor">cursor<\/span><\/p>/);
+});

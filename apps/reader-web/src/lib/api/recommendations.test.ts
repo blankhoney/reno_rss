@@ -35,7 +35,7 @@ test("recommendationsFromApi maps an edition with explainable items", () => {
           category: null,
           published_at: "2026-06-25T01:00:00Z",
           content_quality: "snippet",
-          state: { status: "unread", saved: false, read_progress: 0 },
+          state: { status: "unread", saved: false, project: false, read_progress: 0 },
           my_feedback: {
             user_score: 95,
             feedback_type: "underrated",

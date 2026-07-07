@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import {
   filterArticlesForModule,
   filterHiddenFeedsForModule,
+  resolveArticleSortId,
   resolveArticlesListModuleId,
   sortArticlesForModule,
   type ArticleSortId,
@@ -26,6 +27,7 @@ import { WorkbenchRail } from "./WorkbenchRail";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
 
 const ARTICLE_LIST_PAGE_SIZE = 12;
+const RETURN_HIGHLIGHT_MS = 1800;
 
 export type WorkbenchView = {
   moduleId: ModuleId | null;
@@ -74,6 +76,18 @@ export function cursorForPage(
   return cursorStack[pageIndex] ?? null;
 }
 
+export function parseReturnArticleId(search: string): number | null {
+  const params = new URLSearchParams(search);
+  const raw = params.get("article");
+  if (raw == null || !/^\d+$/.test(raw)) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+export function articleReturnSelector(articleId: number): string {
+  return `[data-article-id="${articleId}"]`;
+}
+
 export function ReaderWorkbench({
   currentModule,
   currentSort,
@@ -98,15 +112,19 @@ export function ReaderWorkbench({
   const [pageIndex, setPageIndex] = useState(0);
   const [cursorStack, setCursorStack] = useState<(string | null)[]>([null]);
   const [isPaging, setIsPaging] = useState(false);
+  const [activeSort, setActiveSort] = useState<ArticleSortId>(currentSort);
+  const [returnArticleId, setReturnArticleId] = useState<number | null>(null);
+  const [highlightArticleId, setHighlightArticleId] = useState<number | null>(null);
+  const lastReturnScrollKeyRef = useRef<string | null>(null);
 
   const view = useMemo(
     () =>
       buildWorkbenchView({
         articles: rawArticles,
         currentModule,
-        currentSort,
+        currentSort: activeSort,
       }),
-    [currentModule, currentSort, rawArticles],
+    [activeSort, currentModule, rawArticles],
   );
   const loadPage = useCallback(async (cursor: string | null, initial = false) => {
     if (initial) {
@@ -120,6 +138,7 @@ export function ReaderWorkbench({
       setRawArticles(page.articles);
       setNextCursor(page.nextCursor);
       setHasMore(page.hasMore);
+      if (!initial) window.scrollTo({ top: 0 });
     } catch (loadError) {
       if (initial) setRawArticles([]);
       setNextCursor(null);
@@ -215,7 +234,59 @@ export function ReaderWorkbench({
     setCursorStack([null]);
     void loadPage(null, true);
     void loadRail();
-  }, [currentModule, currentSort, loadPage, loadRail]);
+  }, [currentModule, loadPage, loadRail]);
+
+  useEffect(() => {
+    setActiveSort(currentSort);
+  }, [currentSort]);
+
+  useEffect(() => {
+    const syncSortFromLocation = () => {
+      const params = new URLSearchParams(window.location.search);
+      const rawSort = params.get("sort");
+      const resolution = resolveArticleSortId(rawSort != null, rawSort);
+      setActiveSort(resolution.ok ? resolution.sortId : "default");
+    };
+    window.addEventListener("popstate", syncSortFromLocation);
+    return () => window.removeEventListener("popstate", syncSortFromLocation);
+  }, []);
+
+  const updateSort = useCallback((nextSort: ArticleSortId) => {
+    setActiveSort(nextSort);
+    const qs = new URLSearchParams(window.location.search);
+    qs.set("module", currentModule);
+    qs.set("sort", nextSort);
+    qs.set("lang", currentLang);
+    window.history.pushState(null, "", `?${qs.toString()}`);
+  }, [currentLang, currentModule]);
+
+  useEffect(() => {
+    const nextReturnArticleId =
+      typeof window === "undefined" ? null : parseReturnArticleId(window.location.search);
+    setReturnArticleId(nextReturnArticleId);
+    setHighlightArticleId(nextReturnArticleId);
+    lastReturnScrollKeyRef.current = null;
+  }, [activeSort, currentLang, currentModule]);
+
+  useEffect(() => {
+    if (returnArticleId == null || isLoading || isPaging) return;
+    if (!view.articles.some((article) => article.id === returnArticleId)) return;
+
+    const scrollKey = `${pageIndex}:${returnArticleId}`;
+    if (lastReturnScrollKeyRef.current === scrollKey) return;
+
+    const target = document.querySelector<HTMLElement>(articleReturnSelector(returnArticleId));
+    if (target == null) return;
+
+    lastReturnScrollKeyRef.current = scrollKey;
+    setHighlightArticleId(returnArticleId);
+    target.scrollIntoView({ block: "center" });
+
+    const timeout = window.setTimeout(() => {
+      setHighlightArticleId((current) => (current === returnArticleId ? null : current));
+    }, RETURN_HIGHLIGHT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [isLoading, isPaging, pageIndex, returnArticleId, view.articles]);
 
   useEffect(() => {
     const reload = () => {
@@ -228,12 +299,13 @@ export function ReaderWorkbench({
 
   return (
     <main className="workbench">
-      <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
+      <ModuleSidebar currentModule={currentModule} currentSort={activeSort} currentLang={currentLang} />
       <ArticleList
         articles={view.articles}
         currentModule={currentModule}
-        currentSort={currentSort}
+        currentSort={activeSort}
         currentLang={currentLang}
+        highlightArticleId={highlightArticleId}
         pageIndex={pageIndex}
         hasPrev={pageIndex > 0}
         hasNext={hasMore}
@@ -241,12 +313,13 @@ export function ReaderWorkbench({
         isLoading={isLoading}
         onPrev={goPrev}
         onNext={goNext}
+        onSortChange={updateSort}
       />
       <WorkbenchRail
         recommendations={recommendationPage}
         stats={articleStats}
         currentModule={currentModule}
-        currentSort={currentSort}
+        currentSort={activeSort}
         currentLang={currentLang}
         isLoading={isRailLoading}
         notice={recommendationNotice ?? undefined}

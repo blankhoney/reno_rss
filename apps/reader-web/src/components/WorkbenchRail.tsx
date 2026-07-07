@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import type { ArticleStats } from "@/lib/api/articles";
 import type { RecommendationPage } from "@/lib/api/recommendations";
@@ -45,6 +47,7 @@ export function WorkbenchRail({
   onRetry,
 }: WorkbenchRailProps) {
   const items = recommendations?.items.filter((item) => item.article != null) ?? [];
+  const [top10Open, setTop10Open] = useState(false);
 
   return (
     <aside className="workbenchRail" aria-label="工作台信息">
@@ -60,32 +63,48 @@ export function WorkbenchRail({
         </section>
       ) : null}
       <section className="workbenchRailSection">
-        <h2 className="workbenchRailTitle">Top10</h2>
-        {isLoading ? (
-          <WorkbenchRailSkeleton />
-        ) : items.length > 0 ? (
-          <ol className="workbenchRailList">
-            {items.map((item, index) => {
-              const article = item.article;
-              if (!article) return null;
-              const rank = item.rank || index + 1;
-              return (
-                <li key={`${rank}-${article.id}`}>
-                  <a
-                    className="workbenchRailItem"
-                    href={readHref(currentModule, currentSort, currentLang, article.id)}
-                  >
-                    <span className="workbenchRailRank">#{rank}</span>
-                    <span className="workbenchRailItemTitle">{article.title}</span>
-                    <ScoreBadge label="总分" value={article.score?.overall ?? item.rankScore} />
-                  </a>
-                </li>
-              );
-            })}
-          </ol>
-        ) : (
-          <p className="workbenchRailEmpty">Top10 尚未生成</p>
-        )}
+        <button
+          type="button"
+          className="workbenchRailToggle"
+          aria-expanded={top10Open}
+          aria-controls="workbench-top10"
+          onClick={() => setTop10Open((value) => !value)}
+        >
+          <span>Top10</span>
+          <span aria-hidden="true">{top10Open ? "−" : "+"}</span>
+        </button>
+        <h2 className="workbenchRailTitle workbenchRailDesktopTitle">Top10</h2>
+        <div
+          id="workbench-top10"
+          className={top10Open ? "workbenchRailCollapsible workbenchRailCollapsibleOpen" : "workbenchRailCollapsible"}
+        >
+          {isLoading ? (
+            <WorkbenchRailSkeleton />
+          ) : items.length > 0 ? (
+            <ol className="workbenchRailList">
+              {items.map((item, index) => {
+                const article = item.article;
+                if (!article) return null;
+                const rank = item.rank || index + 1;
+                return (
+                  <li key={`${rank}-${article.id}`}>
+                    <Link
+                      className="workbenchRailItem"
+                      href={readHref(currentModule, currentSort, currentLang, article.id)}
+                      prefetch={false}
+                    >
+                      <span className="workbenchRailRank">#{rank}</span>
+                      <span className="workbenchRailItemTitle">{article.title}</span>
+                      <ScoreBadge label="总分" value={article.score?.overall ?? item.rankScore} />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <p className="workbenchRailEmpty">Top10 尚未生成</p>
+          )}
+        </div>
       </section>
 
       <section className="workbenchRailSection">

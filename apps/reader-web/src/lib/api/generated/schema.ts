@@ -456,6 +456,8 @@ export interface components {
             status?: string | null;
             /** Saved */
             saved?: boolean | null;
+            /** Project */
+            project?: boolean | null;
             /** Read Progress */
             read_progress?: number | null;
         };

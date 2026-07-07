@@ -5,13 +5,14 @@ import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import { ScoreBadge } from "./ScoreBadge";
 import { ArticleListSkeleton } from "./Skeleton";
 import { SortMenu, type SortOption } from "./SortMenu";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 type ArticleListProps = {
   articles: Article[];
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
+  highlightArticleId?: number | null;
   pageIndex?: number;
   hasPrev?: boolean;
   hasNext?: boolean;
@@ -19,6 +20,7 @@ type ArticleListProps = {
   isLoading?: boolean;
   onPrev?: () => void;
   onNext?: () => void;
+  onSortChange?: (nextSort: ArticleSortId) => void;
   notice?: {
     title: string;
     body: string;
@@ -52,7 +54,7 @@ function articleSummary(article: Article, currentLang: SummaryLangId): string {
   const summary =
     currentLang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
   if (summary.trim().length > 0) return summary.trim();
-  return article.score ? "暂无摘要" : "未评分";
+  return "暂无摘要";
 }
 
 function tierLabel(tier: string | undefined): string | null {
@@ -68,6 +70,7 @@ export function ArticleList({
   currentModule,
   currentSort,
   currentLang,
+  highlightArticleId = null,
   pageIndex = 0,
   hasPrev = false,
   hasNext = false,
@@ -75,18 +78,13 @@ export function ArticleList({
   isLoading = false,
   onPrev,
   onNext,
+  onSortChange,
   notice,
 }: ArticleListProps) {
-  const router = useRouter();
   const isEmpty = articles.length === 0;
 
   function updateSort(nextSort: ArticleSortId) {
-    const qs = new URLSearchParams({
-      module: currentModule,
-      sort: nextSort,
-      lang: currentLang,
-    });
-    router.push(`?${qs.toString()}`);
+    onSortChange?.(nextSort);
   }
 
   return (
@@ -112,22 +110,29 @@ export function ArticleList({
         </div>
       ) : null}
       {!isLoading ? (
-        <ul className="articleList">
+        <ul
+          className={isPaging ? "articleList articleListPaging" : "articleList"}
+          aria-busy={isPaging ? "true" : undefined}
+        >
           {articles.map((article) => {
             const score = article.score;
             const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
+            const cardClassName =
+              [
+                "articleCard",
+                article.status === "read" ? "articleCardRead" : "",
+                article.id === highlightArticleId ? "articleCardReturnTarget" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
             return (
               <li key={article.id}>
-                <article
-                  className="articleCard"
-                  role="link"
-                  tabIndex={0}
+                <Link
+                  className={cardClassName}
+                  href={focusHref}
+                  prefetch={false}
                   aria-label={`${article.title}，进入专注阅读`}
-                  data-read-href={focusHref}
-                  onClick={() => router.push(focusHref)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") router.push(focusHref);
-                  }}
+                  data-article-id={article.id}
                 >
                   <div className="articleCardMeta">
                     <span className="articleFeed">{article.feedTitle}</span>
@@ -148,16 +153,11 @@ export function ArticleList({
                         <ScoreBadge label="评分" value={null} />
                       )}
                     </div>
-                    <a
-                      className="articleReadLink"
-                      href={focusHref}
-                      onClick={(event) => event.stopPropagation()}
-                      onDoubleClick={(event) => event.stopPropagation()}
-                    >
+                    <span className="articleReadLink" aria-hidden="true">
                       阅读
-                    </a>
+                    </span>
                   </div>
-                </article>
+                </Link>
               </li>
             );
           })}

@@ -4,12 +4,17 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import {
-  getCurrentSession,
   loginWithDisplayName,
   logoutSession,
   recoverSession,
   type AuthUser,
 } from "@/lib/api/auth";
+import {
+  clearSessionCache,
+  fetchSessionUser,
+  primeSessionCache,
+  readCachedSessionUser,
+} from "@/lib/auth/sessionCache";
 
 type AuthMode = "login" | "recover";
 type AuthStatus = "loading" | "unauthenticated" | "authenticated";
@@ -144,9 +149,12 @@ export function AuthSessionView({
 }
 
 export function AuthSessionGate({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<AuthStatus>("loading");
+  const cachedUser = readCachedSessionUser();
+  const [status, setStatus] = useState<AuthStatus>(() =>
+    cachedUser == null ? "loading" : "authenticated",
+  );
   const [mode, setMode] = useState<AuthMode>("login");
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => cachedUser);
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -154,18 +162,25 @@ export function AuthSessionGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
 
-    getCurrentSession()
-      .then((session) => {
+    fetchSessionUser()
+      .then((sessionUser) => {
         if (!active) return;
-        if (session == null) {
+        if (sessionUser == null) {
+          setUser(null);
           setStatus("unauthenticated");
           return;
         }
-        setUser(session.user);
+        setUser(sessionUser);
         setStatus("authenticated");
       })
       .catch((caught) => {
         if (!active) return;
+        const fallbackUser = readCachedSessionUser();
+        if (fallbackUser != null) {
+          setUser(fallbackUser);
+          setStatus("authenticated");
+          return;
+        }
         setError(authErrorMessage(caught));
         setStatus("unauthenticated");
       });
@@ -183,6 +198,7 @@ export function AuthSessionGate({ children }: { children: ReactNode }) {
     setRecoveryCode(null);
     try {
       const session = await loginWithDisplayName(String(form.get("displayName") ?? ""));
+      primeSessionCache(session.user);
       setUser(session.user);
       setRecoveryCode(session.recoveryCode);
       setStatus("authenticated");
@@ -201,6 +217,7 @@ export function AuthSessionGate({ children }: { children: ReactNode }) {
     setRecoveryCode(null);
     try {
       const session = await recoverSession(String(form.get("recoveryCode") ?? ""));
+      primeSessionCache(session.user);
       setUser(session.user);
       setRecoveryCode(session.recoveryCode);
       setStatus("authenticated");
@@ -216,6 +233,7 @@ export function AuthSessionGate({ children }: { children: ReactNode }) {
     setError(null);
     try {
       await logoutSession();
+      clearSessionCache();
       setUser(null);
       setRecoveryCode(null);
       setStatus("unauthenticated");

@@ -6,6 +6,8 @@ export type TypewriterOptions = {
   maxCharsPerTick?: number;
 };
 
+export const DEFAULT_TYPEWRITER_INTERVAL_MS = 56;
+
 export function takeTypewriterChunk(
   buffer: string,
   charsPerTick: number,
@@ -18,8 +20,12 @@ export function takeTypewriterChunk(
   };
 }
 
+export function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
 export function useTypewriterStream({
-  intervalMs = 20,
+  intervalMs = DEFAULT_TYPEWRITER_INTERVAL_MS,
   charsPerTick = 1,
   maxCharsPerTick = 4,
 }: TypewriterOptions = {}) {
@@ -27,6 +33,7 @@ export function useTypewriterStream({
   const [isRevealing, setIsRevealing] = useState(false);
   const bufferRef = useRef("");
   const finishedRef = useRef(true);
+  const reducedMotionRef = useRef(prefersReducedMotion());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopTimer = useCallback(() => {
@@ -60,6 +67,13 @@ export function useTypewriterStream({
   const push = useCallback(
     (text: string) => {
       if (text.length === 0) return;
+      if (reducedMotionRef.current) {
+        bufferRef.current = "";
+        finishedRef.current = true;
+        stopTimer();
+        setRevealed((current) => current + text);
+        return;
+      }
       finishedRef.current = false;
       bufferRef.current += text;
       ensureTimer();
@@ -78,6 +92,10 @@ export function useTypewriterStream({
     setRevealed("");
     stopTimer();
   }, [stopTimer]);
+
+  useEffect(() => {
+    reducedMotionRef.current = prefersReducedMotion();
+  }, []);
 
   useEffect(() => stopTimer, [stopTimer]);
 
