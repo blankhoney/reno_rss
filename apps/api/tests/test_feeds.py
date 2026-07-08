@@ -47,14 +47,22 @@ async def test_post_feed_creates_global_feed_and_subscription(client):
 async def test_reposting_existing_feed_subscribes_without_conflict(app):
     from httpx import ASGITransport, AsyncClient
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as first:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as first:
         await first.post("/api/auth/login", json={"display_name": "First"})
         created = await first.post(
             "/api/feeds",
             json={"feed_url": "https://example.com/rss.xml", "category_id": 1},
         )
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as second:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as second:
         await second.post("/api/auth/login", json={"display_name": "Second"})
         reused = await second.post(
             "/api/feeds",

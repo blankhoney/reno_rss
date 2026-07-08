@@ -397,6 +397,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/benchmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Benchmark Run */
+        post: operations["create_benchmark_run_api_admin_benchmarks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/benchmarks/{benchmark_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Benchmark Run */
+        get: operations["get_benchmark_run_api_admin_benchmarks__benchmark_run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -467,6 +501,35 @@ export interface components {
             question: string;
             /** Selected Text */
             selected_text?: string | null;
+        };
+        /** CreateBenchmarkRequest */
+        CreateBenchmarkRequest: {
+            /**
+             * Suite
+             * @default ranking
+             * @enum {string}
+             */
+            suite: "ranking" | "model_swap" | "db_perf";
+            /**
+             * Mode
+             * @default ci_mini
+             * @enum {string}
+             */
+            mode: "ci_mini" | "manual_full";
+            /**
+             * Provider
+             * @default mock
+             */
+            provider: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Confirm Real Llm
+             * @default false
+             */
+            confirm_real_llm: boolean;
         };
         /** CreateFeedRequest */
         CreateFeedRequest: {
@@ -1277,6 +1340,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_benchmark_run_api_admin_benchmarks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBenchmarkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_benchmark_run_api_admin_benchmarks__benchmark_run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                benchmark_run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

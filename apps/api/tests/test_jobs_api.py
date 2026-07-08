@@ -44,6 +44,7 @@ async def test_second_user_can_poll_deduped_fetch_content_job(app):
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="https://test",
+        headers={"Referer": "https://test/"},
     ) as first_client:
         await first_client.post("/api/auth/login", json={"display_name": "First"})
         first = await first_client.post("/api/articles/1/fetch-content")
@@ -51,6 +52,7 @@ async def test_second_user_can_poll_deduped_fetch_content_job(app):
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="https://test",
+        headers={"Referer": "https://test/"},
     ) as second_client:
         await second_client.post("/api/auth/login", json={"display_name": "Second"})
         second = await second_client.post("/api/articles/1/fetch-content")

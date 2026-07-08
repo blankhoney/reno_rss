@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
+from threading import Event
 
 from app.jobs.queue import InMemoryJobQueue
-from app.runner import RetryableJobError, run_once
+from app.runner import RetryableJobError, run_forever, run_once
 
 
 def test_run_once_marks_job_succeeded_with_result():
@@ -108,3 +109,26 @@ def test_run_once_returns_false_when_no_job_is_ready():
     handled = run_once(queue, {"worker_echo": lambda payload: payload}, worker_id="worker-1")
 
     assert handled is False
+
+
+def test_run_forever_emits_heartbeat_while_idle():
+    queue = InMemoryJobQueue()
+    stop_event = Event()
+    heartbeats = 0
+
+    def heartbeat():
+        nonlocal heartbeats
+        heartbeats += 1
+        if heartbeats >= 2:
+            stop_event.set()
+
+    run_forever(
+        queue,
+        {"worker_echo": lambda payload: payload},
+        worker_id="worker-1",
+        poll_seconds=0,
+        stop_event=stop_event,
+        on_heartbeat=heartbeat,
+    )
+
+    assert heartbeats == 2

@@ -322,7 +322,7 @@ def _create_recommendation_schema(engine):
 
     from sqlalchemy import text
 
-    now = datetime(2026, 6, 24, 12, tzinfo=UTC)
+    now = datetime.now(UTC)
     with engine.begin() as connection:
         connection.exec_driver_sql(
             "CREATE TABLE app_users (id TEXT PRIMARY KEY, role TEXT NOT NULL)"

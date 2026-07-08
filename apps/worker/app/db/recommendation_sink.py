@@ -21,6 +21,7 @@ class DatabaseRecommendationSink:
             raise ValueError("database_url or engine is required")
         self.engine = engine or create_engine(str(database_url), pool_pre_ping=True)
         self.source_batch_id = source_batch_id
+        self._candidate_rows_cache: list[dict[str, object]] | None = None
 
     def list_target_users(self) -> list[object]:
         with self.engine.begin() as connection:
@@ -32,7 +33,7 @@ class DatabaseRecommendationSink:
         priorities = self._user_priorities(user_id)
         return RecommendationContext(
             user_id=user_id,
-            candidates=self._candidate_rows(),
+            candidates=self._candidate_rows_once(),
             user_priority_by_feed=priorities,
             feedback_by_article=self._feedback_by_article(user_id),
             article_status_by_article=self._state_by_article(user_id),
@@ -199,6 +200,11 @@ class DatabaseRecommendationSink:
             )
             candidate["feed_ids"].append(int(row["feed_id"]))
         return list(candidates.values())
+
+    def _candidate_rows_once(self) -> list[dict[str, object]]:
+        if self._candidate_rows_cache is None:
+            self._candidate_rows_cache = self._candidate_rows()
+        return self._candidate_rows_cache
 
     def _feedback_by_article(self, user_id: object) -> dict[int, object]:
         with self.engine.begin() as connection:

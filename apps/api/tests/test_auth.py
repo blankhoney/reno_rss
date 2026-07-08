@@ -70,7 +70,13 @@ async def test_admin_can_access_admin_users(app, client):
     response = await client.get("/api/admin/users")
 
     assert response.status_code == 200
-    assert response.json() == {"items": []}
+    users = response.json()["items"]
+    assert len(users) == 1
+    assert users[0]["display_name"] == "Admin"
+    assert users[0]["role"] == "admin"
+    assert users[0]["is_demo"] is False
+    assert "session_token_hash" not in users[0]
+    assert "recovery_code_hash" not in users[0]
 
 
 async def test_logout_invalidates_current_session(client):
@@ -120,6 +126,32 @@ async def test_write_requests_reject_untrusted_origin(app, client):
     assert rejected.status_code == 403
     assert rejected.json()["error"]["code"] == "forbidden"
     assert accepted.status_code == 200
+
+
+async def test_write_requests_reject_when_csrf_origins_are_empty(app, client):
+    app.state.csrf_allowed_origins = set()
+
+    get_response = await client.get("/api/articles")
+    post_response = await client.post(
+        "/api/auth/login",
+        json={"display_name": "Blank"},
+    )
+
+    assert get_response.status_code == 401
+    assert post_response.status_code == 403
+    assert post_response.json()["error"]["code"] == "forbidden"
+
+
+async def test_create_app_logs_critical_when_csrf_origins_are_empty(monkeypatch, caplog):
+    from app.main import create_app
+
+    monkeypatch.delenv("AI_READER_CSRF_ALLOWED_ORIGINS", raising=False)
+
+    with caplog.at_level("CRITICAL"):
+        app = create_app()
+
+    assert "AI_READER_CSRF_ALLOWED_ORIGINS is empty" in caplog.text
+    assert app.state.csrf_allowed_origins == set()
 
 
 async def test_origin_takes_precedence_over_referer_for_csrf(app, client):

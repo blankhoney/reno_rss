@@ -10,6 +10,7 @@ from typing import Protocol, cast
 
 
 DEFAULT_ALGORITHM_VERSION = "b4.v1"
+_ONLINE_RANKING_MODULE: ModuleType | None = None
 
 
 @dataclass(frozen=True)
@@ -124,12 +125,16 @@ def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[o
 
 
 def _load_online_ranking_module() -> ModuleType:
+    global _ONLINE_RANKING_MODULE
+    if _ONLINE_RANKING_MODULE is not None:
+        return _ONLINE_RANKING_MODULE
     ranking_path = _ranking_module_path(Path(__file__).resolve())
     spec = importlib.util.spec_from_file_location("ai_reader_api_ranking", ranking_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load B4 ranking module from {ranking_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    _ONLINE_RANKING_MODULE = module
     return module
 
 

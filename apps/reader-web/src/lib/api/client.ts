@@ -312,7 +312,7 @@ function isEventStreamContentType(contentType: string): boolean {
   return /\btext\/event-stream\b/i.test(contentType);
 }
 
-function linkedSignalWithTimeout(
+export function linkedSignalWithTimeout(
   externalSignal: AbortSignal | null | undefined,
   timeoutMs: number,
 ): {

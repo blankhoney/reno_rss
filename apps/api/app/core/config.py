@@ -58,6 +58,9 @@ def _parse_bool(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Keep these LLM env parsers in parity with apps/worker/app/providers/llm.py.
+# The API image builds from apps/api only, so a shared package is not worth the
+# build-context churn; tests/test_llm_env_parity.py locks the duplicated behavior.
 def _parse_bool_with_default(value: str | None, default: bool) -> bool:
     if value is None or not value.strip():
         return default
@@ -65,6 +68,7 @@ def _parse_bool_with_default(value: str | None, default: bool) -> bool:
 
 
 def normalize_database_url(database_url: str | None) -> str | None:
+    # Keep in parity with apps/worker/app/main.py; both sides have golden tests.
     if database_url is None:
         return None
     if database_url.startswith("postgres://"):

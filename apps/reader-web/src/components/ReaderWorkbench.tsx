@@ -88,6 +88,10 @@ export function articleReturnSelector(articleId: number): string {
   return `[data-article-id="${articleId}"]`;
 }
 
+export function isCurrentWorkbenchRequest(requestSeq: number, latestSeq: number): boolean {
+  return requestSeq === latestSeq;
+}
+
 export function ReaderWorkbench({
   currentModule,
   currentSort,
@@ -116,6 +120,8 @@ export function ReaderWorkbench({
   const [returnArticleId, setReturnArticleId] = useState<number | null>(null);
   const [highlightArticleId, setHighlightArticleId] = useState<number | null>(null);
   const lastReturnScrollKeyRef = useRef<string | null>(null);
+  const pageSeqRef = useRef(0);
+  const railSeqRef = useRef(0);
 
   const view = useMemo(
     () =>
@@ -127,6 +133,9 @@ export function ReaderWorkbench({
     [activeSort, currentModule, rawArticles],
   );
   const loadPage = useCallback(async (cursor: string | null, initial = false) => {
+    const requestSeq = pageSeqRef.current + 1;
+    pageSeqRef.current = requestSeq;
+    const isCurrent = () => isCurrentWorkbenchRequest(requestSeq, pageSeqRef.current);
     if (initial) {
       setIsLoading(true);
     } else {
@@ -135,16 +144,19 @@ export function ReaderWorkbench({
     setError(null);
     try {
       const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE, cursor });
+      if (!isCurrent()) return;
       setRawArticles(page.articles);
       setNextCursor(page.nextCursor);
       setHasMore(page.hasMore);
       if (!initial) window.scrollTo({ top: 0 });
     } catch (loadError) {
+      if (!isCurrent()) return;
       if (initial) setRawArticles([]);
       setNextCursor(null);
       setHasMore(false);
       setError(loadError instanceof Error ? loadError.message : "文章加载失败");
     } finally {
+      if (!isCurrent()) return;
       if (initial) {
         setIsLoading(false);
       } else {
@@ -154,6 +166,9 @@ export function ReaderWorkbench({
   }, []);
 
   const loadRail = useCallback(async () => {
+    const requestSeq = railSeqRef.current + 1;
+    railSeqRef.current = requestSeq;
+    const isCurrent = () => isCurrentWorkbenchRequest(requestSeq, railSeqRef.current);
     setIsRailLoading(true);
     setRecommendationNotice(null);
     try {
@@ -162,6 +177,7 @@ export function ReaderWorkbench({
         getArticleStats(),
       ]);
       const notices: string[] = [];
+      if (!isCurrent()) return;
 
       if (recommendationsResult.status === "fulfilled") {
         setRecommendationPage(recommendationsResult.value);
@@ -190,6 +206,7 @@ export function ReaderWorkbench({
           : null,
       );
     } finally {
+      if (!isCurrent()) return;
       setIsRailLoading(false);
     }
   }, []);
@@ -216,6 +233,8 @@ export function ReaderWorkbench({
   useEffect(() => {
     const moduleResolution = resolveArticlesListModuleId(true, currentModule);
     if (!moduleResolution.ok) {
+      pageSeqRef.current += 1;
+      railSeqRef.current += 1;
       setRawArticles([]);
       setRecommendationPage(null);
       setArticleStats(null);

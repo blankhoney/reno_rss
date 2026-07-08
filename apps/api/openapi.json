@@ -980,6 +980,90 @@
         }
       }
     },
+    "/api/admin/benchmarks": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Create Benchmark Run",
+        "operationId": "create_benchmark_run_api_admin_benchmarks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBenchmarkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/benchmarks/{benchmark_run_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Benchmark Run",
+        "operationId": "get_benchmark_run_api_admin_benchmarks__benchmark_run_id__get",
+        "parameters": [
+          {
+            "name": "benchmark_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Benchmark Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Benchmark Run Api Admin Benchmarks  Benchmark Run Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jobs/{job_id}": {
       "get": {
         "tags": [
@@ -1166,6 +1250,48 @@
           "question"
         ],
         "title": "AskRequest"
+      },
+      "CreateBenchmarkRequest": {
+        "properties": {
+          "suite": {
+            "type": "string",
+            "enum": [
+              "ranking",
+              "model_swap",
+              "db_perf"
+            ],
+            "title": "Suite",
+            "default": "ranking"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ci_mini",
+              "manual_full"
+            ],
+            "title": "Mode",
+            "default": "ci_mini"
+          },
+          "provider": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Provider",
+            "default": "mock"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "confirm_real_llm": {
+            "type": "boolean",
+            "title": "Confirm Real Llm",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "CreateBenchmarkRequest"
       },
       "CreateFeedRequest": {
         "properties": {

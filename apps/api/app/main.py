@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import logging
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -14,6 +15,7 @@ from app.core.request_timing import RequestTimingMiddleware
 from app.core.security import has_valid_csrf_origin
 from app.db.auth_store import create_auth_store
 from app.db.repositories.articles import create_article_repository
+from app.db.repositories.benchmarks import create_benchmark_repository
 from app.db.repositories.feeds import create_feed_repository
 from app.db.repositories.jobs import create_job_repository
 from app.db.repositories.recommendations import create_recommendation_repository
@@ -21,6 +23,7 @@ from app.db.repositories.scoring import create_scoring_repository
 
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+LOGGER = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -28,6 +31,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AI Reader API", version=APP_VERSION)
     app.state.auth_store = create_auth_store(settings.database_url)
     app.state.job_repository = create_job_repository(settings.database_url)
+    app.state.benchmark_repository = create_benchmark_repository(settings.database_url)
     app.state.feed_repository = create_feed_repository(settings.database_url)
     app.state.article_repository = create_article_repository(settings.database_url)
     app.state.scoring_repository = create_scoring_repository(settings.database_url)
@@ -35,6 +39,10 @@ def create_app() -> FastAPI:
     app.state.ask_provider = ask.create_ask_provider(settings)
     app.state.llm_budget = DailyCallBudget(settings.llm_daily_call_budget)
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
+    if not app.state.csrf_allowed_origins:
+        LOGGER.critical(
+            "AI_READER_CSRF_ALLOWED_ORIGINS is empty; write requests will be rejected."
+        )
     app.state.anonymous_demo_enabled = settings.anonymous_demo_user_enabled
     limiter.reset()
     app.state.limiter = limiter

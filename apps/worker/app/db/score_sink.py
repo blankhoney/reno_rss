@@ -42,6 +42,22 @@ class DatabaseScoreSink:
             )
         return [dict(row) for row in rows]
 
+    def count_scores_today(self, day_start: str) -> int:
+        # Error rows count too: each row represents a provider scoring attempt.
+        with self.engine.begin() as connection:
+            return int(
+                connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM article_base_scores
+                        WHERE scored_at >= :day_start;
+                        """
+                    ),
+                    {"day_start": day_start},
+                ).scalar_one()
+            )
+
     def save_score(self, article_id: object, score: dict[str, object]) -> int:
         is_success = score.get("scoring_status") == "success"
         values = _score_values(article_id, score, is_active=is_success)

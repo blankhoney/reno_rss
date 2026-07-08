@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ApiError, apiGet, apiPost, apiPut, streamArticleAsk } from "./client";
+import {
+  ApiError,
+  apiGet,
+  apiPost,
+  apiPut,
+  linkedSignalWithTimeout,
+  streamArticleAsk,
+} from "./client";
 
 function withMockFetch(
   handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response,
@@ -48,6 +55,12 @@ async function collectChunks(chunks: AsyncIterable<string>): Promise<string[]> {
     collected.push(chunk);
   }
   return collected;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
 }
 
 function headerValue(headers: HeadersInit | undefined, name: string): string | null {
@@ -364,4 +377,37 @@ test("streamArticleAsk rejects successful non-SSE responses", async () => {
   } finally {
     restoreFetch();
   }
+});
+
+test("linkedSignalWithTimeout propagates external aborts", () => {
+  const controller = new AbortController();
+  const linked = linkedSignalWithTimeout(controller.signal, 0);
+
+  controller.abort("user-cancelled");
+
+  assert.equal(linked.signal.aborted, true);
+  assert.equal(linked.timedOut(), false);
+  linked.cleanup();
+});
+
+test("linkedSignalWithTimeout aborts after timeout", async () => {
+  const linked = linkedSignalWithTimeout(null, 1);
+
+  await new Promise<void>((resolve) => {
+    linked.signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+
+  assert.equal(linked.signal.aborted, true);
+  assert.equal(linked.timedOut(), true);
+  linked.cleanup();
+});
+
+test("linkedSignalWithTimeout cleanup clears pending timeout", async () => {
+  const linked = linkedSignalWithTimeout(null, 1);
+
+  linked.cleanup();
+  await wait(5);
+
+  assert.equal(linked.signal.aborted, false);
+  assert.equal(linked.timedOut(), false);
 });

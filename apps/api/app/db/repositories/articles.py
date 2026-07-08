@@ -11,7 +11,14 @@ from sqlalchemy import Engine, and_, create_engine, desc, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import article_sources, articles, user_article_feedback_scores, user_article_states
+from app.db.models import (
+    article_sources,
+    articles,
+    categories,
+    feeds,
+    user_article_feedback_scores,
+    user_article_states,
+)
 
 
 TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
@@ -39,12 +46,17 @@ class ArticleRecord:
     content_expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    feed_title: str | None = None
+    category_id: int | None = None
+    category_title: str | None = None
+    source_count: int = 0
 
 
 @dataclass(frozen=True)
 class ArticleSourceRecord:
     article_id: int
     feed_id: int
+    feed_title: str | None
     miniflux_entry_id: int
     source_url: str | None
     source_title: str | None
@@ -85,6 +97,8 @@ class ArticleStore(Protocol):
     def count_articles(self) -> int: ...
 
     def get_article(self, article_id: int) -> ArticleRecord | None: ...
+
+    def get_articles(self, article_ids: list[int]) -> dict[int, ArticleRecord]: ...
 
     def get_state(self, user_id: UUID, article_id: int) -> ArticleStateRecord: ...
 
@@ -177,6 +191,8 @@ class MemoryArticleRepository:
     def __init__(self) -> None:
         self._articles: dict[int, ArticleRecord] = {}
         self._article_ids_by_dedup_key: dict[str, int] = {}
+        self._feed_titles: dict[int, str | None] = {}
+        self._feed_categories: dict[int, tuple[int | None, str | None]] = {}
         self._sources_by_feed_entry: dict[tuple[int, int], ArticleSourceRecord] = {}
         self._states: dict[tuple[UUID, int], ArticleStateRecord] = {}
         self._feedbacks: dict[tuple[UUID, int], ArticleFeedbackRecord] = {}
@@ -187,6 +203,11 @@ class MemoryArticleRepository:
         miniflux_entry_id = int(entry["miniflux_entry_id"])
         url = str(entry["url"])
         title = str(entry["title"])
+        feed_title = _optional_str(entry.get("feed_title"))
+        category_id = _optional_int(entry.get("category_id"))
+        category_title = _optional_str(entry.get("category_title"))
+        self._feed_titles[feed_id] = feed_title
+        self._feed_categories[feed_id] = (category_id, category_title)
         content_text = _optional_str(entry.get("content_text"))
         dedup_key = dedup_key_for_entry(url, title, content_text)
         article_id = self._article_ids_by_dedup_key.get(dedup_key)
@@ -225,18 +246,21 @@ class MemoryArticleRepository:
         source = ArticleSourceRecord(
             article_id=article_id,
             feed_id=feed_id,
+            feed_title=feed_title,
             miniflux_entry_id=miniflux_entry_id,
             source_url=url,
             source_title=title,
             published_at=_optional_datetime(entry.get("published_at")),
         )
         self._sources_by_feed_entry[(feed_id, miniflux_entry_id)] = source
+        article = self._with_source_metadata(article)
+        self._articles[article_id] = article
         return article
 
     def sources_for_article(self, article_id: int) -> list[ArticleSourceRecord]:
         return sorted(
             [
-                source
+                replace(source, feed_title=self._feed_titles.get(source.feed_id))
                 for source in self._sources_by_feed_entry.values()
                 if source.article_id == article_id
             ],
@@ -245,7 +269,7 @@ class MemoryArticleRepository:
 
     def list_articles(self, *, limit: int, cursor: str | None = None) -> ArticlePage:
         items = sorted(
-            self._articles.values(),
+            [self._with_source_metadata(article) for article in self._articles.values()],
             key=lambda article: (
                 article.published_at or datetime.min.replace(tzinfo=UTC),
                 article.id,
@@ -269,7 +293,16 @@ class MemoryArticleRepository:
         return len(self._articles)
 
     def get_article(self, article_id: int) -> ArticleRecord | None:
-        return self._articles.get(article_id)
+        article = self._articles.get(article_id)
+        return self._with_source_metadata(article) if article is not None else None
+
+    def get_articles(self, article_ids: list[int]) -> dict[int, ArticleRecord]:
+        unique_article_ids = _unique_article_ids(article_ids)
+        return {
+            article_id: article
+            for article_id in unique_article_ids
+            if (article := self.get_article(article_id)) is not None
+        }
 
     def get_state(self, user_id: UUID, article_id: int) -> ArticleStateRecord:
         return self._states.get((user_id, article_id), _default_state())
@@ -361,6 +394,25 @@ class MemoryArticleRepository:
         self._articles[article_id] = updated
         return updated
 
+    def _with_source_metadata(self, article: ArticleRecord) -> ArticleRecord:
+        source_count = sum(
+            1 for source in self._sources_by_feed_entry.values() if source.article_id == article.id
+        )
+        category_id = None
+        category_title = None
+        if article.primary_feed_id is not None:
+            category_id, category_title = self._feed_categories.get(
+                article.primary_feed_id,
+                (None, None),
+            )
+        return replace(
+            article,
+            feed_title=self._feed_titles.get(article.primary_feed_id),
+            category_id=category_id,
+            category_title=category_title,
+            source_count=source_count,
+        )
+
 
 class DatabaseArticleRepository:
     def __init__(self, database_url: str, engine: Engine | None = None) -> None:
@@ -395,7 +447,8 @@ class DatabaseArticleRepository:
 
     def sources_for_article(self, article_id: int) -> list[ArticleSourceRecord]:
         statement = (
-            select(article_sources)
+            select(article_sources, feeds.c.title.label("feed_title"))
+            .select_from(article_sources.outerjoin(feeds, feeds.c.id == article_sources.c.feed_id))
             .where(article_sources.c.article_id == article_id)
             .order_by(article_sources.c.feed_id.asc(), article_sources.c.miniflux_entry_id.asc())
         )
@@ -404,7 +457,7 @@ class DatabaseArticleRepository:
         return [_source_from_row(row) for row in rows]
 
     def list_articles(self, *, limit: int, cursor: str | None = None) -> ArticlePage:
-        statement = select(articles)
+        statement = _article_select()
         if cursor:
             cursor_published_at, cursor_id = decode_article_cursor(cursor)
             if cursor_published_at is None:
@@ -434,11 +487,23 @@ class DatabaseArticleRepository:
     def get_article(self, article_id: int) -> ArticleRecord | None:
         with self.engine.begin() as connection:
             row = (
-                connection.execute(select(articles).where(articles.c.id == article_id))
+                connection.execute(_article_select().where(articles.c.id == article_id))
                 .mappings()
                 .one_or_none()
             )
         return _article_from_row(row) if row is not None else None
+
+    def get_articles(self, article_ids: list[int]) -> dict[int, ArticleRecord]:
+        unique_article_ids = _unique_article_ids(article_ids)
+        if not unique_article_ids:
+            return {}
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(_article_select().where(articles.c.id.in_(unique_article_ids)))
+                .mappings()
+                .all()
+            )
+        return {int(row["id"]): _article_from_row(row) for row in rows}
 
     def get_state(self, user_id: UUID, article_id: int) -> ArticleStateRecord:
         return self.get_states(user_id, [article_id])[article_id]
@@ -788,6 +853,31 @@ def create_article_repository(database_url: str | None) -> ArticleStore:
     return MemoryArticleRepository()
 
 
+def _article_select():
+    source_counts = (
+        select(
+            article_sources.c.article_id.label("article_id"),
+            func.count().label("source_count"),
+        )
+        .group_by(article_sources.c.article_id)
+        .subquery()
+    )
+    return (
+        select(
+            articles,
+            feeds.c.title.label("feed_title"),
+            categories.c.id.label("category_id"),
+            categories.c.name.label("category_title"),
+            func.coalesce(source_counts.c.source_count, 0).label("source_count"),
+        )
+        .select_from(
+            articles.outerjoin(feeds, feeds.c.id == articles.c.primary_feed_id)
+            .outerjoin(categories, categories.c.id == feeds.c.category_id)
+            .outerjoin(source_counts, source_counts.c.article_id == articles.c.id)
+        )
+    )
+
+
 def _article_from_row(row) -> ArticleRecord:
     return ArticleRecord(
         id=row["id"],
@@ -810,6 +900,10 @@ def _article_from_row(row) -> ArticleRecord:
         content_expires_at=row["content_expires_at"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        feed_title=_row_get(row, "feed_title"),
+        category_id=_optional_int(_row_get(row, "category_id")),
+        category_title=_row_get(row, "category_title"),
+        source_count=int(_row_get(row, "source_count", 0) or 0),
     )
 
 
@@ -817,6 +911,7 @@ def _source_from_row(row) -> ArticleSourceRecord:
     return ArticleSourceRecord(
         article_id=row["article_id"],
         feed_id=row["feed_id"],
+        feed_title=_row_get(row, "feed_title"),
         miniflux_entry_id=row["miniflux_entry_id"],
         source_url=row["source_url"],
         source_title=row["source_title"],
@@ -860,6 +955,14 @@ def _content_hash(content_text: str | None) -> str | None:
 
 def _optional_str(value: object) -> str | None:
     return str(value) if value is not None else None
+
+
+def _optional_int(value: object) -> int | None:
+    return int(value) if value is not None else None
+
+
+def _row_get(row, key: str, default: object = None) -> object:
+    return row[key] if key in row else default
 
 
 def _optional_datetime(value: object) -> datetime | None:

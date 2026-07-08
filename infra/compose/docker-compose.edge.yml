@@ -1,9 +1,16 @@
 # 共享边缘入口：整台 VPS 只启动一次
 # 启动命令：docker compose -p myrss-edge -f infra/compose/docker-compose.edge.yml up -d
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     image: caddy:2.8
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -24,6 +31,11 @@ services:
       - /srv/caddy-conf.d:/etc/caddy/conf.d:ro
     networks:
       - app                      # 通过此网络访问后端服务别名
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
 
 networks:
   app:

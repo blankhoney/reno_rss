@@ -6,6 +6,7 @@ import {
   articleReturnSelector,
   buildWorkbenchView,
   cursorForPage,
+  isCurrentWorkbenchRequest,
   parseReturnArticleId,
 } from "./ReaderWorkbench";
 
@@ -85,4 +86,9 @@ test("return article helpers parse valid ids and build the list selector", () =>
   assert.equal(parseReturnArticleId("?article=abc"), null);
   assert.equal(parseReturnArticleId("?module=all"), null);
   assert.equal(articleReturnSelector(42), '[data-article-id="42"]');
+});
+
+test("workbench request guard accepts only the latest sequence", () => {
+  assert.equal(isCurrentWorkbenchRequest(3, 3), true);
+  assert.equal(isCurrentWorkbenchRequest(2, 3), false);
 });

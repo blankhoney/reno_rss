@@ -111,6 +111,8 @@ class MiniMaxAskProvider:
                     yield content
 
     def _request_json(self, messages: list[dict[str, str]]) -> dict[str, object]:
+        # Keep in parity with worker MinimaxLLMClient._request_json, with the
+        # API-only addition of stream=True for SSE answers.
         payload: dict[str, object] = {
             "model": self.model,
             "messages": messages,
@@ -197,10 +199,9 @@ def _active_score(
     scoring_repository: ScoringStore,
     article: ArticleRecord,
 ) -> ScoreRecord | None:
-    scores = scoring_repository.list_scores(article_id=article.id)
-    for score in reversed(scores):
-        if score.is_active and score.scoring_status == "success":
-            return score
+    score = scoring_repository.active_scores_for_articles([article.id]).get(article.id)
+    if score is not None and score.scoring_status == "success":
+        return score
     return None
 
 

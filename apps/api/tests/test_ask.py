@@ -27,7 +27,12 @@ class StaticScoringRepository:
         self.scores = scores
 
     def list_scores(self, *, article_id):
-        return list(self.scores)
+        raise AssertionError("ask should use active_scores_for_articles")
+
+    def active_scores_for_articles(self, article_ids):
+        if not self.scores:
+            return {}
+        return {article_ids[0]: self.scores[0]}
 
 
 class FakeMiniMaxStream:

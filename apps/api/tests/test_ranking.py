@@ -306,6 +306,117 @@ async def test_latest_recommendations_returns_current_user_edition(app, client):
     assert response.json()["items"][0]["rank_score"] == 92.5
 
 
+def test_latest_recommendations_batch_loads_articles():
+    from uuid import uuid4
+
+    from app.api.routes.recommendations import latest_recommendations
+    from app.db.auth_store import UserRecord
+    from app.db.repositories.articles import ArticleRecord, ArticleStateRecord
+    from app.db.repositories.recommendations import (
+        RecommendationEditionRecord,
+        RecommendationItemRecord,
+    )
+
+    now = datetime(2026, 6, 21, tzinfo=UTC)
+    user_id = uuid4()
+    article = ArticleRecord(
+        id=7,
+        primary_feed_id=1,
+        title="Recommended",
+        url="https://example.com/post",
+        canonical_url="https://example.com/post",
+        author=None,
+        published_at=now,
+        content_text=None,
+        content_html=None,
+        content_zh=None,
+        content_zh_status=None,
+        translated_at=None,
+        content_source=None,
+        content_quality=None,
+        content_hash=None,
+        dedup_key="dedup",
+        fetched_at=None,
+        content_expires_at=None,
+        created_at=now,
+        updated_at=now,
+        feed_title="Feed",
+        source_count=1,
+    )
+
+    class FakeRecommendations:
+        def latest_for_user(self, requested_user_id):
+            assert requested_user_id == user_id
+            return RecommendationEditionRecord(
+                id=5,
+                user_id=user_id,
+                edition_type="homepage_top10",
+                algorithm_version="b4.v1",
+                generated_at=now,
+                items=[
+                    RecommendationItemRecord(
+                        rank=1,
+                        article_id=article.id,
+                        rank_score=92.5,
+                        tier="must_read",
+                        reason="High score",
+                        source="subscription",
+                    )
+                ],
+            )
+
+    class FakeArticles:
+        def __init__(self) -> None:
+            self.batch_ids = None
+
+        def get_article(self, _article_id):
+            raise AssertionError("recommendations should use get_articles")
+
+        def get_articles(self, article_ids):
+            self.batch_ids = article_ids
+            return {article.id: article}
+
+        def get_states(self, _user_id, article_ids):
+            return {
+                article_id: ArticleStateRecord(
+                    status="unread",
+                    saved=False,
+                    project=False,
+                    read_progress=0,
+                )
+                for article_id in article_ids
+            }
+
+        def get_feedbacks(self, _user_id, _article_ids):
+            return {}
+
+    class FakeScoring:
+        def active_scores_for_articles(self, _article_ids):
+            return {}
+
+    article_repository = FakeArticles()
+
+    response = latest_recommendations(
+        current_user=UserRecord(
+            id=user_id,
+            display_name="Blank",
+            session_token_hash="session",
+            recovery_code_hash="recovery",
+            role="user",
+            session_expires_at=now,
+            recovery_rotated_at=now,
+            created_at=now,
+            last_seen_at=now,
+        ),
+        recommendation_repository=FakeRecommendations(),
+        article_repository=article_repository,
+        scoring_repository=FakeScoring(),
+    )
+
+    assert article_repository.batch_ids == [article.id]
+    assert response["items"][0]["article"]["id"] == article.id
+
+
 @pytest.mark.asyncio
 async def test_latest_recommendations_surfaces_current_user_feedback(app, client):
     from app.domain.ranking import RankedItem

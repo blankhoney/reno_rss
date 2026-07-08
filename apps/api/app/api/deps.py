@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.core.security import SESSION_COOKIE_NAME
 from app.db.auth_store import AuthStore, UserRecord
 from app.db.repositories.articles import ArticleStore
+from app.db.repositories.benchmarks import BenchmarkStore
 from app.db.repositories.feeds import FeedStore
 from app.db.repositories.jobs import JobStore
 from app.db.repositories.recommendations import RecommendationStore
@@ -69,6 +70,10 @@ def get_auth_store(request: Request) -> AuthStore:
 
 def get_job_repository(request: Request) -> JobStore:
     return request.app.state.job_repository
+
+
+def get_benchmark_repository(request: Request) -> BenchmarkStore:
+    return request.app.state.benchmark_repository
 
 
 def get_feed_repository(request: Request) -> FeedStore:

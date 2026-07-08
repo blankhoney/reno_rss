@@ -41,6 +41,9 @@ TRANSLATE_INPUT_LIMIT = 12_000
 _LOGGER = logging.getLogger(__name__)
 
 
+# Keep these LLM env parsers in parity with apps/api/app/core/config.py. A shared
+# package would expand Docker build contexts for a small helper set; tests lock
+# both copies instead.
 def _parse_float(value: str | None, default: float) -> float:
     if value is None or not value.strip():
         return default

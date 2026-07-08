@@ -4,6 +4,7 @@ from app.main import build_handler_registry
 EXPECTED_JOB_TYPES = {
     "fetch_article_content",
     "generate_recommendations",
+    "run_benchmark",
     "score_batch",
     "sync_miniflux_entries",
     "translate_article",

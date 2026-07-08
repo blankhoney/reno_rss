@@ -74,12 +74,22 @@ echo "🔎 Smoke test：$ENV"
 require_running() {
     local container="$1"
     local running
+    local health
     running="$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)"
     if [[ "$running" != "true" ]]; then
         echo "❌ 容器未运行：$container"
         exit 1
     fi
-    echo "  ✅ $container running"
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container" 2>/dev/null || true)"
+    if [[ -n "$health" && "$health" != "healthy" ]]; then
+        echo "❌ 容器健康检查未通过：$container ($health)"
+        exit 1
+    fi
+    if [[ -n "$health" ]]; then
+        echo "  ✅ $container running ($health)"
+    else
+        echo "  ✅ $container running"
+    fi
 }
 
 require_running "$API_CONTAINER"

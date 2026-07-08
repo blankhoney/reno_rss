@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 type Block =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
@@ -169,7 +169,7 @@ function renderInline(text: string): ReactNode[] {
 }
 
 export function AgentMarkdown({ text, trailing = null }: { text: string; trailing?: ReactNode }) {
-  const blocks = parseBlocks(text.trim());
+  const blocks = useMemo(() => parseBlocks(text.trim()), [text]);
 
   return (
     <div className="agentMarkdown">

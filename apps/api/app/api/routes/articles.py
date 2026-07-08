@@ -93,11 +93,13 @@ def article_list_item_public(
         "id": article.id,
         "title": article.title,
         "url": article.url,
-        "feed": {"id": article.primary_feed_id, "title": None}
+        "feed": {"id": article.primary_feed_id, "title": article.feed_title}
         if article.primary_feed_id is not None
         else None,
-        "source_count": 0,
-        "category": None,
+        "source_count": article.source_count,
+        "category": {"id": article.category_id, "title": article.category_title}
+        if article.category_id is not None
+        else None,
         "published_at": article.published_at.isoformat() if article.published_at else None,
         "content_quality": article.content_quality,
         "score": score_public(score) if score is not None else None,
@@ -110,7 +112,7 @@ def article_list_item_public(
 def article_source_public(source: ArticleSourceRecord) -> dict[str, object]:
     return {
         "feed_id": source.feed_id,
-        "feed_title": None,
+        "feed_title": source.feed_title,
         "miniflux_entry_id": source.miniflux_entry_id,
         "source_url": source.source_url,
     }
@@ -132,7 +134,6 @@ def article_detail_public(
             "translated_at": article.translated_at.isoformat() if article.translated_at else None,
             "content_text": article.content_text,
             "content_source": article.content_source,
-            "content_expired": False,
             "summary_original": score.summary_original if score is not None else None,
             "source_language": score.source_language if score is not None else None,
             "dimension_scores": score.dimension_scores if score is not None else {},

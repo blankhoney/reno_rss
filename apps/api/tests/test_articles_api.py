@@ -342,6 +342,48 @@ async def test_article_score_is_null_without_active_score(app, client):
 
 
 @pytest.mark.asyncio
+async def test_article_list_and_detail_surface_real_feed_metadata(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "feed_title": "Primary Feed",
+            "category_id": 10,
+            "category_title": "Research",
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+    app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 2,
+            "feed_title": "Syndicated Feed",
+            "category_id": 20,
+            "category_title": "Mirror",
+            "miniflux_entry_id": 201,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+
+    list_response = await client.get("/api/articles")
+    detail_response = await client.get(f"/api/articles/{article.id}")
+
+    item = list_response.json()["items"][0]
+    detail = detail_response.json()
+    assert item["feed"] == {"id": 1, "title": "Primary Feed"}
+    assert item["category"] == {"id": 10, "title": "Research"}
+    assert item["source_count"] == 2
+    assert detail["source_count"] == 2
+    assert "content_expired" not in detail
+    assert [source["feed_title"] for source in detail["sources"]] == [
+        "Primary Feed",
+        "Syndicated Feed",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_article_state_upserts_for_current_user(app, client):
     await client.post("/api/auth/login", json={"display_name": "Blank"})
     article = app.state.article_repository.upsert_from_source(

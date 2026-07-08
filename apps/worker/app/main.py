@@ -1,16 +1,19 @@
 import logging
 import os
+from pathlib import Path
 import signal
 import socket
 from threading import Event
 
 from app.db.article_sink import DatabaseArticleSink
+from app.db.benchmark_sink import DatabaseBenchmarkSink
 from app.db.content_sink import DatabaseContentSink
 from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
 from app.jobs.fetch_content import fetch_article_content
 from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
+from app.jobs.run_benchmark import run_benchmark
 from app.jobs.score_batch import score_batch
 from app.jobs.sync_miniflux import run_sync_miniflux_entries
 from app.jobs.translate_article import translate_article
@@ -21,6 +24,7 @@ from app.runner import Handler, run_forever
 
 
 def normalize_database_url(database_url: str | None) -> str | None:
+    # Keep in parity with apps/api/app/core/config.py; both sides have golden tests.
     if database_url is None:
         return None
     if database_url.startswith("postgres://"):
@@ -39,6 +43,7 @@ def build_handler_registry() -> dict[str, Handler]:
     return {
         "fetch_article_content": _fetch_article_content,
         "generate_recommendations": _generate_recommendations,
+        "run_benchmark": _run_benchmark,
         "score_batch": _score_batch,
         "translate_article": _translate_article,
         "worker_echo": _worker_echo,
@@ -73,6 +78,7 @@ def main() -> None:
         retry_backoff_max_seconds=retry_backoff_max_seconds,
         job_lease_seconds=job_lease_seconds,
         stop_event=stop_event,
+        on_heartbeat=_touch_worker_heartbeat,
     )
     logging.info("worker runtime stopped: worker_id=%s", worker_id)
 
@@ -131,7 +137,12 @@ def _score_batch(payload) -> dict[str, object]:
         raise RuntimeError("SCORING_DATABASE_URL is required for score_batch")
     sink = DatabaseScoreSink(database_url)
     try:
-        return score_batch(dict(payload), sink, create_provider())
+        return score_batch(
+            dict(payload),
+            sink,
+            create_provider(),
+            daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
+        )
     finally:
         sink.dispose()
 
@@ -149,6 +160,33 @@ def _generate_recommendations(payload) -> dict[str, object]:
         return generate_recommendations(dict(payload), sink, rank_b4_recommendation_context)
     finally:
         sink.dispose()
+
+
+def _run_benchmark(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for run_benchmark")
+    sink = DatabaseBenchmarkSink(database_url)
+    try:
+        return run_benchmark(dict(payload), sink)
+    finally:
+        sink.dispose()
+
+
+def _env_non_negative_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    value = int(raw)
+    if value < 0:
+        raise ValueError(f"{name} must be greater than or equal to 0")
+    return value
+
+
+def _touch_worker_heartbeat() -> None:
+    path = Path(os.environ.get("WORKER_HEARTBEAT_FILE", "/tmp/worker-heartbeat"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
 
 
 if __name__ == "__main__":

@@ -1,14 +1,19 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api.deps import (
     ApiError,
+    get_auth_store,
+    get_benchmark_repository,
     get_job_repository,
     get_scoring_repository,
     require_admin,
 )
-from app.db.auth_store import UserRecord
+from app.db.auth_store import DEMO_USER_DISPLAY_NAME, AuthStore, UserRecord
+from app.db.repositories.benchmarks import BenchmarkRunRecord, BenchmarkStore
 from app.db.repositories.jobs import JobStore, dedupe_key_for
 from app.db.repositories.scoring import (
     ScoringBatchItemRecord,
@@ -29,6 +34,25 @@ class CreateScoringBatchRequest(BaseModel):
 class SyncMinifluxRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
     after_entry_id: int | None = Field(default=None, ge=1)
+
+
+class CreateBenchmarkRequest(BaseModel):
+    suite: Literal["ranking", "model_swap", "db_perf"] = "ranking"
+    mode: Literal["ci_mini", "manual_full"] = "ci_mini"
+    provider: str = Field(default="mock", min_length=1, max_length=80)
+    params: dict[str, object] = Field(default_factory=dict)
+    confirm_real_llm: bool = False
+
+
+def user_public(user: UserRecord) -> dict[str, object]:
+    return {
+        "id": str(user.id),
+        "display_name": user.display_name,
+        "role": user.role,
+        "created_at": user.created_at.isoformat(),
+        "last_seen_at": user.last_seen_at.isoformat() if user.last_seen_at else None,
+        "is_demo": user.display_name == DEMO_USER_DISPLAY_NAME,
+    }
 
 
 def scoring_batch_item_public(item: ScoringBatchItemRecord) -> dict[str, object]:
@@ -58,9 +82,28 @@ def scoring_batch_public(batch: ScoringBatchRecord) -> dict[str, object]:
     }
 
 
+def benchmark_run_public(run: BenchmarkRunRecord) -> dict[str, object]:
+    return {
+        "id": run.id,
+        "suite": run.suite,
+        "mode": run.mode,
+        "status": run.status,
+        "params": run.params,
+        "metrics": run.metrics,
+        "artifact_path": run.artifact_path,
+        "cost_estimate": run.cost_estimate,
+        "created_by": str(run.created_by) if run.created_by else None,
+        "created_at": run.created_at.isoformat(),
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+    }
+
+
 @router.get("/users")
-async def list_users(_current_user: UserRecord = Depends(require_admin)) -> dict[str, list[object]]:
-    return {"items": []}
+async def list_users(
+    _current_user: UserRecord = Depends(require_admin),
+    auth_store: AuthStore = Depends(get_auth_store),
+) -> dict[str, list[object]]:
+    return {"items": [user_public(user) for user in auth_store.list_users()]}
 
 
 @router.post("/sync")
@@ -138,3 +181,67 @@ def start_scoring_batch(
         status_code=202,
         content={"batch_id": batch_id, "job_id": job.id, "status": job.status},
     )
+
+
+@router.post("/benchmarks", status_code=202)
+def create_benchmark_run(
+    payload: CreateBenchmarkRequest,
+    current_user: UserRecord = Depends(require_admin),
+    benchmark_repository: BenchmarkStore = Depends(get_benchmark_repository),
+    job_repository: JobStore = Depends(get_job_repository),
+) -> JSONResponse:
+    if payload.suite == "model_swap":
+        raise ApiError(400, "unsupported", "model_swap benchmark is not executable yet")
+    if payload.provider != "mock" and not (
+        payload.mode == "manual_full" and payload.confirm_real_llm
+    ):
+        raise ApiError(
+            400,
+            "real_llm_confirmation_required",
+            "Real LLM benchmarks require manual_full mode and explicit confirmation",
+        )
+
+    run_params = dict(payload.params)
+    run_params["provider"] = payload.provider
+    run = benchmark_repository.create_run(
+        suite=payload.suite,
+        mode=payload.mode,
+        params=run_params,
+        created_by=current_user.id,
+    )
+    job_payload = {
+        "benchmark_run_id": run.id,
+        "suite": payload.suite,
+        "mode": payload.mode,
+        "provider": payload.provider,
+        "params": payload.params,
+    }
+    job = job_repository.enqueue(
+        "run_benchmark",
+        job_payload,
+        dedupe_key=dedupe_key_for("run_benchmark", run.id),
+        created_by=current_user.id,
+    )
+    return JSONResponse(
+        status_code=202,
+        content={
+            "benchmark_run": benchmark_run_public(run),
+            "job": {
+                "id": job.id,
+                "job_type": job.job_type,
+                "status": job.status,
+            },
+        },
+    )
+
+
+@router.get("/benchmarks/{benchmark_run_id}")
+def get_benchmark_run(
+    benchmark_run_id: int = Path(gt=0),
+    _current_user: UserRecord = Depends(require_admin),
+    benchmark_repository: BenchmarkStore = Depends(get_benchmark_repository),
+) -> dict[str, object]:
+    run = benchmark_repository.get_run(benchmark_run_id)
+    if run is None:
+        raise ApiError(404, "not_found", "Benchmark run not found")
+    return {"benchmark_run": benchmark_run_public(run)}
