@@ -72,28 +72,34 @@ class MiniMaxAskProvider:
         api_key: str,
         base_url: str,
         model: str,
+        temperature: float,
+        top_p: float,
+        max_completion_tokens: int | None,
+        reasoning_split: bool,
+        thinking_type: str | None,
         timeout_seconds: float,
         stream_factory: Callable[..., object] | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.temperature = temperature
+        self.top_p = top_p
+        self.max_completion_tokens = max_completion_tokens
+        self.reasoning_split = reasoning_split
+        self.thinking_type = thinking_type
         self.timeout_seconds = timeout_seconds
         self._stream_factory = stream_factory or httpx.stream
 
     def answer_article_question(self, messages: list[dict[str, str]]) -> Iterable[str]:
         if not self.api_key or self.api_key == "change_me":
             raise RuntimeError("missing MINIMAX_API_KEY")
+        request_json = self._request_json(messages)
         with self._stream_factory(
             "POST",
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model,
-                "messages": messages,
-                "temperature": 0.2,
-                "stream": True,
-            },
+            json=request_json,
             timeout=self.timeout_seconds,
         ) as response:
             response.raise_for_status()
@@ -103,6 +109,22 @@ class MiniMaxAskProvider:
                     break
                 if isinstance(content, str) and content:
                     yield content
+
+    def _request_json(self, messages: list[dict[str, str]]) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "stream": True,
+        }
+        if self.max_completion_tokens is not None:
+            payload["max_completion_tokens"] = self.max_completion_tokens
+        if self.reasoning_split:
+            payload["reasoning_split"] = True
+        if self.thinking_type:
+            payload["thinking"] = {"type": self.thinking_type}
+        return payload
 
 
 def create_ask_provider(settings: Settings) -> AskProvider:
@@ -116,6 +138,11 @@ def create_ask_provider(settings: Settings) -> AskProvider:
             api_key=settings.minimax_api_key,
             base_url=settings.minimax_base_url,
             model=settings.minimax_model,
+            temperature=settings.minimax_temperature,
+            top_p=settings.minimax_top_p,
+            max_completion_tokens=settings.minimax_max_completion_tokens,
+            reasoning_split=settings.minimax_reasoning_split,
+            thinking_type=settings.minimax_thinking_type,
             timeout_seconds=settings.llm_timeout_seconds,
         )
     raise ValueError("LLM_PROVIDER must be 'mock' or 'minimax'")

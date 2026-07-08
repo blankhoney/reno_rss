@@ -51,6 +51,11 @@ test("extractOpenAICompatibleEventText ignores done and malformed events", () =>
 
 test("stripThinkTags removes model reasoning blocks", () => {
   assert.equal(stripThinkTags("<think>hidden</think>## 结论\n可以"), "## 结论\n可以");
+  assert.equal(
+    stripThinkTags('<think type="reasoning">hidden</think>## 结论\n可以'),
+    "## 结论\n可以",
+  );
+  assert.equal(stripThinkTags("<thinking>visible</thinking>## 结论"), "<thinking>visible</thinking>## 结论");
   assert.equal(stripThinkTags("<think>partial"), "");
 });
 
@@ -61,6 +66,15 @@ test("createThinkTagFilter removes reasoning across streamed chunks", () => {
   assert.equal(filter.push("nk>hidden"), "");
   assert.equal(filter.push(" still hidden</th"), "");
   assert.equal(filter.push("ink>## 结论\n可以"), "## 结论\n可以");
+  assert.equal(filter.flush(), "");
+});
+
+test("createThinkTagFilter removes reasoning tags with attributes across streamed chunks", () => {
+  const filter = createThinkTagFilter();
+
+  assert.equal(filter.push("<think type=\""), "");
+  assert.equal(filter.push("reasoning\">hidden"), "");
+  assert.equal(filter.push("</think>## 结论\n可以"), "## 结论\n可以");
   assert.equal(filter.flush(), "");
 });
 

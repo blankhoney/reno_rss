@@ -5,6 +5,11 @@ from dataclasses import dataclass
 APP_VERSION = "0.4.0"
 DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/v1"
 DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7"
+DEFAULT_MINIMAX_TEMPERATURE = 0.2
+DEFAULT_MINIMAX_TOP_P = 0.9
+DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS = 16_384
+DEFAULT_MINIMAX_REASONING_SPLIT = True
+DEFAULT_MINIMAX_THINKING_TYPE = "disabled"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
 DEFAULT_API_RATELIMIT = "120/minute"
 DEFAULT_LLM_RATELIMIT = "5/minute;100/day"
@@ -23,6 +28,11 @@ class Settings:
     minimax_api_key: str = ""
     minimax_base_url: str = DEFAULT_MINIMAX_BASE_URL
     minimax_model: str = DEFAULT_MINIMAX_MODEL
+    minimax_temperature: float = DEFAULT_MINIMAX_TEMPERATURE
+    minimax_top_p: float = DEFAULT_MINIMAX_TOP_P
+    minimax_max_completion_tokens: int | None = DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS
+    minimax_reasoning_split: bool = DEFAULT_MINIMAX_REASONING_SPLIT
+    minimax_thinking_type: str | None = DEFAULT_MINIMAX_THINKING_TYPE
     llm_timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
     api_ratelimit_default: str = DEFAULT_API_RATELIMIT
     llm_ratelimit: str = DEFAULT_LLM_RATELIMIT
@@ -48,6 +58,12 @@ def _parse_bool(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _parse_bool_with_default(value: str | None, default: bool) -> bool:
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def normalize_database_url(database_url: str | None) -> str | None:
     if database_url is None:
         return None
@@ -68,6 +84,27 @@ def _parse_int(value: str | None, default: int) -> int:
     return int(value)
 
 
+def _parse_optional_positive_int(value: str | None, default: int | None) -> int | None:
+    if value is None or not value.strip():
+        return default
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
+def _parse_optional_choice(
+    value: str | None,
+    default: str | None,
+    choices: set[str],
+) -> str | None:
+    raw = default if value is None else value.strip().lower()
+    if not raw:
+        return None
+    if raw not in choices:
+        allowed = ", ".join(sorted(choices))
+        raise ValueError(f"value must be one of: {allowed}")
+    return raw
+
+
 def get_settings() -> Settings:
     return Settings(
         database_url=normalize_database_url(os.environ.get("SCORING_DATABASE_URL")),
@@ -79,6 +116,27 @@ def get_settings() -> Settings:
             DEFAULT_MINIMAX_BASE_URL,
         ).rstrip("/"),
         minimax_model=os.environ.get("MINIMAX_MODEL", DEFAULT_MINIMAX_MODEL),
+        minimax_temperature=_parse_float(
+            os.environ.get("MINIMAX_TEMPERATURE"),
+            DEFAULT_MINIMAX_TEMPERATURE,
+        ),
+        minimax_top_p=_parse_float(
+            os.environ.get("MINIMAX_TOP_P"),
+            DEFAULT_MINIMAX_TOP_P,
+        ),
+        minimax_max_completion_tokens=_parse_optional_positive_int(
+            os.environ.get("MINIMAX_MAX_COMPLETION_TOKENS"),
+            DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS,
+        ),
+        minimax_reasoning_split=_parse_bool_with_default(
+            os.environ.get("MINIMAX_REASONING_SPLIT"),
+            DEFAULT_MINIMAX_REASONING_SPLIT,
+        ),
+        minimax_thinking_type=_parse_optional_choice(
+            os.environ.get("MINIMAX_THINKING_TYPE"),
+            DEFAULT_MINIMAX_THINKING_TYPE,
+            {"adaptive", "disabled"},
+        ),
         llm_timeout_seconds=_parse_float(
             os.environ.get("LLM_TIMEOUT_SECONDS"),
             DEFAULT_LLM_TIMEOUT_SECONDS,

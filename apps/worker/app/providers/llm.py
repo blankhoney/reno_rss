@@ -30,10 +30,48 @@ RISK_FLAG_ALIASES = {
 
 DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/v1"
 DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7"
+DEFAULT_MINIMAX_TEMPERATURE = 0.2
+DEFAULT_MINIMAX_TOP_P = 0.9
+DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS = 16_384
+DEFAULT_MINIMAX_REASONING_SPLIT = True
+DEFAULT_MINIMAX_THINKING_TYPE = "disabled"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
 TRANSLATE_INPUT_LIMIT = 12_000
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _parse_float(value: str | None, default: float) -> float:
+    if value is None or not value.strip():
+        return default
+    return float(value)
+
+
+def _parse_bool_with_default(value: str | None, default: bool) -> bool:
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_optional_positive_int(value: str | None, default: int | None) -> int | None:
+    if value is None or not value.strip():
+        return default
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
+def _parse_optional_choice(
+    value: str | None,
+    default: str | None,
+    choices: set[str],
+) -> str | None:
+    raw = default if value is None else value.strip().lower()
+    if not raw:
+        return None
+    if raw not in choices:
+        allowed = ", ".join(sorted(choices))
+        raise ValueError(f"value must be one of: {allowed}")
+    return raw
 
 
 class ArticleScore(TypedDict):
@@ -162,6 +200,11 @@ class MinimaxConfig:
     api_key: str
     base_url: str = DEFAULT_MINIMAX_BASE_URL
     model: str = DEFAULT_MINIMAX_MODEL
+    temperature: float = DEFAULT_MINIMAX_TEMPERATURE
+    top_p: float = DEFAULT_MINIMAX_TOP_P
+    max_completion_tokens: int | None = DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS
+    reasoning_split: bool = DEFAULT_MINIMAX_REASONING_SPLIT
+    thinking_type: str | None = DEFAULT_MINIMAX_THINKING_TYPE
     timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
 
     @classmethod
@@ -170,6 +213,24 @@ class MinimaxConfig:
             api_key=os.environ.get("MINIMAX_API_KEY", ""),
             base_url=os.environ.get("MINIMAX_BASE_URL", DEFAULT_MINIMAX_BASE_URL).rstrip("/"),
             model=os.environ.get("MINIMAX_MODEL", DEFAULT_MINIMAX_MODEL),
+            temperature=_parse_float(
+                os.environ.get("MINIMAX_TEMPERATURE"),
+                DEFAULT_MINIMAX_TEMPERATURE,
+            ),
+            top_p=_parse_float(os.environ.get("MINIMAX_TOP_P"), DEFAULT_MINIMAX_TOP_P),
+            max_completion_tokens=_parse_optional_positive_int(
+                os.environ.get("MINIMAX_MAX_COMPLETION_TOKENS"),
+                DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS,
+            ),
+            reasoning_split=_parse_bool_with_default(
+                os.environ.get("MINIMAX_REASONING_SPLIT"),
+                DEFAULT_MINIMAX_REASONING_SPLIT,
+            ),
+            thinking_type=_parse_optional_choice(
+                os.environ.get("MINIMAX_THINKING_TYPE"),
+                DEFAULT_MINIMAX_THINKING_TYPE,
+                {"adaptive", "disabled"},
+            ),
             timeout_seconds=float(
                 os.environ.get("LLM_TIMEOUT_SECONDS", str(DEFAULT_LLM_TIMEOUT_SECONDS))
             ),
@@ -187,11 +248,7 @@ class MinimaxLLMClient:
         response = httpx.post(
             f"{self.config.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.config.api_key}"},
-            json={
-                "model": self.config.model,
-                "messages": messages,
-                "temperature": 0.2,
-            },
+            json=self._request_json(messages),
             timeout=self.config.timeout_seconds,
         )
         response.raise_for_status()
@@ -203,6 +260,21 @@ class MinimaxLLMClient:
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("llm response content is empty")
         return content
+
+    def _request_json(self, messages: list[dict[str, str]]) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": self.config.temperature,
+            "top_p": self.config.top_p,
+        }
+        if self.config.max_completion_tokens is not None:
+            payload["max_completion_tokens"] = self.config.max_completion_tokens
+        if self.config.reasoning_split:
+            payload["reasoning_split"] = True
+        if self.config.thinking_type:
+            payload["thinking"] = {"type": self.config.thinking_type}
+        return payload
 
 
 def create_provider(provider_name: str | None = None) -> LLMProvider:
