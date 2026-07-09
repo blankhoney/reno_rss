@@ -23,7 +23,7 @@ import {
 } from "@/lib/api/recommendations";
 import { ArticleList } from "./ArticleList";
 import { ModuleSidebar } from "./ModuleSidebar";
-import { WorkbenchRail } from "./WorkbenchRail";
+import { WorkbenchRibbon } from "./WorkbenchRibbon";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
 
 const ARTICLE_LIST_PAGE_SIZE = 12;
@@ -200,7 +200,7 @@ export function ReaderWorkbench({
       setRecommendationNotice(
         notices.length > 0
           ? {
-              title: "右栏数据暂不可用。",
+              title: "状态数据暂不可用。",
               body: notices.join(" "),
             }
           : null,
@@ -319,31 +319,33 @@ export function ReaderWorkbench({
   return (
     <main className="workbench">
       <ModuleSidebar currentModule={currentModule} currentSort={activeSort} currentLang={currentLang} />
-      <ArticleList
-        articles={view.articles}
-        currentModule={currentModule}
-        currentSort={activeSort}
-        currentLang={currentLang}
-        highlightArticleId={highlightArticleId}
-        pageIndex={pageIndex}
-        hasPrev={pageIndex > 0}
-        hasNext={hasMore}
-        isPaging={isPaging}
-        isLoading={isLoading}
-        onPrev={goPrev}
-        onNext={goNext}
-        onSortChange={updateSort}
-      />
-      <WorkbenchRail
-        recommendations={recommendationPage}
-        stats={articleStats}
-        currentModule={currentModule}
-        currentSort={activeSort}
-        currentLang={currentLang}
-        isLoading={isRailLoading}
-        notice={recommendationNotice ?? undefined}
-        onRetry={() => void loadRail()}
-      />
+      <div className="workbenchMain">
+        <WorkbenchRibbon
+          recommendations={recommendationPage}
+          stats={articleStats}
+          currentModule={currentModule}
+          currentSort={activeSort}
+          currentLang={currentLang}
+          isLoading={isRailLoading}
+          notice={recommendationNotice ?? undefined}
+          onRetry={() => void loadRail()}
+        />
+        <ArticleList
+          articles={view.articles}
+          currentModule={currentModule}
+          currentSort={activeSort}
+          currentLang={currentLang}
+          highlightArticleId={highlightArticleId}
+          pageIndex={pageIndex}
+          hasPrev={pageIndex > 0}
+          hasNext={hasMore}
+          isPaging={isPaging}
+          isLoading={isLoading}
+          onPrev={goPrev}
+          onNext={goNext}
+          onSortChange={updateSort}
+        />
+      </div>
       {error != null ? (
         <section className="workbenchStatus" aria-live="polite">
           <p className="readerEmptyTitle">文章加载失败</p>

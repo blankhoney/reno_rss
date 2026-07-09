@@ -64,15 +64,11 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.match(html, /返回工作台/);
   assert.match(html, /打开原文/);
   assert.match(html, /翻译全文/);
-  assert.match(html, /刷新全文/);
   assert.doesNotMatch(html, /实时评分/);
   assert.match(html, /评分完成后将生成摘要、分数和理由/);
   assert.doesNotMatch(html, /管理控制台创建评分批次/);
-  assert.match(html, /加入候选/);
-  assert.match(html, /立项/);
-  assert.match(html, /标记已读/);
-  assert.match(html, /focusSecondaryActions/);
   assert.match(html, /更多文章操作/);
+  assert.match(html, /aria-haspopup="menu"/);
   assert.doesNotMatch(html, /<summary>操作<\/summary>/);
   assert.match(html, /正文：片段/);
   assert.match(html, /评分：未评分/);
@@ -86,6 +82,7 @@ test("FocusedArticleReader renders the focus reading controls and partial notice
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, /agentDrawerBody/);
   assert.match(html, /inert=""/);
+  assert.equal((html.match(/class="scoreFeedbackChip(?: |")/g) ?? []).length, 8);
 });
 
 test("FocusedArticleReader uses neutral summary copy before scoring", () => {
@@ -138,6 +135,8 @@ test("FocusedArticleReader renders scored state and dimension reasons", () => {
   assert.match(html, /评分：已评分/);
   assert.match(html, /推荐/);
   assert.match(html, /总分/);
+  assert.match(html, /scoreRing46/);
+  assert.equal((html.match(/dimensionBarRow/g) ?? []).length, 8);
   assert.match(html, /主题相关性/);
   assert.match(html, /信息密度/);
   assert.match(html, /来源质量/);
@@ -181,4 +180,20 @@ test("FocusedArticleReader marks failed translation status as danger", () => {
 
   assert.match(html, /译文：失败/);
   assert.match(html, /focusStatusChipDanger/);
+  assert.match(html, /focusTranslationAlert/);
+  assert.match(html, /译文生成失败/);
+  assert.match(html, /重试翻译/);
+});
+
+test("FocusedArticleReader renders a pending translation alert", () => {
+  const html = renderFocusedReader(
+    article({
+      contentZhStatus: "running",
+    }),
+    "/?module=all&sort=default&lang=zh&article=42",
+  );
+
+  assert.match(html, /译文：生成中/);
+  assert.match(html, /focusTranslationAlertPending/);
+  assert.match(html, /focusTranslationSpinner/);
 });

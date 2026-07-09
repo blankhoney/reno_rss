@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/types";
 import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
@@ -13,9 +13,8 @@ import { streamArticleAsk } from "@/lib/api/client";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AnimatedPanel } from "./AnimatedPanel";
-import { ScoreBadge } from "./ScoreBadge";
+import { ScoreRing, tierColorVar, tierLabel } from "./ScoreRing";
 import { SkeletonBlock } from "./Skeleton";
-import { ThemeToggle } from "./ThemeToggle";
 import { emitToast } from "./Toast";
 import { articleAskErrorMessage } from "./articleAsk";
 import { articleAgentNotice, articleContentNotice } from "./articleContentNotice";
@@ -73,14 +72,6 @@ function initialFeedbackScore(article: Article): string {
   return String(article.myFeedback?.userScore ?? article.score?.overall ?? 50);
 }
 
-function tierLabel(tier: string | undefined): string {
-  if (tier === "must_read") return "必读";
-  if (tier === "read") return "推荐";
-  if (tier === "skim") return "略读";
-  if (tier === "skip") return "跳过";
-  return tier ?? "未分层";
-}
-
 function translationLabel(article: Article): string {
   if (article.contentZhStatus === "succeeded") return "译文：已就绪";
   if (article.contentZhStatus === "queued" || article.contentZhStatus === "running") return "译文：生成中";
@@ -92,6 +83,20 @@ function translationStatusClassName(article: Article): string {
   return article.contentZhStatus === "failed"
     ? "focusStatusChip focusStatusChipDanger"
     : "focusStatusChip";
+}
+
+type TierStatusStyle = CSSProperties & {
+  "--statusTierColor"?: string;
+};
+
+type DimensionBarStyle = CSSProperties & {
+  "--dimensionValue"?: string;
+  "--dimensionColor"?: string;
+};
+
+function normalizedDimensionValue(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 export function FocusedArticleReader({
@@ -311,6 +316,9 @@ export function FocusedArticleReader({
   const contentNotice = articleContentNotice(article);
   const agentNotice = articleAgentNotice(article);
   const displayedHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
+  const scoreStatusStyle: TierStatusStyle | undefined = score
+    ? { "--statusTierColor": `var(${tierColorVar(score.tier, score.overall)})` }
+    : undefined;
 
   return (
     <motion.main
@@ -335,19 +343,6 @@ export function FocusedArticleReader({
           >
             {showTranslation ? "看原文" : articleActions.isTranslating ? "翻译中" : "翻译全文"}
           </button>
-          <div className="focusSecondaryActions">
-            {secondaryActions.map((action) => (
-              <button
-                key={action.key}
-                type="button"
-                className="readerToolbarBtn"
-                disabled={action.disabled}
-                onClick={action.run}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
           <div className="focusOverflowMenu" ref={secondaryMenuRef}>
             <button
               ref={secondaryMenuButtonRef}
@@ -389,12 +384,16 @@ export function FocusedArticleReader({
             </AnimatePresence>
           </div>
         </div>
-        <ThemeToggle />
       </header>
 
       <section className="focusStatusBar" aria-label="阅读状态">
         <span className="focusStatusChip">{article.contentStatus === "partial" ? "正文：片段" : "正文：完整"}</span>
-        <span className="focusStatusChip">{score ? "评分：已评分" : "评分：未评分"}</span>
+        <span
+          className={score ? "focusStatusChip focusStatusChipScored" : "focusStatusChip"}
+          style={scoreStatusStyle}
+        >
+          {score ? "评分：已评分" : "评分：未评分"}
+        </span>
         <span className={translationStatusClassName(article)}>{translationLabel(article)}</span>
         <button type="button" className="focusStatusChip focusStatusAction" onClick={openFeedbackPanel}>
           反馈校准
@@ -403,6 +402,35 @@ export function FocusedArticleReader({
 
       {articleActions.actionError ? (
         <p className="readerActionError">{articleActions.actionError}</p>
+      ) : null}
+
+      {article.contentZhStatus === "failed" ? (
+        <section className="focusTranslationAlert" role="alert" aria-label="译文生成失败">
+          <div>
+            <strong>译文生成失败</strong>
+            <p>可重新提交全文翻译任务，成功后将自动切换到译文。</p>
+          </div>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={articleActions.isTranslating}
+            onClick={() => void toggleTranslation()}
+          >
+            ↻ 重试翻译
+          </button>
+        </section>
+      ) : article.contentZhStatus === "queued" || article.contentZhStatus === "running" ? (
+        <section
+          className="focusTranslationAlert focusTranslationAlertPending"
+          role="status"
+          aria-label="译文生成中"
+        >
+          <span className="focusTranslationSpinner" aria-hidden="true" />
+          <div>
+            <strong>译文生成中</strong>
+            <p>任务完成后会自动切换到译文。</p>
+          </div>
+        </section>
       ) : null}
 
       <article className="focusArticle" ref={articleRef}>
@@ -432,26 +460,55 @@ export function FocusedArticleReader({
               原文摘要
             </button>
           </div>
-          <p>{summaryForLang(article, currentLang)}</p>
+          <p className="focusSummaryQuote">{summaryForLang(article, currentLang)}</p>
         </details>
 
         <details className="focusSection" ref={scoreDetailsRef}>
           <summary>评分</summary>
           {score ? (
             <>
-              <div className="scoreGrid">
-                <ScoreBadge label="层级" value={tierLabel(score.tier)} />
-                {DIMENSION_ROWS.map((row) => {
-                  const value =
-                    row.key === "overall" ? score.overall : (score.dimensions[row.key] ?? null);
-                  return <ScoreBadge key={row.key} label={row.label} value={value} />;
+              <div className="scoreOverview">
+                <ScoreRing value={score.overall} tier={score.tier} size={46} />
+                <div>
+                  <strong className="scoreOverviewTier">{tierLabel(score.tier) ?? "未分层"}</strong>
+                  <p className="scoreReason">
+                    <span className="scoreReasonLabel">总评</span>
+                    {score.reason.trim() || "暂无评分理由。"}
+                  </p>
+                </div>
+              </div>
+              <div className="dimensionBars" aria-label="评分维度">
+                {DIMENSION_ROWS.filter(
+                  (row): row is { key: DimensionKey; label: string } => row.key !== "overall",
+                ).map((row) => {
+                  const value = normalizedDimensionValue(score.dimensions[row.key] ?? null);
+                  const style: DimensionBarStyle | undefined =
+                    value == null
+                      ? undefined
+                      : {
+                          "--dimensionValue": `${value}%`,
+                          "--dimensionColor": `var(${tierColorVar(null, value)})`,
+                        };
+                  return (
+                    <div className="dimensionBarRow" key={row.key}>
+                      <span className="dimensionBarLabel">{row.label}</span>
+                      <span
+                        className="dimensionBarTrack"
+                        role="progressbar"
+                        aria-label={row.label}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={value ?? undefined}
+                        aria-valuetext={value == null ? "未评分" : undefined}
+                      >
+                        <span className="dimensionBarFill" style={style} />
+                      </span>
+                      <span className="dimensionBarValue">{value ?? "—"}</span>
+                    </div>
+                  );
                 })}
               </div>
               <p className="scoreRiskHint">风险·不确定维度越高代表越需要谨慎，不按普通高分理解。</p>
-              <p className="scoreReason">
-                <span className="scoreReasonLabel">总评</span>
-                {score.reason.trim() || "暂无评分理由。"}
-              </p>
               {Object.keys(score.dimensionReasons).length > 0 ? (
                 <details className="dimensionReasons">
                   <summary>维度理由</summary>

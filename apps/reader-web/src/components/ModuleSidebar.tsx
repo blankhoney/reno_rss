@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
-import { ThemeToggle } from "./ThemeToggle";
 import { useDismissableLayer } from "./useDismissableLayer";
 
 type ModuleNavItem = { id: string; label: string; disabled?: boolean };
@@ -145,10 +144,7 @@ export function ModuleSidebar({
   function renderBrandBlock() {
     return (
       <div className="brandBlock">
-        <div className="brandRow">
-          <div className="brand">AI Reader</div>
-          <ThemeToggle />
-        </div>
+        <div className="brand">AI Reader</div>
         <a
           className="sourceLink"
           href="https://github.com/blankhoney/reno_rss"
@@ -166,7 +162,7 @@ export function ModuleSidebar({
       const collapsed = collapsedGroups.has(group.id);
       const activeGroup = activeGroupId === group.id;
       return (
-        <section className="moduleNavGroup" key={group.id}>
+        <section className="moduleNavGroup" data-group={group.id} key={group.id}>
           <button
             type="button"
             className={`moduleNavGroupButton${activeGroup ? " moduleNavGroupButtonActive" : ""}`}
@@ -226,7 +222,6 @@ export function ModuleSidebar({
       <div className="mobileTopbar">
         <div className="brand">AI Reader</div>
         <div className="mobileTopbarActions">
-          <ThemeToggle />
           <button
             ref={hamburgerRef}
             type="button"

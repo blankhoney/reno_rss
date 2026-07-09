@@ -30,7 +30,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   if (currentModule === "admin") {
     return (
       <AuthSessionGate>
-        <main className="workbench feedWorkbench">
+        <main className="workbench">
           <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
           <AdminConsole />
         </main>

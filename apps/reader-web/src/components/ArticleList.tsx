@@ -2,7 +2,7 @@
 
 import type { Article } from "@/lib/articles/types";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
-import { ScoreBadge } from "./ScoreBadge";
+import { ScoreRing, tierLabel } from "./ScoreRing";
 import { ArticleListSkeleton } from "./Skeleton";
 import { SortMenu, type SortOption } from "./SortMenu";
 import Link from "next/link";
@@ -50,19 +50,16 @@ function readHref(
   return `/read/${articleId}?${qs.toString()}`;
 }
 
-function articleSummary(article: Article, currentLang: SummaryLangId): string {
+function articleSummary(
+  article: Article,
+  currentLang: SummaryLangId,
+): { text: string; isEmpty: boolean } {
   const summary =
     currentLang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
-  if (summary.trim().length > 0) return summary.trim();
-  return "暂无摘要";
-}
-
-function tierLabel(tier: string | undefined): string | null {
-  if (tier === "must_read") return "必读";
-  if (tier === "read") return "推荐";
-  if (tier === "skim") return "略读";
-  if (tier === "skip") return "跳过";
-  return tier ?? null;
+  const text = summary.trim();
+  return text
+    ? { text, isEmpty: false }
+    : { text: "暂无摘要 — 评分完成后自动生成", isEmpty: true };
 }
 
 export function ArticleList({
@@ -114,12 +111,16 @@ export function ArticleList({
           className={isPaging ? "articleList articleListPaging" : "articleList"}
           aria-busy={isPaging ? "true" : undefined}
         >
-          {articles.map((article) => {
+          {articles.map((article, index) => {
             const score = article.score;
+            const summary = articleSummary(article, currentLang);
             const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
+            const isHeadline = pageIndex === 0 && index === 0;
+            const rowNumber = pageIndex === 0 ? index : index + 1;
             const cardClassName =
               [
                 "articleCard",
+                isHeadline ? "articleCardHeadline" : "",
                 article.status === "read" ? "articleCardRead" : "",
                 article.id === highlightArticleId ? "articleCardReturnTarget" : "",
               ]
@@ -134,6 +135,11 @@ export function ArticleList({
                   aria-label={`${article.title}，进入专注阅读`}
                   data-article-id={article.id}
                 >
+                  {!isHeadline ? (
+                    <span className="articleCardIndex" aria-hidden="true">
+                      {String(rowNumber).padStart(2, "0")}
+                    </span>
+                  ) : null}
                   <div className="articleCardMeta">
                     <span className="articleFeed">{article.feedTitle}</span>
                     {article.categoryTitle ? (
@@ -141,17 +147,19 @@ export function ArticleList({
                     ) : null}
                   </div>
                   <div className="articleCardTitle">{article.title}</div>
-                  <p className="articleCardSummary">{articleSummary(article, currentLang)}</p>
+                  <p
+                    className={
+                      summary.isEmpty
+                        ? "articleCardSummary articleCardSummaryEmpty"
+                        : "articleCardSummary"
+                    }
+                  >
+                    {summary.text}
+                  </p>
                   <div className="articleCardFooter">
-                    <div className="articleCardScores">
-                      {score ? (
-                        <>
-                          <ScoreBadge label="总分" value={score.overall} />
-                          <ScoreBadge label="层级" value={tierLabel(score.tier)} />
-                        </>
-                      ) : (
-                        <ScoreBadge label="评分" value={null} />
-                      )}
+                    <div className="articleCardScoreBlock">
+                      <ScoreRing value={score?.overall ?? null} tier={score?.tier ?? null} size={isHeadline ? 66 : 52} />
+                      <span className="articleCardTier">{score ? (tierLabel(score.tier) ?? "未分层") : "未评"}</span>
                     </div>
                     <span className="articleReadLink" aria-hidden="true">
                       阅读

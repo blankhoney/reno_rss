@@ -26,17 +26,36 @@ export function ArticleListSkeleton({ count = 12 }: { count?: number }) {
     <ul className="articleList articleListSkeleton" aria-label="文章加载中" aria-busy="true">
       {Array.from({ length: count }, (_, index) => (
         <li key={index}>
-          <article className="articleCard articleCardSkeleton">
+          <article
+            className={
+              index === 0
+                ? "articleCard articleCardHeadline articleCardSkeleton"
+                : "articleCard articleCardSkeleton"
+            }
+          >
             <div className="articleCardMeta">
               <SkeletonBlock className="skeletonPill" width="72px" />
               <SkeletonBlock className="skeletonPill" width="44px" />
             </div>
-            <SkeletonBlock className="skeletonLine skeletonTitleLine" width="86%" />
+            <SkeletonBlock
+              className={
+                index === 0
+                  ? "skeletonLine skeletonTitleLine skeletonHeadlineTitle"
+                  : "skeletonLine skeletonTitleLine"
+              }
+              width="86%"
+            />
             <SkeletonBlock className="skeletonLine" width="100%" />
             <SkeletonBlock className="skeletonLine" width="68%" />
             <div className="articleCardFooter">
-              <div className="articleCardScores">
-                <SkeletonBlock className="skeletonPill" width="66px" />
+              <div className="articleCardScoreBlock">
+                <SkeletonBlock
+                  className={
+                    index === 0
+                      ? "skeletonScoreRing skeletonScoreRingLarge"
+                      : "skeletonScoreRing"
+                  }
+                />
               </div>
               <SkeletonBlock className="skeletonPill" width="42px" />
             </div>
@@ -44,35 +63,6 @@ export function ArticleListSkeleton({ count = 12 }: { count?: number }) {
         </li>
       ))}
     </ul>
-  );
-}
-
-export function WorkbenchRailSkeleton() {
-  return (
-    <div className="workbenchRailSkeleton" aria-label="右栏加载中" aria-busy="true">
-      <div className="workbenchRailSkeletonList">
-        {Array.from({ length: 5 }, (_, index) => (
-          <div className="workbenchRailItem workbenchRailItemSkeleton" key={index}>
-            <SkeletonBlock className="skeletonPill" width="28px" />
-            <SkeletonBlock className="skeletonLine" width="100%" />
-            <SkeletonBlock className="skeletonPill" width="58px" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export function WorkbenchStatsSkeleton() {
-  return (
-    <div className="workbenchStats workbenchStatsSkeleton" aria-label="统计加载中" aria-busy="true">
-      {Array.from({ length: 3 }, (_, index) => (
-        <div key={index}>
-          <SkeletonBlock className="skeletonLine" width="54px" />
-          <SkeletonBlock className="skeletonPill" width="34px" />
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -101,6 +91,25 @@ export function FocusedArticleSkeleton({ returnHref }: { returnHref: string }) {
           <SkeletonBlock className="skeletonLine" width="36%" />
           <SkeletonBlock className="skeletonLine" width="100%" />
           <SkeletonBlock className="skeletonLine" width="72%" />
+        </div>
+        <div className="focusSection focusScoreSkeleton">
+          <SkeletonBlock className="skeletonLine" width="24%" />
+          <div className="scoreOverview">
+            <SkeletonBlock className="skeletonScoreRing" />
+            <div>
+              <SkeletonBlock className="skeletonLine" width="34%" />
+              <SkeletonBlock className="skeletonLine" width="82%" />
+            </div>
+          </div>
+          <div className="dimensionBars">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div className="dimensionBarRow skeletonDimensionBarRow" key={index}>
+                <SkeletonBlock className="skeletonLine" width="76px" />
+                <SkeletonBlock className="skeletonLine" width="100%" />
+                <SkeletonBlock className="skeletonLine" width="24px" />
+              </div>
+            ))}
+          </div>
         </div>
         <div className="focusContentSkeleton">
           {["100%", "96%", "82%", "98%", "74%", "92%"].map((width) => (

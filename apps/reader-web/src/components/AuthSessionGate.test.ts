@@ -68,6 +68,7 @@ test("AuthSessionView shows role and logout controls for authenticated users", (
   assert.match(html, /Ada/);
   assert.match(html, /admin/);
   assert.match(html, /退出登录/);
+  assert.match(html, /themeToggle/);
   assert.match(html, /Reader workbench/);
 });
 

@@ -15,6 +15,7 @@ import {
   primeSessionCache,
   readCachedSessionUser,
 } from "@/lib/auth/sessionCache";
+import { ThemeToggle } from "./ThemeToggle";
 
 type AuthMode = "login" | "recover";
 type AuthStatus = "loading" | "unauthenticated" | "authenticated";
@@ -81,9 +82,12 @@ export function AuthSessionView({
             <strong>{user.displayName}</strong>
             <span className="authRoleBadge">{user.role}</span>
           </div>
-          <button type="button" className="authSecondaryButton" onClick={onLogout} disabled={isSubmitting}>
-            退出登录
-          </button>
+          <div className="authSessionActions">
+            <ThemeToggle />
+            <button type="button" className="authSecondaryButton" onClick={onLogout} disabled={isSubmitting}>
+              退出登录
+            </button>
+          </div>
         </div>
         {recoveryCode ? (
           <section className="authRecovery" aria-label="恢复码">
