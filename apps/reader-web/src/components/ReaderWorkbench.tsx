@@ -7,7 +7,6 @@ import {
   filterHiddenFeedsForModule,
   resolveArticleSortId,
   resolveArticlesListModuleId,
-  sortArticlesForModule,
   type ArticleSortId,
   type ModuleId,
   type SummaryLangId,
@@ -39,7 +38,6 @@ export type WorkbenchView = {
 export function buildWorkbenchView({
   articles,
   currentModule,
-  currentSort,
 }: {
   articles: Article[];
   currentModule: string;
@@ -51,10 +49,11 @@ export function buildWorkbenchView({
   }
 
   const moduleId = moduleResolution.moduleId;
-  const visibleArticles = sortArticlesForModule(
-    filterHiddenFeedsForModule(filterArticlesForModule(articles, moduleId), moduleId),
+  // Ordering is a server-side keyset contract. Re-sorting only the current
+  // page would make cross-page score/dimension order incorrect.
+  const visibleArticles = filterHiddenFeedsForModule(
+    filterArticlesForModule(articles, moduleId),
     moduleId,
-    currentSort,
   );
 
   return {
@@ -152,6 +151,7 @@ export function ReaderWorkbench({
         cursor,
         module: currentModule,
         q: currentQuery,
+        sort: activeSort,
       });
       if (!isCurrent()) return;
       setRawArticles(page.articles);
@@ -172,7 +172,7 @@ export function ReaderWorkbench({
         setIsPaging(false);
       }
     }
-  }, [currentModule, currentQuery]);
+  }, [activeSort, currentModule, currentQuery]);
 
   const loadRail = useCallback(async () => {
     const requestSeq = railSeqRef.current + 1;

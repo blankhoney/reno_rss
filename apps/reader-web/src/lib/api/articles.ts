@@ -306,16 +306,19 @@ export async function listArticles({
   cursor,
   module,
   q,
+  sort,
 }: {
   limit: number;
   cursor?: string | null;
   module?: string | null;
   q?: string | null;
+  sort?: string | null;
 }): Promise<ArticleListPage> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
   if (module && module !== "") params.set("module", module);
   if (q && q.trim() !== "") params.set("q", q.trim());
+  if (sort && sort !== "") params.set("sort", sort);
   const payload = await apiGet<ApiListResponse>(`/api/articles?${params.toString()}`);
   return {
     articles: (payload.items ?? []).map(articleFromApiItem),

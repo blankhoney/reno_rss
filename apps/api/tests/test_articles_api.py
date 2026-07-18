@@ -106,6 +106,125 @@ async def test_article_list_uses_published_at_id_keyset_order(app, client):
 
 
 @pytest.mark.asyncio
+async def test_article_score_sort_uses_full_corpus_composite_cursor(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Ranked Reader"})
+    now = datetime(2026, 7, 18, 12, tzinfo=UTC)
+    created = []
+    for index in range(105):
+        created.append(
+            app.state.article_repository.upsert_from_source(
+                {
+                    "feed_id": 1,
+                    "miniflux_entry_id": 10_000 + index,
+                    "url": f"https://example.com/ranked/{index}",
+                    "title": f"Ranked {index}",
+                    "published_at": now + timedelta(minutes=index),
+                }
+            )
+        )
+
+    # The highest score is deliberately the oldest article, outside the old
+    # latest-100 candidate window.
+    app.state.scoring_repository.create_score(
+        article_id=created[0].id,
+        base_score=99,
+        is_active=True,
+    )
+    app.state.scoring_repository.create_score(
+        article_id=created[50].id,
+        base_score=98,
+        is_active=True,
+    )
+    app.state.scoring_repository.create_score(
+        article_id=created[-1].id,
+        base_score=97,
+        is_active=True,
+    )
+
+    first = await client.get("/api/articles", params={"sort": "score", "limit": 2})
+    second = await client.get(
+        "/api/articles",
+        params={
+            "sort": "score",
+            "limit": 2,
+            "cursor": first.json()["next_cursor"],
+        },
+    )
+
+    assert first.status_code == 200
+    assert [item["id"] for item in first.json()["items"]] == [
+        created[0].id,
+        created[50].id,
+    ]
+    assert first.json()["has_more"] is True
+    assert first.json()["next_cursor"]
+    assert second.status_code == 200
+    assert second.json()["items"][0]["id"] == created[-1].id
+    assert {item["id"] for item in first.json()["items"]}.isdisjoint(
+        {item["id"] for item in second.json()["items"]}
+    )
+
+
+@pytest.mark.asyncio
+async def test_article_dimension_sort_uses_dimension_value_and_validates_cursor(app, client):
+    from dataclasses import replace
+
+    await client.post("/api/auth/login", json={"display_name": "Dimension Reader"})
+    now = datetime(2026, 7, 18, 12, tzinfo=UTC)
+    low = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 20_001,
+            "url": "https://example.com/dimension/low",
+            "title": "High base, low technical",
+            "published_at": now,
+        }
+    )
+    high = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 20_002,
+            "url": "https://example.com/dimension/high",
+            "title": "Low base, high technical",
+            "published_at": now - timedelta(days=1),
+        }
+    )
+    low_score = app.state.scoring_repository.create_score(
+        article_id=low.id,
+        base_score=95,
+        is_active=True,
+    )
+    high_score = app.state.scoring_repository.create_score(
+        article_id=high.id,
+        base_score=60,
+        is_active=True,
+    )
+    app.state.scoring_repository._scores[low_score.id] = replace(
+        low_score,
+        dimension_scores={"topic_relevance": 10},
+    )
+    app.state.scoring_repository._scores[high_score.id] = replace(
+        high_score,
+        dimension_scores={"topic_relevance": 100},
+    )
+
+    ranked = await client.get(
+        "/api/articles",
+        params={"module": "technical", "limit": 1},
+    )
+    wrong_cursor = await client.get(
+        "/api/articles",
+        params={"sort": "score", "limit": 1, "cursor": ranked.json()["next_cursor"]},
+    )
+
+    assert ranked.status_code == 200
+    assert ranked.json()["items"][0]["id"] == high.id
+    assert ranked.json()["next_cursor"]
+    assert wrong_cursor.status_code == 400
+    assert wrong_cursor.json()["error"]["code"] == "invalid_cursor"
+
+
+@pytest.mark.asyncio
 async def test_article_list_module_filters_saved_and_project_server_side(app, client):
     from uuid import UUID
 

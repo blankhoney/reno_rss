@@ -3,16 +3,18 @@ from datetime import UTC, datetime
 import base64
 import hashlib
 import json
+from collections.abc import Callable, Mapping
 from typing import Protocol
 from uuid import UUID
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import Engine, and_, case, create_engine, desc, func, or_, select, update
+from sqlalchemy import Engine, Numeric, and_, case, create_engine, desc, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
     article_annotations,
+    article_base_scores,
     article_sources,
     articles,
     categories,
@@ -29,6 +31,7 @@ LIST_DIMENSION_MODULES = frozenset(
     {"technical", "business", "trend", "ai", "product", "security"}
 )
 LIST_MODULES = LIST_STATE_MODULES | LIST_DIMENSION_MODULES
+LIST_SORTS = frozenset({"default", "latest", "score", "technical", "business", "trend"})
 
 
 def normalize_list_module(module: str | None) -> str:
@@ -149,6 +152,8 @@ class ArticleStore(Protocol):
         user_id: UUID | None = None,
         module: str = "all",
         q: str | None = None,
+        sort: str | None = None,
+        score_lookup: Callable[[list[int]], Mapping[int, object]] | None = None,
     ) -> ArticlePage: ...
 
     def count_articles(self) -> int: ...
@@ -297,6 +302,60 @@ def decode_article_cursor(cursor: str) -> tuple[datetime | None, int]:
     )
 
 
+def resolve_rank_sort(sort: str | None, module: str | None) -> str | None:
+    """Resolve explicit sort or a dimension module's default ranking."""
+    requested = (sort or "default").strip().lower()
+    if requested not in LIST_SORTS:
+        raise ValueError(f"unsupported list sort: {requested}")
+    if requested in {"default", "latest"}:
+        return f"module:{module}" if module in LIST_DIMENSION_MODULES else None
+    return requested
+
+
+def encode_ranked_article_cursor(sort_key: str, rank: float, article_id: int) -> str:
+    payload = {"sort": sort_key, "rank": rank, "id": article_id}
+    return base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+
+
+def decode_ranked_article_cursor(cursor: str, *, sort_key: str) -> tuple[float, int]:
+    payload = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8"))
+    if payload.get("sort") != sort_key:
+        raise ValueError("cursor sort does not match request")
+    return float(payload["rank"]), int(payload["id"])
+
+
+def article_rank_value(score: object | None, sort_key: str) -> float:
+    if score is None:
+        return -1.0
+    base_score = float(getattr(score, "base_score", -1) or 0)
+    dimensions = getattr(score, "dimension_scores", {})
+    dims = dimensions if isinstance(dimensions, Mapping) else {}
+
+    def dimension(name: str) -> float:
+        value = dims.get(name)
+        return float(value) if value is not None else 0.0
+
+    if sort_key == "score":
+        return base_score
+    if sort_key == "technical":
+        return dimension("topic_relevance")
+    if sort_key == "business":
+        return dimension("actionability")
+    if sort_key == "trend":
+        return dimension("novelty")
+    if sort_key in {"module:technical", "module:ai"}:
+        return (dimension("topic_relevance") + dimension("information_density")) / 2
+    if sort_key == "module:business":
+        return dimension("actionability")
+    if sort_key == "module:trend":
+        return (dimension("novelty") + dimension("timeliness")) / 2
+    if sort_key == "module:product":
+        return (dimension("actionability") + dimension("reading_cost_fit")) / 2
+    if sort_key == "module:security":
+        return (dimension("source_quality") + (100 - dimension("risk_uncertainty"))) / 2
+    raise ValueError(f"unsupported rank sort: {sort_key}")
+
+
 class MemoryArticleRepository:
     def __init__(self) -> None:
         self._articles: dict[int, ArticleRecord] = {}
@@ -389,8 +448,11 @@ class MemoryArticleRepository:
         user_id: UUID | None = None,
         module: str = "all",
         q: str | None = None,
+        sort: str | None = None,
+        score_lookup: Callable[[list[int]], Mapping[int, object]] | None = None,
     ) -> ArticlePage:
         list_module = normalize_list_module(module)
+        rank_sort = resolve_rank_sort(sort, module)
         query = (q or "").strip().lower()
         items = sorted(
             [self._with_source_metadata(article) for article in self._articles.values()],
@@ -414,7 +476,33 @@ class MemoryArticleRepository:
                 for article in items
                 if state_matches_module(self.get_state(user_id, article.id), list_module)
             ]
-        if cursor:
+        scores: Mapping[int, object] = {}
+        if rank_sort is not None:
+            if score_lookup is None:
+                raise ValueError("score_lookup is required for ranked article lists")
+            scores = score_lookup([article.id for article in items])
+            items.sort(
+                key=lambda article: (
+                    article_rank_value(scores.get(article.id), rank_sort),
+                    article.id,
+                ),
+                reverse=True,
+            )
+        if cursor and rank_sort is not None:
+            cursor_rank, cursor_id = decode_ranked_article_cursor(
+                cursor,
+                sort_key=rank_sort,
+            )
+            items = [
+                article
+                for article in items
+                if (
+                    article_rank_value(scores.get(article.id), rank_sort),
+                    article.id,
+                )
+                < (cursor_rank, cursor_id)
+            ]
+        elif cursor:
             cursor_published_at, cursor_id = decode_article_cursor(cursor)
             items = [
                 article
@@ -424,7 +512,15 @@ class MemoryArticleRepository:
 
         page_items = items[:limit]
         has_more = len(items) > limit
-        next_cursor = encode_article_cursor(page_items[-1]) if has_more and page_items else None
+        if has_more and page_items and rank_sort is not None:
+            last = page_items[-1]
+            next_cursor = encode_ranked_article_cursor(
+                rank_sort,
+                article_rank_value(scores.get(last.id), rank_sort),
+                last.id,
+            )
+        else:
+            next_cursor = encode_article_cursor(page_items[-1]) if has_more and page_items else None
         return ArticlePage(items=page_items, next_cursor=next_cursor, has_more=has_more)
 
     def count_articles(self) -> int:
@@ -770,8 +866,12 @@ class DatabaseArticleRepository:
         user_id: UUID | None = None,
         module: str = "all",
         q: str | None = None,
+        sort: str | None = None,
+        score_lookup: Callable[[list[int]], Mapping[int, object]] | None = None,
     ) -> ArticlePage:
+        del score_lookup
         list_module = normalize_list_module(module)
+        rank_sort = resolve_rank_sort(sort, module)
         query = (q or "").strip()
         statement = _article_select()
         if query:
@@ -803,7 +903,26 @@ class DatabaseArticleRepository:
                 statement = statement.where(user_article_states.c.saved.is_(True))
             elif list_module == "project":
                 statement = statement.where(user_article_states.c.project.is_(True))
-        if cursor:
+        rank_expression = None
+        if rank_sort is not None:
+            rank_expression = _database_rank_expression(rank_sort).label("_rank_value")
+            statement = statement.add_columns(rank_expression).outerjoin(
+                article_base_scores,
+                and_(
+                    article_base_scores.c.article_id == articles.c.id,
+                    article_base_scores.c.is_active.is_(True),
+                ),
+            )
+        if cursor and rank_sort is not None:
+            cursor_rank, cursor_id = decode_ranked_article_cursor(
+                cursor,
+                sort_key=rank_sort,
+            )
+            statement = statement.where(
+                (rank_expression < cursor_rank)
+                | and_(rank_expression == cursor_rank, articles.c.id < cursor_id)
+            )
+        elif cursor:
             cursor_published_at, cursor_id = decode_article_cursor(cursor)
             if cursor_published_at is None:
                 statement = statement.where(articles.c.id < cursor_id)
@@ -815,14 +934,23 @@ class DatabaseArticleRepository:
                         articles.c.id < cursor_id,
                     )
                 )
-        statement = statement.order_by(desc(articles.c.published_at), desc(articles.c.id)).limit(
-            limit + 1
-        )
+        if rank_expression is not None:
+            statement = statement.order_by(desc(rank_expression), desc(articles.c.id))
+        else:
+            statement = statement.order_by(desc(articles.c.published_at), desc(articles.c.id))
+        statement = statement.limit(limit + 1)
         with self.engine.begin() as connection:
             rows = connection.execute(statement).mappings().all()
         items = [_article_from_row(row) for row in rows[:limit]]
         has_more = len(rows) > limit
-        next_cursor = encode_article_cursor(items[-1]) if has_more and items else None
+        if has_more and items and rank_sort is not None:
+            next_cursor = encode_ranked_article_cursor(
+                rank_sort,
+                float(rows[limit - 1]["_rank_value"]),
+                items[-1].id,
+            )
+        else:
+            next_cursor = encode_article_cursor(items[-1]) if has_more and items else None
         return ArticlePage(items=items, next_cursor=next_cursor, has_more=has_more)
 
     def count_articles(self) -> int:
@@ -1458,6 +1586,41 @@ def create_article_repository(database_url: str | None) -> ArticleStore:
     if database_url:
         return DatabaseArticleRepository(database_url)
     return MemoryArticleRepository()
+
+
+def _database_rank_expression(sort_key: str):
+    """Build the Postgres rank expression used by composite keyset paging."""
+    base_score = func.coalesce(article_base_scores.c.base_score, -1).cast(Numeric)
+
+    def dimension(name: str):
+        return func.coalesce(
+            article_base_scores.c.dimension_scores[name].astext.cast(Numeric),
+            0,
+        )
+
+    if sort_key == "score":
+        return base_score
+    if sort_key in {"technical", "business", "trend"}:
+        dimension_name = {
+            "technical": "topic_relevance",
+            "business": "actionability",
+            "trend": "novelty",
+        }[sort_key]
+        return case(
+            (article_base_scores.c.id.is_(None), -1),
+            else_=dimension(dimension_name),
+        )
+    if sort_key in {"module:technical", "module:ai"}:
+        return (dimension("topic_relevance") + dimension("information_density")) / 2
+    if sort_key == "module:business":
+        return dimension("actionability")
+    if sort_key == "module:trend":
+        return (dimension("novelty") + dimension("timeliness")) / 2
+    if sort_key == "module:product":
+        return (dimension("actionability") + dimension("reading_cost_fit")) / 2
+    if sort_key == "module:security":
+        return (dimension("source_quality") + (100 - dimension("risk_uncertainty"))) / 2
+    raise ValueError(f"unsupported rank sort: {sort_key}")
 
 
 def _article_select():
