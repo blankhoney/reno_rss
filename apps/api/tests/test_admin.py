@@ -152,3 +152,45 @@ async def test_admin_usage_today_requires_admin(client):
     await client.post("/api/auth/login", json={"display_name": "User"})
     response = await client.get("/api/admin/usage/today")
     assert response.status_code == 403
+
+
+async def test_admin_pipeline_health_reports_queue_and_latest_jobs(app, client):
+    _admin, session_token, _recovery_code = app.state.auth_store.create_user(
+        display_name="PipelineAdmin",
+        role="admin",
+    )
+    client.cookies.set("ar_session", session_token)
+    queued = app.state.job_repository.enqueue(
+        "generate_daily_brief",
+        {"trigger": "scheduled"},
+        dedupe_key="health-brief",
+    )
+    failed = app.state.job_repository.enqueue(
+        "sync_miniflux_entries",
+        {"trigger": "scheduled"},
+        dedupe_key="health-sync",
+    )
+    claimed = app.state.job_repository.claim_next("health-worker")
+    assert claimed is not None and claimed.id == queued.id
+    app.state.job_repository.mark_failed(claimed.id, "upstream unavailable")
+    del failed
+
+    response = await client.get("/api/admin/pipeline-health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scheduler_enabled"] is True
+    assert body["status"] == "degraded"
+    assert body["queue"]["queued"] == 1
+    assert body["queue"]["failed_24h"] == 1
+    by_type = {item["job_type"]: item for item in body["jobs"]}
+    assert by_type["generate_daily_brief"]["status"] == "failed"
+    assert by_type["sync_miniflux_entries"]["status"] == "queued"
+
+
+async def test_admin_pipeline_health_requires_admin(client):
+    await client.post("/api/auth/login", json={"display_name": "PipelineUser"})
+
+    response = await client.get("/api/admin/pipeline-health")
+
+    assert response.status_code == 403

@@ -6,9 +6,11 @@ import {
   createScoringBatch,
   enqueueAdminSync,
   getAdminUsageToday,
+  getPipelineHealth,
   getScoringBatch,
   startScoringBatch,
   type AdminUsageToday,
+  type PipelineHealth,
   type CandidateWindow,
   type ScoringBatch,
 } from "@/lib/api/admin";
@@ -28,10 +30,18 @@ type AdminConsoleViewProps = {
   batch: ScoringBatch | null;
   stats: ArticleStats | null;
   usage: AdminUsageToday | null;
+  pipelineHealth: PipelineHealth | null;
   isStatsLoading?: boolean;
   onSync: (event: FormEvent<HTMLFormElement>) => void;
   onCreateBatch: (event: FormEvent<HTMLFormElement>) => void;
   onStartBatch: () => void;
+};
+
+const PIPELINE_STATUS_LABELS: Record<PipelineHealth["status"], string> = {
+  healthy: "健康",
+  degraded: "需处理",
+  idle: "等待首次运行",
+  paused: "已暂停",
 };
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
@@ -69,6 +79,7 @@ export function AdminConsoleView({
   batch,
   stats,
   usage,
+  pipelineHealth,
   isStatsLoading = false,
   onSync,
   onCreateBatch,
@@ -132,7 +143,7 @@ export function AdminConsoleView({
                 <span className="adminConsoleStat"> · {usage.scoresAccounting}</span>
               </li>
               <li>
-                Ask 调用（进程内存）:{" "}
+                Ask 调用（共享账本）:{" "}
                 <strong>
                   {usage.askUsed}
                   {usage.askLimit > 0 ? ` / ${usage.askLimit}` : " / 不限"}
@@ -198,9 +209,31 @@ export function AdminConsoleView({
           <header className="adminConsoleCardHeader">
             <div>
               <h2>队列状态</h2>
-              <p className="adminQueuePlaceholder">翻译任务由文章页触发,无全局队列视图</p>
+              <p className="adminQueuePlaceholder">
+                {pipelineHealth
+                  ? `${pipelineHealth.schedulerEnabled ? "调度常开" : "调度暂停"} · ${PIPELINE_STATUS_LABELS[pipelineHealth.status]}`
+                  : "队列状态加载中"}
+              </p>
             </div>
           </header>
+          {pipelineHealth ? (
+            <div className="adminPipelineHealth" aria-label="自动情报管道状态">
+              <p>
+                排队 <strong>{pipelineHealth.queue.queued}</strong> · 运行中{" "}
+                <strong>{pipelineHealth.queue.running}</strong> · 24h 失败{" "}
+                <strong>{pipelineHealth.queue.failed24h}</strong> · 陈旧租约{" "}
+                <strong>{pipelineHealth.queue.staleRunning}</strong>
+              </p>
+              <ul>
+                {pipelineHealth.jobs.map((job) => (
+                  <li key={job.jobType}>
+                    {job.jobType}: <strong>{job.status}</strong>
+                    {job.lastError ? ` · ${job.lastError}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <form className="adminConsoleForm adminSyncForm" onSubmit={onSync}>
             <label className="authField">
               <span>同步上限</span>
@@ -246,6 +279,7 @@ export function AdminConsole() {
   const [batch, setBatch] = useState<ScoringBatch | null>(null);
   const [stats, setStats] = useState<ArticleStats | null>(null);
   const [usage, setUsage] = useState<AdminUsageToday | null>(null);
+  const [pipelineHealth, setPipelineHealth] = useState<PipelineHealth | null>(null);
   const [isStatsLoading, setIsStatsLoading] = useState(false);
 
   useEffect(() => {
@@ -266,17 +300,21 @@ export function AdminConsole() {
     if (role !== "admin") {
       setStats(null);
       setUsage(null);
+      setPipelineHealth(null);
       setIsStatsLoading(false);
       return;
     }
 
     let active = true;
     setIsStatsLoading(true);
-    Promise.allSettled([getArticleStats(), getAdminUsageToday()])
-      .then(([statsResult, usageResult]) => {
+    Promise.allSettled([getArticleStats(), getAdminUsageToday(), getPipelineHealth()])
+      .then(([statsResult, usageResult, pipelineResult]) => {
         if (!active) return;
         setStats(statsResult.status === "fulfilled" ? statsResult.value : null);
         setUsage(usageResult.status === "fulfilled" ? usageResult.value : null);
+        setPipelineHealth(
+          pipelineResult.status === "fulfilled" ? pipelineResult.value : null,
+        );
       })
       .finally(() => {
         if (active) setIsStatsLoading(false);
@@ -351,6 +389,7 @@ export function AdminConsole() {
       batch={batch}
       stats={stats}
       usage={usage}
+      pipelineHealth={pipelineHealth}
       isStatsLoading={isStatsLoading}
       onSync={(event) => void handleSync(event)}
       onCreateBatch={(event) => void handleCreateBatch(event)}

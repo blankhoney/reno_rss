@@ -33,6 +33,8 @@ class AutoScoreSink(Protocol):
 
     def enqueue_score_batch(self, batch_id: int) -> None: ...
 
+    def enqueue_recommendations(self, batch_id: object) -> None: ...
+
 
 def run_auto_score_candidates(
     payload: Mapping[str, object],
@@ -65,6 +67,7 @@ def run_auto_score_candidates(
             scored_today_before,
             daily_article_cap,
         )
+        sink.enqueue_recommendations(None)
         return {
             "status": "skipped_cap",
             "article_ids": [],
@@ -80,6 +83,9 @@ def run_auto_score_candidates(
         limit=remaining,
     )
     if not article_ids:
+        # Keep personalization and the daily brief fresh even when the current
+        # cycle has no new articles to score.
+        sink.enqueue_recommendations(None)
         return {
             "status": "empty",
             "article_ids": [],

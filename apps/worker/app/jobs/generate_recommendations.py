@@ -38,6 +38,8 @@ class RecommendationSink(Protocol):
         algorithm_version: str,
     ) -> None: ...
 
+    def enqueue_daily_brief(self) -> None: ...
+
 
 class TargetUserSink(RecommendationSink, Protocol):
     def list_target_users(self) -> list[object]: ...
@@ -60,6 +62,10 @@ def generate_recommendations(
         ranked_items = [_recommendation_item_dict(item) for item in ranker(context)]
         sink.save_recommendation_edition(user_id, ranked_items, algorithm_version)
         editions_saved += 1
+
+    # The brief must observe the editions created by this job, so it is
+    # enqueued only after every target user has been persisted successfully.
+    sink.enqueue_daily_brief()
 
     return {
         "algorithm_version": algorithm_version,

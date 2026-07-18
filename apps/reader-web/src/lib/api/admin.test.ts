@@ -4,6 +4,7 @@ import {
   createScoringBatch,
   enqueueAdminSync,
   getScoringBatch,
+  getPipelineHealth,
   startScoringBatch,
 } from "./admin";
 
@@ -118,6 +119,44 @@ test("getScoringBatch maps batch detail", async () => {
     assert.equal(batch.id, 5);
     assert.equal(batch.status, "running");
     assert.equal(batch.items[0]?.articleId, 12);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("getPipelineHealth maps scheduler and queue diagnostics", async () => {
+  const restoreFetch = withMockFetch(() =>
+    new Response(
+      JSON.stringify({
+        status: "degraded",
+        scheduler_enabled: true,
+        queue: {
+          queued: 4,
+          running: 1,
+          failed_24h: 2,
+          stale_running: 0,
+          oldest_queued_at: "2026-07-18T08:00:00Z",
+        },
+        jobs: [
+          {
+            job_type: "sync_miniflux_entries",
+            status: "failed",
+            updated_at: "2026-07-18T09:00:00Z",
+            last_error: "timeout",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  );
+
+  try {
+    const health = await getPipelineHealth();
+
+    assert.equal(health.status, "degraded");
+    assert.equal(health.schedulerEnabled, true);
+    assert.equal(health.queue.failed24h, 2);
+    assert.equal(health.jobs[0]?.jobType, "sync_miniflux_entries");
   } finally {
     restoreFetch();
   }

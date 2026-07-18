@@ -26,6 +26,7 @@ class RecordingSink:
         self.context_requests = []
         self.list_target_users_calls = 0
         self.saved_editions = []
+        self.daily_brief_enqueues = 0
 
     def recommendation_context_for_user(self, user_id):
         self.context_requests.append(user_id)
@@ -37,6 +38,9 @@ class RecordingSink:
 
     def save_recommendation_edition(self, user_id, items, algorithm_version):
         self.saved_editions.append((user_id, list(items), algorithm_version))
+
+    def enqueue_daily_brief(self):
+        self.daily_brief_enqueues += 1
 
 
 def test_generate_recommendations_ranks_and_saves_one_edition_per_requested_user():
@@ -142,6 +146,7 @@ def test_generate_recommendations_ranks_and_saves_one_edition_per_requested_user
         "editions_saved": 2,
         "users_seen": 2,
     }
+    assert sink.daily_brief_enqueues == 1
 
 
 def test_generate_recommendations_uses_target_users_when_payload_omits_user_ids():
@@ -329,6 +334,7 @@ def test_database_recommendation_sink_builds_context_and_writes_edition():
             .mappings()
             .all()
         )
+        jobs = connection.execute(text("SELECT * FROM jobs ORDER BY id")).mappings().all()
 
     assert result["editions_saved"] == 1
     assert len(editions) == 1
@@ -337,6 +343,9 @@ def test_database_recommendation_sink_builds_context_and_writes_edition():
         (1, 1, "subscription"),
         (2, 2, "exploration"),
     ]
+    assert len(jobs) == 1
+    assert jobs[0]["job_type"] == "generate_daily_brief"
+    assert jobs[0]["priority"] == 0
 
 
 def test_database_recommendation_sink_replaces_same_source_edition_on_rerun():
@@ -501,6 +510,19 @@ def _create_recommendation_schema(engine):
                 tier TEXT,
                 reason TEXT,
                 source TEXT
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                priority INTEGER NOT NULL DEFAULT 0,
+                payload TEXT NOT NULL,
+                dedupe_key TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
             """
         )

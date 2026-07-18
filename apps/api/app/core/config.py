@@ -46,6 +46,7 @@ class Settings:
     llm_daily_call_budget: int = DEFAULT_LLM_DAILY_CALL_BUDGET
     score_daily_call_budget: int = DEFAULT_SCORE_DAILY_CALL_BUDGET
     agent_daily_call_budget: int = DEFAULT_AGENT_DAILY_CALL_BUDGET
+    scheduler_enabled: bool = True
     # When true, requests without a session cookie are resolved to a shared demo
     # user (role=user) so staging can be a fully public functional demo. MUST stay
     # False in production — only the staging compose overlay enables it.
@@ -168,6 +169,10 @@ def get_settings() -> Settings:
         agent_daily_call_budget=_parse_int(
             os.environ.get("AGENT_DAILY_CALL_BUDGET"),
             DEFAULT_AGENT_DAILY_CALL_BUDGET,
+        ),
+        scheduler_enabled=_parse_bool_with_default(
+            os.environ.get("SCHEDULER_ENABLED"),
+            True,
         ),
         anonymous_demo_user_enabled=_parse_bool(
             os.environ.get("AI_READER_ANONYMOUS_DEMO")

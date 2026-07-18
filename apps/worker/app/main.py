@@ -82,7 +82,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
 
-    scheduler_enabled = env_flag_enabled(os.environ.get("SCHEDULER_ENABLED"), default=False)
+    scheduler_enabled = env_flag_enabled(os.environ.get("SCHEDULER_ENABLED"), default=True)
     on_tick = make_tick_callback(queue, enabled=scheduler_enabled)
     logging.info(
         "worker runtime started: worker_id=%s handlers=%s scheduler_enabled=%s",

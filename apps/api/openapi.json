@@ -254,6 +254,23 @@
               ],
               "title": "Q"
             }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
           }
         ],
         "responses": {
@@ -566,7 +583,7 @@
           "articles"
         ],
         "summary": "Export Project Articles",
-        "description": "Export the current user's project queue as Markdown or JSON (no secrets).",
+        "description": "Export the current user's project queue as Markdown, JSON, or zip (no secrets).",
         "operationId": "export_project_articles_api_export_project_get",
         "parameters": [
           {
@@ -575,7 +592,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "pattern": "^(markdown|json)$",
+              "pattern": "^(markdown|json|zip)$",
               "default": "markdown",
               "title": "Format"
             }
@@ -599,6 +616,65 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/annotations/search": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Search Annotations",
+        "description": "Search private notes/highlights by content substring.",
+        "operationId": "search_annotations_api_annotations_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Search Annotations Api Annotations Search Get"
+                }
               }
             }
           },
@@ -1181,7 +1257,7 @@
           "admin"
         ],
         "summary": "Usage Today",
-        "description": "Admin cost cockpit: worker scores (DB) + API ask budget (process memory).",
+        "description": "Admin cost cockpit backed by DB score rows and a shared daily ledger.",
         "operationId": "usage_today_api_admin_usage_today_get",
         "responses": {
           "200": {
@@ -1192,6 +1268,28 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Usage Today Api Admin Usage Today Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/pipeline-health": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Pipeline Health",
+        "description": "Read-only unattended-pipeline queue and latest-run diagnostics.",
+        "operationId": "pipeline_health_api_admin_pipeline_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineHealthResponse"
                 }
               }
             }
@@ -1212,6 +1310,48 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/govern-sources": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Enqueue Govern Sources",
+        "description": "Queue source-quality demotion pass (hide residual/failed feeds).",
+        "operationId": "enqueue_govern_sources_api_admin_govern_sources_post",
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -1879,6 +2019,171 @@
           }
         }
       }
+    },
+    "/api/me/interest": {
+      "get": {
+        "tags": [
+          "interest"
+        ],
+        "summary": "Get Interest",
+        "operationId": "get_interest_api_me_interest_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Interest Api Me Interest Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/interest/export": {
+      "get": {
+        "tags": [
+          "interest"
+        ],
+        "summary": "Export Interest",
+        "operationId": "export_interest_api_me_interest_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Export Interest Api Me Interest Export Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/interest/reset": {
+      "post": {
+        "tags": [
+          "interest"
+        ],
+        "summary": "Reset Interest",
+        "operationId": "reset_interest_api_me_interest_reset_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Reset Interest Api Me Interest Reset Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/acl": {
+      "get": {
+        "tags": [
+          "acl"
+        ],
+        "summary": "List Acl",
+        "operationId": "list_acl_api_projects__project_id__acl_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Acl Api Projects  Project Id  Acl Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "acl"
+        ],
+        "summary": "Put Acl",
+        "operationId": "put_acl_api_projects__project_id__acl_put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Put Acl Api Projects  Project Id  Acl Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1921,6 +2226,33 @@
             "pattern": "^(annotation|comment|review)$",
             "title": "Type",
             "default": "annotation"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 12
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
           }
         },
         "type": "object",
@@ -2177,6 +2509,26 @@
         ],
         "title": "CreateScoringBatchRequest"
       },
+      "GrantRequest": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^(owner|editor|viewer)$",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "role"
+        ],
+        "title": "GrantRequest"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2204,6 +2556,124 @@
           "display_name"
         ],
         "title": "LoginRequest"
+      },
+      "PipelineHealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "idle",
+              "paused"
+            ],
+            "title": "Status"
+          },
+          "scheduler_enabled": {
+            "type": "boolean",
+            "title": "Scheduler Enabled"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/PipelineQueueHealth"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineJobHealth"
+            },
+            "type": "array",
+            "title": "Jobs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "scheduler_enabled",
+          "queue",
+          "jobs"
+        ],
+        "title": "PipelineHealthResponse"
+      },
+      "PipelineJobHealth": {
+        "properties": {
+          "job_type": {
+            "type": "string",
+            "title": "Job Type"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_type",
+          "status",
+          "updated_at",
+          "last_error"
+        ],
+        "title": "PipelineJobHealth"
+      },
+      "PipelineQueueHealth": {
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "running": {
+            "type": "integer",
+            "title": "Running"
+          },
+          "failed_24h": {
+            "type": "integer",
+            "title": "Failed 24H"
+          },
+          "stale_running": {
+            "type": "integer",
+            "title": "Stale Running"
+          },
+          "oldest_queued_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued",
+          "running",
+          "failed_24h",
+          "stale_running",
+          "oldest_queued_at"
+        ],
+        "title": "PipelineQueueHealth"
       },
       "RecoverRequest": {
         "properties": {

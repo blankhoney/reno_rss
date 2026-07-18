@@ -15,6 +15,7 @@ test("AdminConsoleView hides admin controls from non-admin users", () => {
       batch: null,
       stats: null,
       usage: null,
+      pipelineHealth: null,
       onSync: () => {},
       onCreateBatch: () => {},
       onStartBatch: () => {},
@@ -48,6 +49,25 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
         askRemaining: 97,
         askAccounting: "process_memory",
       },
+      pipelineHealth: {
+        status: "degraded",
+        schedulerEnabled: true,
+        queue: {
+          queued: 2,
+          running: 1,
+          failed24h: 1,
+          staleRunning: 0,
+          oldestQueuedAt: "2026-07-18T08:00:00Z",
+        },
+        jobs: [
+          {
+            jobType: "sync_miniflux_entries",
+            status: "failed",
+            updatedAt: "2026-07-18T09:00:00Z",
+            lastError: "timeout",
+          },
+        ],
+      },
       batch: {
         id: 3,
         name: "Today",
@@ -76,7 +96,9 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
   assert.match(html, /今日费用/);
   assert.match(html, /评分 12 次/);
   assert.match(html, /Ask 3\/100/);
-  assert.match(html, /翻译任务由文章页触发,无全局队列视图/);
+  assert.match(html, /调度常开 · 需处理/);
+  assert.match(html, /24h 失败/);
+  assert.match(html, /sync_miniflux_entries/);
   assert.match(html, /启动同步/);
   assert.match(html, /创建评分批次/);
   assert.match(html, /启动评分/);

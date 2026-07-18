@@ -14,6 +14,7 @@ class FakeAutoScoreSink:
         self.article_ids = list(article_ids or [])
         self.created: dict[str, object] | None = None
         self.enqueued_batch_id: int | None = None
+        self.recommendation_batch_ids: list[object] = []
 
     def count_scores_today(self, day_start: str) -> int:
         assert day_start.endswith("00:00:00+00:00") or "T00:00:00" in day_start
@@ -39,6 +40,9 @@ class FakeAutoScoreSink:
     def enqueue_score_batch(self, batch_id: int) -> None:
         self.enqueued_batch_id = batch_id
 
+    def enqueue_recommendations(self, batch_id: object) -> None:
+        self.recommendation_batch_ids.append(batch_id)
+
 
 def test_auto_score_enqueues_batch_under_cap():
     sink = FakeAutoScoreSink(scored_today=10, article_ids=[7, 8, 9, 10])
@@ -53,6 +57,7 @@ def test_auto_score_enqueues_batch_under_cap():
     assert result["article_ids"] == [7, 8, 9]
     assert result["batch_id"] == 42
     assert sink.enqueued_batch_id == 42
+    assert sink.recommendation_batch_ids == []
     assert sink.created is not None
     assert sink.created["candidate_window"] == "last_3_days"
 
@@ -68,6 +73,7 @@ def test_auto_score_skips_when_daily_cap_exhausted():
     assert result["status"] == "skipped_cap"
     assert result["batch_id"] is None
     assert sink.enqueued_batch_id is None
+    assert sink.recommendation_batch_ids == [None]
 
 
 def test_auto_score_empty_when_no_candidates():
@@ -80,3 +86,4 @@ def test_auto_score_empty_when_no_candidates():
     )
     assert result["status"] == "empty"
     assert result["batch_id"] is None
+    assert sink.recommendation_batch_ids == [None]

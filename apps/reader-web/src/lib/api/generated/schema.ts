@@ -238,9 +238,29 @@ export interface paths {
         };
         /**
          * Export Project Articles
-         * @description Export the current user's project queue as Markdown or JSON (no secrets).
+         * @description Export the current user's project queue as Markdown, JSON, or zip (no secrets).
          */
         get: operations["export_project_articles_api_export_project_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/annotations/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Annotations
+         * @description Search private notes/highlights by content substring.
+         */
+        get: operations["search_annotations_api_annotations_search_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -453,9 +473,29 @@ export interface paths {
         };
         /**
          * Usage Today
-         * @description Admin cost cockpit: worker scores (DB) + API ask budget (process memory).
+         * @description Admin cost cockpit backed by DB score rows and a shared daily ledger.
          */
         get: operations["usage_today_api_admin_usage_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/pipeline-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pipeline Health
+         * @description Read-only unattended-pipeline queue and latest-run diagnostics.
+         */
+        get: operations["pipeline_health_api_admin_pipeline_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -475,6 +515,26 @@ export interface paths {
         put?: never;
         /** Enqueue Daily Brief */
         post: operations["enqueue_daily_brief_api_admin_daily_brief_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/govern-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue Govern Sources
+         * @description Queue source-quality demotion pass (hide residual/failed feeds).
+         */
+        post: operations["enqueue_govern_sources_api_admin_govern_sources_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -741,6 +801,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/interest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Interest */
+        get: operations["get_interest_api_me_interest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/interest/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Interest */
+        get: operations["export_interest_api_me_interest_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/interest/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Interest */
+        post: operations["reset_interest_api_me_interest_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/acl": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Acl */
+        get: operations["list_acl_api_projects__project_id__acl_get"];
+        /** Put Acl */
+        put: operations["put_acl_api_projects__project_id__acl_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -761,6 +890,10 @@ export interface components {
              * @default annotation
              */
             type: string;
+            /** Color */
+            color?: string | null;
+            /** Tags */
+            tags?: string[] | null;
         };
         /** ArticleFeedbackRequest */
         ArticleFeedbackRequest: {
@@ -852,6 +985,16 @@ export interface components {
             /** Article Ids */
             article_ids: number[];
         };
+        /** GrantRequest */
+        GrantRequest: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Role */
+            role: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -861,6 +1004,43 @@ export interface components {
         LoginRequest: {
             /** Display Name */
             display_name: string;
+        };
+        /** PipelineHealthResponse */
+        PipelineHealthResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "healthy" | "degraded" | "idle" | "paused";
+            /** Scheduler Enabled */
+            scheduler_enabled: boolean;
+            queue: components["schemas"]["PipelineQueueHealth"];
+            /** Jobs */
+            jobs: components["schemas"]["PipelineJobHealth"][];
+        };
+        /** PipelineJobHealth */
+        PipelineJobHealth: {
+            /** Job Type */
+            job_type: string;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+        };
+        /** PipelineQueueHealth */
+        PipelineQueueHealth: {
+            /** Queued */
+            queued: number;
+            /** Running */
+            running: number;
+            /** Failed 24H */
+            failed_24h: number;
+            /** Stale Running */
+            stale_running: number;
+            /** Oldest Queued At */
+            oldest_queued_at: string | null;
         };
         /** RecoverRequest */
         RecoverRequest: {
@@ -1149,6 +1329,7 @@ export interface operations {
                 cursor?: string | null;
                 module?: string | null;
                 q?: string | null;
+                sort?: string | null;
             };
             header?: never;
             path?: never;
@@ -1396,6 +1577,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_annotations_api_annotations_search_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -1843,6 +2058,26 @@ export interface operations {
             };
         };
     };
+    pipeline_health_api_admin_pipeline_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineHealthResponse"];
+                };
+            };
+        };
+    };
     enqueue_daily_brief_api_admin_daily_brief_post: {
         parameters: {
             query?: never;
@@ -1859,6 +2094,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    enqueue_govern_sources_api_admin_govern_sources_post: {
+        parameters: {
+            query?: {
+                dry_run?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2360,6 +2626,142 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReplaceSavedSearchesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_interest_api_me_interest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    export_interest_api_me_interest_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    reset_interest_api_me_interest_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    list_acl_api_projects__project_id__acl_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_acl_api_projects__project_id__acl_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantRequest"];
             };
         };
         responses: {

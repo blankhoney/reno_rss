@@ -9,6 +9,9 @@ from sqlalchemy.engine import Connection
 from app.jobs.generate_recommendations import RecommendationContext
 
 
+DAILY_BRIEF_JOB_TYPE = "generate_daily_brief"
+
+
 class DatabaseRecommendationSink:
     def __init__(
         self,
@@ -101,6 +104,53 @@ class DatabaseRecommendationSink:
                         "source": item["source"],
                     },
                 )
+
+    def enqueue_daily_brief(self) -> None:
+        """Queue at most one chained brief per UTC day, including completed jobs."""
+        day = datetime.now(UTC).date().isoformat()
+        params = {
+            "job_type": DAILY_BRIEF_JOB_TYPE,
+            "payload": json.dumps(
+                {"limit": 10, "trigger": "recommendations_complete"},
+                ensure_ascii=False,
+            ),
+            "dedupe_key": f"pipeline:{DAILY_BRIEF_JOB_TYPE}:{day}",
+            "priority": 0,
+        }
+        with self.engine.begin() as connection:
+            existing = connection.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM jobs
+                    WHERE job_type=:job_type AND dedupe_key=:dedupe_key
+                    LIMIT 1;
+                    """
+                ),
+                params,
+            ).scalar_one_or_none()
+            if existing is not None:
+                return
+            if self.engine.dialect.name == "postgresql":
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key, :priority);
+                        """
+                    ),
+                    params,
+                )
+                return
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                    VALUES (:job_type, :payload, :dedupe_key, :priority);
+                    """
+                ),
+                params,
+            )
 
     def _delete_existing_source_edition(
         self,

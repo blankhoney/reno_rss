@@ -24,6 +24,14 @@ from app.db.repositories.scoring import (
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+PIPELINE_JOB_TYPES = (
+    "sync_miniflux_entries",
+    "auto_score_candidates",
+    "score_batch",
+    "generate_recommendations",
+    "generate_daily_brief",
+    "govern_sources",
+)
 
 
 class CreateScoringBatchRequest(BaseModel):
@@ -43,6 +51,28 @@ class CreateBenchmarkRequest(BaseModel):
     provider: str = Field(default="mock", min_length=1, max_length=80)
     params: dict[str, object] = Field(default_factory=dict)
     confirm_real_llm: bool = False
+
+
+class PipelineQueueHealth(BaseModel):
+    queued: int
+    running: int
+    failed_24h: int
+    stale_running: int
+    oldest_queued_at: str | None
+
+
+class PipelineJobHealth(BaseModel):
+    job_type: str
+    status: str
+    updated_at: str | None
+    last_error: str | None
+
+
+class PipelineHealthResponse(BaseModel):
+    status: Literal["healthy", "degraded", "idle", "paused"]
+    scheduler_enabled: bool
+    queue: PipelineQueueHealth
+    jobs: list[PipelineJobHealth]
 
 
 def user_public(user: UserRecord) -> dict[str, object]:
@@ -97,6 +127,14 @@ def benchmark_run_public(run: BenchmarkRunRecord) -> dict[str, object]:
         "created_at": run.created_at.isoformat(),
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
     }
+
+
+def _optional_iso(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
 
 
 @router.get("/users")
@@ -164,6 +202,52 @@ def usage_today(
         "cost_ledger": multi,
         "note": "score/ask/agent 分账户日限额（GOAL §4.D）。score used 以评分 DB 为准；ask/agent 使用共享日账本。",
     }
+
+
+@router.get("/pipeline-health")
+def pipeline_health(
+    request: Request,
+    _current_user: UserRecord = Depends(require_admin),
+    job_repository: JobStore = Depends(get_job_repository),
+) -> PipelineHealthResponse:
+    """Read-only unattended-pipeline queue and latest-run diagnostics."""
+    snapshot = job_repository.pipeline_snapshot(PIPELINE_JOB_TYPES)
+    scheduler_enabled = bool(getattr(request.app.state, "scheduler_enabled", False))
+    failed_24h = int(snapshot["failed_24h"])
+    stale_running = int(snapshot["stale_running"])
+    jobs = list(snapshot["jobs"])
+    if not scheduler_enabled:
+        status = "paused"
+    elif failed_24h > 0 or stale_running > 0:
+        status = "degraded"
+    elif not jobs:
+        status = "idle"
+    else:
+        status = "healthy"
+    return PipelineHealthResponse(
+        status=status,
+        scheduler_enabled=scheduler_enabled,
+        queue=PipelineQueueHealth(
+            queued=int(snapshot["queued"]),
+            running=int(snapshot["running"]),
+            failed_24h=failed_24h,
+            stale_running=stale_running,
+            oldest_queued_at=_optional_iso(snapshot["oldest_queued_at"]),
+        ),
+        jobs=[
+            PipelineJobHealth(
+                job_type=str(item["job_type"]),
+                status=str(item["status"]),
+                updated_at=_optional_iso(item.get("updated_at")),
+                last_error=(
+                    str(item["last_error"])
+                    if item.get("last_error") is not None
+                    else None
+                ),
+            )
+            for item in jobs
+        ],
+    )
 
 
 @router.post("/daily-brief")

@@ -120,6 +120,7 @@ def test_score_sink_enqueues_deduped_recommendations_job():
     assert len(jobs) == 1
     assert jobs[0]["job_type"] == "generate_recommendations"
     assert jobs[0]["status"] == "queued"
+    assert jobs[0]["priority"] == 1
     assert jobs[0]["payload"] == '{"source_batch_id": 10}'
 
 

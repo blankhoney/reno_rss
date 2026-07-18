@@ -177,6 +177,61 @@ export async function getAdminUsageToday(): Promise<AdminUsageToday> {
     askUsed: payload.ask?.used ?? 0,
     askLimit: payload.ask?.limit ?? 0,
     askRemaining: payload.ask?.remaining ?? null,
-    askAccounting: payload.ask?.ask_accounting ?? payload.ask?.accounting ?? "process_memory",
+    askAccounting: payload.ask?.ask_accounting ?? payload.ask?.accounting ?? "unavailable",
+  };
+}
+
+export type PipelineHealth = {
+  status: "healthy" | "degraded" | "idle" | "paused";
+  schedulerEnabled: boolean;
+  queue: {
+    queued: number;
+    running: number;
+    failed24h: number;
+    staleRunning: number;
+    oldestQueuedAt: string | null;
+  };
+  jobs: Array<{
+    jobType: string;
+    status: string;
+    updatedAt: string | null;
+    lastError: string | null;
+  }>;
+};
+
+export async function getPipelineHealth(): Promise<PipelineHealth> {
+  const payload = await apiGet<{
+    status?: PipelineHealth["status"];
+    scheduler_enabled?: boolean;
+    queue?: {
+      queued?: number;
+      running?: number;
+      failed_24h?: number;
+      stale_running?: number;
+      oldest_queued_at?: string | null;
+    };
+    jobs?: Array<{
+      job_type?: string;
+      status?: string;
+      updated_at?: string | null;
+      last_error?: string | null;
+    }>;
+  }>("/api/admin/pipeline-health");
+  return {
+    status: payload.status ?? "idle",
+    schedulerEnabled: payload.scheduler_enabled === true,
+    queue: {
+      queued: payload.queue?.queued ?? 0,
+      running: payload.queue?.running ?? 0,
+      failed24h: payload.queue?.failed_24h ?? 0,
+      staleRunning: payload.queue?.stale_running ?? 0,
+      oldestQueuedAt: payload.queue?.oldest_queued_at ?? null,
+    },
+    jobs: (payload.jobs ?? []).map((job) => ({
+      jobType: job.job_type ?? "unknown",
+      status: job.status ?? "unknown",
+      updatedAt: job.updated_at ?? null,
+      lastError: job.last_error ?? null,
+    })),
   };
 }

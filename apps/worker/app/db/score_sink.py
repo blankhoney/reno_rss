@@ -196,6 +196,7 @@ class DatabaseScoreSink:
             "job_type": "score_batch",
             "payload": json.dumps(payload, ensure_ascii=False),
             "dedupe_key": _dedupe_key_for("score_batch", batch_id),
+            "priority": 2,
         }
         with self.engine.begin() as connection:
             existing = connection.execute(
@@ -217,8 +218,8 @@ class DatabaseScoreSink:
                 connection.execute(
                     text(
                         """
-                        INSERT INTO jobs (job_type, payload, dedupe_key)
-                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key)
+                        INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key, :priority)
                         ON CONFLICT (job_type, dedupe_key)
                         WHERE status IN ('queued', 'running')
                         DO NOTHING;
@@ -230,8 +231,8 @@ class DatabaseScoreSink:
             connection.execute(
                 text(
                     """
-                    INSERT INTO jobs (job_type, payload, dedupe_key)
-                    VALUES (:job_type, :payload, :dedupe_key);
+                    INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                    VALUES (:job_type, :payload, :dedupe_key, :priority);
                     """
                 ),
                 params,
@@ -243,6 +244,7 @@ class DatabaseScoreSink:
             "job_type": RECOMMENDATIONS_JOB_TYPE,
             "payload": json.dumps(payload, ensure_ascii=False),
             "dedupe_key": _dedupe_key_for(RECOMMENDATIONS_JOB_TYPE, batch_id),
+            "priority": 1,
         }
         with self.engine.begin() as connection:
             existing = connection.execute(
@@ -265,8 +267,8 @@ class DatabaseScoreSink:
                 connection.execute(
                     text(
                         """
-                        INSERT INTO jobs (job_type, payload, dedupe_key)
-                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key)
+                        INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key, :priority)
                         ON CONFLICT (job_type, dedupe_key)
                         WHERE status IN ('queued', 'running')
                         DO NOTHING;
@@ -279,8 +281,8 @@ class DatabaseScoreSink:
             connection.execute(
                 text(
                     """
-                    INSERT INTO jobs (job_type, payload, dedupe_key)
-                    VALUES (:job_type, :payload, :dedupe_key);
+                    INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                    VALUES (:job_type, :payload, :dedupe_key, :priority);
                     """
                 ),
                 params,

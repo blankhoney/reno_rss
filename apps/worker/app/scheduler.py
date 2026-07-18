@@ -1,7 +1,8 @@
 """Worker-side schedule tick for unattended intelligence pipeline (GOAL §4.A).
 
-Enabled only when SCHEDULER_ENABLED=true. Defaults off so prod cannot
-accidentally burn LLM budget without an explicit operator action.
+Enabled by default for the unattended product loop. Worker-side daily caps and
+provider-console limits remain the spend boundaries; operators can still pause
+it explicitly with SCHEDULER_ENABLED=false.
 """
 
 from __future__ import annotations
@@ -59,9 +60,12 @@ def default_schedule_specs(
     score_lookback_hours: int = 72,
     score_max_articles: int = 30,
 ) -> tuple[ScheduleSpec, ...]:
-    """Full unattended intel loop: sync → score → recs → brief → source governance.
+    """Start the unattended chain and schedule independent source governance.
 
-    Still gated by SCHEDULER_ENABLED so operators must opt in before spend.
+    ``auto_score_candidates`` chains recommendations (directly when there are
+    no candidates, otherwise after ``score_batch``), and recommendations chain
+    the daily brief. This prevents downstream jobs from racing ahead of new
+    scores. Operators can pause the loop with SCHEDULER_ENABLED=false.
     """
     return (
         ScheduleSpec(
@@ -81,18 +85,6 @@ def default_schedule_specs(
             priority=3,
         ),
         ScheduleSpec(
-            job_type=RECS_JOB_TYPE,
-            interval=timedelta(hours=6),
-            payload={"algorithm_version": "b4.v1", "trigger": "scheduled"},
-            priority=2,
-        ),
-        ScheduleSpec(
-            job_type=BRIEF_JOB_TYPE,
-            interval=timedelta(hours=6),
-            payload={"limit": 10, "trigger": "scheduled"},
-            priority=1,
-        ),
-        ScheduleSpec(
             job_type=GOVERN_JOB_TYPE,
             interval=timedelta(hours=12),
             payload={
@@ -102,7 +94,7 @@ def default_schedule_specs(
                 "dry_run": False,
                 "trigger": "scheduled",
             },
-            priority=0,
+            priority=-1,
         ),
     )
 

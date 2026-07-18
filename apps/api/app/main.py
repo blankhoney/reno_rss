@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
             "agent": settings.agent_daily_call_budget,
         },
     )
+    app.state.scheduler_enabled = settings.scheduler_enabled
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
     if not app.state.csrf_allowed_origins:
         LOGGER.critical(

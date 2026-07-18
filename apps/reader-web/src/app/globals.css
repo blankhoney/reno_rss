@@ -774,6 +774,37 @@ button {
   line-height: 1.45;
 }
 
+.adminPipelineHealth {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.adminPipelineHealth p,
+.adminPipelineHealth ul {
+  margin: 0;
+}
+
+.adminPipelineHealth ul {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.adminPipelineHealth li {
+  overflow-wrap: anywhere;
+}
+
+.adminPipelineHealth strong {
+  color: var(--text);
+}
+
 .adminConsoleBatch {
   margin-top: 2px;
   padding-top: 14px;
