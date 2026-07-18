@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Path, Response
 from pydantic import BaseModel, Field, field_validator
 
-from app.api.deps import ApiError, get_feed_repository, require_user
+from app.api.deps import ApiError, get_article_repository, get_feed_repository, require_user
 from app.db.auth_store import UserRecord
 from app.db.repositories.feeds import CategoryRecord, FeedRecord, FeedStore
+from app.db.repositories.articles import ArticleStore
 
 
 router = APIRouter(prefix="/api", tags=["feeds"])
@@ -26,6 +27,10 @@ class SetPriorityRequest(BaseModel):
     user_priority: int = Field(ge=-20, le=20)
 
 
+class SetHiddenRequest(BaseModel):
+    hidden: bool
+
+
 def category_public(category: CategoryRecord) -> dict[str, object]:
     return {
         "id": category.id,
@@ -35,7 +40,7 @@ def category_public(category: CategoryRecord) -> dict[str, object]:
     }
 
 
-def feed_public(feed: FeedRecord) -> dict[str, object]:
+def feed_public(feed: FeedRecord, *, quality_score: float = 70.0) -> dict[str, object]:
     return {
         "id": feed.id,
         "title": feed.title,
@@ -45,6 +50,8 @@ def feed_public(feed: FeedRecord) -> dict[str, object]:
         "status": feed.status,
         "subscribed": feed.subscribed,
         "user_priority": feed.user_priority,
+        "hidden": feed.hidden,
+        "quality_score": quality_score,
         "article_count": 0,
     }
 
@@ -60,10 +67,22 @@ def list_categories(
 def list_feeds(
     current_user: UserRecord = Depends(require_user),
     feed_repository: FeedStore = Depends(get_feed_repository),
+    article_repository: ArticleStore = Depends(get_article_repository),
 ) -> dict[str, list[dict[str, object]]]:
+    feed_records = feed_repository.list_feeds(current_user.id)
+    governance = article_repository.feed_governance_for_user(
+        current_user.id,
+        [feed.id for feed in feed_records],
+    )
     return {
         "items": [
-            feed_public(feed) for feed in feed_repository.list_feeds(current_user.id)
+            feed_public(
+                feed,
+                quality_score=float(
+                    governance.get(feed.id, {}).get("quality_score", 70.0)
+                ),
+            )
+            for feed in feed_records
         ]
     }
 
@@ -126,4 +145,25 @@ def set_feed_priority(
     feed = feed_repository.set_priority(feed_id, current_user.id, payload.user_priority)
     if feed is None:
         raise ApiError(404, "not_found", "Feed not found")
-    return {"feed_id": feed.id, "user_priority": feed.user_priority}
+    return {
+        "feed_id": feed.id,
+        "user_priority": feed.user_priority,
+        "hidden": feed.hidden,
+    }
+
+
+@router.put("/feeds/{feed_id}/hidden")
+def set_feed_hidden(
+    payload: SetHiddenRequest,
+    feed_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    feed_repository: FeedStore = Depends(get_feed_repository),
+) -> dict[str, object]:
+    feed = feed_repository.set_hidden(feed_id, current_user.id, hidden=payload.hidden)
+    if feed is None:
+        raise ApiError(404, "not_found", "Feed not found")
+    return {
+        "feed_id": feed.id,
+        "hidden": feed.hidden,
+        "user_priority": feed.user_priority,
+    }

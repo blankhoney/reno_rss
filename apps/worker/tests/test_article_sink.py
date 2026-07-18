@@ -148,6 +148,102 @@ def test_article_sink_creates_feed_before_article_source_foreign_keys():
     assert source["miniflux_category_id"] == 9
 
 
+def test_article_sink_enqueues_partial_content_then_completion_barrier():
+    import json
+
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    _seed_feeds(engine, 1)
+    sink = DatabaseArticleSink(engine=engine)
+    partial_id = sink.upsert_article(
+        {
+            "primary_feed_id": 1,
+            "title": "Partial",
+            "url": "https://example.com/partial",
+            "canonical_url": "https://example.com/partial",
+            "content_text": "short fragment",
+            "content_quality": "partial",
+        }
+    )
+    full_id = sink.upsert_article(
+        {
+            "primary_feed_id": 1,
+            "title": "Full",
+            "url": "https://example.com/full",
+            "canonical_url": "https://example.com/full",
+            "content_text": "full body",
+            "content_quality": "full",
+        }
+    )
+
+    result = sink.enqueue_ingest_followups(
+        [partial_id, full_id],
+        pipeline_cycle="2026-07-18T12:00:00+00:00",
+        auto_score_payload={"lookback_hours": 72, "max_articles": 30},
+    )
+
+    with engine.begin() as connection:
+        jobs = connection.execute(text("SELECT * FROM jobs ORDER BY id")).mappings().all()
+    assert [job["job_type"] for job in jobs] == [
+        "fetch_article_content",
+        "complete_ingest_cycle",
+    ]
+    assert jobs[0]["priority"] == 4
+    barrier_payload = json.loads(jobs[1]["payload"])
+    assert barrier_payload["fetch_job_ids"] == [jobs[0]["id"]]
+    assert result["content_fetches"] == 1
+
+
+def test_ingest_barrier_enqueues_auto_score_after_fetch_completion():
+    import json
+
+    from app.jobs.complete_ingest import complete_ingest_cycle
+
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    _seed_feeds(engine, 1)
+    sink = DatabaseArticleSink(engine=engine)
+    article_id = sink.upsert_article(
+        {
+            "primary_feed_id": 1,
+            "title": "Partial",
+            "url": "https://example.com/pipeline",
+            "canonical_url": "https://example.com/pipeline",
+            "content_text": "fragment",
+            "content_quality": "partial",
+        }
+    )
+    followups = sink.enqueue_ingest_followups(
+        [article_id],
+        pipeline_cycle="2026-07-18T13:00:00+00:00",
+        auto_score_payload={"lookback_hours": 72, "max_articles": 30},
+    )
+    with engine.begin() as connection:
+        fetch = connection.execute(
+            text("SELECT * FROM jobs WHERE job_type='fetch_article_content'")
+        ).mappings().one()
+        connection.execute(
+            text("UPDATE jobs SET status='succeeded' WHERE id=:id"),
+            {"id": fetch["id"]},
+        )
+        barrier = connection.execute(
+            text("SELECT * FROM jobs WHERE id=:id"),
+            {"id": followups["barrier_job_id"]},
+        ).mappings().one()
+
+    result = complete_ingest_cycle(json.loads(barrier["payload"]), sink)
+
+    with engine.begin() as connection:
+        auto_score = connection.execute(
+            text("SELECT * FROM jobs WHERE job_type='auto_score_candidates'")
+        ).mappings().one()
+    assert result["auto_score_enqueued"] is True
+    assert auto_score["priority"] == 3
+    assert json.loads(auto_score["payload"])["pipeline_cycle"] == (
+        "2026-07-18T13:00:00+00:00"
+    )
+
+
 def _create_schema(engine):
     with engine.begin() as connection:
         connection.exec_driver_sql("PRAGMA foreign_keys=ON")
@@ -160,6 +256,30 @@ def _create_schema(engine):
                 miniflux_feed_id INTEGER UNIQUE,
                 title TEXT,
                 status TEXT DEFAULT 'active',
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                priority INTEGER NOT NULL DEFAULT 0,
+                payload TEXT NOT NULL,
+                dedupe_key TEXT NOT NULL,
+                progress TEXT NOT NULL DEFAULT '{}',
+                result TEXT NOT NULL DEFAULT '{}',
+                locked_by TEXT,
+                locked_at TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 5,
+                run_after TEXT DEFAULT CURRENT_TIMESTAMP,
+                completed_at TEXT,
+                last_error TEXT,
+                created_by TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
             """

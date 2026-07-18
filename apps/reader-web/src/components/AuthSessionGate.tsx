@@ -15,6 +15,8 @@ import {
   primeSessionCache,
   readCachedSessionUser,
 } from "@/lib/auth/sessionCache";
+import { readCraftPreferences, writeCraftPreferences } from "@/lib/craft/preferences";
+import { ThemeToggle } from "./ThemeToggle";
 
 type AuthMode = "login" | "recover";
 type AuthStatus = "loading" | "unauthenticated" | "authenticated";
@@ -81,9 +83,12 @@ export function AuthSessionView({
             <strong>{user.displayName}</strong>
             <span className="authRoleBadge">{user.role}</span>
           </div>
-          <button type="button" className="authSecondaryButton" onClick={onLogout} disabled={isSubmitting}>
-            退出登录
-          </button>
+          <div className="authSessionActions">
+            <ThemeToggle />
+            <button type="button" className="authSecondaryButton" onClick={onLogout} disabled={isSubmitting}>
+              退出登录
+            </button>
+          </div>
         </div>
         {recoveryCode ? (
           <section className="authRecovery" aria-label="恢复码">
@@ -158,6 +163,11 @@ export function AuthSessionGate({ children }: { children: ReactNode }) {
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    // Hydrate Scan/Focus/Keep density dual-pane prefs onto documentElement.
+    writeCraftPreferences(readCraftPreferences());
+  }, []);
 
   useEffect(() => {
     let active = true;

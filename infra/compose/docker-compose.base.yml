@@ -1,10 +1,17 @@
 # 后端服务公共定义
 # 不可直接启动，需与 staging.yml 或 prod.yml 叠加使用：
 # docker compose -p myrss-<env> -f docker-compose.base.yml -f docker-compose.<env>.yml up -d
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   authelia:
     image: authelia/authelia:4.39.20
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - ../authelia/configuration.yml:/config/configuration.yml:ro
       - ${AUTHELIA_USERS_DATABASE_FILE:-../authelia/users_database.yml}:/config/users_database.yml:ro
@@ -19,10 +26,16 @@ services:
       - authelia_storage_encryption_key
     networks:
       - app          # Caddy 通过 app 网络访问 Authelia
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
 
   postgres:
     image: postgres:16
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
@@ -35,12 +48,25 @@ services:
       - ../postgres/init:/docker-entrypoint-initdb.d:ro
     networks:
       - data         # 只在 data 网络，Caddy 无法访问
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.00"
 
   miniflux:
     image: miniflux/miniflux:2.3.2
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       DATABASE_URL: ${MINIFLUX_DATABASE_URL}
       RUN_MIGRATIONS: "1"        # 首次启动自动建表，后续无害
@@ -52,16 +78,37 @@ services:
     networks:
       - app          # Caddy 通过 app 网络访问 Miniflux
       - data         # Miniflux 通过 data 网络访问 PostgreSQL
+    healthcheck:
+      test: ["CMD", "/usr/bin/miniflux", "-healthcheck", "auto"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.50"
 
   ai-reader-api:
     image: ${AI_READER_API_IMAGE:-myrss-ai-reader-api:local}
     build:
       context: ../../apps/api
     restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
       AI_READER_CSRF_ALLOWED_ORIGINS: ${AI_READER_CSRF_ALLOWED_ORIGINS:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LOCAL_LLM_API_KEY: ${LOCAL_LLM_API_KEY:-local}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2}
+      LOCAL_LLM_TEMPERATURE: ${LOCAL_LLM_TEMPERATURE:-0.2}
+      LOCAL_LLM_TOP_P: ${LOCAL_LLM_TOP_P:-0.9}
+      LOCAL_LLM_MAX_COMPLETION_TOKENS: ${LOCAL_LLM_MAX_COMPLETION_TOKENS:-16384}
       MINIMAX_API_KEY: ${MINIMAX_API_KEY}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
       MINIMAX_MODEL: ${MINIMAX_MODEL}
@@ -72,6 +119,9 @@ services:
       MINIMAX_THINKING_TYPE: ${MINIMAX_THINKING_TYPE:-disabled}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS}
       LLM_DAILY_CALL_BUDGET: ${LLM_DAILY_CALL_BUDGET:-500}
+      AGENT_DAILY_CALL_BUDGET: ${AGENT_DAILY_CALL_BUDGET:-20}
+      SCHEDULE_SCORE_DAILY_ARTICLE_CAP: ${SCHEDULE_SCORE_DAILY_ARTICLE_CAP:-60}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
       LLM_RATELIMIT: ${LLM_RATELIMIT:-5/minute;100/day}
       WRITE_RATELIMIT: ${WRITE_RATELIMIT:-30/minute}
       AUTH_RATELIMIT: ${AUTH_RATELIMIT:-5/minute;30/hour}
@@ -80,6 +130,19 @@ services:
     networks:
       - app          # Caddy 通过 app 网络访问 API
       - data         # 写入 scoring 数据库
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.75"
 
   ai-reader-worker:
     image: ${AI_READER_WORKER_IMAGE:-myrss-ai-reader-worker:local}
@@ -87,15 +150,24 @@ services:
       context: ../..
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
-      - postgres
-      - miniflux
+      postgres:
+        condition: service_healthy
+      miniflux:
+        condition: service_started
     environment:
       SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
       MINIFLUX_API_BASE_URL: ${MINIFLUX_API_BASE_URL}
       MINIFLUX_USERNAME: ${MINIFLUX_ADMIN}
       MINIFLUX_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LOCAL_LLM_API_KEY: ${LOCAL_LLM_API_KEY:-local}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2}
+      LOCAL_LLM_TEMPERATURE: ${LOCAL_LLM_TEMPERATURE:-0.2}
+      LOCAL_LLM_TOP_P: ${LOCAL_LLM_TOP_P:-0.9}
+      LOCAL_LLM_MAX_COMPLETION_TOKENS: ${LOCAL_LLM_MAX_COMPLETION_TOKENS:-16384}
       MINIMAX_API_KEY: ${MINIMAX_API_KEY}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
       MINIMAX_MODEL: ${MINIMAX_MODEL}
@@ -110,19 +182,52 @@ services:
       WORKER_JOB_LEASE_SECONDS: ${WORKER_JOB_LEASE_SECONDS:-900}
       WORKER_RETRY_BACKOFF_SECONDS: ${WORKER_RETRY_BACKOFF_SECONDS:-60}
       WORKER_RETRY_BACKOFF_MAX_SECONDS: ${WORKER_RETRY_BACKOFF_MAX_SECONDS:-3600}
+      WORKER_HEARTBEAT_FILE: ${WORKER_HEARTBEAT_FILE:-/tmp/worker-heartbeat}
       WORKER_LOG_LEVEL: ${WORKER_LOG_LEVEL:-INFO}
+      SCHEDULE_SCORE_DAILY_ARTICLE_CAP: ${SCHEDULE_SCORE_DAILY_ARTICLE_CAP:-60}
+      AGENT_DAILY_CALL_BUDGET: ${AGENT_DAILY_CALL_BUDGET:-20}
+      AI_READER_WEBHOOK_URL: ${AI_READER_WEBHOOK_URL:-}
+      AI_READER_WEBHOOK_SECRET: ${AI_READER_WEBHOOK_SECRET:-}
+      AI_READER_WEBHOOK_TIMEOUT_SECONDS: ${AI_READER_WEBHOOK_TIMEOUT_SECONDS:-5}
+      AI_READER_WEBHOOK_HIGH_SCORE_THRESHOLD: ${AI_READER_WEBHOOK_HIGH_SCORE_THRESHOLD:-85}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
       EXTERNAL_CONTENT_PROVIDER: ${EXTERNAL_CONTENT_PROVIDER:-none}
     networks:
       - app          # 访问 Miniflux API
       - data         # 读写业务数据库
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; p=os.environ.get('WORKER_HEARTBEAT_FILE','/tmp/worker-heartbeat'); sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<960 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.00"
 
   reader-web:
     image: ${AI_READER_WEB_IMAGE:-myrss-ai-reader-web:local}
     build:
       context: ../../apps/reader-web
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - app          # Caddy 通过 app 网络访问 reader-web
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.75"
 
 networks:
   app:

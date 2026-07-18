@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contentFetchJobMessage, translationJobMessage } from "./useArticleActions";
+import {
+  TRANSLATE_REQUEST_TIMEOUT_MESSAGE,
+  contentFetchJobMessage,
+  translateRequestActionError,
+  translationJobMessage,
+} from "./useArticleActions";
 
 test("translationJobMessage explains translation job outcomes", () => {
   assert.equal(
@@ -63,4 +68,16 @@ test("contentFetchJobMessage explains FastAPI fetch-content job outcomes", () =>
     }),
     "已尝试刷新全文，当前仍可能只有 RSS 片段",
   );
+});
+
+test("translateRequestActionError distinguishes timeout from user abort", () => {
+  assert.equal(
+    translateRequestActionError(new DOMException("Aborted", "AbortError"), false),
+    null,
+  );
+  assert.equal(
+    translateRequestActionError(new DOMException("Aborted", "AbortError"), true),
+    TRANSLATE_REQUEST_TIMEOUT_MESSAGE,
+  );
+  assert.equal(translateRequestActionError(new Error("entry_not_found"), false), "文章不存在或不在当前 Miniflux 实例");
 });

@@ -198,12 +198,21 @@ function shouldOpenArticleLinkInNewTab(href: string | undefined): boolean {
 }
 
 export function sanitizeArticleHtml(html: string): string {
-  return sanitizeHtml(html, {
+  let paragraphIndex = 0;
+  const cleaned = sanitizeHtml(html, {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img"]),
     allowedAttributes: {
       ...sanitizeHtml.defaults.allowedAttributes,
       a: ["href", "name", "target", "rel"],
       img: ["src", "alt", "title", "width", "height", "loading", "decoding"],
+      // Stable paragraph anchors for agent citation jump-back (GOAL research).
+      p: ["id", "data-paragraph-id"],
+      h1: ["id", "data-paragraph-id"],
+      h2: ["id", "data-paragraph-id"],
+      h3: ["id", "data-paragraph-id"],
+      h4: ["id", "data-paragraph-id"],
+      li: ["id", "data-paragraph-id"],
+      blockquote: ["id", "data-paragraph-id"],
     },
     allowedSchemes: ["http", "https", "mailto"],
     nonTextTags: ["script", "style", "textarea", "option", "xmp"],
@@ -229,8 +238,63 @@ export function sanitizeArticleHtml(html: string): string {
           decoding: "async",
         },
       }),
+      p: (tagName, attribs) => {
+        paragraphIndex += 1;
+        const id = attribs.id || `p-${paragraphIndex}`;
+        return {
+          tagName,
+          attribs: {
+            ...attribs,
+            id,
+            "data-paragraph-id": String(paragraphIndex),
+          },
+        };
+      },
+      li: (tagName, attribs) => {
+        paragraphIndex += 1;
+        const id = attribs.id || `p-${paragraphIndex}`;
+        return {
+          tagName,
+          attribs: {
+            ...attribs,
+            id,
+            "data-paragraph-id": String(paragraphIndex),
+          },
+        };
+      },
+      blockquote: (tagName, attribs) => {
+        paragraphIndex += 1;
+        const id = attribs.id || `p-${paragraphIndex}`;
+        return {
+          tagName,
+          attribs: {
+            ...attribs,
+            id,
+            "data-paragraph-id": String(paragraphIndex),
+          },
+        };
+      },
     },
   });
+  return cleaned;
+}
+
+/** Prefer paragraph anchors when jumping to agent citations. */
+export function findCitationTarget(
+  root: ParentNode,
+  quote: string,
+): Element | null {
+  const needle = quote.trim();
+  if (!needle) return null;
+  const short = needle.slice(0, Math.min(needle.length, 64));
+  const blocks = root.querySelectorAll<HTMLElement>("[data-paragraph-id], p, li, blockquote, h1, h2, h3, h4");
+  for (const block of blocks) {
+    const text = (block.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text.includes(short) || text.includes(needle.slice(0, 32))) {
+      return block;
+    }
+  }
+  return null;
 }
 
 export function articleNeedsOriginalContentFetch(html: string): boolean {

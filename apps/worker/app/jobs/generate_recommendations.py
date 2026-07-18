@@ -10,6 +10,7 @@ from typing import Protocol, cast
 
 
 DEFAULT_ALGORITHM_VERSION = "b4.v1"
+_ONLINE_RANKING_MODULE: ModuleType | None = None
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,11 @@ class RecommendationContext:
     feedback_by_article: dict[int, object]
     article_status_by_article: dict[int, str | None]
     now: datetime | None = None
+    # User reader rules (boost/mute/keyword/threshold) applied inside rank_b4.
+    rules: list[object] | None = None
+    titles_by_article: dict[int, str] | None = None
+    # Long-term interest keyword weights (term -> weight) for soft ranking boost.
+    interest_weights: dict[str, float] | None = None
 
 
 class RecommendationSink(Protocol):
@@ -31,6 +37,8 @@ class RecommendationSink(Protocol):
         items: list[object],
         algorithm_version: str,
     ) -> None: ...
+
+    def enqueue_daily_brief(self) -> None: ...
 
 
 class TargetUserSink(RecommendationSink, Protocol):
@@ -54,6 +62,10 @@ def generate_recommendations(
         ranked_items = [_recommendation_item_dict(item) for item in ranker(context)]
         sink.save_recommendation_edition(user_id, ranked_items, algorithm_version)
         editions_saved += 1
+
+    # The brief must observe the editions created by this job, so it is
+    # enqueued only after every target user has been persisted successfully.
+    sink.enqueue_daily_brief()
 
     return {
         "algorithm_version": algorithm_version,
@@ -101,6 +113,11 @@ def _item_value(item: object, key: str) -> object:
 
 
 def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[object]:
+    """Apply B4 ranking with user rules + interest weights (GOAL §4.A).
+
+    PUT /api/rules is NOT dead: DatabaseRecommendationSink loads rules into
+    RecommendationContext.rules, and this function always forwards them.
+    """
     ranking_module = _load_online_ranking_module()
     candidates = [
         ranking_module.Candidate(
@@ -114,22 +131,33 @@ def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[o
         for candidate in context.candidates
         if isinstance(candidate, Mapping)
     ]
+    # Critical unattended path: rules / titles / interest must all be passed.
+    user_rules = list(context.rules or [])
+    titles = dict(context.titles_by_article or {})
+    interests = dict(context.interest_weights or {})
     return ranking_module.rank_b4(
         user_priority_by_feed=context.user_priority_by_feed,
         candidates=candidates,
         feedback_by_article=context.feedback_by_article,
         article_status_by_article=context.article_status_by_article,
         now=context.now,
+        rules=user_rules,
+        titles_by_article=titles,
+        interest_weights=interests,
     )
 
 
 def _load_online_ranking_module() -> ModuleType:
+    global _ONLINE_RANKING_MODULE
+    if _ONLINE_RANKING_MODULE is not None:
+        return _ONLINE_RANKING_MODULE
     ranking_path = _ranking_module_path(Path(__file__).resolve())
     spec = importlib.util.spec_from_file_location("ai_reader_api_ranking", ranking_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load B4 ranking module from {ranking_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    _ONLINE_RANKING_MODULE = module
     return module
 
 

@@ -11,6 +11,17 @@ type ApiRecommendationEdition = {
 
 type ApiRecommendationArticle = Partial<ApiArticleItem> | null;
 
+export type ApiRecommendationFactors = {
+  rank_score?: number | null;
+  tier?: string | null;
+  source?: string | null;
+  reason?: string | null;
+  base_score?: number | null;
+  risk_flags?: unknown;
+  risk_uncertainty?: unknown;
+  dimensions?: Record<string, unknown> | null;
+};
+
 export type ApiRecommendationItem = {
   rank?: number | null;
   article?: ApiRecommendationArticle;
@@ -20,6 +31,7 @@ export type ApiRecommendationItem = {
   source?: string | null;
   risk_flags?: unknown;
   risk_uncertainty?: unknown;
+  factors?: ApiRecommendationFactors | null;
 };
 
 export type ApiRecommendationResponse = {
@@ -35,6 +47,16 @@ export type RecommendationEdition = {
   algorithmVersion: string;
 };
 
+export type RecommendationFactors = {
+  rankScore: number | null;
+  tier: string;
+  source: string;
+  reason: string;
+  baseScore: number | null;
+  riskFlags: string[];
+  riskUncertainty: number | null;
+};
+
 export type RecommendationItem = {
   rank: number;
   article: Article | null;
@@ -44,6 +66,7 @@ export type RecommendationItem = {
   source: string;
   riskFlags: string[];
   riskUncertainty: number | null;
+  factors: RecommendationFactors | null;
 };
 
 export type RecommendationPage = {
@@ -83,6 +106,18 @@ function articleFromRecommendationPayload(article: ApiRecommendationArticle): Ar
 }
 
 export function recommendationItemFromApi(item: ApiRecommendationItem): RecommendationItem {
+  const factorsPayload = item.factors ?? null;
+  const factors: RecommendationFactors | null = factorsPayload
+    ? {
+        rankScore: numberOrNull(factorsPayload.rank_score),
+        tier: stringOrFallback(factorsPayload.tier, "pending"),
+        source: stringOrFallback(factorsPayload.source, "unknown"),
+        reason: stringOrFallback(factorsPayload.reason, ""),
+        baseScore: numberOrNull(factorsPayload.base_score),
+        riskFlags: stringArray(factorsPayload.risk_flags),
+        riskUncertainty: numberOrNull(factorsPayload.risk_uncertainty),
+      }
+    : null;
   return {
     rank: numberOrNull(item.rank) ?? 0,
     article: articleFromRecommendationPayload(item.article ?? null),
@@ -90,8 +125,9 @@ export function recommendationItemFromApi(item: ApiRecommendationItem): Recommen
     tier: stringOrFallback(item.tier, "pending"),
     reason: stringOrFallback(item.reason, ""),
     source: stringOrFallback(item.source, "unknown"),
-    riskFlags: stringArray(item.risk_flags),
-    riskUncertainty: numberOrNull(item.risk_uncertainty),
+    riskFlags: stringArray(item.risk_flags ?? factorsPayload?.risk_flags),
+    riskUncertainty: numberOrNull(item.risk_uncertainty ?? factorsPayload?.risk_uncertainty),
+    factors,
   };
 }
 

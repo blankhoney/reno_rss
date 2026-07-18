@@ -41,6 +41,9 @@ TRANSLATE_INPUT_LIMIT = 12_000
 _LOGGER = logging.getLogger(__name__)
 
 
+# Keep these LLM env parsers in parity with apps/api/app/core/config.py. A shared
+# package would expand Docker build contexts for a small helper set; tests lock
+# both copies instead.
 def _parse_float(value: str | None, default: float) -> float:
     if value is None or not value.strip():
         return default
@@ -98,8 +101,19 @@ class LLMProvider(Protocol):
 
     def translate_article(self, article: Mapping[str, object]) -> str: ...
 
+    def research_answer(
+        self,
+        *,
+        question: str,
+        citations: Sequence[Mapping[str, object]],
+        scope: str,
+    ) -> str: ...
+
 
 class MockProvider:
+    model_provider = "mock"
+    model_name = "deterministic"
+
     def score_article(
         self,
         article: Mapping[str, object],
@@ -170,12 +184,39 @@ class MockProvider:
         title = _string(article.get("title")) or "未命名文章"
         return f"<p>中文译文（mock）：{title}</p><p>{_truncate(text, 800)}</p>"
 
+    def research_answer(
+        self,
+        *,
+        question: str,
+        citations: Sequence[Mapping[str, object]],
+        scope: str,
+    ) -> str:
+        del scope
+        if not citations:
+            return (
+                f"（mock）未找到与「{question}」匹配的语料条目。"
+                "请扩大 scope、提高 max_articles，或先同步/评分。"
+            )
+        lines = [
+            f"（mock）基于 {len(citations)} 篇语料回答：「{question}」",
+            "",
+            "要点：",
+        ]
+        for index, citation in enumerate(list(citations)[:5], start=1):
+            lines.append(f"{index}. {citation.get('quote')} [{index}]")
+        lines.append("")
+        lines.append("引用见 citations。")
+        return "\n".join(lines)
+
 
 class MiniMaxProvider:
     model_provider = "minimax"
 
-    def __init__(self, client: object) -> None:
+    def __init__(self, client: object, *, provider_name: str = "minimax") -> None:
         self.client = client
+        # The OpenAI-compatible local profile shares the wire client but keeps
+        # a distinct audit identity in score/research results.
+        self.model_provider = provider_name
         self.model_name = getattr(client, "model", "unknown")
 
     def score_article(
@@ -192,6 +233,17 @@ class MiniMaxProvider:
 
     def translate_article(self, article: Mapping[str, object]) -> str:
         response = self.client.chat_completion(_translation_messages(_limited_translation_article(article)))
+        return _strip_think_blocks(_response_content(response)).strip()
+
+    def research_answer(
+        self,
+        *,
+        question: str,
+        citations: Sequence[Mapping[str, object]],
+        scope: str,
+    ) -> str:
+        messages = _research_messages(question=question, citations=citations, scope=scope)
+        response = self.client.chat_completion(messages)
         return _strip_think_blocks(_response_content(response)).strip()
 
 
@@ -286,7 +338,26 @@ def create_provider(provider_name: str | None = None) -> LLMProvider:
         if not config.api_key or config.api_key == "change_me":
             raise RuntimeError("MINIMAX_API_KEY is required when LLM_PROVIDER=minimax")
         return MiniMaxProvider(MinimaxLLMClient(config))
-    raise ValueError("LLM_PROVIDER must be 'mock' or 'minimax'")
+    if selected in {"local", "openai_compatible"}:
+        # OpenAI-compatible local endpoint (Ollama/vLLM/LM Studio). Optional profile.
+        config = MinimaxConfig(
+            api_key=os.environ.get("LOCAL_LLM_API_KEY", "local"),
+            base_url=os.environ.get("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1").rstrip("/"),
+            model=os.environ.get("LOCAL_LLM_MODEL", "llama3.2"),
+            temperature=_parse_float(os.environ.get("LOCAL_LLM_TEMPERATURE"), DEFAULT_MINIMAX_TEMPERATURE),
+            top_p=_parse_float(os.environ.get("LOCAL_LLM_TOP_P"), DEFAULT_MINIMAX_TOP_P),
+            max_completion_tokens=_parse_optional_positive_int(
+                os.environ.get("LOCAL_LLM_MAX_COMPLETION_TOKENS"),
+                DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS,
+            ),
+            reasoning_split=False,
+            thinking_type=None,
+            timeout_seconds=float(
+                os.environ.get("LLM_TIMEOUT_SECONDS", str(DEFAULT_LLM_TIMEOUT_SECONDS))
+            ),
+        )
+        return MiniMaxProvider(MinimaxLLMClient(config), provider_name="local")
+    raise ValueError("LLM_PROVIDER must be 'mock', 'minimax', or 'local'")
 
 
 def tier_for_score(score: int | float) -> str:
@@ -325,6 +396,37 @@ def normalize_score(raw_score: Mapping[str, object]) -> ArticleScore:
         "scoring_status": "success",
         "recommendation_tier": tier_for_score(base_score),
     }
+
+
+def _research_messages(
+    *,
+    question: str,
+    citations: Sequence[Mapping[str, object]],
+    scope: str,
+) -> list[dict[str, str]]:
+    corpus_lines: list[str] = []
+    for index, citation in enumerate(list(citations)[:12], start=1):
+        corpus_lines.append(
+            f"[{index}] id={citation.get('article_id')} title={citation.get('title')}\n"
+            f"quote: {citation.get('quote')}"
+        )
+    corpus = "\n\n".join(corpus_lines) if corpus_lines else "(no corpus articles)"
+    system = (
+        "You are a research analyst for a self-hosted RSS research OS. "
+        "Answer in Markdown Chinese-first. Only use the provided corpus quotes. "
+        "Every major claim must reference a citation index like [1]. "
+        "Do not invent sources. Strip any private chain-of-thought."
+    )
+    user = (
+        f"scope={scope}\n"
+        f"question={question}\n\n"
+        f"corpus:\n{corpus}\n\n"
+        "Write a concise research brief with: 结论、要点、风险、下一步、引用。"
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
 
 
 def _score_messages(

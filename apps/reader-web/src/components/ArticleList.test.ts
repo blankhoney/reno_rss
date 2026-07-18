@@ -48,6 +48,7 @@ test("ArticleList renders skeleton cards while loading instead of empty copy", (
 
   assert.match(html, /文章加载中/);
   assert.equal((html.match(/articleCardSkeleton/g) ?? []).length, 12);
+  assert.match(html, /articleCardHeadline/);
   assert.doesNotMatch(html, /暂无文章/);
 });
 
@@ -167,9 +168,9 @@ test("ArticleList renders summaries and preserves workbench and focus reading li
     });
 
   assert.match(html, /这是一段中文摘要/);
-  assert.match(html, /总分/);
+  assert.match(html, /articleCardHeadline/);
+  assert.match(html, /scoreRing66/);
   assert.match(html, /88/);
-  assert.match(html, /层级/);
   assert.match(html, /必读/);
   assert.doesNotMatch(html, /data-preview-href/);
   assert.match(html, /href="\/read\/42\?module=all&amp;sort=technical&amp;lang=zh"/);
@@ -214,11 +215,54 @@ test("ArticleList uses low-noise summary text for unscored articles", () => {
     });
 
   assert.match(html, /暂无摘要/);
-  assert.match(html, /评分/);
+  assert.match(html, /评分完成后自动生成/);
+  assert.match(html, /scoreRingEmpty/);
   assert.match(html, /未评/);
   assert.doesNotMatch(html, /层级/);
   assert.doesNotMatch(html, /<p class="articleCardSummary">未评分<\/p>/);
   assert.doesNotMatch(html, /未生成摘要/);
+});
+
+test("ArticleList renders row numbers after the first-page headline", () => {
+  const baseArticle: Article = {
+    id: 50,
+    userId: 1,
+    feedId: 2,
+    feedTitle: "Feed",
+    categoryId: null,
+    categoryTitle: "",
+    title: "Title",
+    url: "https://example.com",
+    contentHtml: "<p>Body</p>",
+    contentStatus: "partial",
+    contentIssue: "rss_fragment",
+    contentFetchAttempted: false,
+    summaryZh: "摘要",
+    summaryOriginal: "",
+    sourceLanguage: "unknown",
+    status: "unread",
+    starred: false,
+    project: false,
+    publishedAt: "2026-05-14T00:00:00Z",
+    score: null,
+    myFeedback: null,
+    readLater: false,
+    lastReadAt: null,
+  };
+  const html = renderArticleList({
+    articles: [
+      { ...baseArticle, id: 50, title: "Headline" },
+      { ...baseArticle, id: 51, title: "Second" },
+      { ...baseArticle, id: 52, title: "Third" },
+    ],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+  });
+
+  assert.match(html, /articleCardHeadline/);
+  assert.match(html, />01<\/span>/);
+  assert.match(html, />02<\/span>/);
 });
 
 test("ArticleList highlights the article restored from focus reading", () => {

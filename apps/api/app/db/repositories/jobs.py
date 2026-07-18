@@ -4,7 +4,7 @@ import hashlib
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import Engine, create_engine, desc, select, text, update
+from sqlalchemy import Engine, create_engine, desc, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -62,6 +62,21 @@ class JobStore(Protocol):
     ) -> JobRecord | None: ...
 
     def mark_failed(self, job_id: int, error: str) -> JobRecord | None: ...
+
+    def latest_succeeded(
+        self,
+        job_type: str,
+        *,
+        limit: int = 10,
+    ) -> list[JobRecord]: ...
+
+    def pipeline_snapshot(
+        self,
+        job_types: tuple[str, ...],
+        *,
+        now: datetime | None = None,
+        stale_after_seconds: int = 900,
+    ) -> dict[str, object]: ...
 
 
 def dedupe_key_for(job_type: str, value: object) -> str:
@@ -183,6 +198,41 @@ class MemoryJobRepository:
     def mark_failed(self, job_id: int, error: str) -> JobRecord | None:
         return self._complete(job_id, status="failed", result={}, error=error)
 
+    def latest_succeeded(
+        self,
+        job_type: str,
+        *,
+        limit: int = 10,
+    ) -> list[JobRecord]:
+        matched = [
+            job
+            for job in self._jobs.values()
+            if job.job_type == job_type and job.status == "succeeded"
+        ]
+        matched.sort(
+            key=lambda job: (
+                job.completed_at or job.updated_at,
+                job.id,
+            ),
+            reverse=True,
+        )
+        return matched[: max(1, limit)]
+
+    def pipeline_snapshot(
+        self,
+        job_types: tuple[str, ...],
+        *,
+        now: datetime | None = None,
+        stale_after_seconds: int = 900,
+    ) -> dict[str, object]:
+        current = now or datetime.now(UTC)
+        records = [job for job in self._jobs.values() if job.job_type in job_types]
+        return _pipeline_snapshot_from_records(
+            records,
+            now=current,
+            stale_after_seconds=stale_after_seconds,
+        )
+
     def _complete(
         self,
         job_id: int,
@@ -291,6 +341,109 @@ class DatabaseJobRepository:
             completed_at=now,
             updated_at=now,
         )
+
+    def latest_succeeded(
+        self,
+        job_type: str,
+        *,
+        limit: int = 10,
+    ) -> list[JobRecord]:
+        bound = max(1, min(int(limit), 50))
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(jobs)
+                    .where(
+                        jobs.c.job_type == job_type,
+                        jobs.c.status == "succeeded",
+                    )
+                    .order_by(
+                        desc(jobs.c.completed_at),
+                        desc(jobs.c.id),
+                    )
+                    .limit(bound)
+                )
+                .mappings()
+                .all()
+            )
+        return [_job_from_row(row) for row in rows]
+
+    def pipeline_snapshot(
+        self,
+        job_types: tuple[str, ...],
+        *,
+        now: datetime | None = None,
+        stale_after_seconds: int = 900,
+    ) -> dict[str, object]:
+        current = now or datetime.now(UTC)
+        failed_after = current - timedelta(hours=24)
+        stale_before = current - timedelta(seconds=max(1, stale_after_seconds))
+        latest_ranked = (
+            select(
+                jobs.c.job_type,
+                jobs.c.status,
+                jobs.c.updated_at,
+                jobs.c.last_error,
+                func.row_number()
+                .over(
+                    partition_by=jobs.c.job_type,
+                    order_by=(jobs.c.updated_at.desc(), jobs.c.id.desc()),
+                )
+                .label("row_number"),
+            )
+            .where(jobs.c.job_type.in_(job_types))
+            .subquery()
+        )
+        with self.engine.begin() as connection:
+            count_rows = connection.execute(
+                select(jobs.c.status, func.count().label("count"))
+                .where(jobs.c.job_type.in_(job_types))
+                .group_by(jobs.c.status)
+            ).mappings().all()
+            oldest_queued_at = connection.execute(
+                select(func.min(jobs.c.created_at)).where(
+                    jobs.c.job_type.in_(job_types),
+                    jobs.c.status == "queued",
+                )
+            ).scalar_one_or_none()
+            failed_24h = int(
+                connection.execute(
+                    select(func.count()).select_from(jobs).where(
+                        jobs.c.job_type.in_(job_types),
+                        jobs.c.status == "failed",
+                        jobs.c.updated_at >= failed_after,
+                    )
+                ).scalar_one()
+            )
+            stale_running = int(
+                connection.execute(
+                    select(func.count()).select_from(jobs).where(
+                        jobs.c.job_type.in_(job_types),
+                        jobs.c.status == "running",
+                        jobs.c.locked_at < stale_before,
+                    )
+                ).scalar_one()
+            )
+            latest_rows = connection.execute(
+                select(latest_ranked).where(latest_ranked.c.row_number == 1)
+            ).mappings().all()
+        counts = {str(row["status"]): int(row["count"]) for row in count_rows}
+        return {
+            "queued": counts.get("queued", 0),
+            "running": counts.get("running", 0),
+            "failed_24h": failed_24h,
+            "stale_running": stale_running,
+            "oldest_queued_at": oldest_queued_at,
+            "jobs": [
+                {
+                    "job_type": str(row["job_type"]),
+                    "status": str(row["status"]),
+                    "updated_at": row["updated_at"],
+                    "last_error": row["last_error"],
+                }
+                for row in sorted(latest_rows, key=lambda item: str(item["job_type"]))
+            ],
+        }
 
     def dispose(self) -> None:
         self.engine.dispose()
@@ -431,6 +584,45 @@ def create_job_repository(database_url: str | None) -> JobStore:
     if database_url:
         return DatabaseJobRepository(normalize_database_url(database_url) or database_url)
     return MemoryJobRepository()
+
+
+def _pipeline_snapshot_from_records(
+    records: list[JobRecord],
+    *,
+    now: datetime,
+    stale_after_seconds: int,
+) -> dict[str, object]:
+    failed_after = now - timedelta(hours=24)
+    stale_before = now - timedelta(seconds=max(1, stale_after_seconds))
+    queued = [job for job in records if job.status == "queued"]
+    latest_by_type: dict[str, JobRecord] = {}
+    for job in records:
+        current = latest_by_type.get(job.job_type)
+        if current is None or (job.updated_at, job.id) > (current.updated_at, current.id):
+            latest_by_type[job.job_type] = job
+    return {
+        "queued": len(queued),
+        "running": sum(job.status == "running" for job in records),
+        "failed_24h": sum(
+            job.status == "failed" and job.updated_at >= failed_after for job in records
+        ),
+        "stale_running": sum(
+            job.status == "running"
+            and job.locked_at is not None
+            and job.locked_at < stale_before
+            for job in records
+        ),
+        "oldest_queued_at": min((job.created_at for job in queued), default=None),
+        "jobs": [
+            {
+                "job_type": job.job_type,
+                "status": job.status,
+                "updated_at": job.updated_at,
+                "last_error": job.last_error,
+            }
+            for job in sorted(latest_by_type.values(), key=lambda item: item.job_type)
+        ],
+    }
 
 
 def _job_from_row(row) -> JobRecord:

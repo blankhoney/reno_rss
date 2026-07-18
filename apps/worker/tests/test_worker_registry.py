@@ -2,8 +2,14 @@ from app.main import build_handler_registry
 
 
 EXPECTED_JOB_TYPES = {
+    "auto_score_candidates",
+    "complete_ingest_cycle",
     "fetch_article_content",
+    "generate_daily_brief",
     "generate_recommendations",
+    "govern_sources",
+    "research_brief",
+    "run_benchmark",
     "score_batch",
     "sync_miniflux_entries",
     "translate_article",

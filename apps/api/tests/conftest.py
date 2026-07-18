@@ -21,10 +21,16 @@ for module_name, module in list(sys.modules.items()):
 def app():
     from app.main import create_app
 
-    return create_app()
+    app = create_app()
+    app.state.csrf_allowed_origins = {"https://test"}
+    return app
 
 
 @pytest_asyncio.fixture
 async def client(app):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as api_client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as api_client:
         yield api_client

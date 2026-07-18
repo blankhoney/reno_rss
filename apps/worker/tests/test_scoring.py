@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 from app.jobs.score_batch import score_batch
 import pytest
@@ -266,6 +267,222 @@ def test_score_batch_scores_all_articles_and_preserves_batch_id():
         "scores_saved": 2,
         "scores_succeeded": 2,
         "scores_failed": 0,
+        "articles_skipped_cap": 0,
+        "daily_cap": 0,
+        "scored_today_before": 0,
+    }
+
+
+def test_score_batch_emits_high_score_webhook_only_after_successful_save():
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.saved: list[tuple[int, dict[str, object]]] = []
+
+        def list_batch_articles(self, _batch_id):
+            return [
+                {
+                    "id": 201,
+                    "title": "High signal",
+                    "url": "https://example.com/high",
+                },
+                {
+                    "id": 202,
+                    "title": "Below threshold",
+                    "url": "https://example.com/low",
+                },
+            ]
+
+        def save_score(self, article_id, score):
+            self.saved.append((article_id, dict(score)))
+
+    class Provider:
+        model_provider = "minimax"
+        model_name = "MiniMax-M2.7"
+
+        def score_article(self, article, _rubric):
+            score = MockProvider().score_article(article, {})
+            score["base_score"] = 91 if article["id"] == 201 else 84
+            score["recommendation_tier"] = "must_read" if article["id"] == 201 else "read"
+            return score
+
+    class RecordingWebhook:
+        def __init__(self) -> None:
+            self.events: list[tuple[str, dict[str, object]]] = []
+
+        def emit(self, event: str, payload: dict[str, object]):
+            self.events.append((event, payload))
+            return {"ok": True, "event": event, "status_code": 204, "error": None}
+
+    webhook = RecordingWebhook()
+    result = score_batch(
+        {"batch_id": "batch-7"},
+        RecordingSink(),
+        Provider(),
+        webhook=webhook,
+        high_score_threshold=85,
+    )
+
+    assert webhook.events == [
+        (
+            "high_score",
+            {
+                "article_id": 201,
+                "title": "High signal",
+                "url": "https://example.com/high",
+                "base_score": 91,
+                "tier": "must_read",
+                "tags": ["high", "signal", "https"],
+                "risk_flags": [],
+            },
+        )
+    ]
+    assert result["webhooks"] == {"attempted": 1, "delivered": 1, "failed": 0}
+
+
+def test_score_batch_daily_cap_scores_only_remaining_articles():
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.saved: list[tuple[int, dict[str, object]]] = []
+            self.day_starts: list[str] = []
+            self.finished_batches: list[object] = []
+            self.recommendation_batches: list[object] = []
+
+        def list_batch_articles(self, _batch_id):
+            return [
+                {"id": 201, "title": "First"},
+                {"id": 202, "title": "Second"},
+                {"id": 203, "title": "Third"},
+            ]
+
+        def count_scores_today(self, day_start):
+            self.day_starts.append(day_start)
+            return 1
+
+        def save_score(self, article_id, score):
+            self.saved.append((article_id, dict(score)))
+
+        def finish_batch(self, batch_id):
+            self.finished_batches.append(batch_id)
+
+        def enqueue_recommendations(self, batch_id):
+            self.recommendation_batches.append(batch_id)
+
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.article_ids: list[int] = []
+
+        def score_article(self, article, _rubric):
+            self.article_ids.append(article["id"])
+            return MockProvider().score_article(article, {})
+
+    sink = RecordingSink()
+    provider = RecordingProvider()
+
+    result = score_batch(
+        {"batch_id": "batch-7"},
+        sink,
+        provider,
+        daily_article_cap=3,
+        now=datetime(2026, 7, 8, 17, 30, tzinfo=UTC),
+    )
+
+    assert sink.day_starts == ["2026-07-08T00:00:00+00:00"]
+    assert provider.article_ids == [201, 202]
+    assert [article_id for article_id, _score in sink.saved] == [201, 202]
+    assert sink.finished_batches == ["batch-7"]
+    assert sink.recommendation_batches == ["batch-7"]
+    assert result["articles_seen"] == 3
+    assert result["scores_saved"] == 2
+    assert result["articles_skipped_cap"] == 1
+    assert result["daily_cap"] == 3
+    assert result["scored_today_before"] == 1
+
+
+def test_score_batch_daily_cap_zero_disables_limit():
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.saved: list[tuple[int, dict[str, object]]] = []
+            self.count_called = False
+
+        def list_batch_articles(self, _batch_id):
+            return [{"id": 201, "title": "First"}, {"id": 202, "title": "Second"}]
+
+        def count_scores_today(self, _day_start):
+            self.count_called = True
+            return 999
+
+        def save_score(self, article_id, score):
+            self.saved.append((article_id, dict(score)))
+
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.article_ids: list[int] = []
+
+        def score_article(self, article, _rubric):
+            self.article_ids.append(article["id"])
+            return MockProvider().score_article(article, {})
+
+    sink = RecordingSink()
+    provider = RecordingProvider()
+
+    result = score_batch({"batch_id": "batch-7"}, sink, provider, daily_article_cap=0)
+
+    assert sink.count_called is False
+    assert provider.article_ids == [201, 202]
+    assert len(sink.saved) == 2
+    assert result["articles_skipped_cap"] == 0
+    assert result["daily_cap"] == 0
+    assert result["scored_today_before"] == 0
+
+
+def test_score_batch_daily_cap_already_exhausted_skips_without_retry():
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.saved: list[tuple[int, dict[str, object]]] = []
+            self.finished_batches: list[object] = []
+            self.recommendation_batches: list[object] = []
+
+        def list_batch_articles(self, _batch_id):
+            return [{"id": 201, "title": "First"}, {"id": 202, "title": "Second"}]
+
+        def count_scores_today(self, _day_start):
+            return 60
+
+        def save_score(self, article_id, score):
+            self.saved.append((article_id, dict(score)))
+
+        def finish_batch(self, batch_id):
+            self.finished_batches.append(batch_id)
+
+        def enqueue_recommendations(self, batch_id):
+            self.recommendation_batches.append(batch_id)
+
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.article_ids: list[int] = []
+
+        def score_article(self, article, _rubric):
+            self.article_ids.append(article["id"])
+            return MockProvider().score_article(article, {})
+
+    sink = RecordingSink()
+    provider = RecordingProvider()
+
+    result = score_batch({"batch_id": "batch-7"}, sink, provider, daily_article_cap=60)
+
+    assert provider.article_ids == []
+    assert sink.saved == []
+    assert sink.finished_batches == ["batch-7"]
+    assert sink.recommendation_batches == ["batch-7"]
+    assert result == {
+        "batch_id": "batch-7",
+        "articles_seen": 2,
+        "scores_saved": 0,
+        "scores_succeeded": 0,
+        "scores_failed": 0,
+        "articles_skipped_cap": 2,
+        "daily_cap": 60,
+        "scored_today_before": 60,
     }
 
 
@@ -318,6 +535,9 @@ def test_score_batch_writes_provider_error_for_single_article_failure():
         "scores_saved": 2,
         "scores_succeeded": 1,
         "scores_failed": 1,
+        "articles_skipped_cap": 0,
+        "daily_cap": 0,
+        "scored_today_before": 0,
     }
     assert sink.saved[0][1]["scoring_status"] == "success"
     assert sink.saved[1][0] == 202

@@ -11,11 +11,16 @@ DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS = 16_384
 DEFAULT_MINIMAX_REASONING_SPLIT = True
 DEFAULT_MINIMAX_THINKING_TYPE = "disabled"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
+DEFAULT_LOCAL_LLM_BASE_URL = "http://host.docker.internal:11434/v1"
+DEFAULT_LOCAL_LLM_MODEL = "llama3.2"
+DEFAULT_LOCAL_LLM_API_KEY = "local"
 DEFAULT_API_RATELIMIT = "120/minute"
 DEFAULT_LLM_RATELIMIT = "5/minute;100/day"
 DEFAULT_WRITE_RATELIMIT = "30/minute"
 DEFAULT_AUTH_RATELIMIT = "5/minute;30/hour"
 DEFAULT_LLM_DAILY_CALL_BUDGET = 500
+DEFAULT_SCORE_DAILY_CALL_BUDGET = 60
+DEFAULT_AGENT_DAILY_CALL_BUDGET = 20
 DEFAULT_SLOW_REQUEST_MS = 500
 
 
@@ -33,15 +38,24 @@ class Settings:
     minimax_max_completion_tokens: int | None = DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS
     minimax_reasoning_split: bool = DEFAULT_MINIMAX_REASONING_SPLIT
     minimax_thinking_type: str | None = DEFAULT_MINIMAX_THINKING_TYPE
+    local_llm_api_key: str = DEFAULT_LOCAL_LLM_API_KEY
+    local_llm_base_url: str = DEFAULT_LOCAL_LLM_BASE_URL
+    local_llm_model: str = DEFAULT_LOCAL_LLM_MODEL
+    local_llm_temperature: float = DEFAULT_MINIMAX_TEMPERATURE
+    local_llm_top_p: float = DEFAULT_MINIMAX_TOP_P
+    local_llm_max_completion_tokens: int | None = DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS
     llm_timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
     api_ratelimit_default: str = DEFAULT_API_RATELIMIT
     llm_ratelimit: str = DEFAULT_LLM_RATELIMIT
     write_ratelimit: str = DEFAULT_WRITE_RATELIMIT
     auth_ratelimit: str = DEFAULT_AUTH_RATELIMIT
     slow_request_ms: int = DEFAULT_SLOW_REQUEST_MS
-    # In-memory API-process budget for direct ask calls. Worker LLM calls are
-    # guarded separately by scheduler caps and operator-side provider limits.
+    # Per-account database budgets. Score attempts remain independently
+    # auditable from article_base_scores and worker-side caps.
     llm_daily_call_budget: int = DEFAULT_LLM_DAILY_CALL_BUDGET
+    score_daily_call_budget: int = DEFAULT_SCORE_DAILY_CALL_BUDGET
+    agent_daily_call_budget: int = DEFAULT_AGENT_DAILY_CALL_BUDGET
+    scheduler_enabled: bool = True
     # When true, requests without a session cookie are resolved to a shared demo
     # user (role=user) so staging can be a fully public functional demo. MUST stay
     # False in production — only the staging compose overlay enables it.
@@ -58,6 +72,9 @@ def _parse_bool(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Keep these LLM env parsers in parity with apps/worker/app/providers/llm.py.
+# The API image builds from apps/api only, so a shared package is not worth the
+# build-context churn; tests/test_llm_env_parity.py locks the duplicated behavior.
 def _parse_bool_with_default(value: str | None, default: bool) -> bool:
     if value is None or not value.strip():
         return default
@@ -65,6 +82,7 @@ def _parse_bool_with_default(value: str | None, default: bool) -> bool:
 
 
 def normalize_database_url(database_url: str | None) -> str | None:
+    # Keep in parity with apps/worker/app/main.py; both sides have golden tests.
     if database_url is None:
         return None
     if database_url.startswith("postgres://"):
@@ -137,6 +155,24 @@ def get_settings() -> Settings:
             DEFAULT_MINIMAX_THINKING_TYPE,
             {"adaptive", "disabled"},
         ),
+        local_llm_api_key=os.environ.get("LOCAL_LLM_API_KEY", DEFAULT_LOCAL_LLM_API_KEY),
+        local_llm_base_url=os.environ.get(
+            "LOCAL_LLM_BASE_URL",
+            DEFAULT_LOCAL_LLM_BASE_URL,
+        ).rstrip("/"),
+        local_llm_model=os.environ.get("LOCAL_LLM_MODEL", DEFAULT_LOCAL_LLM_MODEL),
+        local_llm_temperature=_parse_float(
+            os.environ.get("LOCAL_LLM_TEMPERATURE"),
+            DEFAULT_MINIMAX_TEMPERATURE,
+        ),
+        local_llm_top_p=_parse_float(
+            os.environ.get("LOCAL_LLM_TOP_P"),
+            DEFAULT_MINIMAX_TOP_P,
+        ),
+        local_llm_max_completion_tokens=_parse_optional_positive_int(
+            os.environ.get("LOCAL_LLM_MAX_COMPLETION_TOKENS"),
+            DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS,
+        ),
         llm_timeout_seconds=_parse_float(
             os.environ.get("LLM_TIMEOUT_SECONDS"),
             DEFAULT_LLM_TIMEOUT_SECONDS,
@@ -152,6 +188,18 @@ def get_settings() -> Settings:
         llm_daily_call_budget=_parse_int(
             os.environ.get("LLM_DAILY_CALL_BUDGET"),
             DEFAULT_LLM_DAILY_CALL_BUDGET,
+        ),
+        score_daily_call_budget=_parse_int(
+            os.environ.get("SCHEDULE_SCORE_DAILY_ARTICLE_CAP"),
+            DEFAULT_SCORE_DAILY_CALL_BUDGET,
+        ),
+        agent_daily_call_budget=_parse_int(
+            os.environ.get("AGENT_DAILY_CALL_BUDGET"),
+            DEFAULT_AGENT_DAILY_CALL_BUDGET,
+        ),
+        scheduler_enabled=_parse_bool_with_default(
+            os.environ.get("SCHEDULER_ENABLED"),
+            True,
         ),
         anonymous_demo_user_enabled=_parse_bool(
             os.environ.get("AI_READER_ANONYMOUS_DEMO")

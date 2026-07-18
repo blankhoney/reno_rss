@@ -3,19 +3,27 @@
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/types";
 import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
-import type { SummaryLangId } from "@/lib/articles/service";
+import { findCitationTarget, type SummaryLangId } from "@/lib/articles/service";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
-import { saveArticleFeedback } from "@/lib/api/articles";
-import { streamArticleAsk } from "@/lib/api/client";
+import {
+  createArticleAnnotation,
+  getArticle,
+  listArticleAnnotations,
+  saveArticleFeedback,
+  type ArticleAnnotation,
+} from "@/lib/api/articles";
+import { streamArticleAsk, type ArticleAskCitation } from "@/lib/api/client";
+import { listClusters, listThemes } from "@/lib/api/intel";
+import { applyHighlightMarks } from "@/lib/articles/highlights";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
+import { readCraftPreferences } from "@/lib/craft/preferences";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AnimatedPanel } from "./AnimatedPanel";
-import { ScoreBadge } from "./ScoreBadge";
+import { ScoreRing, tierColorVar, tierLabel } from "./ScoreRing";
 import { SkeletonBlock } from "./Skeleton";
-import { ThemeToggle } from "./ThemeToggle";
 import { emitToast } from "./Toast";
 import { articleAskErrorMessage } from "./articleAsk";
 import { articleAgentNotice, articleContentNotice } from "./articleContentNotice";
@@ -39,6 +47,10 @@ const QUICK_ACTIONS = [
   { label: "要点", question: "请提炼这篇文章最重要的 5 个要点。" },
   { label: "解释选中", question: "请解释我选中的这段内容。", requiresSelection: true },
   { label: "行动建议", question: "基于这篇文章，给出可执行的行动建议。" },
+  { label: "定义", question: "请用简明中文解释本文中的关键术语与定义。" },
+  { label: "简化", question: "请把这篇文章改写成更易懂的版本，保留关键数字与结论。" },
+  { label: "反驳", question: "请站在批评者角度，反驳或挑战本文的核心论点，并给出证据缺口。" },
+  { label: "闪卡", question: "请基于本文生成 5 张间隔复习闪卡（正面问题 / 背面答案）。" },
 ];
 
 const FEEDBACK_OPTIONS: { type: ArticleFeedbackType; label: string }[] = [
@@ -73,14 +85,6 @@ function initialFeedbackScore(article: Article): string {
   return String(article.myFeedback?.userScore ?? article.score?.overall ?? 50);
 }
 
-function tierLabel(tier: string | undefined): string {
-  if (tier === "must_read") return "必读";
-  if (tier === "read") return "推荐";
-  if (tier === "skim") return "略读";
-  if (tier === "skip") return "跳过";
-  return tier ?? "未分层";
-}
-
 function translationLabel(article: Article): string {
   if (article.contentZhStatus === "succeeded") return "译文：已就绪";
   if (article.contentZhStatus === "queued" || article.contentZhStatus === "running") return "译文：生成中";
@@ -94,18 +98,50 @@ function translationStatusClassName(article: Article): string {
     : "focusStatusChip";
 }
 
+type TierStatusStyle = CSSProperties & {
+  "--statusTierColor"?: string;
+};
+
+type DimensionBarStyle = CSSProperties & {
+  "--dimensionValue"?: string;
+  "--dimensionColor"?: string;
+};
+
+function normalizedDimensionValue(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
 export function FocusedArticleReader({
   article,
   currentLang,
   returnHref,
+  initialCitation,
 }: {
   article: Article;
   currentLang: SummaryLangId;
   returnHref: string;
+  initialCitation?: string;
 }) {
   const [question, setQuestion] = useState("");
   const [agentError, setAgentError] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
+  const [askHistory, setAskHistory] = useState<Array<{ role: "user" | "assistant"; content: string }>>(
+    [],
+  );
+  const [citations, setCitations] = useState<ArticleAskCitation[]>([]);
+  const [related, setRelated] = useState<
+    Array<{ kind: "theme" | "cluster"; label: string; href: string }>
+  >([]);
+  const [dualPane, setDualPane] = useState(false);
+  const [dualPaneKind, setDualPaneKind] = useState<"notes" | "article">("notes");
+  const [dualArticleId, setDualArticleId] = useState<number | null>(null);
+  const [dualArticle, setDualArticle] = useState<Article | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [highlightColor, setHighlightColor] = useState("yellow");
+  const [highlightTags, setHighlightTags] = useState("");
+  const [bilingual, setBilingual] = useState(false);
+  const [annotations, setAnnotations] = useState<ArticleAnnotation[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -163,12 +199,106 @@ export function FocusedArticleReader({
   ];
 
   useEffect(() => {
+    function applyPrefs() {
+      const prefs = readCraftPreferences();
+      setDualPane(prefs.dualPane);
+      setDualPaneKind(prefs.dualPaneKind);
+      setDualArticleId(prefs.dualArticleId);
+    }
+    applyPrefs();
+    window.addEventListener("ai-reader:craft-prefs", applyPrefs);
+    return () => window.removeEventListener("ai-reader:craft-prefs", applyPrefs);
+  }, []);
+
+  useEffect(() => {
+    if (!dualPane || dualPaneKind !== "article" || dualArticleId == null) {
+      setDualArticle(null);
+      return;
+    }
+    if (dualArticleId === article.id) {
+      setDualArticle(null);
+      return;
+    }
+    let active = true;
+    getArticle(dualArticleId)
+      .then((next) => {
+        if (active) setDualArticle(next);
+      })
+      .catch(() => {
+        if (active) setDualArticle(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [article.id, dualArticleId, dualPane, dualPaneKind]);
+
+  useEffect(() => {
+    let active = true;
+    listArticleAnnotations(article.id)
+      .then((items) => {
+        if (active) setAnnotations(items);
+      })
+      .catch(() => {
+        if (active) setAnnotations([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [article.id]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.allSettled([listThemes(30), listClusters(20)]).then((results) => {
+      if (!active) return;
+      const next: Array<{ kind: "theme" | "cluster"; label: string; href: string }> = [];
+      const themes = results[0].status === "fulfilled" ? results[0].value : [];
+      const clusters = results[1].status === "fulfilled" ? results[1].value : [];
+      for (const theme of themes) {
+        if (!theme.articleIds.includes(article.id)) continue;
+        next.push({
+          kind: "theme",
+          label: theme.label,
+          href: `/?module=themes&sort=default&lang=zh`,
+        });
+        for (const relatedId of theme.articleIds) {
+          if (relatedId === article.id) continue;
+          next.push({
+            kind: "theme",
+            label: `${theme.label} → #${relatedId}`,
+            href: `/read/${relatedId}?module=themes&sort=default&lang=zh`,
+          });
+          if (next.length >= 8) break;
+        }
+      }
+      for (const cluster of clusters) {
+        if (
+          cluster.mainArticleId !== article.id &&
+          !cluster.relatedArticleIds.includes(article.id)
+        ) {
+          continue;
+        }
+        next.push({
+          kind: "cluster",
+          label: `${cluster.label} (${cluster.size})`,
+          href: `/read/${cluster.mainArticleId}?module=clusters&sort=default&lang=zh`,
+        });
+      }
+      setRelated(next.slice(0, 10));
+    });
+    return () => {
+      active = false;
+    };
+  }, [article.id]);
+
+  useEffect(() => {
     askAbortRef.current?.abort();
     setTranslatedHtml(article.contentZh ?? null);
     setShowTranslation(false);
     showTranslationWhenReadyRef.current = false;
     setIsAsking(false);
     setAgentError(null);
+    setAskHistory([]);
+    setCitations([]);
     setFeedbackScore(initialFeedbackScore(article));
     setFeedbackType(normalizeFeedbackType(article.myFeedback?.feedbackType));
     setFeedbackReason(article.myFeedback?.reason ?? "");
@@ -222,14 +352,37 @@ export function FocusedArticleReader({
     setQuestion(trimmedQuestion);
     setIsAsking(true);
     setAgentError(null);
+    setCitations([]);
     typewriter.reset();
 
+    const historyPayload = askHistory.slice(-6);
+    let answerText = "";
+
     try {
-      for await (const chunk of streamArticleAsk(article.id, {
-        question: trimmedQuestion,
-        selected_text: selectedText.trim() || undefined,
-      }, { signal: abortController.signal })) {
-        if (chunk.length > 0) typewriter.push(chunk);
+      for await (const event of streamArticleAsk(
+        article.id,
+        {
+          question: trimmedQuestion,
+          selected_text: selectedText.trim() || undefined,
+          history: historyPayload.length > 0 ? historyPayload : undefined,
+        },
+        { signal: abortController.signal },
+      )) {
+        if (event.type === "text" && event.text.length > 0) {
+          answerText += event.text;
+          typewriter.push(event.text);
+        } else if (event.type === "citations") {
+          setCitations(event.citations);
+        }
+      }
+      if (answerText.trim().length > 0) {
+        setAskHistory((current) =>
+          [
+            ...current,
+            { role: "user" as const, content: trimmedQuestion },
+            { role: "assistant" as const, content: answerText.trim() },
+          ].slice(-6),
+        );
       }
     } catch (error) {
       if (abortController.signal.aborted) return;
@@ -242,6 +395,49 @@ export function FocusedArticleReader({
       setIsAsking(false);
     }
   }
+
+  function scrollToCitation(quote: string) {
+    const root = articleRef.current;
+    if (root == null || quote.trim().length === 0) return;
+    root.querySelectorAll(".citationJumpFlash").forEach((node) => {
+      node.classList.remove("citationJumpFlash");
+    });
+    const target = findCitationTarget(root, quote);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("citationJumpFlash");
+      window.setTimeout(() => target.classList.remove("citationJumpFlash"), 1600);
+      return;
+    }
+    const findInPage = (window as Window & { find?: (...args: unknown[]) => boolean }).find;
+    if (typeof window !== "undefined" && typeof findInPage === "function") {
+      try {
+        window.getSelection()?.removeAllRanges();
+        const found = findInPage(quote.slice(0, 80), false, false, true, false, false, false);
+        if (found) return;
+      } catch {
+        // fall through to manual search
+      }
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      const text = node.textContent ?? "";
+      const index = text.indexOf(quote.slice(0, Math.min(quote.length, 48)));
+      if (index >= 0 && node.parentElement) {
+        node.parentElement.scrollIntoView({ behavior: "smooth", block: "center" });
+        node.parentElement.classList.add("citationJumpFlash");
+        return;
+      }
+      node = walker.nextNode();
+    }
+  }
+
+  useEffect(() => {
+    if (!initialCitation?.trim()) return;
+    const frame = window.requestAnimationFrame(() => scrollToCitation(initialCitation));
+    return () => window.cancelAnimationFrame(frame);
+  }, [article.id, initialCitation]);
 
   function cancelAsk() {
     askAbortRef.current?.abort();
@@ -310,7 +506,22 @@ export function FocusedArticleReader({
   const score = article.score;
   const contentNotice = articleContentNotice(article);
   const agentNotice = articleAgentNotice(article);
-  const displayedHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
+  const baseHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
+  const displayedHtml = useMemo(
+    () =>
+      applyHighlightMarks(
+        baseHtml,
+        annotations.map((item) => ({
+          id: item.id,
+          selectedText: item.selectedText || item.content,
+          color: item.color,
+        })),
+      ),
+    [annotations, baseHtml],
+  );
+  const scoreStatusStyle: TierStatusStyle | undefined = score
+    ? { "--statusTierColor": `var(${tierColorVar(score.tier, score.overall)})` }
+    : undefined;
 
   return (
     <motion.main
@@ -335,19 +546,6 @@ export function FocusedArticleReader({
           >
             {showTranslation ? "看原文" : articleActions.isTranslating ? "翻译中" : "翻译全文"}
           </button>
-          <div className="focusSecondaryActions">
-            {secondaryActions.map((action) => (
-              <button
-                key={action.key}
-                type="button"
-                className="readerToolbarBtn"
-                disabled={action.disabled}
-                onClick={action.run}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
           <div className="focusOverflowMenu" ref={secondaryMenuRef}>
             <button
               ref={secondaryMenuButtonRef}
@@ -389,12 +587,16 @@ export function FocusedArticleReader({
             </AnimatePresence>
           </div>
         </div>
-        <ThemeToggle />
       </header>
 
       <section className="focusStatusBar" aria-label="阅读状态">
         <span className="focusStatusChip">{article.contentStatus === "partial" ? "正文：片段" : "正文：完整"}</span>
-        <span className="focusStatusChip">{score ? "评分：已评分" : "评分：未评分"}</span>
+        <span
+          className={score ? "focusStatusChip focusStatusChipScored" : "focusStatusChip"}
+          style={scoreStatusStyle}
+        >
+          {score ? "评分：已评分" : "评分：未评分"}
+        </span>
         <span className={translationStatusClassName(article)}>{translationLabel(article)}</span>
         <button type="button" className="focusStatusChip focusStatusAction" onClick={openFeedbackPanel}>
           反馈校准
@@ -403,6 +605,35 @@ export function FocusedArticleReader({
 
       {articleActions.actionError ? (
         <p className="readerActionError">{articleActions.actionError}</p>
+      ) : null}
+
+      {article.contentZhStatus === "failed" ? (
+        <section className="focusTranslationAlert" role="alert" aria-label="译文生成失败">
+          <div>
+            <strong>译文生成失败</strong>
+            <p>可重新提交全文翻译任务，成功后将自动切换到译文。</p>
+          </div>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            disabled={articleActions.isTranslating}
+            onClick={() => void toggleTranslation()}
+          >
+            ↻ 重试翻译
+          </button>
+        </section>
+      ) : article.contentZhStatus === "queued" || article.contentZhStatus === "running" ? (
+        <section
+          className="focusTranslationAlert focusTranslationAlertPending"
+          role="status"
+          aria-label="译文生成中"
+        >
+          <span className="focusTranslationSpinner" aria-hidden="true" />
+          <div>
+            <strong>译文生成中</strong>
+            <p>任务完成后会自动切换到译文。</p>
+          </div>
+        </section>
       ) : null}
 
       <article className="focusArticle" ref={articleRef}>
@@ -432,26 +663,55 @@ export function FocusedArticleReader({
               原文摘要
             </button>
           </div>
-          <p>{summaryForLang(article, currentLang)}</p>
+          <p className="focusSummaryQuote">{summaryForLang(article, currentLang)}</p>
         </details>
 
         <details className="focusSection" ref={scoreDetailsRef}>
           <summary>评分</summary>
           {score ? (
             <>
-              <div className="scoreGrid">
-                <ScoreBadge label="层级" value={tierLabel(score.tier)} />
-                {DIMENSION_ROWS.map((row) => {
-                  const value =
-                    row.key === "overall" ? score.overall : (score.dimensions[row.key] ?? null);
-                  return <ScoreBadge key={row.key} label={row.label} value={value} />;
+              <div className="scoreOverview">
+                <ScoreRing value={score.overall} tier={score.tier} size={46} />
+                <div>
+                  <strong className="scoreOverviewTier">{tierLabel(score.tier) ?? "未分层"}</strong>
+                  <p className="scoreReason">
+                    <span className="scoreReasonLabel">总评</span>
+                    {score.reason.trim() || "暂无评分理由。"}
+                  </p>
+                </div>
+              </div>
+              <div className="dimensionBars" aria-label="评分维度">
+                {DIMENSION_ROWS.filter(
+                  (row): row is { key: DimensionKey; label: string } => row.key !== "overall",
+                ).map((row) => {
+                  const value = normalizedDimensionValue(score.dimensions[row.key] ?? null);
+                  const style: DimensionBarStyle | undefined =
+                    value == null
+                      ? undefined
+                      : {
+                          "--dimensionValue": `${value}%`,
+                          "--dimensionColor": `var(${tierColorVar(null, value)})`,
+                        };
+                  return (
+                    <div className="dimensionBarRow" key={row.key}>
+                      <span className="dimensionBarLabel">{row.label}</span>
+                      <span
+                        className="dimensionBarTrack"
+                        role="progressbar"
+                        aria-label={row.label}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={value ?? undefined}
+                        aria-valuetext={value == null ? "未评分" : undefined}
+                      >
+                        <span className="dimensionBarFill" style={style} />
+                      </span>
+                      <span className="dimensionBarValue">{value ?? "—"}</span>
+                    </div>
+                  );
                 })}
               </div>
               <p className="scoreRiskHint">风险·不确定维度越高代表越需要谨慎，不按普通高分理解。</p>
-              <p className="scoreReason">
-                <span className="scoreReasonLabel">总评</span>
-                {score.reason.trim() || "暂无评分理由。"}
-              </p>
               {Object.keys(score.dimensionReasons).length > 0 ? (
                 <details className="dimensionReasons">
                   <summary>维度理由</summary>
@@ -528,7 +788,37 @@ export function FocusedArticleReader({
 
         {contentNotice ? <p className="contentPartialNotice">{contentNotice}</p> : null}
 
-        <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
+        <div className="articleListActions" style={{ marginBottom: 8 }}>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            onClick={() => setBilingual((value) => !value)}
+            disabled={!translatedHtml}
+          >
+            {bilingual ? "关闭对照" : "原文/译文对照"}
+          </button>
+        </div>
+
+        {bilingual && translatedHtml ? (
+          <div className="bilingualSplit">
+            <div>
+              <h3 className="workbenchRibbonMuted">原文</h3>
+              <div
+                className="articleContent content focusContent"
+                dangerouslySetInnerHTML={{ __html: article.contentHtml }}
+              />
+            </div>
+            <div>
+              <h3 className="workbenchRibbonMuted">译文</h3>
+              <div
+                className="articleContent content focusContent"
+                dangerouslySetInnerHTML={{ __html: translatedHtml }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
+        )}
       </article>
 
       {selectionRect && hasSelection ? (
@@ -548,6 +838,61 @@ export function FocusedArticleReader({
             onClick={() => void askAgent("请解释我选中的这段内容。")}
           >
             解释选中
+          </button>
+          <label className="selectionColorPicker">
+            <span className="visuallyHidden">划线颜色</span>
+            <select
+              value={highlightColor}
+              onChange={(event) => setHighlightColor(event.target.value)}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <option value="yellow">黄</option>
+              <option value="green">绿</option>
+              <option value="blue">蓝</option>
+              <option value="pink">粉</option>
+              <option value="orange">橙</option>
+              <option value="purple">紫</option>
+            </select>
+          </label>
+          <input
+            className="selectionTagInput"
+            value={highlightTags}
+            onChange={(event) => setHighlightTags(event.target.value)}
+            onMouseDown={(event) => event.stopPropagation()}
+            placeholder="标签,逗号分隔"
+          />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              const text = selectedText.trim();
+              if (!text) return;
+              const tags = highlightTags
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean);
+              void createArticleAnnotation(article.id, {
+                content: text,
+                selectedText: text,
+                type: "annotation",
+                color: highlightColor,
+                tags,
+              })
+                .then((created) => {
+                  setAnnotations((current) => [created, ...current]);
+                  emitToast({ title: "已保存划线", variant: "success" });
+                  clearSelection();
+                })
+                .catch((error: unknown) => {
+                  emitToast({
+                    title: "划线保存失败",
+                    body: error instanceof Error ? error.message : "请稍后重试",
+                    variant: "error",
+                  });
+                });
+            }}
+          >
+            保存划线
           </button>
         </div>
       ) : null}
@@ -637,10 +982,104 @@ export function FocusedArticleReader({
                 text={revealedAnswer}
                 trailing={cursorVisible ? <span className="typewriterCursor">▍</span> : null}
               />
+              {citations.length > 0 ? (
+                <div className="agentCitations" aria-label="原文引用">
+                  {citations.map((citation) => (
+                    <button
+                      key={`${citation.startHint ?? "x"}:${citation.quote}`}
+                      type="button"
+                      className="agentCitationBtn"
+                      title={citation.quote}
+                      onClick={() => scrollToCitation(citation.quote)}
+                    >
+                      “{citation.quote.length > 42 ? `${citation.quote.slice(0, 42)}…` : citation.quote}”
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </motion.div>
       </section>
+
+      {related.length > 0 ? (
+        <aside className="focusRelatedRail" aria-label="相关主题与故事线">
+          <h2>相关跳转</h2>
+          <ul>
+            {related.map((item) => (
+              <li key={`${item.kind}-${item.label}-${item.href}`}>
+                <Link href={item.href} prefetch={false}>
+                  <span className="workbenchRibbonMuted">{item.kind}</span> {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      ) : null}
+
+      {dualPane && dualPaneKind === "notes" ? (
+        <aside className="focusedArticleNotes" aria-label="笔记双栏">
+          <h2>笔记</h2>
+          <p className="workbenchRibbonMuted">双栏模式：文章 + 笔记。选区高亮仍会保存到私有标注。</p>
+          <textarea
+            className="agentQuestion"
+            rows={12}
+            value={noteDraft}
+            onChange={(event) => setNoteDraft(event.target.value)}
+            placeholder="边读边记…"
+          />
+          <button
+            type="button"
+            className="readerToolbarBtn readerToolbarBtnPrimary"
+            disabled={noteDraft.trim().length === 0}
+            onClick={() => {
+              void createArticleAnnotation(article.id, {
+                content: noteDraft.trim(),
+                selectedText: selectedText || null,
+                color: highlightColor,
+              })
+                .then((created) => {
+                  setAnnotations((current) => [created, ...current]);
+                  setNoteDraft("");
+                  emitToast({ title: "笔记已保存", variant: "success" });
+                })
+                .catch((error) => {
+                  emitToast({
+                    title: error instanceof Error ? error.message : "笔记保存失败",
+                    variant: "error",
+                  });
+                });
+            }}
+          >
+            保存笔记
+          </button>
+        </aside>
+      ) : null}
+
+      {dualPane && dualPaneKind === "article" ? (
+        <aside className="focusedArticleNotes dualArticlePane" aria-label="对照文章">
+          <h2>对照阅读</h2>
+          {dualArticle == null ? (
+            <p className="workbenchRibbonMuted">
+              在「阅读工艺」设置对照文章 ID，或 ⌘K 打开工艺面板。
+            </p>
+          ) : (
+            <>
+              <p className="workbenchRibbonMuted">
+                #{dualArticle.id} ·{" "}
+                <Link href={`/read/${dualArticle.id}?module=all&sort=default&lang=zh`} prefetch={false}>
+                  单独打开
+                </Link>
+              </p>
+              <h3 className="dailyIntelCardTitle">{dualArticle.title}</h3>
+              <div
+                className="articleContent content focusContent dualArticleBody"
+                dangerouslySetInnerHTML={{ __html: dualArticle.contentHtml }}
+              />
+            </>
+          )}
+        </aside>
+      ) : null}
     </motion.main>
   );
 }

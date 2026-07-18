@@ -68,6 +68,7 @@ class ScoringStore(Protocol):
         base_score: int,
         is_active: bool,
         batch_id: int | None = None,
+        tags: list[object] | None = None,
     ) -> ScoreRecord: ...
 
     def list_scores(self, *, article_id: int) -> list[ScoreRecord]: ...
@@ -76,7 +77,11 @@ class ScoringStore(Protocol):
         self, article_ids: list[int]
     ) -> dict[int, ScoreRecord]: ...
 
+    def list_active_scores(self, *, limit: int = 100) -> list[ScoreRecord]: ...
+
     def count_active_scored_articles(self) -> int: ...
+
+    def count_scores_since(self, day_start: datetime) -> int: ...
 
     def create_batch(
         self,
@@ -105,6 +110,7 @@ class MemoryScoringRepository:
         base_score: int,
         is_active: bool,
         batch_id: int | None = None,
+        tags: list[object] | None = None,
     ) -> ScoreRecord:
         if is_active:
             for score_id, score in list(self._scores.items()):
@@ -123,7 +129,7 @@ class MemoryScoringRepository:
             source_language="unknown",
             dimension_scores={},
             dimension_reasons={},
-            tags=[],
+            tags=list(tags or []),
             reason="",
             risk_flags=[],
             confidence=1,
@@ -156,6 +162,15 @@ class MemoryScoringRepository:
                 result[score.article_id] = score
         return result
 
+    def list_active_scores(self, *, limit: int = 100) -> list[ScoreRecord]:
+        active = [
+            score
+            for score in self._scores.values()
+            if score.is_active and score.scoring_status == "success"
+        ]
+        active.sort(key=lambda item: (-item.base_score, item.article_id))
+        return active[: max(1, limit)]
+
     def count_active_scored_articles(self) -> int:
         return len(
             {
@@ -164,6 +179,10 @@ class MemoryScoringRepository:
                 if score.is_active and score.scoring_status == "success"
             }
         )
+
+    def count_scores_since(self, day_start: datetime) -> int:
+        # Count every score row (success + error): each is one LLM attempt.
+        return sum(1 for score in self._scores.values() if score.scored_at >= day_start)
 
     def create_batch(
         self,
@@ -220,6 +239,7 @@ class DatabaseScoringRepository:
         base_score: int,
         is_active: bool,
         batch_id: int | None = None,
+        tags: list[object] | None = None,
     ) -> ScoreRecord:
         now = datetime.now(UTC)
         with self.engine.begin() as connection:
@@ -245,7 +265,7 @@ class DatabaseScoringRepository:
                         source_language="unknown",
                         dimension_scores={},
                         dimension_reasons={},
-                        tags=[],
+                        tags=list(tags or []),
                         reason="",
                         risk_flags=[],
                         confidence=1,
@@ -295,6 +315,26 @@ class DatabaseScoringRepository:
             )
         return {row["article_id"]: _score_from_row(row) for row in rows}
 
+    def list_active_scores(self, *, limit: int = 100) -> list[ScoreRecord]:
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(article_base_scores)
+                    .where(
+                        article_base_scores.c.is_active.is_(True),
+                        article_base_scores.c.scoring_status == "success",
+                    )
+                    .order_by(
+                        article_base_scores.c.base_score.desc(),
+                        article_base_scores.c.article_id.asc(),
+                    )
+                    .limit(max(1, limit))
+                )
+                .mappings()
+                .all()
+            )
+        return [_score_from_row(row) for row in rows]
+
     def count_active_scored_articles(self) -> int:
         with self.engine.begin() as connection:
             return int(
@@ -303,6 +343,16 @@ class DatabaseScoringRepository:
                         article_base_scores.c.is_active.is_(True),
                         article_base_scores.c.scoring_status == "success",
                     )
+                ).scalar_one()
+            )
+
+    def count_scores_since(self, day_start: datetime) -> int:
+        with self.engine.begin() as connection:
+            return int(
+                connection.execute(
+                    select(func.count())
+                    .select_from(article_base_scores)
+                    .where(article_base_scores.c.scored_at >= day_start)
                 ).scalar_one()
             )
 

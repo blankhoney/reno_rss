@@ -1,14 +1,20 @@
-from fastapi import APIRouter, Depends, Path, Response
+from datetime import UTC, datetime
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Path, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api.deps import (
     ApiError,
+    get_auth_store,
+    get_benchmark_repository,
     get_job_repository,
     get_scoring_repository,
     require_admin,
 )
-from app.db.auth_store import UserRecord
+from app.db.auth_store import DEMO_USER_DISPLAY_NAME, AuthStore, UserRecord
+from app.db.repositories.benchmarks import BenchmarkRunRecord, BenchmarkStore
 from app.db.repositories.jobs import JobStore, dedupe_key_for
 from app.db.repositories.scoring import (
     ScoringBatchItemRecord,
@@ -18,6 +24,16 @@ from app.db.repositories.scoring import (
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+PIPELINE_JOB_TYPES = (
+    "sync_miniflux_entries",
+    "fetch_article_content",
+    "complete_ingest_cycle",
+    "auto_score_candidates",
+    "score_batch",
+    "generate_recommendations",
+    "generate_daily_brief",
+    "govern_sources",
+)
 
 
 class CreateScoringBatchRequest(BaseModel):
@@ -29,6 +45,47 @@ class CreateScoringBatchRequest(BaseModel):
 class SyncMinifluxRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
     after_entry_id: int | None = Field(default=None, ge=1)
+
+
+class CreateBenchmarkRequest(BaseModel):
+    suite: Literal["ranking", "model_swap", "db_perf"] = "ranking"
+    mode: Literal["ci_mini", "manual_full"] = "ci_mini"
+    provider: str = Field(default="mock", min_length=1, max_length=80)
+    params: dict[str, object] = Field(default_factory=dict)
+    confirm_real_llm: bool = False
+
+
+class PipelineQueueHealth(BaseModel):
+    queued: int
+    running: int
+    failed_24h: int
+    stale_running: int
+    oldest_queued_at: str | None
+
+
+class PipelineJobHealth(BaseModel):
+    job_type: str
+    status: str
+    updated_at: str | None
+    last_error: str | None
+
+
+class PipelineHealthResponse(BaseModel):
+    status: Literal["healthy", "degraded", "idle", "paused"]
+    scheduler_enabled: bool
+    queue: PipelineQueueHealth
+    jobs: list[PipelineJobHealth]
+
+
+def user_public(user: UserRecord) -> dict[str, object]:
+    return {
+        "id": str(user.id),
+        "display_name": user.display_name,
+        "role": user.role,
+        "created_at": user.created_at.isoformat(),
+        "last_seen_at": user.last_seen_at.isoformat() if user.last_seen_at else None,
+        "is_demo": user.display_name == DEMO_USER_DISPLAY_NAME,
+    }
 
 
 def scoring_batch_item_public(item: ScoringBatchItemRecord) -> dict[str, object]:
@@ -58,9 +115,186 @@ def scoring_batch_public(batch: ScoringBatchRecord) -> dict[str, object]:
     }
 
 
+def benchmark_run_public(run: BenchmarkRunRecord) -> dict[str, object]:
+    return {
+        "id": run.id,
+        "suite": run.suite,
+        "mode": run.mode,
+        "status": run.status,
+        "params": run.params,
+        "metrics": run.metrics,
+        "artifact_path": run.artifact_path,
+        "cost_estimate": run.cost_estimate,
+        "created_by": str(run.created_by) if run.created_by else None,
+        "created_at": run.created_at.isoformat(),
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+    }
+
+
+def _optional_iso(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
 @router.get("/users")
-async def list_users(_current_user: UserRecord = Depends(require_admin)) -> dict[str, list[object]]:
-    return {"items": []}
+async def list_users(
+    _current_user: UserRecord = Depends(require_admin),
+    auth_store: AuthStore = Depends(get_auth_store),
+) -> dict[str, list[object]]:
+    return {"items": [user_public(user) for user in auth_store.list_users()]}
+
+
+@router.get("/usage/today")
+def usage_today(
+    request: Request,
+    _current_user: UserRecord = Depends(require_admin),
+    scoring_repository: ScoringStore = Depends(get_scoring_repository),
+) -> dict[str, object]:
+    """Admin cost cockpit backed by DB score rows and a shared daily ledger."""
+    day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    scores_today = scoring_repository.count_scores_since(day_start)
+    ledger = getattr(request.app.state, "cost_ledger", None)
+    if ledger is not None and hasattr(ledger, "snapshot"):
+        # Keep DB score count as ground truth for score account used field.
+        ledger_snap = ledger.snapshot(day=day_start.date())
+        accounts = dict(ledger_snap.get("accounts") or {})
+        score_account = dict(accounts.get("score") or {})
+        score_account["used"] = scores_today
+        score_account["remaining"] = max(
+            0, int(score_account.get("limit") or 0) - scores_today
+        ) if int(score_account.get("limit") or 0) > 0 else None
+        accounts["score"] = score_account
+        multi = {
+            "day": ledger_snap.get("day"),
+            "accounts": accounts,
+            "accounting": ledger_snap.get("accounting", "process_memory"),
+        }
+    else:
+        multi = {
+            "day": day_start.date().isoformat(),
+            "accounts": {
+                "score": {"used": scores_today, "limit": 0, "remaining": None},
+                "ask": {"used": 0, "limit": 0, "remaining": None},
+                "agent": {"used": 0, "limit": 0, "remaining": None},
+            },
+            "accounting": "partial",
+        }
+    ask_account = dict(multi["accounts"]["ask"])
+    ask_snapshot = {
+        **ask_account,
+        "day": multi["day"],
+        "accounting": multi["accounting"],
+    }
+    return {
+        "day": day_start.date().isoformat(),
+        "scores": {
+            "count_today": scores_today,
+            "accounting": "database",
+            "note": "Counts success and error score rows (each is one scoring attempt).",
+        },
+        "ask": {
+            **ask_snapshot,
+            "ask_accounting": ask_snapshot.get("accounting", "unavailable"),
+            "note": "Shared daily reservation ledger; provider console remains the final hard spend cap.",
+        },
+        "accounts": multi["accounts"],
+        "cost_ledger": multi,
+        "note": "score/ask/agent 分账户日限额（GOAL §4.D）。score used 以评分 DB 为准；ask/agent 使用共享日账本。",
+    }
+
+
+@router.get("/pipeline-health")
+def pipeline_health(
+    request: Request,
+    _current_user: UserRecord = Depends(require_admin),
+    job_repository: JobStore = Depends(get_job_repository),
+) -> PipelineHealthResponse:
+    """Read-only unattended-pipeline queue and latest-run diagnostics."""
+    snapshot = job_repository.pipeline_snapshot(PIPELINE_JOB_TYPES)
+    scheduler_enabled = bool(getattr(request.app.state, "scheduler_enabled", False))
+    failed_24h = int(snapshot["failed_24h"])
+    stale_running = int(snapshot["stale_running"])
+    jobs = list(snapshot["jobs"])
+    if not scheduler_enabled:
+        status = "paused"
+    elif failed_24h > 0 or stale_running > 0:
+        status = "degraded"
+    elif not jobs:
+        status = "idle"
+    else:
+        status = "healthy"
+    return PipelineHealthResponse(
+        status=status,
+        scheduler_enabled=scheduler_enabled,
+        queue=PipelineQueueHealth(
+            queued=int(snapshot["queued"]),
+            running=int(snapshot["running"]),
+            failed_24h=failed_24h,
+            stale_running=stale_running,
+            oldest_queued_at=_optional_iso(snapshot["oldest_queued_at"]),
+        ),
+        jobs=[
+            PipelineJobHealth(
+                job_type=str(item["job_type"]),
+                status=str(item["status"]),
+                updated_at=_optional_iso(item.get("updated_at")),
+                last_error=(
+                    str(item["last_error"])
+                    if item.get("last_error") is not None
+                    else None
+                ),
+            )
+            for item in jobs
+        ],
+    )
+
+
+@router.post("/daily-brief")
+def enqueue_daily_brief(
+    current_user: UserRecord = Depends(require_admin),
+    job_repository: JobStore = Depends(get_job_repository),
+) -> JSONResponse:
+    job = job_repository.enqueue(
+        "generate_daily_brief",
+        {"limit": 10, "trigger": "admin"},
+        dedupe_key=dedupe_key_for("generate_daily_brief", datetime.now(UTC).date().isoformat()),
+        created_by=current_user.id,
+    )
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job.id, "job_type": job.job_type, "status": job.status},
+    )
+
+
+@router.post("/govern-sources")
+def enqueue_govern_sources(
+    current_user: UserRecord = Depends(require_admin),
+    job_repository: JobStore = Depends(get_job_repository),
+    dry_run: bool = False,
+) -> JSONResponse:
+    """Queue source-quality demotion pass (hide residual/failed feeds)."""
+    job = job_repository.enqueue(
+        "govern_sources",
+        {
+            "limit": 500,
+            "min_samples": 5,
+            "bad_ratio_threshold": 0.6,
+            "dry_run": dry_run,
+            "trigger": "admin",
+        },
+        dedupe_key=dedupe_key_for(
+            "govern_sources",
+            f"{datetime.now(UTC).date().isoformat()}:{'dry' if dry_run else 'apply'}",
+        ),
+        created_by=current_user.id,
+    )
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job.id, "job_type": job.job_type, "status": job.status},
+    )
 
 
 @router.post("/sync")
@@ -138,3 +372,67 @@ def start_scoring_batch(
         status_code=202,
         content={"batch_id": batch_id, "job_id": job.id, "status": job.status},
     )
+
+
+@router.post("/benchmarks", status_code=202)
+def create_benchmark_run(
+    payload: CreateBenchmarkRequest,
+    current_user: UserRecord = Depends(require_admin),
+    benchmark_repository: BenchmarkStore = Depends(get_benchmark_repository),
+    job_repository: JobStore = Depends(get_job_repository),
+) -> JSONResponse:
+    if payload.suite == "model_swap":
+        raise ApiError(400, "unsupported", "model_swap benchmark is not executable yet")
+    if payload.provider != "mock" and not (
+        payload.mode == "manual_full" and payload.confirm_real_llm
+    ):
+        raise ApiError(
+            400,
+            "real_llm_confirmation_required",
+            "Real LLM benchmarks require manual_full mode and explicit confirmation",
+        )
+
+    run_params = dict(payload.params)
+    run_params["provider"] = payload.provider
+    run = benchmark_repository.create_run(
+        suite=payload.suite,
+        mode=payload.mode,
+        params=run_params,
+        created_by=current_user.id,
+    )
+    job_payload = {
+        "benchmark_run_id": run.id,
+        "suite": payload.suite,
+        "mode": payload.mode,
+        "provider": payload.provider,
+        "params": payload.params,
+    }
+    job = job_repository.enqueue(
+        "run_benchmark",
+        job_payload,
+        dedupe_key=dedupe_key_for("run_benchmark", run.id),
+        created_by=current_user.id,
+    )
+    return JSONResponse(
+        status_code=202,
+        content={
+            "benchmark_run": benchmark_run_public(run),
+            "job": {
+                "id": job.id,
+                "job_type": job.job_type,
+                "status": job.status,
+            },
+        },
+    )
+
+
+@router.get("/benchmarks/{benchmark_run_id}")
+def get_benchmark_run(
+    benchmark_run_id: int = Path(gt=0),
+    _current_user: UserRecord = Depends(require_admin),
+    benchmark_repository: BenchmarkStore = Depends(get_benchmark_repository),
+) -> dict[str, object]:
+    run = benchmark_repository.get_run(benchmark_run_id)
+    if run is None:
+        raise ApiError(404, "not_found", "Benchmark run not found")
+    return {"benchmark_run": benchmark_run_public(run)}

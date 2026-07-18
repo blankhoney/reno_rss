@@ -45,6 +45,8 @@ def fetch_article_content(
             detail = str(error) or error.__class__.__name__
             raise RetryableJobError(f"miniflux fetch transient network failure: {detail}") from error
         except Exception:
+            # Miniflux readability can fail for entry-specific parser issues; only
+            # transport errors should retry the job, other failures fall back below.
             fetched_html = ""
         if fetched_html:
             decision = decide_fetched_article_content(current_html, fetched_html)

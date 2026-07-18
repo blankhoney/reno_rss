@@ -98,9 +98,17 @@ def run_forever(
     retry_backoff_max_seconds: int = 3600,
     job_lease_seconds: int = 900,
     stop_event: Event | None = None,
+    on_heartbeat: Callable[[], None] | None = None,
+    on_tick: Callable[[], None] | None = None,
 ) -> None:
     stop_event = stop_event or Event()
     while not stop_event.is_set():
+        _emit_heartbeat(on_heartbeat)
+        if on_tick is not None:
+            try:
+                on_tick()
+            except Exception:
+                LOGGER.exception("scheduler tick failed")
         handled = run_once(
             queue,
             registry,
@@ -109,6 +117,7 @@ def run_forever(
             retry_backoff_max_seconds=retry_backoff_max_seconds,
             job_lease_seconds=job_lease_seconds,
         )
+        _emit_heartbeat(on_heartbeat)
         if not handled:
             stop_event.wait(poll_seconds)
 
@@ -119,3 +128,8 @@ def _normalize_result(result: Mapping[str, object] | None) -> dict[str, object]:
     if not isinstance(result, Mapping):
         raise TypeError("job handler must return a mapping or None")
     return dict(result)
+
+
+def _emit_heartbeat(on_heartbeat: Callable[[], None] | None) -> None:
+    if on_heartbeat is not None:
+        on_heartbeat()

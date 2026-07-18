@@ -1,5 +1,60 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
+
+
+_RULES_MODULE: Any | None = None
+_RULES_LOAD_ATTEMPTED = False
+
+
+def _load_rules_module() -> Any:
+    """Load rules.py for rank_b4 rule application.
+
+    Prefer a normal package import when ranking runs inside the API. When the
+    worker loads this file via importlib (no ``app.domain`` on sys.path), fall
+    back to loading sibling ``rules.py`` the same way so mute/boost still run.
+    """
+    global _RULES_MODULE, _RULES_LOAD_ATTEMPTED
+    if _RULES_MODULE is not None:
+        return _RULES_MODULE
+    if _RULES_LOAD_ATTEMPTED and _RULES_MODULE is None:
+        # Keep retrying importlib path even after a failed package import.
+        pass
+    try:
+        from app.domain import rules as rules_module
+
+        _RULES_MODULE = rules_module
+        _RULES_LOAD_ATTEMPTED = True
+        return rules_module
+    except ImportError:
+        pass
+
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    rules_path = Path(__file__).resolve().with_name("rules.py")
+    if not rules_path.exists():
+        _RULES_LOAD_ATTEMPTED = True
+        return None
+    module_name = "ai_reader_api_rules"
+    spec = importlib.util.spec_from_file_location(module_name, rules_path)
+    if spec is None or spec.loader is None:
+        _RULES_LOAD_ATTEMPTED = True
+        return None
+    module = importlib.util.module_from_spec(spec)
+    # dataclasses needs the module registered before exec_module.
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        _RULES_LOAD_ATTEMPTED = True
+        return None
+    _RULES_MODULE = module
+    _RULES_LOAD_ATTEMPTED = True
+    return module
 
 
 FEEDBACK_BASE_ADJUSTMENTS = {
@@ -47,16 +102,29 @@ def rank_b4(
     feedback_by_article: dict[int, Feedback | dict[str, object]],
     article_status_by_article: dict[int, str | None] | None = None,
     now: datetime | None = None,
+    rules: Sequence[Any] | None = None,
+    titles_by_article: dict[int, str] | None = None,
+    interest_weights: dict[str, float] | None = None,
 ) -> list[RankedItem]:
     reference_time = now or datetime.now(UTC)
     subscribed: list[tuple[Candidate, float]] = []
     exploration: list[Candidate] = []
+    titles = titles_by_article or {}
+    interests = interest_weights or {}
 
-    for candidate in _eligible_candidates(
+    eligible = _eligible_candidates(
         candidates,
         article_status_by_article or {},
         reference_time,
-    ):
+    )
+    if rules:
+        eligible = _apply_rules_to_candidates(
+            eligible,
+            rules,
+            titles,
+        )
+
+    for candidate in eligible:
         subscribed_feed_ids = [
             feed_id for feed_id in candidate.feed_ids if feed_id in user_priority_by_feed
         ]
@@ -67,6 +135,7 @@ def rank_b4(
                 + priority
                 + _feedback_adjustment(candidate, feedback_by_article.get(candidate.article_id))
                 + _freshness_adjustment(candidate.published_at, reference_time)
+                + _interest_adjustment(titles.get(candidate.article_id, ""), interests)
             )
             subscribed.append((candidate, float(score)))
             continue
@@ -105,6 +174,42 @@ def rank_b4(
         )
         for index, (candidate, score, source) in enumerate(selected[:10], start=1)
     ]
+
+
+def _apply_rules_to_candidates(
+    candidates: list[Candidate],
+    rules: Sequence[Any],
+    titles_by_article: dict[int, str],
+) -> list[Candidate]:
+    """Optional reader-rule pass before B4 subscription/exploration split."""
+    rules_module = _load_rules_module()
+    if rules_module is None:
+        return candidates
+    rule_articles = rules_module.apply_rules(
+        [
+            rules_module.RuleArticle(
+                article_id=candidate.article_id,
+                feed_ids=list(candidate.feed_ids),
+                title=titles_by_article.get(candidate.article_id, ""),
+                score=float(candidate.base_score),
+            )
+            for candidate in candidates
+        ],
+        rules,
+    )
+    by_id = {candidate.article_id: candidate for candidate in candidates}
+    adjusted: list[Candidate] = []
+    for item in rule_articles:
+        original = by_id.get(item.article_id)
+        if original is None:
+            continue
+        # Keep base_score as int for tier math; clamp non-negative after boosts.
+        next_score = max(0, int(round(item.score)))
+        if next_score != original.base_score:
+            adjusted.append(replace(original, base_score=next_score))
+        else:
+            adjusted.append(original)
+    return adjusted
 
 
 def _eligible_candidates(
@@ -184,6 +289,25 @@ def _freshness_adjustment(published_at: datetime, now: datetime) -> int:
     if age > timedelta(days=7):
         return -4
     return 0
+
+
+def _interest_adjustment(title: str, interest_weights: dict[str, float]) -> float:
+    """Soft boost when title tokens overlap long-term interest keywords."""
+    if not interest_weights or not title:
+        return 0.0
+    haystack = title.casefold()
+    total = 0.0
+    for term, weight in interest_weights.items():
+        token = str(term or "").casefold().strip()
+        if len(token) < 2:
+            continue
+        if token in haystack:
+            try:
+                total += min(float(weight), 5.0)
+            except (TypeError, ValueError):
+                continue
+    # Cap so interest cannot dominate base score / feedback.
+    return _clamp(total, 0.0, 8.0)
 
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:

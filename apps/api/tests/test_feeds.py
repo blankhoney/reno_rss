@@ -1,4 +1,5 @@
 import pytest
+from uuid import UUID
 
 
 pytestmark = pytest.mark.asyncio
@@ -41,20 +42,29 @@ async def test_post_feed_creates_global_feed_and_subscription(client):
     assert response.json()["already_exists"] is False
     assert response.json()["feed"]["feed_url"] == "https://example.com/rss.xml"
     assert response.json()["feed"]["subscribed"] is True
+    assert response.json()["feed"]["quality_score"] == 70.0
     assert response.json()["job_id"] is None
 
 
 async def test_reposting_existing_feed_subscribes_without_conflict(app):
     from httpx import ASGITransport, AsyncClient
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as first:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as first:
         await first.post("/api/auth/login", json={"display_name": "First"})
         created = await first.post(
             "/api/feeds",
             json={"feed_url": "https://example.com/rss.xml", "category_id": 1},
         )
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as second:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as second:
         await second.post("/api/auth/login", json={"display_name": "Second"})
         reused = await second.post(
             "/api/feeds",
@@ -101,3 +111,48 @@ async def test_feed_priority_rejects_values_outside_allowed_range(client, priori
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "unprocessable"
+
+
+@pytest.mark.asyncio
+async def test_feed_hidden_demotes_priority(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Feeder"})
+    created = await client.post(
+        "/api/feeds",
+        json={"feed_url": "https://example.com/rss.xml", "category_id": 1},
+    )
+    assert created.status_code in (200, 201)
+    feed_id = created.json()["feed"]["id"]
+
+    hidden = await client.put(f"/api/feeds/{feed_id}/hidden", json={"hidden": True})
+    assert hidden.status_code == 200
+    assert hidden.json()["hidden"] is True
+    assert hidden.json()["user_priority"] <= -20
+
+    listed = await client.get("/api/feeds")
+    assert listed.status_code == 200
+    match = next(item for item in listed.json()["items"] if item["id"] == feed_id)
+    assert match["hidden"] is True
+
+    shown = await client.put(f"/api/feeds/{feed_id}/hidden", json={"hidden": False})
+    assert shown.status_code == 200
+    assert shown.json()["hidden"] is False
+
+
+async def test_feed_list_exposes_the_same_source_quality_used_by_article_ranking(app, client):
+    login = await client.post("/api/auth/login", json={"display_name": "QualityReader"})
+    user_id = UUID(login.json()["user"]["id"])
+    created = await client.post(
+        "/api/feeds",
+        json={"feed_url": "https://quality.example/rss.xml", "category_id": 1},
+    )
+    feed_id = created.json()["feed"]["id"]
+    app.state.article_repository.set_feed_governance_for_tests(
+        user_id,
+        feed_id,
+        quality_score=92.5,
+    )
+
+    listed = await client.get("/api/feeds")
+
+    match = next(item for item in listed.json()["items"] if item["id"] == feed_id)
+    assert match["quality_score"] == 92.5

@@ -74,12 +74,42 @@ echo "🔎 Smoke test：$ENV"
 require_running() {
     local container="$1"
     local running
+    local health
     running="$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)"
     if [[ "$running" != "true" ]]; then
         echo "❌ 容器未运行：$container"
         exit 1
     fi
-    echo "  ✅ $container running"
+    health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container" 2>/dev/null || true)"
+    if [[ -z "$health" ]]; then
+        echo "  ✅ $container running"
+        return
+    fi
+    # Containers with a healthcheck report "starting" during start_period and
+    # until their first check runs (interval 30s). Poll for "healthy" instead of
+    # failing on that transient state right after a deploy; fail fast on unhealthy.
+    local deadline=$(( SECONDS + 120 ))
+    while true; do
+        if [[ "$health" == "healthy" ]]; then
+            echo "  ✅ $container running ($health)"
+            return
+        fi
+        if [[ "$health" == "unhealthy" ]]; then
+            echo "❌ 容器健康检查未通过：$container ($health)"
+            exit 1
+        fi
+        if (( SECONDS >= deadline )); then
+            echo "❌ 容器健康检查超时：$container ($health)"
+            exit 1
+        fi
+        sleep 3
+        running="$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)"
+        if [[ "$running" != "true" ]]; then
+            echo "❌ 容器未运行：$container"
+            exit 1
+        fi
+        health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container" 2>/dev/null || true)"
+    done
 }
 
 require_running "$API_CONTAINER"
@@ -89,12 +119,6 @@ require_running "$MINIFLUX_CONTAINER"
 require_running "$AUTHELIA_CONTAINER"
 require_running "$POSTGRES_CONTAINER"
 require_running "$EDGE_CONTAINER"
-
-if ! docker logs --tail 80 "$WORKER_CONTAINER" 2>&1 | grep -q "worker runtime started"; then
-    echo "❌ worker 未输出启动日志：$WORKER_CONTAINER"
-    exit 1
-fi
-echo "  ✅ worker startup log ok"
 
 # Internal API probes distinguish service health from edge-routing failures.
 docker exec \

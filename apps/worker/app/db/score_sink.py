@@ -42,6 +42,22 @@ class DatabaseScoreSink:
             )
         return [dict(row) for row in rows]
 
+    def count_scores_today(self, day_start: str) -> int:
+        # Error rows count too: each row represents a provider scoring attempt.
+        with self.engine.begin() as connection:
+            return int(
+                connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM article_base_scores
+                        WHERE scored_at >= :day_start;
+                        """
+                    ),
+                    {"day_start": day_start},
+                ).scalar_one()
+            )
+
     def save_score(self, article_id: object, score: dict[str, object]) -> int:
         is_success = score.get("scoring_status") == "success"
         values = _score_values(article_id, score, is_active=is_success)
@@ -99,12 +115,136 @@ class DatabaseScoreSink:
                 {"batch_id": batch_id, "finished_at": datetime.now(UTC).isoformat()},
             )
 
+    def list_unscored_article_ids(
+        self,
+        *,
+        published_after: str,
+        limit: int,
+    ) -> list[int]:
+        with self.engine.begin() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT a.id
+                    FROM articles a
+                    WHERE a.published_at >= :published_after
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM article_base_scores s
+                        WHERE s.article_id = a.id
+                          AND s.is_active = TRUE
+                          AND s.scoring_status = 'success'
+                      )
+                    ORDER BY a.published_at DESC, a.id DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"published_after": published_after, "limit": limit},
+            ).all()
+        return [int(row[0]) for row in rows]
+
+    def create_scheduled_batch(
+        self,
+        article_ids: list[int] | tuple[int, ...],
+        *,
+        name: str,
+        candidate_window: str,
+    ) -> int:
+        if not article_ids:
+            raise ValueError("article_ids must not be empty")
+        now = datetime.now(UTC).isoformat()
+        with self.engine.begin() as connection:
+            batch_id = int(
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO scoring_batches (
+                          name, status, trigger_type, candidate_window,
+                          article_count, created_at, started_at
+                        )
+                        VALUES (
+                          :name, 'queued', 'scheduled', :candidate_window,
+                          :article_count, :created_at, :started_at
+                        )
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        "name": name,
+                        "candidate_window": candidate_window,
+                        "article_count": len(article_ids),
+                        "created_at": now,
+                        "started_at": now,
+                    },
+                ).scalar_one()
+            )
+            for article_id in article_ids:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO scoring_batch_items (batch_id, article_id, status)
+                        VALUES (:batch_id, :article_id, 'pending')
+                        """
+                    ),
+                    {"batch_id": batch_id, "article_id": article_id},
+                )
+        return batch_id
+
+    def enqueue_score_batch(self, batch_id: int) -> None:
+        payload = {"batch_id": batch_id}
+        params = {
+            "job_type": "score_batch",
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "dedupe_key": _dedupe_key_for("score_batch", batch_id),
+            "priority": 2,
+        }
+        with self.engine.begin() as connection:
+            existing = connection.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM jobs
+                    WHERE job_type=:job_type
+                      AND dedupe_key=:dedupe_key
+                      AND status IN ('queued', 'running')
+                    LIMIT 1;
+                    """
+                ),
+                params,
+            ).scalar_one_or_none()
+            if existing is not None:
+                return
+            if self.engine.dialect.name == "postgresql":
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key, :priority)
+                        ON CONFLICT (job_type, dedupe_key)
+                        WHERE status IN ('queued', 'running')
+                        DO NOTHING;
+                        """
+                    ),
+                    params,
+                )
+                return
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                    VALUES (:job_type, :payload, :dedupe_key, :priority);
+                    """
+                ),
+                params,
+            )
+
     def enqueue_recommendations(self, batch_id: object) -> None:
         payload = {"source_batch_id": batch_id}
         params = {
             "job_type": RECOMMENDATIONS_JOB_TYPE,
             "payload": json.dumps(payload, ensure_ascii=False),
             "dedupe_key": _dedupe_key_for(RECOMMENDATIONS_JOB_TYPE, batch_id),
+            "priority": 1,
         }
         with self.engine.begin() as connection:
             existing = connection.execute(
@@ -127,8 +267,8 @@ class DatabaseScoreSink:
                 connection.execute(
                     text(
                         """
-                        INSERT INTO jobs (job_type, payload, dedupe_key)
-                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key)
+                        INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key, :priority)
                         ON CONFLICT (job_type, dedupe_key)
                         WHERE status IN ('queued', 'running')
                         DO NOTHING;
@@ -141,8 +281,8 @@ class DatabaseScoreSink:
             connection.execute(
                 text(
                     """
-                    INSERT INTO jobs (job_type, payload, dedupe_key)
-                    VALUES (:job_type, :payload, :dedupe_key);
+                    INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                    VALUES (:job_type, :payload, :dedupe_key, :priority);
                     """
                 ),
                 params,

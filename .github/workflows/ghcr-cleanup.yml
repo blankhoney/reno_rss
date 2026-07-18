@@ -1,0 +1,36 @@
+name: ghcr-cleanup
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Log deletions without deleting package versions"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ghcr-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Clean GHCR package versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup AI Reader images
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: ai-reader-web,ai-reader-api,ai-reader-worker
+          delete-untagged: true
+          keep-n-tagged: 15
+          older-than: 30 days
+          exclude-tags: prod-current
+          validate: true
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}

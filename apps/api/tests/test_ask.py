@@ -27,7 +27,12 @@ class StaticScoringRepository:
         self.scores = scores
 
     def list_scores(self, *, article_id):
-        return list(self.scores)
+        raise AssertionError("ask should use active_scores_for_articles")
+
+    def active_scores_for_articles(self, article_ids):
+        if not self.scores:
+            return {}
+        return {article_ids[0]: self.scores[0]}
 
 
 class FakeMiniMaxStream:
@@ -112,6 +117,33 @@ def test_create_ask_provider_uses_minimax_generation_settings():
     assert provider.max_completion_tokens == 2048
     assert provider.reasoning_split is False
     assert provider.thinking_type == "adaptive"
+
+
+def test_create_ask_provider_uses_local_profile_settings():
+    from app.api.routes.ask import MiniMaxAskProvider, create_ask_provider
+    from app.core.config import Settings
+
+    settings = Settings(
+        llm_provider="local",
+        local_llm_api_key="ollama",
+        local_llm_base_url="http://host.docker.internal:11434/v1",
+        local_llm_model="qwen3:8b",
+        local_llm_temperature=0.15,
+        local_llm_top_p=0.75,
+        local_llm_max_completion_tokens=4096,
+    )
+
+    provider = create_ask_provider(settings)
+
+    assert isinstance(provider, MiniMaxAskProvider)
+    assert provider.api_key == "ollama"
+    assert provider.base_url == "http://host.docker.internal:11434/v1"
+    assert provider.model == "qwen3:8b"
+    assert provider.temperature == 0.15
+    assert provider.top_p == 0.75
+    assert provider.max_completion_tokens == 4096
+    assert provider.reasoning_split is False
+    assert provider.thinking_type is None
 
 
 @pytest.mark.asyncio
@@ -427,3 +459,91 @@ async def test_ask_ignores_provider_reasoning_content_delta(app, client):
     assert response.status_code == 200
     assert "hidden provider reasoning" not in response.text
     assert "data: 结论：可读" in response.text
+
+
+def test_ask_prompt_requires_grounded_citations():
+    from app.domain.ask_prompt import build_article_ask_context
+
+    ctx = build_article_ask_context(
+        question="文章核心观点是什么？",
+        title="Example",
+        url="https://example.com",
+        content_text="The system should ground answers in quotes.",
+        content_html=None,
+        summary_zh="摘要",
+        scoring_reason="有价值",
+        tags=["ai"],
+        risk_flags=[],
+    )
+    system = ctx.messages.system
+    assert "引用" in system
+    assert "原文摘录" in system or "引号" in system
+    assert "不得编造" in system
+
+
+@pytest.mark.asyncio
+async def test_ask_accepts_capped_multi_turn_history(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Asker"})
+    provider = RecordingAskProvider(['结论：可以。\n引用："Body for ask multi turn"\n'])
+    app.state.ask_provider = provider
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 808,
+            "url": "https://example.com/ask",
+            "title": "Ask",
+            "content_text": "Body for ask multi turn and more context.",
+        }
+    )
+    response = await client.post(
+        f"/api/articles/{article.id}/ask",
+        json={
+            "question": "那结论是什么？",
+            "history": [
+                {"role": "user", "content": "这篇文章在说什么？"},
+                {"role": "assistant", "content": "它讨论多轮上下文。"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    serialized = str(provider.calls)
+    assert "这篇文章在说什么？" in serialized
+    assert "它讨论多轮上下文" in serialized
+    assert "对话历史" in serialized
+    assert "event: citations" in response.text
+    assert "Body for ask multi turn" in response.text
+    assert "event: done" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ask_rejects_history_longer_than_six_turns(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Asker"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 809,
+            "url": "https://example.com/ask-long",
+            "title": "Ask long",
+            "content_text": "Body for ask",
+        }
+    )
+    history = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"turn {i}"} for i in range(7)]
+    response = await client.post(
+        f"/api/articles/{article.id}/ask",
+        json={"question": "总结一下", "history": history},
+    )
+    assert response.status_code == 422
+
+
+def test_extract_citation_candidates_requires_article_presence():
+    from app.domain.citations import extract_citation_candidates
+
+    article = "The system should ground answers in quotes from the source body carefully."
+    answer = (
+        '结论：可以。\n引用："ground answers in quotes from the source body"\n'
+        '引用："not in article at all here!!!"'
+    )
+    cites = extract_citation_candidates(article, answer)
+    assert len(cites) == 1
+    assert "ground answers" in cites[0].quote
+    assert cites[0].start_hint >= 0

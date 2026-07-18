@@ -1,26 +1,41 @@
 import logging
 import os
+from pathlib import Path
 import signal
 import socket
 from threading import Event
 
 from app.db.article_sink import DatabaseArticleSink
+from app.db.benchmark_sink import DatabaseBenchmarkSink
 from app.db.content_sink import DatabaseContentSink
+from app.db.cost_ledger import DatabaseDailyUsageLedger
+from app.db.governance_sink import DatabaseGovernanceSink
 from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
+from app.jobs.auto_score import run_auto_score_candidates
+from app.jobs.complete_ingest import complete_ingest_cycle
+from app.jobs.daily_brief import generate_daily_brief
 from app.jobs.fetch_content import fetch_article_content
 from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
+from app.jobs.govern_sources import govern_sources
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
+from app.jobs.research_brief import run_budgeted_research_brief
+from app.jobs.run_benchmark import run_benchmark
 from app.jobs.score_batch import score_batch
 from app.jobs.sync_miniflux import run_sync_miniflux_entries
 from app.jobs.translate_article import translate_article
+from app.db.brief_sink import DatabaseBriefSink
+from app.db.research_sink import DatabaseResearchSink
 from app.providers.external_content import NoExternalContentProvider
 from app.providers.llm import create_provider
 from app.providers.miniflux import MinifluxClient, MinifluxConfig
 from app.runner import Handler, run_forever
+from app.scheduler import env_flag_enabled, make_tick_callback
+from app.webhooks import webhook_client_from_env
 
 
 def normalize_database_url(database_url: str | None) -> str | None:
+    # Keep in parity with apps/api/app/core/config.py; both sides have golden tests.
     if database_url is None:
         return None
     if database_url.startswith("postgres://"):
@@ -37,8 +52,14 @@ def create_worker_queue() -> InMemoryJobQueue | PostgresJobQueue:
 
 def build_handler_registry() -> dict[str, Handler]:
     return {
+        "auto_score_candidates": _auto_score_candidates,
+        "complete_ingest_cycle": _complete_ingest_cycle,
         "fetch_article_content": _fetch_article_content,
+        "generate_daily_brief": _generate_daily_brief,
         "generate_recommendations": _generate_recommendations,
+        "govern_sources": _govern_sources,
+        "research_brief": _research_brief,
+        "run_benchmark": _run_benchmark,
         "score_batch": _score_batch,
         "translate_article": _translate_article,
         "worker_echo": _worker_echo,
@@ -63,7 +84,14 @@ def main() -> None:
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
 
-    logging.info("worker runtime started: worker_id=%s handlers=%s", worker_id, sorted(registry))
+    scheduler_enabled = env_flag_enabled(os.environ.get("SCHEDULER_ENABLED"), default=True)
+    on_tick = make_tick_callback(queue, enabled=scheduler_enabled)
+    logging.info(
+        "worker runtime started: worker_id=%s handlers=%s scheduler_enabled=%s",
+        worker_id,
+        sorted(registry),
+        scheduler_enabled,
+    )
     run_forever(
         queue,
         registry,
@@ -73,12 +101,74 @@ def main() -> None:
         retry_backoff_max_seconds=retry_backoff_max_seconds,
         job_lease_seconds=job_lease_seconds,
         stop_event=stop_event,
+        on_heartbeat=_touch_worker_heartbeat,
+        on_tick=on_tick,
     )
     logging.info("worker runtime stopped: worker_id=%s", worker_id)
 
 
 def _worker_echo(payload) -> dict[str, object]:
     return {"payload": dict(payload)}
+
+
+def _auto_score_candidates(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for auto_score_candidates")
+    sink = DatabaseScoreSink(database_url)
+    try:
+        return run_auto_score_candidates(
+            dict(payload),
+            sink,
+            daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
+        )
+    finally:
+        sink.dispose()
+
+
+def _complete_ingest_cycle(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for complete_ingest_cycle")
+    sink = DatabaseArticleSink(database_url)
+    try:
+        return complete_ingest_cycle(dict(payload), sink)
+    finally:
+        sink.dispose()
+
+
+def _generate_daily_brief(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for generate_daily_brief")
+    sink = DatabaseBriefSink(database_url)
+    try:
+        return generate_daily_brief(
+            dict(payload),
+            sink,
+            webhook=webhook_client_from_env(),
+        )
+    finally:
+        sink.dispose()
+
+
+def _research_brief(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for research_brief")
+    sink = DatabaseResearchSink(database_url)
+    ledger = DatabaseDailyUsageLedger(database_url)
+    try:
+        return run_budgeted_research_brief(
+            dict(payload),
+            sink,
+            provider=create_provider(),
+            ledger=ledger,
+            daily_limit=_env_non_negative_int("AGENT_DAILY_CALL_BUDGET", 20),
+        )
+    finally:
+        sink.dispose()
+        ledger.dispose()
 
 
 def _sync_miniflux_entries(payload) -> dict[str, object]:
@@ -131,7 +221,17 @@ def _score_batch(payload) -> dict[str, object]:
         raise RuntimeError("SCORING_DATABASE_URL is required for score_batch")
     sink = DatabaseScoreSink(database_url)
     try:
-        return score_batch(dict(payload), sink, create_provider())
+        return score_batch(
+            dict(payload),
+            sink,
+            create_provider(),
+            daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
+            webhook=webhook_client_from_env(),
+            high_score_threshold=_env_non_negative_int(
+                "AI_READER_WEBHOOK_HIGH_SCORE_THRESHOLD",
+                85,
+            ),
+        )
     finally:
         sink.dispose()
 
@@ -149,6 +249,44 @@ def _generate_recommendations(payload) -> dict[str, object]:
         return generate_recommendations(dict(payload), sink, rank_b4_recommendation_context)
     finally:
         sink.dispose()
+
+
+def _govern_sources(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for govern_sources")
+    sink = DatabaseGovernanceSink(database_url)
+    try:
+        return govern_sources(dict(payload), sink)
+    finally:
+        sink.dispose()
+
+
+def _run_benchmark(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for run_benchmark")
+    sink = DatabaseBenchmarkSink(database_url)
+    try:
+        return run_benchmark(dict(payload), sink)
+    finally:
+        sink.dispose()
+
+
+def _env_non_negative_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    value = int(raw)
+    if value < 0:
+        raise ValueError(f"{name} must be greater than or equal to 0")
+    return value
+
+
+def _touch_worker_heartbeat() -> None:
+    path = Path(os.environ.get("WORKER_HEARTBEAT_FILE", "/tmp/worker-heartbeat"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
-import { getArticle } from "@/lib/api/articles";
+import { getArticle, updateArticleState } from "@/lib/api/articles";
 import { FocusedArticleReader } from "./FocusedArticleReader";
 import { FocusedArticleSkeleton } from "./Skeleton";
 import { emitToast } from "./Toast";
@@ -22,10 +22,12 @@ export function FocusedArticleScreen({
   articleId,
   currentLang,
   returnHref,
+  initialCitation,
 }: {
   articleId: number;
   currentLang: SummaryLangId;
   returnHref: string;
+  initialCitation?: string;
 }) {
   const [article, setArticle] = useState<Article | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -78,6 +80,32 @@ export function FocusedArticleScreen({
     return () => window.removeEventListener(ARTICLE_DATA_CHANGED_EVENT, reload);
   }, [articleId, loadArticle]);
 
+  // Dwell / reading progress signal for personalization (GOAL §4.A).
+  useEffect(() => {
+    const started = Date.now();
+    let lastProgress = 0;
+    function measureProgress(): number {
+      const doc = document.documentElement;
+      const max = Math.max(1, doc.scrollHeight - window.innerHeight);
+      return Math.max(0, Math.min(1, window.scrollY / max));
+    }
+    const tick = window.setInterval(() => {
+      const progress = measureProgress();
+      if (progress - lastProgress < 0.05 && Date.now() - started < 15000) return;
+      lastProgress = progress;
+      void updateArticleState(articleId, { readProgress: progress }).catch(() => {
+        // best-effort dwell signal
+      });
+    }, 8000);
+    return () => {
+      window.clearInterval(tick);
+      const progress = Math.max(lastProgress, measureProgress());
+      if (progress > 0.05 || Date.now() - started > 12000) {
+        void updateArticleState(articleId, { readProgress: progress }).catch(() => undefined);
+      }
+    };
+  }, [articleId]);
+
   if (isLoading) {
     return <FocusedArticleSkeleton returnHref={returnHref} />;
   }
@@ -96,5 +124,12 @@ export function FocusedArticleScreen({
     );
   }
 
-  return <FocusedArticleReader article={article} currentLang={currentLang} returnHref={returnHref} />;
+  return (
+    <FocusedArticleReader
+      article={article}
+      currentLang={currentLang}
+      returnHref={returnHref}
+      initialCitation={initialCitation}
+    />
+  );
 }

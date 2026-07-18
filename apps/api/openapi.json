@@ -45,6 +45,23 @@
         }
       }
     },
+    "/api/metrics": {
+      "get": {
+        "summary": "Api Metrics",
+        "description": "Prometheus exposition for latency, queue, LLM spend, and errors.",
+        "operationId": "api_metrics_api_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": [
@@ -202,6 +219,57 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "name": "module",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Module"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
             }
           }
         ],
@@ -394,6 +462,322 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Update Article Feedback Api Articles  Article Id  Feedback Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/articles/{article_id}/annotations": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "List Article Annotations",
+        "operationId": "list_article_annotations_api_articles__article_id__annotations_get",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Article Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Article Annotations Api Articles  Article Id  Annotations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Create Article Annotation",
+        "operationId": "create_article_annotation_api_articles__article_id__annotations_post",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Article Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleAnnotationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Article Annotation Api Articles  Article Id  Annotations Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/export/project": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Export Project Articles",
+        "description": "Export the current user's project queue as Markdown, JSON, or zip (no secrets).",
+        "operationId": "export_project_articles_api_export_project_get",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(markdown|json|zip)$",
+              "default": "markdown",
+              "title": "Format"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/annotations/search": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Search Annotations",
+        "description": "Search private notes/highlights by content substring.",
+        "operationId": "search_annotations_api_annotations_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Search Annotations Api Annotations Search Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/annotations/review": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "List Annotation Review Queue",
+        "description": "Private spaced-review queue: only items due now, ordered by due time.",
+        "operationId": "list_annotation_review_queue_api_annotations_review_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Annotation Review Queue Api Annotations Review Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/annotations/{annotation_id}/review": {
+      "post": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Review Annotation",
+        "description": "Advance SM-2 lite interval after a remember / forget response.",
+        "operationId": "review_annotation_api_annotations__annotation_id__review_post",
+        "parameters": [
+          {
+            "name": "annotation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Annotation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnotationReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Review Annotation Api Annotations  Annotation Id  Review Post"
                 }
               }
             }
@@ -786,6 +1170,61 @@
         }
       }
     },
+    "/api/feeds/{feed_id}/hidden": {
+      "put": {
+        "tags": [
+          "feeds"
+        ],
+        "summary": "Set Feed Hidden",
+        "operationId": "set_feed_hidden_api_feeds__feed_id__hidden_put",
+        "parameters": [
+          {
+            "name": "feed_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Feed Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetHiddenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Set Feed Hidden Api Feeds  Feed Id  Hidden Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/users": {
       "get": {
         "tags": [
@@ -805,6 +1244,113 @@
                   },
                   "type": "object",
                   "title": "Response List Users Api Admin Users Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/usage/today": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Usage Today",
+        "description": "Admin cost cockpit backed by DB score rows and a shared daily ledger.",
+        "operationId": "usage_today_api_admin_usage_today_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Usage Today Api Admin Usage Today Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/pipeline-health": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Pipeline Health",
+        "description": "Read-only unattended-pipeline queue and latest-run diagnostics.",
+        "operationId": "pipeline_health_api_admin_pipeline_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineHealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/daily-brief": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Enqueue Daily Brief",
+        "operationId": "enqueue_daily_brief_api_admin_daily_brief_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/govern-sources": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Enqueue Govern Sources",
+        "description": "Queue source-quality demotion pass (hide residual/failed feeds).",
+        "operationId": "enqueue_govern_sources_api_admin_govern_sources_post",
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -980,6 +1526,90 @@
         }
       }
     },
+    "/api/admin/benchmarks": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Create Benchmark Run",
+        "operationId": "create_benchmark_run_api_admin_benchmarks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBenchmarkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/benchmarks/{benchmark_run_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Benchmark Run",
+        "operationId": "get_benchmark_run_api_admin_benchmarks__benchmark_run_id__get",
+        "parameters": [
+          {
+            "name": "benchmark_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Benchmark Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Benchmark Run Api Admin Benchmarks  Benchmark Run Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jobs/{job_id}": {
       "get": {
         "tags": [
@@ -1047,10 +1677,590 @@
           }
         }
       }
+    },
+    "/api/briefs/latest": {
+      "get": {
+        "tags": [
+          "briefs"
+        ],
+        "summary": "Latest Brief",
+        "operationId": "latest_brief_api_briefs_latest_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Latest Brief Api Briefs Latest Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clusters/latest": {
+      "get": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Latest Clusters",
+        "operationId": "latest_clusters_api_clusters_latest_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Latest Clusters Api Clusters Latest Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Get Rules",
+        "operationId": "get_rules_api_rules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Rules Api Rules Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Put Rules",
+        "operationId": "put_rules_api_rules_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RulesPutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Put Rules Api Rules Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/research/jobs": {
+      "post": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Enqueue Research Job",
+        "operationId": "enqueue_research_job_api_research_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/research/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Get Research Job",
+        "description": "Thin alias over /api/jobs/{id}; only returns research_brief jobs owned/visible to the user.",
+        "operationId": "get_research_job_api_research_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Research Job Api Research Jobs  Job Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/themes/latest": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "summary": "Latest Themes",
+        "operationId": "latest_themes_api_themes_latest_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "max_themes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Max Themes"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Latest Themes Api Themes Latest Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/saved-searches": {
+      "get": {
+        "tags": [
+          "saved-searches"
+        ],
+        "summary": "List Saved Searches",
+        "operationId": "list_saved_searches_api_saved_searches_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Saved Searches Api Saved Searches Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "saved-searches"
+        ],
+        "summary": "Replace Saved Searches",
+        "operationId": "replace_saved_searches_api_saved_searches_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceSavedSearchesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Replace Saved Searches Api Saved Searches Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/interest": {
+      "get": {
+        "tags": [
+          "interest"
+        ],
+        "summary": "Get Interest",
+        "operationId": "get_interest_api_me_interest_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Interest Api Me Interest Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/interest/export": {
+      "get": {
+        "tags": [
+          "interest"
+        ],
+        "summary": "Export Interest",
+        "operationId": "export_interest_api_me_interest_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Export Interest Api Me Interest Export Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/interest/reset": {
+      "post": {
+        "tags": [
+          "interest"
+        ],
+        "summary": "Reset Interest",
+        "operationId": "reset_interest_api_me_interest_reset_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Reset Interest Api Me Interest Reset Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/acl": {
+      "get": {
+        "tags": [
+          "acl"
+        ],
+        "summary": "List Acl",
+        "operationId": "list_acl_api_projects__project_id__acl_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Acl Api Projects  Project Id  Acl Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "acl"
+        ],
+        "summary": "Put Acl",
+        "operationId": "put_acl_api_projects__project_id__acl_put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Put Acl Api Projects  Project Id  Acl Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AnnotationReviewRequest": {
+        "properties": {
+          "remembered": {
+            "type": "boolean",
+            "title": "Remembered"
+          }
+        },
+        "type": "object",
+        "required": [
+          "remembered"
+        ],
+        "title": "AnnotationReviewRequest"
+      },
+      "ArticleAnnotationRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content"
+          },
+          "selected_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Text"
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^(annotation|comment|review)$",
+            "title": "Type",
+            "default": "annotation"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 12
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "ArticleAnnotationRequest"
+      },
       "ArticleFeedbackRequest": {
         "properties": {
           "user_score": {
@@ -1139,6 +2349,31 @@
         "type": "object",
         "title": "ArticleStateRequest"
       },
+      "AskHistoryTurn": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "AskHistoryTurn"
+      },
       "AskRequest": {
         "properties": {
           "question": {
@@ -1158,6 +2393,14 @@
               }
             ],
             "title": "Selected Text"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/AskHistoryTurn"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "History"
           }
         },
         "additionalProperties": false,
@@ -1166,6 +2409,48 @@
           "question"
         ],
         "title": "AskRequest"
+      },
+      "CreateBenchmarkRequest": {
+        "properties": {
+          "suite": {
+            "type": "string",
+            "enum": [
+              "ranking",
+              "model_swap",
+              "db_perf"
+            ],
+            "title": "Suite",
+            "default": "ranking"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ci_mini",
+              "manual_full"
+            ],
+            "title": "Mode",
+            "default": "ci_mini"
+          },
+          "provider": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Provider",
+            "default": "mock"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "confirm_real_llm": {
+            "type": "boolean",
+            "title": "Confirm Real Llm",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "CreateBenchmarkRequest"
       },
       "CreateFeedRequest": {
         "properties": {
@@ -1224,6 +2509,26 @@
         ],
         "title": "CreateScoringBatchRequest"
       },
+      "GrantRequest": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^(owner|editor|viewer)$",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "role"
+        ],
+        "title": "GrantRequest"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1252,6 +2557,124 @@
         ],
         "title": "LoginRequest"
       },
+      "PipelineHealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "idle",
+              "paused"
+            ],
+            "title": "Status"
+          },
+          "scheduler_enabled": {
+            "type": "boolean",
+            "title": "Scheduler Enabled"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/PipelineQueueHealth"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineJobHealth"
+            },
+            "type": "array",
+            "title": "Jobs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "scheduler_enabled",
+          "queue",
+          "jobs"
+        ],
+        "title": "PipelineHealthResponse"
+      },
+      "PipelineJobHealth": {
+        "properties": {
+          "job_type": {
+            "type": "string",
+            "title": "Job Type"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_type",
+          "status",
+          "updated_at",
+          "last_error"
+        ],
+        "title": "PipelineJobHealth"
+      },
+      "PipelineQueueHealth": {
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "running": {
+            "type": "integer",
+            "title": "Running"
+          },
+          "failed_24h": {
+            "type": "integer",
+            "title": "Failed 24H"
+          },
+          "stale_running": {
+            "type": "integer",
+            "title": "Stale Running"
+          },
+          "oldest_queued_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued",
+          "running",
+          "failed_24h",
+          "stale_running",
+          "oldest_queued_at"
+        ],
+        "title": "PipelineQueueHealth"
+      },
       "RecoverRequest": {
         "properties": {
           "recovery_code": {
@@ -1266,6 +2689,170 @@
           "recovery_code"
         ],
         "title": "RecoverRequest"
+      },
+      "ReplaceSavedSearchesRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SavedSearchItem"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "ReplaceSavedSearchesRequest"
+      },
+      "ResearchJobRequest": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "topn",
+              "project",
+              "topic"
+            ],
+            "title": "Scope",
+            "default": "topn"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "max_articles": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Max Articles",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "ResearchJobRequest"
+      },
+      "RulePayload": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "feed_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Id"
+          },
+          "keyword": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keyword"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "RulePayload"
+      },
+      "RulesPutRequest": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RulePayload"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Rules"
+          }
+        },
+        "type": "object",
+        "title": "RulesPutRequest"
+      },
+      "SavedSearchItem": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "q": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Q",
+            "default": ""
+          },
+          "module": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Module",
+            "default": "all"
+          },
+          "sort": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Sort",
+            "default": "latest"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SavedSearchItem"
+      },
+      "SetHiddenRequest": {
+        "properties": {
+          "hidden": {
+            "type": "boolean",
+            "title": "Hidden"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hidden"
+        ],
+        "title": "SetHiddenRequest"
       },
       "SetPriorityRequest": {
         "properties": {

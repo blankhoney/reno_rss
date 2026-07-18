@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
-import { ScoreBadge } from "./ScoreBadge";
+import { ScoreRing, tierLabel } from "./ScoreRing";
 import { ArticleListSkeleton } from "./Skeleton";
 import { SortMenu, type SortOption } from "./SortMenu";
+import { FOCUS_ARTICLE_LIST_EVENT, isEditableKeyboardTarget } from "@/lib/commandPalette";
 import Link from "next/link";
 
 type ArticleListProps = {
@@ -21,6 +23,9 @@ type ArticleListProps = {
   onPrev?: () => void;
   onNext?: () => void;
   onSortChange?: (nextSort: ArticleSortId) => void;
+  onToggleRead?: (article: Article) => void;
+  onToggleCandidate?: (article: Article) => void;
+  onToggleProject?: (article: Article) => void;
   notice?: {
     title: string;
     body: string;
@@ -50,19 +55,16 @@ function readHref(
   return `/read/${articleId}?${qs.toString()}`;
 }
 
-function articleSummary(article: Article, currentLang: SummaryLangId): string {
+function articleSummary(
+  article: Article,
+  currentLang: SummaryLangId,
+): { text: string; isEmpty: boolean } {
   const summary =
     currentLang === "original" ? article.summaryOriginal || article.summaryZh : article.summaryZh;
-  if (summary.trim().length > 0) return summary.trim();
-  return "暂无摘要";
-}
-
-function tierLabel(tier: string | undefined): string | null {
-  if (tier === "must_read") return "必读";
-  if (tier === "read") return "推荐";
-  if (tier === "skim") return "略读";
-  if (tier === "skip") return "跳过";
-  return tier ?? null;
+  const text = summary.trim();
+  return text
+    ? { text, isEmpty: false }
+    : { text: "暂无摘要 — 评分完成后自动生成", isEmpty: true };
 }
 
 export function ArticleList({
@@ -79,9 +81,102 @@ export function ArticleList({
   onPrev,
   onNext,
   onSortChange,
+  onToggleRead,
+  onToggleCandidate,
+  onToggleProject,
   notice,
 }: ArticleListProps) {
   const isEmpty = articles.length === 0;
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const listRef = useRef<HTMLUListElement | null>(null);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [articles, pageIndex, currentModule]);
+
+  useEffect(() => {
+    function onFocusList() {
+      listRef.current?.focus();
+    }
+    window.addEventListener(FOCUS_ARTICLE_LIST_EVENT, onFocusList);
+    return () => window.removeEventListener(FOCUS_ARTICLE_LIST_EVENT, onFocusList);
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (isEditableKeyboardTarget(event.target)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (articles.length === 0 || isLoading) return;
+
+      if (event.key === "j" || event.key === "J") {
+        event.preventDefault();
+        setSelectedIndex((index) => Math.min(index + 1, articles.length - 1));
+        return;
+      }
+      if (event.key === "k" || event.key === "K") {
+        event.preventDefault();
+        setSelectedIndex((index) => Math.max(index - 1, 0));
+        return;
+      }
+      if (event.key === "Enter") {
+        const article = articles[selectedIndex];
+        if (!article) return;
+        event.preventDefault();
+        const href = readHref(currentModule, currentSort, currentLang, article.id);
+        window.location.assign(href);
+        return;
+      }
+      if ((event.key === "r" || event.key === "R") && onToggleRead) {
+        const article = articles[selectedIndex];
+        if (!article) return;
+        event.preventDefault();
+        onToggleRead(article);
+        return;
+      }
+      if ((event.key === "s" || event.key === "S") && onToggleCandidate) {
+        const article = articles[selectedIndex];
+        if (!article) return;
+        event.preventDefault();
+        onToggleCandidate(article);
+        return;
+      }
+      if ((event.key === "p" || event.key === "P") && onToggleProject) {
+        const article = articles[selectedIndex];
+        if (!article) return;
+        event.preventDefault();
+        onToggleProject(article);
+        return;
+      }
+      if (event.key === "1" || event.key === "2" || event.key === "3") {
+        // Dimension sort shortcuts: 1 score, 2 technical, 3 business
+        event.preventDefault();
+        if (event.key === "1") onSortChange?.("score");
+        if (event.key === "2") onSortChange?.("technical");
+        if (event.key === "3") onSortChange?.("business");
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    articles,
+    currentLang,
+    currentModule,
+    currentSort,
+    isLoading,
+    onSortChange,
+    onToggleCandidate,
+    onToggleProject,
+    onToggleRead,
+    selectedIndex,
+  ]);
+
+  useEffect(() => {
+    if (articles.length === 0) return;
+    const selected = listRef.current?.querySelector<HTMLElement>(
+      `[data-list-index="${selectedIndex}"]`,
+    );
+    selected?.scrollIntoView({ block: "nearest" });
+  }, [articles.length, selectedIndex]);
 
   function updateSort(nextSort: ArticleSortId) {
     onSortChange?.(nextSort);
@@ -92,6 +187,18 @@ export function ArticleList({
       <header className="articleListHeader">
         <h1 className="articleListTitle">阅读工作台</h1>
         <div className="articleListActions">
+          <span className="articleListKbdHint" title="命令面板与列表快捷键">
+            <kbd>⌘K</kbd>
+            <span className="articleListKbdHintSep">·</span>
+            <kbd>j</kbd>
+            <kbd>k</kbd>
+            <kbd>r</kbd>
+            <kbd>s</kbd>
+            <kbd>p</kbd>
+            <kbd>1</kbd>
+            <kbd>2</kbd>
+            <kbd>3</kbd>
+          </span>
           <SortMenu currentSort={currentSort} options={SORT_OPTIONS} onChange={updateSort} />
         </div>
       </header>
@@ -111,17 +218,25 @@ export function ArticleList({
       ) : null}
       {!isLoading ? (
         <ul
+          ref={listRef}
           className={isPaging ? "articleList articleListPaging" : "articleList"}
           aria-busy={isPaging ? "true" : undefined}
+          tabIndex={-1}
         >
-          {articles.map((article) => {
+          {articles.map((article, index) => {
             const score = article.score;
+            const summary = articleSummary(article, currentLang);
             const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
+            const isHeadline = pageIndex === 0 && index === 0;
+            const rowNumber = pageIndex === 0 ? index : index + 1;
+            const isKeyboardSelected = index === selectedIndex;
             const cardClassName =
               [
                 "articleCard",
+                isHeadline ? "articleCardHeadline" : "",
                 article.status === "read" ? "articleCardRead" : "",
                 article.id === highlightArticleId ? "articleCardReturnTarget" : "",
+                isKeyboardSelected ? "articleCardKeyboardSelected" : "",
               ]
                 .filter(Boolean)
                 .join(" ");
@@ -133,7 +248,14 @@ export function ArticleList({
                   prefetch={false}
                   aria-label={`${article.title}，进入专注阅读`}
                   data-article-id={article.id}
+                  data-list-index={index}
+                  aria-current={isKeyboardSelected ? "true" : undefined}
                 >
+                  {!isHeadline ? (
+                    <span className="articleCardIndex" aria-hidden="true">
+                      {String(rowNumber).padStart(2, "0")}
+                    </span>
+                  ) : null}
                   <div className="articleCardMeta">
                     <span className="articleFeed">{article.feedTitle}</span>
                     {article.categoryTitle ? (
@@ -141,17 +263,19 @@ export function ArticleList({
                     ) : null}
                   </div>
                   <div className="articleCardTitle">{article.title}</div>
-                  <p className="articleCardSummary">{articleSummary(article, currentLang)}</p>
+                  <p
+                    className={
+                      summary.isEmpty
+                        ? "articleCardSummary articleCardSummaryEmpty"
+                        : "articleCardSummary"
+                    }
+                  >
+                    {summary.text}
+                  </p>
                   <div className="articleCardFooter">
-                    <div className="articleCardScores">
-                      {score ? (
-                        <>
-                          <ScoreBadge label="总分" value={score.overall} />
-                          <ScoreBadge label="层级" value={tierLabel(score.tier)} />
-                        </>
-                      ) : (
-                        <ScoreBadge label="评分" value={null} />
-                      )}
+                    <div className="articleCardScoreBlock">
+                      <ScoreRing value={score?.overall ?? null} tier={score?.tier ?? null} size={isHeadline ? 66 : 52} />
+                      <span className="articleCardTier">{score ? (tierLabel(score.tier) ?? "未分层") : "未评"}</span>
                     </div>
                     <span className="articleReadLink" aria-hidden="true">
                       阅读

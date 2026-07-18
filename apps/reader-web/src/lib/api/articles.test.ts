@@ -203,8 +203,8 @@ test("articleFromApiDetail sanitizes detail HTML and maps full content", () => {
 
   assert.equal(article.contentStatus, "full");
   assert.equal(article.contentIssue, null);
-  assert.equal(article.contentHtml, "<p>Full text</p>");
-  assert.equal(article.contentZh, "<p>中文正文</p>");
+  assert.equal(article.contentHtml, '<p id="p-1" data-paragraph-id="1">Full text</p>');
+  assert.equal(article.contentZh, '<p id="p-1" data-paragraph-id="1">中文正文</p>');
   assert.equal(article.contentZhStatus, "succeeded");
   assert.equal(article.translatedAt, "2026-06-25T01:00:00Z");
   assert.equal(article.categoryTitle, "AI");
@@ -304,9 +304,14 @@ test("listArticles fetches a cursor page from FastAPI", async () => {
   });
 
   try {
-    const page = await listArticles({ limit: 1, cursor: "abc" });
+    const page = await listArticles({
+      limit: 1,
+      cursor: "abc",
+      module: "starred",
+      sort: "score",
+    });
 
-    assert.equal(capturedInput, "/api/articles?limit=1&cursor=abc");
+    assert.equal(capturedInput, "/api/articles?limit=1&cursor=abc&module=starred&sort=score");
     assert.equal(page.articles[0]?.title, "One");
     assert.equal(page.nextCursor, "next");
     assert.equal(page.hasMore, true);
@@ -422,7 +427,7 @@ test("requestArticleTranslation posts to FastAPI and sanitizes cached content", 
     assert.equal(capturedInput, "/api/articles/42/translate");
     assert.equal(capturedInit?.method, "POST");
     assert.equal(result.status, "succeeded");
-    assert.equal(result.contentZh, "<p>译文</p>");
+    assert.equal(result.contentZh, '<p id="p-1" data-paragraph-id="1">译文</p>');
     assert.equal(result.jobId, null);
   } finally {
     restoreFetch();

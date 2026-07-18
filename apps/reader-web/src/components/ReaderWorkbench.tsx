@@ -7,7 +7,6 @@ import {
   filterHiddenFeedsForModule,
   resolveArticleSortId,
   resolveArticlesListModuleId,
-  sortArticlesForModule,
   type ArticleSortId,
   type ModuleId,
   type SummaryLangId,
@@ -23,8 +22,10 @@ import {
 } from "@/lib/api/recommendations";
 import { ArticleList } from "./ArticleList";
 import { ModuleSidebar } from "./ModuleSidebar";
-import { WorkbenchRail } from "./WorkbenchRail";
+import { WorkbenchRibbon } from "./WorkbenchRibbon";
+import { updateArticleState } from "@/lib/api/articles";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
+import { emitToast } from "./Toast";
 
 const ARTICLE_LIST_PAGE_SIZE = 12;
 const RETURN_HIGHLIGHT_MS = 1800;
@@ -37,7 +38,6 @@ export type WorkbenchView = {
 export function buildWorkbenchView({
   articles,
   currentModule,
-  currentSort,
 }: {
   articles: Article[];
   currentModule: string;
@@ -49,10 +49,11 @@ export function buildWorkbenchView({
   }
 
   const moduleId = moduleResolution.moduleId;
-  const visibleArticles = sortArticlesForModule(
-    filterHiddenFeedsForModule(filterArticlesForModule(articles, moduleId), moduleId),
+  // Ordering is a server-side keyset contract. Re-sorting only the current
+  // page would make cross-page score/dimension order incorrect.
+  const visibleArticles = filterHiddenFeedsForModule(
+    filterArticlesForModule(articles, moduleId),
     moduleId,
-    currentSort,
   );
 
   return {
@@ -88,14 +89,20 @@ export function articleReturnSelector(articleId: number): string {
   return `[data-article-id="${articleId}"]`;
 }
 
+export function isCurrentWorkbenchRequest(requestSeq: number, latestSeq: number): boolean {
+  return requestSeq === latestSeq;
+}
+
 export function ReaderWorkbench({
   currentModule,
   currentSort,
   currentLang,
+  currentQuery = "",
 }: {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
+  currentQuery?: string;
 }) {
   const [rawArticles, setRawArticles] = useState<Article[]>([]);
   const [recommendationPage, setRecommendationPage] = useState<RecommendationPage | null>(null);
@@ -116,6 +123,8 @@ export function ReaderWorkbench({
   const [returnArticleId, setReturnArticleId] = useState<number | null>(null);
   const [highlightArticleId, setHighlightArticleId] = useState<number | null>(null);
   const lastReturnScrollKeyRef = useRef<string | null>(null);
+  const pageSeqRef = useRef(0);
+  const railSeqRef = useRef(0);
 
   const view = useMemo(
     () =>
@@ -127,6 +136,9 @@ export function ReaderWorkbench({
     [activeSort, currentModule, rawArticles],
   );
   const loadPage = useCallback(async (cursor: string | null, initial = false) => {
+    const requestSeq = pageSeqRef.current + 1;
+    pageSeqRef.current = requestSeq;
+    const isCurrent = () => isCurrentWorkbenchRequest(requestSeq, pageSeqRef.current);
     if (initial) {
       setIsLoading(true);
     } else {
@@ -134,26 +146,38 @@ export function ReaderWorkbench({
     }
     setError(null);
     try {
-      const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE, cursor });
+      const page = await listArticles({
+        limit: ARTICLE_LIST_PAGE_SIZE,
+        cursor,
+        module: currentModule,
+        q: currentQuery,
+        sort: activeSort,
+      });
+      if (!isCurrent()) return;
       setRawArticles(page.articles);
       setNextCursor(page.nextCursor);
       setHasMore(page.hasMore);
       if (!initial) window.scrollTo({ top: 0 });
     } catch (loadError) {
+      if (!isCurrent()) return;
       if (initial) setRawArticles([]);
       setNextCursor(null);
       setHasMore(false);
       setError(loadError instanceof Error ? loadError.message : "文章加载失败");
     } finally {
+      if (!isCurrent()) return;
       if (initial) {
         setIsLoading(false);
       } else {
         setIsPaging(false);
       }
     }
-  }, []);
+  }, [activeSort, currentModule, currentQuery]);
 
   const loadRail = useCallback(async () => {
+    const requestSeq = railSeqRef.current + 1;
+    railSeqRef.current = requestSeq;
+    const isCurrent = () => isCurrentWorkbenchRequest(requestSeq, railSeqRef.current);
     setIsRailLoading(true);
     setRecommendationNotice(null);
     try {
@@ -162,6 +186,7 @@ export function ReaderWorkbench({
         getArticleStats(),
       ]);
       const notices: string[] = [];
+      if (!isCurrent()) return;
 
       if (recommendationsResult.status === "fulfilled") {
         setRecommendationPage(recommendationsResult.value);
@@ -184,12 +209,13 @@ export function ReaderWorkbench({
       setRecommendationNotice(
         notices.length > 0
           ? {
-              title: "右栏数据暂不可用。",
+              title: "状态数据暂不可用。",
               body: notices.join(" "),
             }
           : null,
       );
     } finally {
+      if (!isCurrent()) return;
       setIsRailLoading(false);
     }
   }, []);
@@ -216,6 +242,8 @@ export function ReaderWorkbench({
   useEffect(() => {
     const moduleResolution = resolveArticlesListModuleId(true, currentModule);
     if (!moduleResolution.ok) {
+      pageSeqRef.current += 1;
+      railSeqRef.current += 1;
       setRawArticles([]);
       setRecommendationPage(null);
       setArticleStats(null);
@@ -234,7 +262,7 @@ export function ReaderWorkbench({
     setCursorStack([null]);
     void loadPage(null, true);
     void loadRail();
-  }, [currentModule, loadPage, loadRail]);
+  }, [currentModule, currentQuery, loadPage, loadRail]);
 
   useEffect(() => {
     setActiveSort(currentSort);
@@ -300,31 +328,94 @@ export function ReaderWorkbench({
   return (
     <main className="workbench">
       <ModuleSidebar currentModule={currentModule} currentSort={activeSort} currentLang={currentLang} />
-      <ArticleList
-        articles={view.articles}
-        currentModule={currentModule}
-        currentSort={activeSort}
-        currentLang={currentLang}
-        highlightArticleId={highlightArticleId}
-        pageIndex={pageIndex}
-        hasPrev={pageIndex > 0}
-        hasNext={hasMore}
-        isPaging={isPaging}
-        isLoading={isLoading}
-        onPrev={goPrev}
-        onNext={goNext}
-        onSortChange={updateSort}
-      />
-      <WorkbenchRail
-        recommendations={recommendationPage}
-        stats={articleStats}
-        currentModule={currentModule}
-        currentSort={activeSort}
-        currentLang={currentLang}
-        isLoading={isRailLoading}
-        notice={recommendationNotice ?? undefined}
-        onRetry={() => void loadRail()}
-      />
+      <div className="workbenchMain">
+        <WorkbenchRibbon
+          recommendations={recommendationPage}
+          stats={articleStats}
+          currentModule={currentModule}
+          currentSort={activeSort}
+          currentLang={currentLang}
+          isLoading={isRailLoading}
+          notice={recommendationNotice ?? undefined}
+          onRetry={() => void loadRail()}
+        />
+        <ArticleList
+          articles={view.articles}
+          currentModule={currentModule}
+          currentSort={activeSort}
+          currentLang={currentLang}
+          highlightArticleId={highlightArticleId}
+          pageIndex={pageIndex}
+          hasPrev={pageIndex > 0}
+          hasNext={hasMore}
+          isPaging={isPaging}
+          onToggleRead={(article) => {
+            const nextStatus = article.status === "read" ? "unread" : "read";
+            void updateArticleState(article.id, { status: nextStatus })
+              .then(() => {
+                emitToast({
+                  title: nextStatus === "read" ? "已标为已读" : "已标为未读",
+                  variant: "success",
+                });
+                window.dispatchEvent(
+                  new CustomEvent(ARTICLE_DATA_CHANGED_EVENT, { detail: { articleId: article.id } }),
+                );
+              })
+              .catch((error) => {
+                emitToast({
+                  title: error instanceof Error ? error.message : "更新已读状态失败",
+                  variant: "error",
+                });
+              });
+          }}
+          onToggleCandidate={(article) => {
+            const nextSaved = !article.starred;
+            void updateArticleState(article.id, { saved: nextSaved })
+              .then(() => {
+                emitToast({
+                  title: nextSaved ? "已加入候选" : "已移出候选",
+                  variant: "success",
+                });
+                window.dispatchEvent(
+                  new CustomEvent(ARTICLE_DATA_CHANGED_EVENT, { detail: { articleId: article.id } }),
+                );
+              })
+              .catch((error) => {
+                emitToast({
+                  title: error instanceof Error ? error.message : "更新候选状态失败",
+                  variant: "error",
+                });
+              });
+          }}
+          onToggleProject={(article) => {
+            // Project requires candidate first (saved → project contract).
+            const nextProject = !article.project;
+            const body = nextProject
+              ? { saved: true, project: true }
+              : { project: false };
+            void updateArticleState(article.id, body)
+              .then(() => {
+                emitToast({
+                  title: nextProject ? "已立项" : "已取消立项",
+                  variant: "success",
+                });
+                window.dispatchEvent(
+                  new CustomEvent(ARTICLE_DATA_CHANGED_EVENT, { detail: { articleId: article.id } }),
+                );
+              })
+              .catch((error) => {
+                emitToast({
+                  title: error instanceof Error ? error.message : "立项状态更新失败",
+                  variant: "error",
+                });
+              });
+          }}
+          isLoading={isLoading}
+          onPrev={goPrev}
+          onNext={goNext}
+          onSortChange={updateSort}
+        />
+      </div>
       {error != null ? (
         <section className="workbenchStatus" aria-live="polite">
           <p className="readerEmptyTitle">文章加载失败</p>

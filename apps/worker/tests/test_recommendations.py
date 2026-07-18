@@ -26,6 +26,7 @@ class RecordingSink:
         self.context_requests = []
         self.list_target_users_calls = 0
         self.saved_editions = []
+        self.daily_brief_enqueues = 0
 
     def recommendation_context_for_user(self, user_id):
         self.context_requests.append(user_id)
@@ -37,6 +38,9 @@ class RecordingSink:
 
     def save_recommendation_edition(self, user_id, items, algorithm_version):
         self.saved_editions.append((user_id, list(items), algorithm_version))
+
+    def enqueue_daily_brief(self):
+        self.daily_brief_enqueues += 1
 
 
 def test_generate_recommendations_ranks_and_saves_one_edition_per_requested_user():
@@ -142,6 +146,7 @@ def test_generate_recommendations_ranks_and_saves_one_edition_per_requested_user
         "editions_saved": 2,
         "users_seen": 2,
     }
+    assert sink.daily_brief_enqueues == 1
 
 
 def test_generate_recommendations_uses_target_users_when_payload_omits_user_ids():
@@ -225,6 +230,87 @@ def test_ranking_module_path_scans_parent_roots_for_container_layout(tmp_path):
     assert _ranking_module_path(container_file) == ranking_path
 
 
+def test_rank_b4_recommendation_context_applies_mute_and_boost_rules():
+    """PUT /api/rules must affect unattended Top10 via rank_b4_recommendation_context."""
+    from datetime import UTC, datetime
+
+    from app.jobs.generate_recommendations import (
+        RecommendationContext,
+        rank_b4_recommendation_context,
+    )
+
+    now = datetime(2026, 7, 18, tzinfo=UTC)
+    context = RecommendationContext(
+        user_id="user-1",
+        candidates=[
+            {
+                "article_id": 1,
+                "feed_ids": [10],
+                "base_score": 99,
+                "published_at": now,
+                "risk_uncertainty": 10,
+                "risk_flags": [],
+            },
+            {
+                "article_id": 2,
+                "feed_ids": [20],
+                "base_score": 70,
+                "published_at": now,
+                "risk_uncertainty": 10,
+                "risk_flags": [],
+            },
+            {
+                "article_id": 3,
+                "feed_ids": [30],
+                "base_score": 72,
+                "published_at": now,
+                "risk_uncertainty": 10,
+                "risk_flags": [],
+            },
+        ],
+        user_priority_by_feed={10: 0, 20: 0, 30: 0},
+        feedback_by_article={},
+        article_status_by_article={},
+        now=now,
+        rules=[
+            {"type": "mute", "feed_id": 10},
+            {"type": "boost", "feed_id": 30, "weight": 20},
+        ],
+        titles_by_article={1: "Muted high score", 2: "Plain", 3: "Boosted"},
+    )
+
+    ranked = list(rank_b4_recommendation_context(context))
+    article_ids = [item.article_id for item in ranked]
+    assert 1 not in article_ids  # muted feed
+    assert article_ids[0] == 3  # boosted above plain 70
+    assert 2 in article_ids
+
+
+def test_database_recommendation_sink_loads_rules_into_context():
+    from sqlalchemy import create_engine, text
+
+    from app.db.recommendation_sink import DatabaseRecommendationSink
+
+    engine = create_engine("sqlite:///:memory:")
+    _create_recommendation_schema(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO user_reader_rules (user_id, rules)
+                VALUES ('user-1', :rules)
+                """
+            ),
+            {"rules": '[{"type": "mute", "feed_id": 10}]'},
+        )
+
+    sink = DatabaseRecommendationSink(engine=engine)
+    context = sink.recommendation_context_for_user("user-1")
+    assert context.rules == [{"type": "mute", "feed_id": 10}]
+    assert 1 in (context.titles_by_article or {})
+    assert (context.titles_by_article or {})[1] == "Article One"
+
+
 def test_database_recommendation_sink_builds_context_and_writes_edition():
     from sqlalchemy import create_engine, text
 
@@ -248,6 +334,7 @@ def test_database_recommendation_sink_builds_context_and_writes_edition():
             .mappings()
             .all()
         )
+        jobs = connection.execute(text("SELECT * FROM jobs ORDER BY id")).mappings().all()
 
     assert result["editions_saved"] == 1
     assert len(editions) == 1
@@ -256,6 +343,9 @@ def test_database_recommendation_sink_builds_context_and_writes_edition():
         (1, 1, "subscription"),
         (2, 2, "exploration"),
     ]
+    assert len(jobs) == 1
+    assert jobs[0]["job_type"] == "generate_daily_brief"
+    assert jobs[0]["priority"] == 0
 
 
 def test_database_recommendation_sink_replaces_same_source_edition_on_rerun():
@@ -322,7 +412,7 @@ def _create_recommendation_schema(engine):
 
     from sqlalchemy import text
 
-    now = datetime(2026, 6, 24, 12, tzinfo=UTC)
+    now = datetime.now(UTC)
     with engine.begin() as connection:
         connection.exec_driver_sql(
             "CREATE TABLE app_users (id TEXT PRIMARY KEY, role TEXT NOT NULL)"
@@ -341,7 +431,16 @@ def _create_recommendation_schema(engine):
             """
             CREATE TABLE articles (
                 id INTEGER PRIMARY KEY,
+                title TEXT,
                 published_at TEXT
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE user_reader_rules (
+                user_id TEXT PRIMARY KEY,
+                rules TEXT
             )
             """
         )
@@ -414,6 +513,19 @@ def _create_recommendation_schema(engine):
             )
             """
         )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                priority INTEGER NOT NULL DEFAULT 0,
+                payload TEXT NOT NULL,
+                dedupe_key TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         connection.execute(text("INSERT INTO app_users (id, role) VALUES ('user-1', 'user')"))
         connection.execute(
             text(
@@ -421,7 +533,10 @@ def _create_recommendation_schema(engine):
             )
         )
         connection.execute(
-            text("INSERT INTO articles (id, published_at) VALUES (1, :now), (2, :now)"),
+            text(
+                "INSERT INTO articles (id, title, published_at) "
+                "VALUES (1, 'Article One', :now), (2, 'Article Two', :now)"
+            ),
             {"now": now.isoformat()},
         )
         connection.execute(

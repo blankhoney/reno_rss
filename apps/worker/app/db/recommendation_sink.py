@@ -9,6 +9,9 @@ from sqlalchemy.engine import Connection
 from app.jobs.generate_recommendations import RecommendationContext
 
 
+DAILY_BRIEF_JOB_TYPE = "generate_daily_brief"
+
+
 class DatabaseRecommendationSink:
     def __init__(
         self,
@@ -21,6 +24,7 @@ class DatabaseRecommendationSink:
             raise ValueError("database_url or engine is required")
         self.engine = engine or create_engine(str(database_url), pool_pre_ping=True)
         self.source_batch_id = source_batch_id
+        self._candidate_rows_cache: list[dict[str, object]] | None = None
 
     def list_target_users(self) -> list[object]:
         with self.engine.begin() as connection:
@@ -30,13 +34,17 @@ class DatabaseRecommendationSink:
     def recommendation_context_for_user(self, user_id: object) -> RecommendationContext:
         now = datetime.now(UTC)
         priorities = self._user_priorities(user_id)
+        candidates = self._candidate_rows_once()
         return RecommendationContext(
             user_id=user_id,
-            candidates=self._candidate_rows(),
+            candidates=candidates,
             user_priority_by_feed=priorities,
             feedback_by_article=self._feedback_by_article(user_id),
             article_status_by_article=self._state_by_article(user_id),
             now=now,
+            rules=self._rules_for_user(user_id),
+            titles_by_article=self._titles_from_candidates(candidates),
+            interest_weights=self._interest_weights_for_user(user_id, candidates),
         )
 
     def save_recommendation_edition(
@@ -96,6 +104,53 @@ class DatabaseRecommendationSink:
                         "source": item["source"],
                     },
                 )
+
+    def enqueue_daily_brief(self) -> None:
+        """Queue at most one chained brief per UTC day, including completed jobs."""
+        day = datetime.now(UTC).date().isoformat()
+        params = {
+            "job_type": DAILY_BRIEF_JOB_TYPE,
+            "payload": json.dumps(
+                {"limit": 10, "trigger": "recommendations_complete"},
+                ensure_ascii=False,
+            ),
+            "dedupe_key": f"pipeline:{DAILY_BRIEF_JOB_TYPE}:{day}",
+            "priority": 0,
+        }
+        with self.engine.begin() as connection:
+            existing = connection.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM jobs
+                    WHERE job_type=:job_type AND dedupe_key=:dedupe_key
+                    LIMIT 1;
+                    """
+                ),
+                params,
+            ).scalar_one_or_none()
+            if existing is not None:
+                return
+            if self.engine.dialect.name == "postgresql":
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                        VALUES (:job_type, CAST(:payload AS jsonb), :dedupe_key, :priority);
+                        """
+                    ),
+                    params,
+                )
+                return
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                    VALUES (:job_type, :payload, :dedupe_key, :priority);
+                    """
+                ),
+                params,
+            )
 
     def _delete_existing_source_edition(
         self,
@@ -166,6 +221,7 @@ class DatabaseRecommendationSink:
                         """
                         SELECT
                             a.id AS article_id,
+                            a.title,
                             a.published_at,
                             s.feed_id,
                             bs.base_score,
@@ -190,6 +246,7 @@ class DatabaseRecommendationSink:
                 article_id,
                 {
                     "article_id": article_id,
+                    "title": str(row["title"] or "") if row.get("title") is not None else "",
                     "feed_ids": [],
                     "base_score": int(row["base_score"]),
                     "published_at": _parse_datetime(row["published_at"]),
@@ -199,6 +256,11 @@ class DatabaseRecommendationSink:
             )
             candidate["feed_ids"].append(int(row["feed_id"]))
         return list(candidates.values())
+
+    def _candidate_rows_once(self) -> list[dict[str, object]]:
+        if self._candidate_rows_cache is None:
+            self._candidate_rows_cache = self._candidate_rows()
+        return self._candidate_rows_cache
 
     def _feedback_by_article(self, user_id: object) -> dict[int, object]:
         with self.engine.begin() as connection:
@@ -241,6 +303,137 @@ class DatabaseRecommendationSink:
                 .all()
             )
         return {int(row["article_id"]): row["status"] for row in rows}
+
+    def _rules_for_user(self, user_id: object) -> list[object]:
+        """Load boost/mute/must-read/keyword/threshold rules for ranking."""
+        try:
+            with self.engine.begin() as connection:
+                row = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT rules
+                            FROM user_reader_rules
+                            WHERE user_id = :user_id;
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+        except Exception:
+            # Table may be missing in older schemas/tests; ranking still works.
+            return []
+        if row is None:
+            return []
+        raw = row["rules"]
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
+
+    @staticmethod
+    def _titles_from_candidates(candidates: list[dict[str, object]]) -> dict[int, str]:
+        titles: dict[int, str] = {}
+        for candidate in candidates:
+            try:
+                article_id = int(candidate["article_id"])  # type: ignore[arg-type]
+            except (KeyError, TypeError, ValueError):
+                continue
+            title = candidate.get("title")
+            titles[article_id] = str(title) if title is not None else ""
+        return titles
+
+    def _interest_weights_for_user(
+        self,
+        user_id: object,
+        candidates: list[dict[str, object]],
+    ) -> dict[str, float]:
+        """Lightweight interest terms from annotations + feedback reasons + project titles."""
+        weights: dict[str, float] = {}
+        try:
+            with self.engine.begin() as connection:
+                annotation_rows = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT content, selected_text
+                            FROM article_annotations
+                            WHERE user_id = :user_id
+                              AND deleted_at IS NULL
+                            ORDER BY id DESC
+                            LIMIT 80;
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+                feedback_rows = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT reason, feedback_type
+                            FROM user_article_feedback_scores
+                            WHERE user_id = :user_id
+                            LIMIT 80;
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+                project_rows = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT a.title
+                            FROM user_article_states s
+                            JOIN articles a ON a.id = s.article_id
+                            WHERE s.user_id = :user_id AND s.project = TRUE
+                            LIMIT 40;
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+        except Exception:
+            return {}
+
+        for row in annotation_rows:
+            _accumulate_interest_tokens(
+                weights,
+                f"{row.get('selected_text') or ''} {row.get('content') or ''}",
+                2.0,
+            )
+        for row in feedback_rows:
+            boost = 1.6 if row.get("feedback_type") == "underrated" else 0.5
+            _accumulate_interest_tokens(weights, str(row.get("reason") or ""), boost)
+        for row in project_rows:
+            _accumulate_interest_tokens(weights, str(row.get("title") or ""), 1.4)
+        # Keep top terms only; ranking caps the boost so this stays soft.
+        del candidates  # reserved for future title-seeded personalization
+        ranked = sorted(weights.items(), key=lambda item: item[1], reverse=True)[:40]
+        return {term: round(weight, 3) for term, weight in ranked}
+
+
+def _accumulate_interest_tokens(weights: dict[str, float], text: str, amount: float) -> None:
+    import re
+
+    for match in re.finditer(r"[\w\u4e00-\u9fff]{2,}", text or "", re.UNICODE):
+        token = match.group(0).casefold()
+        weights[token] = weights.get(token, 0.0) + amount
 
 
 def _parse_datetime(value: object) -> datetime:

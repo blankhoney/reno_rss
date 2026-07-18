@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Sequence
+from datetime import UTC, datetime
 import hashlib
 
 from sqlalchemy import Engine, create_engine, text
+
+from app.jobs.queue import PostgresJobQueue
 
 
 class DatabaseArticleSink:
@@ -11,6 +14,7 @@ class DatabaseArticleSink:
         if engine is None and database_url is None:
             raise ValueError("database_url or engine is required")
         self.engine = engine or create_engine(str(database_url), pool_pre_ping=True)
+        self.queue = PostgresJobQueue(str(database_url or ""), engine=self.engine)
 
     def upsert_feed(self, feed: dict[str, object]) -> int:
         values = _feed_values(feed)
@@ -137,6 +141,101 @@ class DatabaseArticleSink:
                 values,
             )
 
+    def enqueue_ingest_followups(
+        self,
+        article_ids: list[int],
+        *,
+        pipeline_cycle: str,
+        auto_score_payload: dict[str, object],
+    ) -> dict[str, object]:
+        unique_article_ids = list(dict.fromkeys(int(article_id) for article_id in article_ids))
+        rows: list[dict[str, object]] = []
+        if unique_article_ids:
+            placeholders = ", ".join(
+                f":article_id_{index}" for index in range(len(unique_article_ids))
+            )
+            params = {
+                f"article_id_{index}": article_id
+                for index, article_id in enumerate(unique_article_ids)
+            }
+            with self.engine.begin() as connection:
+                rows = [
+                    dict(row)
+                    for row in connection.execute(
+                        text(
+                            f"""
+                            SELECT id, content_text, content_html, content_quality,
+                                   content_expires_at
+                            FROM articles
+                            WHERE id IN ({placeholders})
+                            ORDER BY id ASC;
+                            """
+                        ),
+                        params,
+                    ).mappings().all()
+                ]
+
+        fetch_job_ids: list[int] = []
+        now = datetime.now(UTC)
+        for row in rows:
+            if not _needs_content_fetch(row, now=now):
+                continue
+            article_id = int(row["id"])
+            job = self.queue.enqueue(
+                "fetch_article_content",
+                {"article_id": article_id, "pipeline_cycle": pipeline_cycle},
+                dedupe_key=_dedupe_key_for("fetch_article_content", article_id),
+                priority=4,
+            )
+            fetch_job_ids.append(job.id)
+
+        barrier = self.queue.enqueue(
+            "complete_ingest_cycle",
+            {
+                "pipeline_cycle": pipeline_cycle,
+                "fetch_job_ids": fetch_job_ids,
+                "auto_score_payload": dict(auto_score_payload),
+            },
+            dedupe_key=f"pipeline:complete_ingest_cycle:{pipeline_cycle}",
+            priority=3,
+            max_attempts=20,
+        )
+        return {
+            "pipeline_cycle": pipeline_cycle,
+            "content_fetches": len(fetch_job_ids),
+            "barrier_job_id": barrier.id,
+        }
+
+    def fetch_job_statuses(self, job_ids: Sequence[int]) -> dict[int, str]:
+        unique_job_ids = list(dict.fromkeys(int(job_id) for job_id in job_ids))
+        if not unique_job_ids:
+            return {}
+        placeholders = ", ".join(f":job_id_{index}" for index in range(len(unique_job_ids)))
+        params = {
+            f"job_id_{index}": job_id for index, job_id in enumerate(unique_job_ids)
+        }
+        with self.engine.begin() as connection:
+            rows = connection.execute(
+                text(
+                    f"SELECT id, status FROM jobs WHERE id IN ({placeholders});"
+                ),
+                params,
+            ).mappings().all()
+        return {int(row["id"]): str(row["status"]) for row in rows}
+
+    def enqueue_auto_score(
+        self,
+        payload: dict[str, object],
+        *,
+        pipeline_cycle: str,
+    ) -> None:
+        self.queue.enqueue(
+            "auto_score_candidates",
+            {**payload, "pipeline_cycle": pipeline_cycle},
+            dedupe_key=f"pipeline:auto_score_candidates:{pipeline_cycle}",
+            priority=3,
+        )
+
     def dispose(self) -> None:
         self.engine.dispose()
 
@@ -237,6 +336,26 @@ def _content_hash(content_text: str | None) -> str | None:
     if not content_text:
         return None
     return hashlib.sha256(content_text.encode("utf-8")).hexdigest()
+
+
+def _dedupe_key_for(job_type: str, value: object) -> str:
+    return hashlib.sha256(f"{job_type}:{value}".encode("utf-8")).hexdigest()
+
+
+def _needs_content_fetch(row: dict[str, object], *, now: datetime) -> bool:
+    current = str(row.get("content_html") or row.get("content_text") or "").strip()
+    if not current or str(row.get("content_quality") or "") != "full":
+        return True
+    expires_at = row.get("content_expires_at")
+    if expires_at is None:
+        return False
+    expires = (
+        expires_at
+        if isinstance(expires_at, datetime)
+        else datetime.fromisoformat(str(expires_at))
+    )
+    normalized = expires.astimezone(UTC) if expires.tzinfo else expires.replace(tzinfo=UTC)
+    return normalized <= now
 
 
 def _optional_str(value: object) -> str | None:

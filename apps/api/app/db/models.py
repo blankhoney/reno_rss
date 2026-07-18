@@ -3,6 +3,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -270,6 +271,9 @@ article_annotations = Table(
     Column("type", Text, nullable=False),
     Column("selected_text", Text),
     Column("content", Text, nullable=False),
+    Column("next_review_at", DateTime(timezone=True)),
+    Column("interval_days", Integer, nullable=False, server_default=text("1")),
+    Column("review_count", Integer, nullable=False, server_default=text("0")),
     created_at_column(),
     updated_at_column(),
     Column("deleted_at", DateTime(timezone=True)),
@@ -414,6 +418,63 @@ app_settings = Table(
     updated_at_column(),
 )
 
+# Atomic day buckets shared by every API process. Score usage is also
+# independently auditable from article_base_scores; ask/agent reserve here.
+llm_daily_usage = Table(
+    "llm_daily_usage",
+    metadata,
+    Column("day", Date, primary_key=True),
+    Column("account", Text, primary_key=True),
+    Column("used", Integer, nullable=False, server_default=text("0")),
+    updated_at_column(),
+    CheckConstraint(
+        "account IN ('score', 'ask', 'agent')",
+        name="ck_llm_daily_usage_account",
+    ),
+    CheckConstraint("used >= 0", name="ck_llm_daily_usage_used"),
+)
+
+# Per-user reader rules (boost/mute/keyword/score_threshold) as a JSON array.
+user_reader_rules = Table(
+    "user_reader_rules",
+    metadata,
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), primary_key=True),
+    Column("rules", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    created_at_column(),
+    updated_at_column(),
+)
+
+# Per-user saved list filters (name/q/module/sort) as a JSON array — same shape as rules.
+user_saved_searches = Table(
+    "user_saved_searches",
+    metadata,
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), primary_key=True),
+    Column("items", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    created_at_column(),
+    updated_at_column(),
+)
+
+# Durable personalization reset watermark (signals after this timestamp rebuild vectors).
+user_interest_resets = Table(
+    "user_interest_resets",
+    metadata,
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), primary_key=True),
+    Column("reset_at", DateTime(timezone=True), nullable=False),
+    updated_at_column(),
+)
+
+project_acl_grants = Table(
+    "project_acl_grants",
+    metadata,
+    Column("id", BigInteger, primary_key=True),
+    Column("project_id", Text, nullable=False),
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), nullable=False),
+    Column("role", Text, nullable=False),
+    created_at_column(),
+    CheckConstraint("role IN ('owner', 'editor', 'viewer')", name="ck_project_acl_role"),
+    UniqueConstraint("project_id", "user_id", name="uq_project_acl_user"),
+)
+
 
 Index("ix_articles_primary_feed_published", articles.c.primary_feed_id, articles.c.published_at.desc())
 Index("ix_articles_published_id", articles.c.published_at.desc(), articles.c.id.desc())
@@ -468,6 +529,11 @@ Index(
 )
 Index("ix_annotations_user", article_annotations.c.user_id)
 Index(
+    "ix_annotations_user_next_review",
+    article_annotations.c.user_id,
+    article_annotations.c.next_review_at,
+)
+Index(
     "ix_recommendation_editions_user_generated",
     recommendation_editions.c.user_id,
     recommendation_editions.c.generated_at.desc(),
@@ -487,6 +553,12 @@ Index(
     jobs.c.dedupe_key,
     unique=True,
     postgresql_where=jobs.c.status.in_(("queued", "running")),
+)
+Index(
+    "uq_jobs_sched_dedupe_key",
+    jobs.c.dedupe_key,
+    unique=True,
+    postgresql_where=jobs.c.dedupe_key.like("sched:%"),
 )
 Index("ix_job_watchers_user", job_watchers.c.user_id, job_watchers.c.job_id)
 Index("ix_benchmark_runs_suite_created", benchmark_runs.c.suite, benchmark_runs.c.created_at.desc())

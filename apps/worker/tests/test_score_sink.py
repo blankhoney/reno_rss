@@ -120,7 +120,41 @@ def test_score_sink_enqueues_deduped_recommendations_job():
     assert len(jobs) == 1
     assert jobs[0]["job_type"] == "generate_recommendations"
     assert jobs[0]["status"] == "queued"
+    assert jobs[0]["priority"] == 1
     assert jobs[0]["payload"] == '{"source_batch_id": 10}'
+
+
+def test_score_sink_counts_today_scores_including_error_rows():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    sink = DatabaseScoreSink(engine=engine)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO article_base_scores (
+                    article_id, batch_id, base_score, recommendation_tier,
+                    summary_zh, summary_original, source_language,
+                    dimension_scores, dimension_reasons, tags, reason, risk_flags,
+                    confidence, rubric_version, model_provider, model_name,
+                    prompt_version, scoring_status, is_active, scored_at
+                )
+                VALUES
+                    (1, 10, 80, 'read', '', '', 'en', '{}', '{}', '[]', '',
+                     '[]', 0.8, 'v1', 'mock', 'mock', 'v0', 'success', 1,
+                     '2026-07-08T00:00:00+00:00'),
+                    (2, 10, 0, 'skip', '', '', 'unknown', '{}', '{}', '[]', '',
+                     '[]', 0.0, 'v1', 'mock', 'mock', 'v0', 'error', 0,
+                     '2026-07-08T12:00:00+00:00'),
+                    (1, 9, 70, 'read', '', '', 'en', '{}', '{}', '[]', '',
+                     '[]', 0.7, 'v1', 'mock', 'mock', 'v0', 'success', 0,
+                     '2026-07-07T23:59:59+00:00');
+                """
+            )
+        )
+
+    assert sink.count_scores_today("2026-07-08T00:00:00+00:00") == 2
 
 
 def _create_schema(engine):

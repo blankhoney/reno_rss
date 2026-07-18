@@ -45,7 +45,7 @@ def clear_session_cookie(response: Response) -> None:
 
 def has_valid_csrf_origin(request: Request, allowed_origins: set[str]) -> bool:
     if not allowed_origins:
-        return True
+        return False
     origin = request.headers.get("origin")
     if origin is not None:
         return _same_origin(origin, allowed_origins)

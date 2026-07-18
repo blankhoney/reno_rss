@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
+import { linkedSignalWithTimeout } from "@/lib/api/client";
 import {
   enqueueFetchContentJob,
   pollJobUntilTerminal,
   requestArticleTranslation,
   updateArticleState,
   type ApiJob,
+  type ArticleTranslationResult,
 } from "@/lib/api/articles";
 import { emitToast, type ToastAction, type ToastVariant } from "./Toast";
 
@@ -24,6 +26,8 @@ type ActionResult =
     };
 
 export const ARTICLE_DATA_CHANGED_EVENT = "ai-reader:articles-changed";
+export const TRANSLATE_REQUEST_TIMEOUT_MS = 30_000;
+export const TRANSLATE_REQUEST_TIMEOUT_MESSAGE = "全文翻译请求超时，请稍后重试";
 
 function projectHref(entryId: number, lang: SummaryLangId): string {
   const qs = new URLSearchParams({
@@ -71,6 +75,13 @@ function articleActionErrorMessage(error: string): string {
   if (error === "entry_not_found") return "文章不存在或不在当前 Miniflux 实例";
   if (error === "fetch_content_failed") return "全文抓取失败，请打开原文阅读";
   return error.trim() || "操作失败";
+}
+
+export function translateRequestActionError(error: unknown, timedOut: boolean): string | null {
+  if (timedOut) return TRANSLATE_REQUEST_TIMEOUT_MESSAGE;
+  if (isAbortError(error)) return null;
+  const raw = error instanceof Error ? error.message : "操作失败";
+  return articleActionErrorMessage(raw);
 }
 
 function dispatchArticleDataChanged(articleId: number) {
@@ -152,7 +163,22 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
       setPendingAction("translate");
       setActionError(null);
       try {
-        const requested = await requestArticleTranslation(article.id, { signal: abortController.signal });
+        const requestTimeout = linkedSignalWithTimeout(
+          abortController.signal,
+          TRANSLATE_REQUEST_TIMEOUT_MS,
+        );
+        let requested: ArticleTranslationResult;
+        try {
+          requested = await requestArticleTranslation(article.id, {
+            signal: requestTimeout.signal,
+          });
+        } catch (error) {
+          const message = translateRequestActionError(error, requestTimeout.timedOut());
+          if (message == null) return null;
+          throw new Error(message);
+        } finally {
+          requestTimeout.cleanup();
+        }
         if (abortController.signal.aborted) return null;
         if (requested.contentZh != null) {
           emitToast({ title: "已切换到中文译文", variant: "success" });
@@ -177,9 +203,8 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
         if (job.status !== "succeeded") return null;
         return null;
       } catch (error) {
-        if (isAbortError(error)) return null;
-        const raw = error instanceof Error ? error.message : "操作失败";
-        setActionError(articleActionErrorMessage(raw));
+        const message = translateRequestActionError(error, false);
+        if (message != null) setActionError(message);
         return null;
       } finally {
         if (actionAbortRef.current === abortController) {

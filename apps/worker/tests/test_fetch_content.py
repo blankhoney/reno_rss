@@ -109,6 +109,24 @@ def test_fetch_article_content_converts_miniflux_transient_error_to_retryable():
     assert sink.saved is None
 
 
+def test_fetch_article_content_falls_back_on_non_httpx_miniflux_error():
+    now = datetime(2026, 6, 24, 12, tzinfo=UTC)
+    sink = RecordingContentSink(_article(content_html="<p>Short body</p>"))
+
+    result = fetch_article_content(
+        {"article_id": 1},
+        sink=sink,
+        miniflux_client=FakeMinifluxClient(ValueError("entry parser failed")),
+        external_provider=FakeExternalProvider(None),
+        now=now,
+    )
+
+    assert result["outcome"] == "fallback"
+    assert result["content_source"] == "snippet_only"
+    assert sink.saved is not None
+    assert sink.saved["content_quality"] == "snippet"
+
+
 def test_fetch_article_content_converts_external_transient_error_to_retryable():
     class FailingExternalProvider:
         def fetch(self, url: str) -> str | None:

@@ -6,6 +6,7 @@ import {
   articleReturnSelector,
   buildWorkbenchView,
   cursorForPage,
+  isCurrentWorkbenchRequest,
   parseReturnArticleId,
 } from "./ReaderWorkbench";
 
@@ -54,11 +55,11 @@ test("buildWorkbenchView filters module articles", () => {
   assert.deepEqual(view.articles.map((item) => item.id), [1]);
 });
 
-test("buildWorkbenchView keeps sorted visible articles without selecting one", () => {
+test("buildWorkbenchView preserves server keyset order without page-local reranking", () => {
   const view = buildWorkbenchView({
     articles: [
-      article(1, { publishedAt: "2026-06-24T00:00:00Z" }),
       article(2, { publishedAt: "2026-06-25T00:00:00Z" }),
+      article(1, { publishedAt: "2026-06-24T00:00:00Z" }),
     ],
     currentModule: "all",
     currentSort: "latest",
@@ -85,4 +86,9 @@ test("return article helpers parse valid ids and build the list selector", () =>
   assert.equal(parseReturnArticleId("?article=abc"), null);
   assert.equal(parseReturnArticleId("?module=all"), null);
   assert.equal(articleReturnSelector(42), '[data-article-id="42"]');
+});
+
+test("workbench request guard accepts only the latest sequence", () => {
+  assert.equal(isCurrentWorkbenchRequest(3, 3), true);
+  assert.equal(isCurrentWorkbenchRequest(2, 3), false);
 });

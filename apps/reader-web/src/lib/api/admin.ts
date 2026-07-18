@@ -147,3 +147,116 @@ export async function startScoringBatch(batchId: number): Promise<StartedScoring
     status: payload.status,
   };
 }
+
+export type AdminUsageToday = {
+  day: string;
+  scoresCountToday: number;
+  scoresAccounting: string;
+  askUsed: number;
+  askLimit: number;
+  askRemaining: number | null;
+  askAccounting: string;
+  accounts: Record<"score" | "ask" | "agent", AdminBudgetAccount>;
+  accounting: string;
+};
+
+export type AdminBudgetAccount = {
+  used: number;
+  limit: number;
+  remaining: number | null;
+};
+
+export async function getAdminUsageToday(): Promise<AdminUsageToday> {
+  const payload = await apiGet<{
+    day?: string;
+    scores?: { count_today?: number; accounting?: string };
+    ask?: {
+      used?: number;
+      limit?: number;
+      remaining?: number | null;
+      ask_accounting?: string;
+      accounting?: string;
+    };
+    accounts?: Partial<Record<"score" | "ask" | "agent", Partial<AdminBudgetAccount>>>;
+    cost_ledger?: { accounting?: string };
+  }>("/api/admin/usage/today");
+  const account = (name: "score" | "ask" | "agent", fallbackUsed = 0): AdminBudgetAccount => {
+    const raw = payload.accounts?.[name];
+    return {
+      used: raw?.used ?? fallbackUsed,
+      limit: raw?.limit ?? 0,
+      remaining: raw?.remaining ?? null,
+    };
+  };
+  const ask = account("ask", payload.ask?.used ?? 0);
+  return {
+    day: payload.day ?? "",
+    scoresCountToday: payload.scores?.count_today ?? 0,
+    scoresAccounting: payload.scores?.accounting ?? "database",
+    askUsed: ask.used,
+    askLimit: ask.limit,
+    askRemaining: ask.remaining,
+    askAccounting: payload.ask?.ask_accounting ?? payload.ask?.accounting ?? "unavailable",
+    accounts: {
+      score: account("score", payload.scores?.count_today ?? 0),
+      ask,
+      agent: account("agent"),
+    },
+    accounting: payload.cost_ledger?.accounting ?? "unavailable",
+  };
+}
+
+export type PipelineHealth = {
+  status: "healthy" | "degraded" | "idle" | "paused";
+  schedulerEnabled: boolean;
+  queue: {
+    queued: number;
+    running: number;
+    failed24h: number;
+    staleRunning: number;
+    oldestQueuedAt: string | null;
+  };
+  jobs: Array<{
+    jobType: string;
+    status: string;
+    updatedAt: string | null;
+    lastError: string | null;
+  }>;
+};
+
+export async function getPipelineHealth(): Promise<PipelineHealth> {
+  const payload = await apiGet<{
+    status?: PipelineHealth["status"];
+    scheduler_enabled?: boolean;
+    queue?: {
+      queued?: number;
+      running?: number;
+      failed_24h?: number;
+      stale_running?: number;
+      oldest_queued_at?: string | null;
+    };
+    jobs?: Array<{
+      job_type?: string;
+      status?: string;
+      updated_at?: string | null;
+      last_error?: string | null;
+    }>;
+  }>("/api/admin/pipeline-health");
+  return {
+    status: payload.status ?? "idle",
+    schedulerEnabled: payload.scheduler_enabled === true,
+    queue: {
+      queued: payload.queue?.queued ?? 0,
+      running: payload.queue?.running ?? 0,
+      failed24h: payload.queue?.failed_24h ?? 0,
+      staleRunning: payload.queue?.stale_running ?? 0,
+      oldestQueuedAt: payload.queue?.oldest_queued_at ?? null,
+    },
+    jobs: (payload.jobs ?? []).map((job) => ({
+      jobType: job.job_type ?? "unknown",
+      status: job.status ?? "unknown",
+      updatedAt: job.updated_at ?? null,
+      lastError: job.last_error ?? null,
+    })),
+  };
+}

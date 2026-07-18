@@ -7,9 +7,14 @@ from fastapi.responses import JSONResponse
 from app.core.security import SESSION_COOKIE_NAME
 from app.db.auth_store import AuthStore, UserRecord
 from app.db.repositories.articles import ArticleStore
+from app.db.repositories.benchmarks import BenchmarkStore
 from app.db.repositories.feeds import FeedStore
 from app.db.repositories.jobs import JobStore
+from app.db.repositories.interest import InterestResetStore
+from app.db.repositories.project_acl import ProjectAclStore
 from app.db.repositories.recommendations import RecommendationStore
+from app.db.repositories.rules import RuleStore
+from app.db.repositories.saved_searches import SavedSearchStore
 from app.db.repositories.scoring import ScoringStore
 
 
@@ -71,6 +76,10 @@ def get_job_repository(request: Request) -> JobStore:
     return request.app.state.job_repository
 
 
+def get_benchmark_repository(request: Request) -> BenchmarkStore:
+    return request.app.state.benchmark_repository
+
+
 def get_feed_repository(request: Request) -> FeedStore:
     return request.app.state.feed_repository
 
@@ -87,14 +96,33 @@ def get_recommendation_repository(request: Request) -> RecommendationStore:
     return request.app.state.recommendation_repository
 
 
+def get_rule_repository(request: Request) -> RuleStore:
+    return request.app.state.rule_repository
+
+
+def get_saved_search_repository(request: Request) -> SavedSearchStore:
+    return request.app.state.saved_search_repository
+
+
+def get_interest_reset_repository(request: Request) -> InterestResetStore:
+    return request.app.state.interest_reset_repository
+
+
+def get_project_acl_repository(request: Request) -> ProjectAclStore:
+    return request.app.state.project_acl_repository
+
+
 def get_ask_provider(request: Request) -> object:
     provider = request.app.state.ask_provider
     if not getattr(provider, "spends_llm_budget", True):
         return provider
 
-    budget = request.app.state.llm_budget
-    if budget.try_consume():
+    ledger = request.app.state.cost_ledger
+    try:
+        ledger.charge("ask", 1)
         return provider
+    except RuntimeError:
+        pass
 
     from app.api.routes.ask import DeterministicAskProvider
 

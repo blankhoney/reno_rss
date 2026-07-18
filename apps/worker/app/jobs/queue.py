@@ -51,6 +51,15 @@ class InMemoryJobQueue:
         self._jobs: dict[int, QueueJob] = {}
         self._next_id = 1
 
+    def has_dedupe_key(self, dedupe_key: str) -> bool:
+        """True if any job (any status) already used this dedupe_key.
+
+        Scheduler keys (`sched:…`) must not re-fire in the same time bucket
+        after a short job succeeds; ordinary enqueue still only dedupes
+        active jobs.
+        """
+        return any(job.dedupe_key == dedupe_key for job in self._jobs.values())
+
     def enqueue(
         self,
         job_type: str,
@@ -60,6 +69,12 @@ class InMemoryJobQueue:
         priority: int = 0,
         max_attempts: int = 5,
     ) -> QueueJob:
+        # Scheduler buckets: reject re-enqueue for any terminal/active status.
+        if dedupe_key.startswith("sched:") and self.has_dedupe_key(dedupe_key):
+            for job in self._jobs.values():
+                if job.dedupe_key == dedupe_key:
+                    return job
+
         for job in self._jobs.values():
             if (
                 job.job_type == job_type
@@ -253,6 +268,109 @@ class InMemoryJobQueue:
 class PostgresJobQueue:
     def __init__(self, database_url: str, engine: Engine | None = None) -> None:
         self.engine = engine or create_engine(database_url, pool_pre_ping=True)
+
+    def has_dedupe_key(self, dedupe_key: str) -> bool:
+        with self.engine.begin() as connection:
+            found = connection.execute(
+                text("SELECT 1 FROM jobs WHERE dedupe_key = :dedupe_key LIMIT 1"),
+                {"dedupe_key": dedupe_key},
+            ).scalar_one_or_none()
+        return found is not None
+
+    def enqueue(
+        self,
+        job_type: str,
+        payload: dict[str, object],
+        *,
+        dedupe_key: str,
+        priority: int = 0,
+        max_attempts: int = 5,
+    ) -> QueueJob:
+        params = {
+            "job_type": job_type,
+            "payload": json.dumps(payload, ensure_ascii=False),
+            "dedupe_key": dedupe_key,
+            "priority": priority,
+            "max_attempts": max_attempts,
+        }
+        with self.engine.begin() as connection:
+            if dedupe_key.startswith("sched:"):
+                existing = connection.execute(
+                    text(
+                        """
+                        SELECT * FROM jobs
+                        WHERE dedupe_key = :dedupe_key
+                        ORDER BY id ASC
+                        LIMIT 1
+                        """
+                    ),
+                    {"dedupe_key": dedupe_key},
+                ).mappings().one_or_none()
+                if existing is not None:
+                    return _queue_job_from_row(existing)
+
+            existing_active = connection.execute(
+                text(
+                    """
+                    SELECT * FROM jobs
+                    WHERE job_type = :job_type
+                      AND dedupe_key = :dedupe_key
+                      AND status IN ('queued', 'running')
+                    ORDER BY id ASC
+                    LIMIT 1
+                    """
+                ),
+                params,
+            ).mappings().one_or_none()
+            if existing_active is not None:
+                return _queue_job_from_row(existing_active)
+
+            if self.engine.dialect.name == "postgresql":
+                row = connection.execute(
+                    text(
+                        """
+                        INSERT INTO jobs (job_type, payload, dedupe_key, priority, max_attempts)
+                        VALUES (
+                          :job_type,
+                          CAST(:payload AS jsonb),
+                          :dedupe_key,
+                          :priority,
+                          :max_attempts
+                        )
+                        ON CONFLICT (job_type, dedupe_key)
+                        WHERE status IN ('queued', 'running')
+                        DO NOTHING
+                        RETURNING *;
+                        """
+                    ),
+                    params,
+                ).mappings().one_or_none()
+                if row is None:
+                    row = connection.execute(
+                        text(
+                            """
+                            SELECT * FROM jobs
+                            WHERE job_type = :job_type
+                              AND dedupe_key = :dedupe_key
+                            ORDER BY id DESC
+                            LIMIT 1
+                            """
+                        ),
+                        params,
+                    ).mappings().one()
+                return _queue_job_from_row(row)
+
+            row = connection.execute(
+                text(
+                    """
+                    INSERT INTO jobs (job_type, payload, dedupe_key, priority, max_attempts)
+                    VALUES (:job_type, :payload, :dedupe_key, :priority, :max_attempts)
+                    RETURNING *;
+                    """
+                ),
+                params,
+            ).mappings().one()
+            return _queue_job_from_row(row)
 
     def claim_next(self, worker_id: str) -> QueueJob | None:
         with self.engine.begin() as connection:

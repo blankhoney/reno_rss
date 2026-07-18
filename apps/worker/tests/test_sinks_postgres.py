@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 import json
 import os
@@ -146,6 +147,7 @@ def test_postgres_scoring_and_recommendation_sinks_use_real_schema_types():
         assert candidate_rows == [
             {
                 "article_id": ids["article_id"],
+                "title": "Scored article",
                 "feed_ids": [ids["feed_id"]],
                 "base_score": 91,
                 "published_at": datetime(2026, 6, 24, 12, tzinfo=UTC),
@@ -257,6 +259,47 @@ def test_postgres_article_sink_creates_miniflux_feed_before_fk_writes():
         assert row["miniflux_category_id"] == 9
     finally:
         sink.dispose()
+
+
+def test_postgres_enqueue_recommendations_is_idempotent_under_concurrency():
+    database_url = os.environ.get("WORKER_QUEUE_POSTGRES_TEST_URL")
+    if not database_url:
+        pytest.skip("set WORKER_QUEUE_POSTGRES_TEST_URL to run the real Postgres sink test")
+
+    _run_api_command(database_url, "alembic", "upgrade", "head")
+
+    normalized_url = normalize_database_url(database_url) or database_url
+    engine = create_engine(normalized_url, pool_pre_ping=True)
+    score_sink = DatabaseScoreSink(engine=engine)
+    ids = _seed_real_schema_fixture(engine)
+
+    try:
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            list(executor.map(lambda _index: score_sink.enqueue_recommendations(ids["batch_id"]), range(12)))
+
+        with engine.begin() as connection:
+            jobs = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT id, payload
+                        FROM jobs
+                        WHERE job_type='generate_recommendations'
+                          AND payload @> CAST(:payload AS jsonb)
+                          AND status IN ('queued', 'running')
+                        ORDER BY id;
+                        """
+                    ),
+                    {"payload": json.dumps({"source_batch_id": ids["batch_id"]})},
+                )
+                .mappings()
+                .all()
+            )
+
+        assert len(jobs) == 1
+        assert jobs[0]["payload"] == {"source_batch_id": ids["batch_id"]}
+    finally:
+        score_sink.dispose()
 
 
 def _seed_real_schema_fixture(engine):
