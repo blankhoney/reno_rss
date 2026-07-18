@@ -347,6 +347,34 @@ export function SavedSearchesPanel() {
   );
 }
 
+const RESEARCH_TEMPLATES: Array<{
+  id: string;
+  label: string;
+  scope: "topn" | "project" | "topic";
+  question: string;
+  topic?: string;
+}> = [
+  {
+    id: "weekly",
+    label: "周研究简报",
+    scope: "topn",
+    question: "请生成本周研究简报：关键信号、风险、值得立项项，分条列出并引用原文。",
+  },
+  {
+    id: "radar",
+    label: "技术/竞品雷达",
+    scope: "topic",
+    topic: "radar",
+    question: "请做技术与竞品雷达：新动向、分化、空白机会，按优先级排序并给引用。",
+  },
+  {
+    id: "onepager",
+    label: "立项一页纸",
+    scope: "project",
+    question: "请把当前立项队列整理成一页纸：问题、洞察、下一步行动、风险。",
+  },
+];
+
 export function ResearchPanel() {
   const [scope, setScope] = useState<"topn" | "project" | "topic">("topn");
   const [topic, setTopic] = useState("");
@@ -389,6 +417,22 @@ export function ResearchPanel() {
   return (
     <PanelShell title="语料研究 Agent" hint="跨 TopN / 项目 / 主题提问；异步 job，可轮询导出。">
       {error ? <p className="adminConsoleError">{error}</p> : null}
+      <div className="articleListActions">
+        {RESEARCH_TEMPLATES.map((template) => (
+          <button
+            key={template.id}
+            type="button"
+            className="readerToolbarBtn"
+            onClick={() => {
+              setScope(template.scope);
+              setTopic(template.topic ?? "");
+              setQuestion(template.question);
+            }}
+          >
+            {template.label}
+          </button>
+        ))}
+      </div>
       <div className="productModuleForm">
         <label>
           范围
