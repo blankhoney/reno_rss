@@ -14,3 +14,16 @@ async def test_healthz_returns_public_status(path):
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert "version" in response.json()
+
+
+
+
+import pytest
+
+@pytest.mark.asyncio
+async def test_api_metrics_exposes_prometheus_text(client):
+    response = await client.get("/api/metrics")
+    assert response.status_code == 200
+    body = response.text
+    assert "ai_reader_up 1" in body
+    assert "ai_reader_ask_calls_used" in body

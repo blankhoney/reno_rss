@@ -148,7 +148,21 @@ def create_ask_provider(settings: Settings) -> AskProvider:
             thinking_type=settings.minimax_thinking_type,
             timeout_seconds=settings.llm_timeout_seconds,
         )
-    raise ValueError("LLM_PROVIDER must be 'mock' or 'minimax'")
+    if selected in {"local", "openai_compatible"}:
+        import os
+
+        return MiniMaxAskProvider(
+            api_key=os.environ.get("LOCAL_LLM_API_KEY", "local"),
+            base_url=os.environ.get("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1").rstrip("/"),
+            model=os.environ.get("LOCAL_LLM_MODEL", "llama3.2"),
+            temperature=settings.minimax_temperature,
+            top_p=settings.minimax_top_p,
+            max_completion_tokens=settings.minimax_max_completion_tokens,
+            reasoning_split=False,
+            thinking_type=None,
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
+    raise ValueError("LLM_PROVIDER must be 'mock', 'minimax', or 'local'")
 
 
 @router.post("/{article_id}/ask")

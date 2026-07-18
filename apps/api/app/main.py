@@ -76,6 +76,26 @@ def create_app() -> FastAPI:
     async def api_healthz() -> dict[str, object]:
         return {"ok": True, "time": datetime.now(UTC).isoformat(), "version": app.version}
 
+    @app.get("/api/metrics")
+    async def api_metrics(request: Request) -> Response:
+        """Lightweight Prometheus text exposition (no extra deps)."""
+        budget = getattr(request.app.state, "llm_budget", None)
+        used = int(getattr(budget, "used", 0) or 0)
+        limit = int(getattr(budget, "limit", 0) or 0)
+        lines = [
+            "# HELP ai_reader_up Always 1 when the API process is serving.",
+            "# TYPE ai_reader_up gauge",
+            "ai_reader_up 1",
+            "# HELP ai_reader_ask_calls_used Process-local ask budget used today.",
+            "# TYPE ai_reader_ask_calls_used gauge",
+            f"ai_reader_ask_calls_used {used}",
+            "# HELP ai_reader_ask_calls_limit Process-local ask budget limit (0=unlimited).",
+            "# TYPE ai_reader_ask_calls_limit gauge",
+            f"ai_reader_ask_calls_limit {limit}",
+            "",
+        ]
+        return Response("\n".join(lines), media_type="text/plain; version=0.0.4; charset=utf-8")
+
     app.include_router(auth.router)
     app.include_router(articles.router)
     app.include_router(ask.router)

@@ -289,7 +289,26 @@ def create_provider(provider_name: str | None = None) -> LLMProvider:
         if not config.api_key or config.api_key == "change_me":
             raise RuntimeError("MINIMAX_API_KEY is required when LLM_PROVIDER=minimax")
         return MiniMaxProvider(MinimaxLLMClient(config))
-    raise ValueError("LLM_PROVIDER must be 'mock' or 'minimax'")
+    if selected in {"local", "openai_compatible"}:
+        # OpenAI-compatible local endpoint (Ollama/vLLM/LM Studio). Optional profile.
+        config = MinimaxConfig(
+            api_key=os.environ.get("LOCAL_LLM_API_KEY", "local"),
+            base_url=os.environ.get("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1").rstrip("/"),
+            model=os.environ.get("LOCAL_LLM_MODEL", "llama3.2"),
+            temperature=_parse_float(os.environ.get("LOCAL_LLM_TEMPERATURE"), DEFAULT_MINIMAX_TEMPERATURE),
+            top_p=_parse_float(os.environ.get("LOCAL_LLM_TOP_P"), DEFAULT_MINIMAX_TOP_P),
+            max_completion_tokens=_parse_optional_positive_int(
+                os.environ.get("LOCAL_LLM_MAX_COMPLETION_TOKENS"),
+                DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS,
+            ),
+            reasoning_split=False,
+            thinking_type=None,
+            timeout_seconds=float(
+                os.environ.get("LLM_TIMEOUT_SECONDS", str(DEFAULT_LLM_TIMEOUT_SECONDS))
+            ),
+        )
+        return MiniMaxProvider(MinimaxLLMClient(config))
+    raise ValueError("LLM_PROVIDER must be 'mock', 'minimax', or 'local'")
 
 
 def tier_for_score(score: int | float) -> str:
