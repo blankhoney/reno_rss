@@ -160,6 +160,34 @@ def enqueue_daily_brief(
     )
 
 
+@router.post("/govern-sources")
+def enqueue_govern_sources(
+    current_user: UserRecord = Depends(require_admin),
+    job_repository: JobStore = Depends(get_job_repository),
+    dry_run: bool = False,
+) -> JSONResponse:
+    """Queue source-quality demotion pass (hide residual/failed feeds)."""
+    job = job_repository.enqueue(
+        "govern_sources",
+        {
+            "limit": 500,
+            "min_samples": 5,
+            "bad_ratio_threshold": 0.6,
+            "dry_run": dry_run,
+            "trigger": "admin",
+        },
+        dedupe_key=dedupe_key_for(
+            "govern_sources",
+            f"{datetime.now(UTC).date().isoformat()}:{'dry' if dry_run else 'apply'}",
+        ),
+        created_by=current_user.id,
+    )
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job.id, "job_type": job.job_type, "status": job.status},
+    )
+
+
 @router.post("/sync")
 def enqueue_miniflux_sync(
     payload: SyncMinifluxRequest,

@@ -8,12 +8,14 @@ from threading import Event
 from app.db.article_sink import DatabaseArticleSink
 from app.db.benchmark_sink import DatabaseBenchmarkSink
 from app.db.content_sink import DatabaseContentSink
+from app.db.governance_sink import DatabaseGovernanceSink
 from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
 from app.jobs.auto_score import run_auto_score_candidates
 from app.jobs.daily_brief import generate_daily_brief
 from app.jobs.fetch_content import fetch_article_content
 from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
+from app.jobs.govern_sources import govern_sources
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
 from app.jobs.research_brief import run_research_brief
 from app.jobs.run_benchmark import run_benchmark
@@ -51,6 +53,7 @@ def build_handler_registry() -> dict[str, Handler]:
         "fetch_article_content": _fetch_article_content,
         "generate_daily_brief": _generate_daily_brief,
         "generate_recommendations": _generate_recommendations,
+        "govern_sources": _govern_sources,
         "research_brief": _research_brief,
         "run_benchmark": _run_benchmark,
         "score_batch": _score_batch,
@@ -212,6 +215,17 @@ def _generate_recommendations(payload) -> dict[str, object]:
     )
     try:
         return generate_recommendations(dict(payload), sink, rank_b4_recommendation_context)
+    finally:
+        sink.dispose()
+
+
+def _govern_sources(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for govern_sources")
+    sink = DatabaseGovernanceSink(database_url)
+    try:
+        return govern_sources(dict(payload), sink)
     finally:
         sink.dispose()
 

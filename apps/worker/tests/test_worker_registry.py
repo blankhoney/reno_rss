@@ -6,6 +6,7 @@ EXPECTED_JOB_TYPES = {
     "fetch_article_content",
     "generate_daily_brief",
     "generate_recommendations",
+    "govern_sources",
     "research_brief",
     "run_benchmark",
     "score_batch",
