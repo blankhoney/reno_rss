@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Path, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import (
@@ -8,6 +8,11 @@ from app.api.deps import (
     get_job_repository,
     get_scoring_repository,
     require_user,
+)
+from app.domain.export_project import (
+    ExportArticle,
+    build_project_export_json,
+    build_project_export_markdown,
 )
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import (
@@ -303,6 +308,40 @@ def list_article_annotations(
     # Private v1: only the current user's annotations are returned.
     items = article_repository.list_annotations(current_user.id, article_id)
     return {"items": [annotation_public(item) for item in items]}
+
+
+@router.get("/export/project")
+def export_project_articles(
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+    scoring_repository: ScoringStore = Depends(get_scoring_repository),
+    format: str = Query(default="markdown", pattern="^(markdown|json)$"),
+    limit: int = Query(default=100, ge=1, le=200),
+) -> Response:
+    """Export the current user's project queue as Markdown or JSON (no secrets)."""
+    page = article_repository.list_articles(
+        limit=limit,
+        user_id=current_user.id,
+        module="project",
+    )
+    scores = scoring_repository.active_scores_for_articles([item.id for item in page.items])
+    export_items = [
+        ExportArticle(
+            id=article.id,
+            title=article.title,
+            url=article.url,
+            summary_zh=(scores[article.id].summary_zh if article.id in scores else ""),
+            score=scores[article.id].base_score if article.id in scores else None,
+            tier=scores[article.id].recommendation_tier if article.id in scores else None,
+            reason=scores[article.id].reason if article.id in scores else "",
+            tags=[str(tag) for tag in (scores[article.id].tags if article.id in scores else [])],
+        )
+        for article in page.items
+    ]
+    if format == "json":
+        return JSONResponse(build_project_export_json(export_items))
+    body = build_project_export_markdown(export_items)
+    return PlainTextResponse(body, media_type="text/markdown; charset=utf-8")
 
 
 @router.get("/annotations/review")

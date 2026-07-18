@@ -2888,6 +2888,65 @@ body:has(.focusReader) .toastHost {
   font-size: 0.75rem;
 }
 
+.workbenchRibbonLink {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.workbenchRibbonLink:hover {
+  text-decoration: underline;
+}
+
+.reviewQueuePane {
+  min-width: 0;
+  padding: var(--space-5) var(--space-6);
+}
+
+.reviewQueueList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.reviewQueueItem {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  padding: 14px 16px;
+}
+
+.reviewQueueQuote {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.reviewQueueNote {
+  margin: 0 0 8px;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
+.reviewQueueMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.reviewQueueMeta a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
 .articleListKbdHintSep {
   opacity: 0.55;
 }
