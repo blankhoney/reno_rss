@@ -3195,18 +3195,53 @@ html[data-reader-mode="focus"] .moduleSidebar {
   display: none;
 }
 
-html[data-dual-pane="true"] .workbenchMain,
-html[data-dual-pane="true"] .focusedArticleScreen {
+html[data-dual-pane="true"] .focusReader {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.75fr);
   gap: 0;
+  align-items: start;
 }
 
-html[data-dual-pane="true"] .focusedArticleNotes,
-html[data-dual-pane="true"] .articleAskPane {
+.focusedArticleNotes {
   border-left: 1px solid var(--border);
   min-height: 100%;
   background: var(--panel);
+  padding: 16px 18px;
+  display: grid;
+  gap: 10px;
+  position: sticky;
+  top: var(--topbar-h);
+}
+
+.focusedArticleNotes h2,
+.focusRelatedRail h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.focusRelatedRail {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border);
+  padding: 14px 18px 20px;
+  background: var(--panel2, var(--panel));
+}
+
+.focusRelatedRail ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.focusRelatedRail a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.focusRelatedRail a:hover {
+  color: var(--accent);
 }
 
 @media (max-width: 960px) {

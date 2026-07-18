@@ -10,7 +10,9 @@ import type { SummaryLangId } from "@/lib/articles/service";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
 import { createArticleAnnotation, saveArticleFeedback } from "@/lib/api/articles";
 import { streamArticleAsk, type ArticleAskCitation } from "@/lib/api/client";
+import { listClusters, listThemes } from "@/lib/api/intel";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
+import { readCraftPreferences } from "@/lib/craft/preferences";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AnimatedPanel } from "./AnimatedPanel";
 import { ScoreRing, tierColorVar, tierLabel } from "./ScoreRing";
@@ -115,6 +117,11 @@ export function FocusedArticleReader({
     [],
   );
   const [citations, setCitations] = useState<ArticleAskCitation[]>([]);
+  const [related, setRelated] = useState<
+    Array<{ kind: "theme" | "cluster"; label: string; href: string }>
+  >([]);
+  const [dualPane, setDualPane] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -170,6 +177,57 @@ export function FocusedArticleReader({
       run: () => void articleActions.markRead(),
     },
   ];
+
+  useEffect(() => {
+    setDualPane(readCraftPreferences().dualPane);
+    const onPrefs = () => setDualPane(readCraftPreferences().dualPane);
+    window.addEventListener("ai-reader:craft-prefs", onPrefs);
+    return () => window.removeEventListener("ai-reader:craft-prefs", onPrefs);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    Promise.allSettled([listThemes(30), listClusters(20)]).then((results) => {
+      if (!active) return;
+      const next: Array<{ kind: "theme" | "cluster"; label: string; href: string }> = [];
+      const themes = results[0].status === "fulfilled" ? results[0].value : [];
+      const clusters = results[1].status === "fulfilled" ? results[1].value : [];
+      for (const theme of themes) {
+        if (!theme.articleIds.includes(article.id)) continue;
+        next.push({
+          kind: "theme",
+          label: theme.label,
+          href: `/?module=themes&sort=default&lang=zh`,
+        });
+        for (const relatedId of theme.articleIds) {
+          if (relatedId === article.id) continue;
+          next.push({
+            kind: "theme",
+            label: `${theme.label} → #${relatedId}`,
+            href: `/read/${relatedId}?module=themes&sort=default&lang=zh`,
+          });
+          if (next.length >= 8) break;
+        }
+      }
+      for (const cluster of clusters) {
+        if (
+          cluster.mainArticleId !== article.id &&
+          !cluster.relatedArticleIds.includes(article.id)
+        ) {
+          continue;
+        }
+        next.push({
+          kind: "cluster",
+          label: `${cluster.label} (${cluster.size})`,
+          href: `/read/${cluster.mainArticleId}?module=clusters&sort=default&lang=zh`,
+        });
+      }
+      setRelated(next.slice(0, 10));
+    });
+    return () => {
+      active = false;
+    };
+  }, [article.id]);
 
   useEffect(() => {
     askAbortRef.current?.abort();
@@ -794,6 +852,58 @@ export function FocusedArticleReader({
           ) : null}
         </motion.div>
       </section>
+
+      {related.length > 0 ? (
+        <aside className="focusRelatedRail" aria-label="相关主题与故事线">
+          <h2>相关跳转</h2>
+          <ul>
+            {related.map((item) => (
+              <li key={`${item.kind}-${item.label}-${item.href}`}>
+                <Link href={item.href} prefetch={false}>
+                  <span className="workbenchRibbonMuted">{item.kind}</span> {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      ) : null}
+
+      {dualPane ? (
+        <aside className="focusedArticleNotes" aria-label="笔记双栏">
+          <h2>笔记</h2>
+          <p className="workbenchRibbonMuted">双栏模式：文章 + 笔记。选区高亮仍会保存到私有标注。</p>
+          <textarea
+            className="agentQuestion"
+            rows={12}
+            value={noteDraft}
+            onChange={(event) => setNoteDraft(event.target.value)}
+            placeholder="边读边记…"
+          />
+          <button
+            type="button"
+            className="readerToolbarBtn readerToolbarBtnPrimary"
+            disabled={noteDraft.trim().length === 0}
+            onClick={() => {
+              void createArticleAnnotation(article.id, {
+                content: noteDraft.trim(),
+                selectedText: selectedText || null,
+              })
+                .then(() => {
+                  setNoteDraft("");
+                  emitToast({ title: "笔记已保存", variant: "success" });
+                })
+                .catch((error) => {
+                  emitToast({
+                    title: error instanceof Error ? error.message : "笔记保存失败",
+                    variant: "error",
+                  });
+                });
+            }}
+          >
+            保存笔记
+          </button>
+        </aside>
+      ) : null}
     </motion.main>
   );
 }
