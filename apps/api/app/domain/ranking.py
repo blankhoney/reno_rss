@@ -4,18 +4,57 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 
-def _load_rules_module() -> Any:
-    """Import rules only when ranking runs inside the API package.
+_RULES_MODULE: Any | None = None
+_RULES_LOAD_ATTEMPTED = False
 
-    Worker loads this file via importlib without the API package on sys.path,
-    so a hard top-level import would break worker recommendation jobs.
+
+def _load_rules_module() -> Any:
+    """Load rules.py for rank_b4 rule application.
+
+    Prefer a normal package import when ranking runs inside the API. When the
+    worker loads this file via importlib (no ``app.domain`` on sys.path), fall
+    back to loading sibling ``rules.py`` the same way so mute/boost still run.
     """
+    global _RULES_MODULE, _RULES_LOAD_ATTEMPTED
+    if _RULES_MODULE is not None:
+        return _RULES_MODULE
+    if _RULES_LOAD_ATTEMPTED and _RULES_MODULE is None:
+        # Keep retrying importlib path even after a failed package import.
+        pass
     try:
         from app.domain import rules as rules_module
 
+        _RULES_MODULE = rules_module
+        _RULES_LOAD_ATTEMPTED = True
         return rules_module
     except ImportError:
+        pass
+
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    rules_path = Path(__file__).resolve().with_name("rules.py")
+    if not rules_path.exists():
+        _RULES_LOAD_ATTEMPTED = True
         return None
+    module_name = "ai_reader_api_rules"
+    spec = importlib.util.spec_from_file_location(module_name, rules_path)
+    if spec is None or spec.loader is None:
+        _RULES_LOAD_ATTEMPTED = True
+        return None
+    module = importlib.util.module_from_spec(spec)
+    # dataclasses needs the module registered before exec_module.
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        _RULES_LOAD_ATTEMPTED = True
+        return None
+    _RULES_MODULE = module
+    _RULES_LOAD_ATTEMPTED = True
+    return module
 
 
 FEEDBACK_BASE_ADJUSTMENTS = {

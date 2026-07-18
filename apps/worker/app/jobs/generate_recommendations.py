@@ -21,6 +21,9 @@ class RecommendationContext:
     feedback_by_article: dict[int, object]
     article_status_by_article: dict[int, str | None]
     now: datetime | None = None
+    # User reader rules (boost/mute/keyword/threshold) applied inside rank_b4.
+    rules: list[object] | None = None
+    titles_by_article: dict[int, str] | None = None
 
 
 class RecommendationSink(Protocol):
@@ -121,6 +124,8 @@ def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[o
         feedback_by_article=context.feedback_by_article,
         article_status_by_article=context.article_status_by_article,
         now=context.now,
+        rules=list(context.rules or []),
+        titles_by_article=dict(context.titles_by_article or {}),
     )
 
 

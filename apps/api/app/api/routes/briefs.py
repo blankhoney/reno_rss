@@ -169,8 +169,9 @@ def brief_from_recommendations(
         "generated_at": edition.generated_at.isoformat(),
         "title": f"今日情报 {edition.generated_at.date().isoformat()}",
         "source": "recommendations_fallback",
+        # Disjoint tiers: must_read-only / read-only / skim|skip (no overlap).
         "must_read": [row for row in rows if row["tier"] == "must_read"],
-        "worth_scan": [row for row in rows if row["tier"] in {"must_read", "read"}],
+        "worth_scan": [row for row in rows if row["tier"] == "read"],
         "can_skip": [row for row in rows if row["tier"] in {"skim", "skip"}],
     }
 

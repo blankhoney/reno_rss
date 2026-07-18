@@ -166,3 +166,54 @@ def test_extract_brief_payload_accepts_nested_and_direct():
     assert extract_brief_payload({"status": "ok", "brief": direct}) == direct
     assert extract_brief_payload({"status": "ok", "item_count": 0}) is None
     assert extract_brief_payload(None) is None
+
+
+def test_recommendations_fallback_brief_tiers_are_disjoint():
+    """Fallback brief must not put must_read into worth_scan (GOAL Daily Intelligence)."""
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.api.routes.briefs import brief_from_recommendations
+
+    edition = SimpleNamespace(
+        generated_at=datetime(2026, 7, 18, 9, 0, tzinfo=UTC),
+        items=[
+            SimpleNamespace(
+                article_id=1, rank=1, tier="must_read", rank_score=95.0, reason="hot"
+            ),
+            SimpleNamespace(
+                article_id=2, rank=2, tier="read", rank_score=72.0, reason="ok"
+            ),
+            SimpleNamespace(
+                article_id=3, rank=3, tier="skim", rank_score=40.0, reason="low"
+            ),
+        ],
+    )
+    recommendation_repo = SimpleNamespace(latest_for_user=lambda _uid: edition)
+    article_repo = SimpleNamespace(
+        get_articles=lambda ids: {
+            1: SimpleNamespace(title="Must"),
+            2: SimpleNamespace(title="Read"),
+            3: SimpleNamespace(title="Skim"),
+        }
+    )
+    scoring_repo = SimpleNamespace(
+        active_scores_for_articles=lambda ids: {
+            1: SimpleNamespace(base_score=95, summary_zh="a"),
+            2: SimpleNamespace(base_score=72, summary_zh="b"),
+            3: SimpleNamespace(base_score=40, summary_zh="c"),
+        }
+    )
+    brief = brief_from_recommendations(
+        uuid4(), recommendation_repo, article_repo, scoring_repo
+    )
+    assert brief is not None
+    must_ids = {row["article_id"] for row in brief["must_read"]}
+    worth_ids = {row["article_id"] for row in brief["worth_scan"]}
+    skip_ids = {row["article_id"] for row in brief["can_skip"]}
+    assert must_ids == {1}
+    assert worth_ids == {2}
+    assert skip_ids == {3}
+    assert must_ids.isdisjoint(worth_ids)
+    assert must_ids.isdisjoint(skip_ids)
+    assert worth_ids.isdisjoint(skip_ids)

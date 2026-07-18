@@ -31,13 +31,16 @@ class DatabaseRecommendationSink:
     def recommendation_context_for_user(self, user_id: object) -> RecommendationContext:
         now = datetime.now(UTC)
         priorities = self._user_priorities(user_id)
+        candidates = self._candidate_rows_once()
         return RecommendationContext(
             user_id=user_id,
-            candidates=self._candidate_rows_once(),
+            candidates=candidates,
             user_priority_by_feed=priorities,
             feedback_by_article=self._feedback_by_article(user_id),
             article_status_by_article=self._state_by_article(user_id),
             now=now,
+            rules=self._rules_for_user(user_id),
+            titles_by_article=self._titles_from_candidates(candidates),
         )
 
     def save_recommendation_edition(
@@ -167,6 +170,7 @@ class DatabaseRecommendationSink:
                         """
                         SELECT
                             a.id AS article_id,
+                            a.title,
                             a.published_at,
                             s.feed_id,
                             bs.base_score,
@@ -191,6 +195,7 @@ class DatabaseRecommendationSink:
                 article_id,
                 {
                     "article_id": article_id,
+                    "title": str(row["title"] or "") if row.get("title") is not None else "",
                     "feed_ids": [],
                     "base_score": int(row["base_score"]),
                     "published_at": _parse_datetime(row["published_at"]),
@@ -247,6 +252,53 @@ class DatabaseRecommendationSink:
                 .all()
             )
         return {int(row["article_id"]): row["status"] for row in rows}
+
+    def _rules_for_user(self, user_id: object) -> list[object]:
+        """Load boost/mute/keyword/threshold rules for the ranking pipeline."""
+        try:
+            with self.engine.begin() as connection:
+                row = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT rules
+                            FROM user_reader_rules
+                            WHERE user_id = :user_id;
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+        except Exception:
+            # Table may be missing in older schemas/tests; ranking still works.
+            return []
+        if row is None:
+            return []
+        raw = row["rules"]
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(raw, list):
+            return []
+        return [item for item in raw if isinstance(item, dict)]
+
+    @staticmethod
+    def _titles_from_candidates(candidates: list[dict[str, object]]) -> dict[int, str]:
+        titles: dict[int, str] = {}
+        for candidate in candidates:
+            try:
+                article_id = int(candidate["article_id"])  # type: ignore[arg-type]
+            except (KeyError, TypeError, ValueError):
+                continue
+            title = candidate.get("title")
+            titles[article_id] = str(title) if title is not None else ""
+        return titles
 
 
 def _parse_datetime(value: object) -> datetime:
