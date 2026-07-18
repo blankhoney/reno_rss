@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Newsreader, Noto_Serif_SC } from "next/font/google";
 import { CommandPaletteHost } from "@/components/CommandPalette";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { MotionRoot } from "@/components/MotionRoot";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import { ToastHost } from "@/components/Toast";
@@ -46,6 +48,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <MotionRoot>{children}</MotionRoot>
+        <Suspense fallback={null}>
+          <MobileBottomNav />
+        </Suspense>
         <CommandPaletteHost />
         <ToastHost />
         <ServiceWorkerRegister />

@@ -128,8 +128,11 @@ def article_list_item_public(
     state: ArticleStateRecord,
     score: ScoreRecord | None = None,
     feedback: ArticleFeedbackRecord | None = None,
+    *,
+    feed_hidden: bool | None = None,
+    feed_quality_score: float | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "id": article.id,
         "title": article.title,
         "url": article.url,
@@ -147,6 +150,12 @@ def article_list_item_public(
         "state": article_state_public(state),
         "my_feedback": article_feedback_public(feedback) if feedback is not None else None,
     }
+    # Reserved client fields now emitted for source governance (GOAL §4.A).
+    if feed_hidden is not None:
+        payload["feed_hidden"] = feed_hidden
+    if feed_quality_score is not None:
+        payload["feed_quality_score"] = feed_quality_score
+    return payload
 
 
 def article_source_public(source: ArticleSourceRecord) -> dict[str, object]:
@@ -216,6 +225,12 @@ async def list_articles(
     scores = scoring_repository.active_scores_for_articles(article_ids)
     states = article_repository.get_states(current_user.id, article_ids)
     feedbacks = article_repository.get_feedbacks(current_user.id, article_ids)
+    feed_ids = [
+        int(article.primary_feed_id)
+        for article in page.items
+        if article.primary_feed_id is not None
+    ]
+    feed_meta = article_repository.feed_governance_for_user(current_user.id, feed_ids)
 
     return {
         "items": [
@@ -224,6 +239,16 @@ async def list_articles(
                 states[article.id],
                 scores.get(article.id),
                 feedbacks.get(article.id),
+                feed_hidden=(
+                    feed_meta.get(int(article.primary_feed_id), {}).get("hidden")
+                    if article.primary_feed_id is not None
+                    else None
+                ),
+                feed_quality_score=(
+                    feed_meta.get(int(article.primary_feed_id), {}).get("quality_score")
+                    if article.primary_feed_id is not None
+                    else None
+                ),
             )
             for article in page.items
         ],

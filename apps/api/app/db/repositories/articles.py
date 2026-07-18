@@ -7,7 +7,7 @@ from typing import Protocol
 from uuid import UUID
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import Engine, and_, create_engine, desc, func, or_, select, update
+from sqlalchemy import Engine, and_, case, create_engine, desc, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -19,6 +19,7 @@ from app.db.models import (
     feeds,
     user_article_feedback_scores,
     user_article_states,
+    user_feed_subscriptions,
 )
 
 # State/queue modules filtered server-side. Dimension modules map to "all"
@@ -226,6 +227,12 @@ class ArticleStore(Protocol):
         article_ids: list[int],
     ) -> dict[int, ArticleFeedbackRecord]: ...
 
+    def feed_governance_for_user(
+        self,
+        user_id: UUID,
+        feed_ids: list[int],
+    ) -> dict[int, dict[str, object]]: ...
+
     def upsert_feedback(
         self,
         user_id: UUID,
@@ -300,6 +307,8 @@ class MemoryArticleRepository:
         self._states: dict[tuple[UUID, int], ArticleStateRecord] = {}
         self._feedbacks: dict[tuple[UUID, int], ArticleFeedbackRecord] = {}
         self._annotations: dict[int, AnnotationRecord] = {}
+        # user_id -> feed_id -> {hidden, quality_score, user_priority}
+        self._feed_governance: dict[tuple[UUID, int], dict[str, object]] = {}
         self._next_id = 1
         self._next_annotation_id = 1
 
@@ -618,6 +627,33 @@ class MemoryArticleRepository:
             article_id: feedback
             for (feedback_user_id, article_id), feedback in self._feedbacks.items()
             if feedback_user_id == user_id and article_id in article_id_set
+        }
+
+    def feed_governance_for_user(
+        self,
+        user_id: UUID,
+        feed_ids: list[int],
+    ) -> dict[int, dict[str, object]]:
+        result: dict[int, dict[str, object]] = {}
+        for feed_id in feed_ids:
+            meta = self._feed_governance.get((user_id, int(feed_id)))
+            if meta is None:
+                result[int(feed_id)] = {"hidden": False, "quality_score": 70.0}
+            else:
+                result[int(feed_id)] = dict(meta)
+        return result
+
+    def set_feed_governance_for_tests(
+        self,
+        user_id: UUID,
+        feed_id: int,
+        *,
+        hidden: bool = False,
+        quality_score: float = 70.0,
+    ) -> None:
+        self._feed_governance[(user_id, int(feed_id))] = {
+            "hidden": hidden,
+            "quality_score": quality_score,
         }
 
     def upsert_feedback(
@@ -1105,6 +1141,70 @@ class DatabaseArticleRepository:
                 .all()
             )
         return {int(row["article_id"]): _feedback_from_row(row) for row in rows}
+
+    def feed_governance_for_user(
+        self,
+        user_id: UUID,
+        feed_ids: list[int],
+    ) -> dict[int, dict[str, object]]:
+        unique_feed_ids = sorted({int(feed_id) for feed_id in feed_ids})
+        if not unique_feed_ids:
+            return {}
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(user_feed_subscriptions).where(
+                        user_feed_subscriptions.c.user_id == user_id,
+                        user_feed_subscriptions.c.feed_id.in_(unique_feed_ids),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            quality_expr = case(
+                (articles.c.content_quality == "full", 90.0),
+                (articles.c.content_quality == "snippet", 40.0),
+                (articles.c.content_quality == "partial", 35.0),
+                (articles.c.content_quality == "blocked", 15.0),
+                (articles.c.content_quality == "failed", 10.0),
+                else_=55.0,
+            )
+            quality_rows = (
+                connection.execute(
+                    select(
+                        article_sources.c.feed_id.label("feed_id"),
+                        func.avg(quality_expr).label("quality_score"),
+                    )
+                    .select_from(
+                        article_sources.join(articles, articles.c.id == article_sources.c.article_id)
+                    )
+                    .where(article_sources.c.feed_id.in_(unique_feed_ids))
+                    .group_by(article_sources.c.feed_id)
+                )
+                .mappings()
+                .all()
+            )
+        quality_by_feed = {
+            int(row["feed_id"]): float(row["quality_score"])
+            for row in quality_rows
+            if row.get("feed_id") is not None
+        }
+        by_feed: dict[int, dict[str, object]] = {
+            feed_id: {
+                "hidden": False,
+                "quality_score": quality_by_feed.get(feed_id, 70.0),
+            }
+            for feed_id in unique_feed_ids
+        }
+        for row in rows:
+            feed_id = int(row["feed_id"])
+            priority = int(row["user_priority"] or 0)
+            hidden = bool(row.get("hidden", False)) or priority <= -20
+            by_feed[feed_id] = {
+                "hidden": hidden,
+                "quality_score": quality_by_feed.get(feed_id, 70.0),
+            }
+        return by_feed
 
     def upsert_feedback(
         self,

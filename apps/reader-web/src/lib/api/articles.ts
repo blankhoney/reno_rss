@@ -52,6 +52,8 @@ export type ApiArticleItem = {
   summary_zh?: string | null;
   state?: ApiArticleState | null;
   my_feedback?: ApiArticleFeedback | null;
+  feed_hidden?: boolean | null;
+  feed_quality_score?: number | null;
 };
 
 export type ApiArticleDetail = ApiArticleItem & {
@@ -268,6 +270,11 @@ function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article 
     myFeedback: feedbackFromApi(item.my_feedback),
     readLater: saved,
     lastReadAt: state.status === "read" ? new Date().toISOString() : null,
+    feedHidden: item.feed_hidden === true,
+    feedQualityScore:
+      typeof item.feed_quality_score === "number" && Number.isFinite(item.feed_quality_score)
+        ? item.feed_quality_score
+        : undefined,
   };
 }
 
