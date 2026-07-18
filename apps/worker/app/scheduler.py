@@ -62,27 +62,23 @@ def default_schedule_specs(
 ) -> tuple[ScheduleSpec, ...]:
     """Start the unattended chain and schedule independent source governance.
 
-    ``auto_score_candidates`` chains recommendations (directly when there are
-    no candidates, otherwise after ``score_batch``), and recommendations chain
-    the daily brief. This prevents downstream jobs from racing ahead of new
-    scores. Operators can pause the loop with SCHEDULER_ENABLED=false.
+    The scheduled sync creates content-fetch jobs and a completion barrier;
+    that barrier starts auto-score only after every fetch is terminal. Scoring
+    then chains recommendations and the daily brief. Operators can pause the
+    loop with SCHEDULER_ENABLED=false.
     """
     return (
         ScheduleSpec(
             job_type=SYNC_JOB_TYPE,
             interval=timedelta(hours=1),
-            payload={"limit": sync_limit, "trigger": "scheduled"},
-            priority=5,
-        ),
-        ScheduleSpec(
-            job_type=AUTO_SCORE_JOB_TYPE,
-            interval=timedelta(hours=6),
             payload={
+                "limit": sync_limit,
                 "lookback_hours": score_lookback_hours,
                 "max_articles": score_max_articles,
+                "continue_pipeline": True,
                 "trigger": "scheduled",
             },
-            priority=3,
+            priority=5,
         ),
         ScheduleSpec(
             job_type=GOVERN_JOB_TYPE,
@@ -141,10 +137,13 @@ def due_jobs(
         key = sched_dedupe_key(spec.job_type, start)
         if key in known:
             continue
+        payload = dict(spec.payload)
+        if spec.job_type == SYNC_JOB_TYPE and payload.get("continue_pipeline") is True:
+            payload["pipeline_cycle"] = start.isoformat()
         due.append(
             DueJob(
                 job_type=spec.job_type,
-                payload=dict(spec.payload),
+                payload=payload,
                 dedupe_key=key,
                 priority=spec.priority,
                 bucket_start=start,

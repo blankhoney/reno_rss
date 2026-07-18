@@ -11,6 +11,7 @@ class RecordingSink:
         self.articles: list[dict[str, object]] = []
         self.sources: list[dict[str, object]] = []
         self._article_ids: dict[object, int] = {}
+        self.followups: list[dict[str, object]] = []
 
     def upsert_feed(self, feed: dict[str, object]) -> int:
         self.feeds.append(dict(feed))
@@ -25,6 +26,21 @@ class RecordingSink:
 
     def upsert_article_source(self, source: dict[str, object]) -> None:
         self.sources.append(dict(source))
+
+    def enqueue_ingest_followups(
+        self,
+        article_ids: list[int],
+        *,
+        pipeline_cycle: str,
+        auto_score_payload: dict[str, object],
+    ) -> dict[str, object]:
+        record = {
+            "article_ids": list(article_ids),
+            "pipeline_cycle": pipeline_cycle,
+            "auto_score_payload": dict(auto_score_payload),
+        }
+        self.followups.append(record)
+        return record
 
 
 def test_sync_normalizes_canonical_url_without_tracking_params():
@@ -148,6 +164,43 @@ def test_run_sync_fetches_entries_from_client_when_payload_has_no_entries():
     assert result["entries_seen"] == 1
     assert result["articles_upserted"] == 1
     assert sink.articles[0]["title"] == "Fetched entry"
+
+
+def test_scheduled_sync_enqueues_content_barrier_and_auto_score_followups():
+    sink = RecordingSink()
+
+    result = sync_miniflux_entries(
+        {
+            "entries": [
+                {
+                    "feed_id": 1,
+                    "miniflux_entry_id": 101,
+                    "url": "https://example.com/post",
+                    "title": "Short feed entry",
+                    "content_text": "only a feed fragment",
+                }
+            ],
+            "continue_pipeline": True,
+            "pipeline_cycle": "2026-07-18T12:00:00+00:00",
+            "lookback_hours": 72,
+            "max_articles": 30,
+        },
+        sink,
+    )
+
+    assert sink.articles[0]["content_quality"] == "partial"
+    assert sink.followups == [
+        {
+            "article_ids": [100],
+            "pipeline_cycle": "2026-07-18T12:00:00+00:00",
+            "auto_score_payload": {
+                "lookback_hours": 72,
+                "max_articles": 30,
+                "trigger": "scheduled_pipeline",
+            },
+        }
+    ]
+    assert result["followups"]["pipeline_cycle"] == "2026-07-18T12:00:00+00:00"
 
 
 def test_run_sync_converts_transient_network_error_to_retryable():

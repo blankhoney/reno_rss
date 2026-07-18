@@ -66,7 +66,17 @@ def test_default_schedule_specs_close_intel_loop():
     specs = default_schedule_specs()
     assert [spec.job_type for spec in specs] == [
         SYNC_JOB_TYPE,
-        AUTO_SCORE_JOB_TYPE,
         GOVERN_JOB_TYPE,
     ]
-    assert [spec.priority for spec in specs] == [5, 3, -1]
+    assert [spec.priority for spec in specs] == [5, -1]
+    assert specs[0].payload["continue_pipeline"] is True
+
+
+def test_scheduled_sync_payload_carries_its_pipeline_cycle():
+    queue = InMemoryJobQueue()
+    now = datetime(2026, 7, 18, 13, 10, tzinfo=UTC)
+
+    enqueued = tick(queue, now=now, specs=default_schedule_specs(), enabled=True)
+
+    sync = next(job for job in enqueued if job.job_type == SYNC_JOB_TYPE)
+    assert sync.payload["pipeline_cycle"] == "2026-07-18T13:00:00+00:00"

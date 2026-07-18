@@ -13,6 +13,7 @@ from app.db.governance_sink import DatabaseGovernanceSink
 from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
 from app.jobs.auto_score import run_auto_score_candidates
+from app.jobs.complete_ingest import complete_ingest_cycle
 from app.jobs.daily_brief import generate_daily_brief
 from app.jobs.fetch_content import fetch_article_content
 from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
@@ -52,6 +53,7 @@ def create_worker_queue() -> InMemoryJobQueue | PostgresJobQueue:
 def build_handler_registry() -> dict[str, Handler]:
     return {
         "auto_score_candidates": _auto_score_candidates,
+        "complete_ingest_cycle": _complete_ingest_cycle,
         "fetch_article_content": _fetch_article_content,
         "generate_daily_brief": _generate_daily_brief,
         "generate_recommendations": _generate_recommendations,
@@ -120,6 +122,17 @@ def _auto_score_candidates(payload) -> dict[str, object]:
             sink,
             daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
         )
+    finally:
+        sink.dispose()
+
+
+def _complete_ingest_cycle(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for complete_ingest_cycle")
+    sink = DatabaseArticleSink(database_url)
+    try:
+        return complete_ingest_cycle(dict(payload), sink)
     finally:
         sink.dispose()
 

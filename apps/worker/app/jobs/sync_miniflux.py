@@ -3,6 +3,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
+from app.content_quality import assess_article_content
 from app.runner import RetryableJobError
 
 
@@ -15,6 +16,14 @@ class ArticleSink(Protocol):
     def upsert_article(self, article: dict[str, object]) -> int: ...
 
     def upsert_article_source(self, source: dict[str, object]) -> None: ...
+
+    def enqueue_ingest_followups(
+        self,
+        article_ids: list[int],
+        *,
+        pipeline_cycle: str,
+        auto_score_payload: dict[str, object],
+    ) -> dict[str, object]: ...
 
 
 class MinifluxEntryClient(Protocol):
@@ -31,7 +40,7 @@ def run_sync_miniflux_entries(
     *,
     sink: ArticleSink,
     client: MinifluxEntryClient | None = None,
-) -> dict[str, int]:
+) -> dict[str, object]:
     if "entries" in payload:
         return sync_miniflux_entries(payload, sink)
     if client is None:
@@ -47,10 +56,11 @@ def run_sync_miniflux_entries(
     return sync_miniflux_entries({**payload, "entries": entries}, sink)
 
 
-def sync_miniflux_entries(payload: dict[str, object], sink: ArticleSink) -> dict[str, int]:
+def sync_miniflux_entries(payload: dict[str, object], sink: ArticleSink) -> dict[str, object]:
     entries = _entries_from_payload(payload)
     article_ids_by_canonical_url: dict[str, int] = {}
     seen_source_keys: set[tuple[int, int]] = set()
+    synced_article_ids: list[int] = []
     counts = {
         "entries_seen": len(entries),
         "articles_upserted": 0,
@@ -83,6 +93,7 @@ def sync_miniflux_entries(payload: dict[str, object], sink: ArticleSink) -> dict
             )
             article_ids_by_canonical_url[canonical_url] = article_id
             counts["articles_upserted"] += 1
+            synced_article_ids.append(article_id)
 
         sink.upsert_article_source(
             {
@@ -98,7 +109,20 @@ def sync_miniflux_entries(payload: dict[str, object], sink: ArticleSink) -> dict
         seen_source_keys.add(source_key)
         counts["sources_upserted"] += 1
 
-    return counts
+    result: dict[str, object] = dict(counts)
+    if payload.get("continue_pipeline") is True:
+        pipeline_cycle = _required_str(payload, "pipeline_cycle")
+        result["followups"] = sink.enqueue_ingest_followups(
+            list(dict.fromkeys(synced_article_ids)),
+            pipeline_cycle=pipeline_cycle,
+            auto_score_payload={
+                "lookback_hours": _optional_int(payload, "lookback_hours", default=72),
+                "max_articles": _optional_int(payload, "max_articles", default=30),
+                "trigger": "scheduled_pipeline",
+            },
+        )
+
+    return result
 
 
 def _feed_from_entry(entry: dict[str, object], feed_id: int) -> dict[str, object]:
@@ -156,8 +180,9 @@ def _article_from_entry(
     _copy_optional(entry, article, "content_text")
     _copy_optional(entry, article, "content_html")
     if "content_text" in article or "content_html" in article:
+        raw_content = str(article.get("content_html") or article.get("content_text") or "")
         article["content_source"] = "miniflux_feed"
-        article["content_quality"] = "full"
+        article["content_quality"] = assess_article_content(raw_content).status
     return article
 
 

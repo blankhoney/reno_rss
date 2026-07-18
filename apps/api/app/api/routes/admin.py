@@ -26,6 +26,8 @@ from app.db.repositories.scoring import (
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 PIPELINE_JOB_TYPES = (
     "sync_miniflux_entries",
+    "fetch_article_content",
+    "complete_ingest_cycle",
     "auto_score_candidates",
     "score_batch",
     "generate_recommendations",
