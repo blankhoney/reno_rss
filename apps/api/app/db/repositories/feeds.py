@@ -42,6 +42,8 @@ class FeedRecord:
     status: str
     subscribed: bool
     user_priority: int
+    # Soft-hide for source governance without unsubscribing (priority demotion).
+    hidden: bool = False
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,17 @@ class FeedStore(Protocol):
         current_user_id: UUID,
         user_priority: int,
     ) -> FeedRecord | None: ...
+
+    def set_hidden(
+        self,
+        feed_id: int,
+        current_user_id: UUID,
+        *,
+        hidden: bool,
+    ) -> FeedRecord | None: ...
+
+
+HIDDEN_PRIORITY = -20
 
 
 class MemoryFeedRepository:
@@ -152,16 +165,38 @@ class MemoryFeedRepository:
         self._subscriptions[(current_user_id, feed_id)]["user_priority"] = user_priority
         return self._feed_record(feed_id, current_user_id)
 
+    def set_hidden(
+        self,
+        feed_id: int,
+        current_user_id: UUID,
+        *,
+        hidden: bool,
+    ) -> FeedRecord | None:
+        if feed_id not in self._feeds:
+            return None
+        self._upsert_subscription(feed_id, current_user_id, enabled=True)
+        subscription = self._subscriptions[(current_user_id, feed_id)]
+        if hidden:
+            subscription["user_priority"] = HIDDEN_PRIORITY
+            subscription["hidden"] = True
+        else:
+            subscription["hidden"] = False
+            if int(subscription.get("user_priority", 0)) <= HIDDEN_PRIORITY:
+                subscription["user_priority"] = 0
+        return self._feed_record(feed_id, current_user_id)
+
     def _upsert_subscription(self, feed_id: int, user_id: UUID, *, enabled: bool) -> None:
         subscription = self._subscriptions.setdefault(
             (user_id, feed_id),
-            {"enabled": enabled, "user_priority": 0},
+            {"enabled": enabled, "user_priority": 0, "hidden": False},
         )
         subscription["enabled"] = enabled
 
     def _feed_record(self, feed_id: int, user_id: UUID) -> FeedRecord:
         feed = self._feeds[feed_id]
         subscription = self._subscriptions.get((user_id, feed_id), {})
+        priority = int(subscription.get("user_priority", 0))
+        hidden = bool(subscription.get("hidden", False)) or priority <= HIDDEN_PRIORITY
         return FeedRecord(
             id=feed_id,
             feed_url=str(feed["feed_url"]),
@@ -170,7 +205,8 @@ class MemoryFeedRepository:
             category=self._category_by_id(int(feed["category_id"])),
             status=str(feed["status"]),
             subscribed=bool(subscription.get("enabled", False)),
-            user_priority=int(subscription.get("user_priority", 0)),
+            user_priority=priority,
+            hidden=hidden,
         )
 
     def _category_by_id(self, category_id: int) -> CategoryRecord:
@@ -307,6 +343,17 @@ class DatabaseFeedRepository:
             )
             return self._select_feed(connection, feed_id, current_user_id)
 
+    def set_hidden(
+        self,
+        feed_id: int,
+        current_user_id: UUID,
+        *,
+        hidden: bool,
+    ) -> FeedRecord | None:
+        # Soft-hide via priority demotion so no schema migration is required.
+        priority = HIDDEN_PRIORITY if hidden else 0
+        return self.set_priority(feed_id, current_user_id, priority)
+
     def dispose(self) -> None:
         self.engine.dispose()
 
@@ -405,6 +452,7 @@ def _category_from_row(row) -> CategoryRecord:
 
 
 def _feed_from_row(row) -> FeedRecord:
+    priority = int(row["subscription_priority"] or 0)
     return FeedRecord(
         id=row["id"],
         feed_url=row["feed_url"],
@@ -418,5 +466,6 @@ def _feed_from_row(row) -> FeedRecord:
         ),
         status=row["status"],
         subscribed=bool(row["subscription_enabled"]),
-        user_priority=int(row["subscription_priority"] or 0),
+        user_priority=priority,
+        hidden=priority <= HIDDEN_PRIORITY,
     )

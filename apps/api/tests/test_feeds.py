@@ -109,3 +109,28 @@ async def test_feed_priority_rejects_values_outside_allowed_range(client, priori
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "unprocessable"
+
+
+@pytest.mark.asyncio
+async def test_feed_hidden_demotes_priority(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Feeder"})
+    created = await client.post(
+        "/api/feeds",
+        json={"feed_url": "https://example.com/rss.xml", "category_id": 1},
+    )
+    assert created.status_code in (200, 201)
+    feed_id = created.json()["feed"]["id"]
+
+    hidden = await client.put(f"/api/feeds/{feed_id}/hidden", json={"hidden": True})
+    assert hidden.status_code == 200
+    assert hidden.json()["hidden"] is True
+    assert hidden.json()["user_priority"] <= -20
+
+    listed = await client.get("/api/feeds")
+    assert listed.status_code == 200
+    match = next(item for item in listed.json()["items"] if item["id"] == feed_id)
+    assert match["hidden"] is True
+
+    shown = await client.put(f"/api/feeds/{feed_id}/hidden", json={"hidden": False})
+    assert shown.status_code == 200
+    assert shown.json()["hidden"] is False

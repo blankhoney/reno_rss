@@ -26,6 +26,10 @@ class SetPriorityRequest(BaseModel):
     user_priority: int = Field(ge=-20, le=20)
 
 
+class SetHiddenRequest(BaseModel):
+    hidden: bool
+
+
 def category_public(category: CategoryRecord) -> dict[str, object]:
     return {
         "id": category.id,
@@ -45,6 +49,7 @@ def feed_public(feed: FeedRecord) -> dict[str, object]:
         "status": feed.status,
         "subscribed": feed.subscribed,
         "user_priority": feed.user_priority,
+        "hidden": feed.hidden,
         "article_count": 0,
     }
 
@@ -126,4 +131,25 @@ def set_feed_priority(
     feed = feed_repository.set_priority(feed_id, current_user.id, payload.user_priority)
     if feed is None:
         raise ApiError(404, "not_found", "Feed not found")
-    return {"feed_id": feed.id, "user_priority": feed.user_priority}
+    return {
+        "feed_id": feed.id,
+        "user_priority": feed.user_priority,
+        "hidden": feed.hidden,
+    }
+
+
+@router.put("/feeds/{feed_id}/hidden")
+def set_feed_hidden(
+    payload: SetHiddenRequest,
+    feed_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    feed_repository: FeedStore = Depends(get_feed_repository),
+) -> dict[str, object]:
+    feed = feed_repository.set_hidden(feed_id, current_user.id, hidden=payload.hidden)
+    if feed is None:
+        raise ApiError(404, "not_found", "Feed not found")
+    return {
+        "feed_id": feed.id,
+        "hidden": feed.hidden,
+        "user_priority": feed.user_priority,
+    }
