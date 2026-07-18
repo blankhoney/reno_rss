@@ -8,7 +8,9 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.deps import ApiError, api_error_handler, request_validation_error_handler
 from app.core.budget import DailyCallBudget
+from app.domain.cost_ledger import CostLedger
 from app.api.routes import (
+    acl,
     admin,
     articles,
     ask,
@@ -57,6 +59,13 @@ def create_app() -> FastAPI:
     app.state.saved_search_repository = create_saved_search_repository(settings.database_url)
     app.state.ask_provider = ask.create_ask_provider(settings)
     app.state.llm_budget = DailyCallBudget(settings.llm_daily_call_budget)
+    app.state.cost_ledger = CostLedger(
+        limits={
+            "score": int(getattr(settings, "score_daily_call_budget", 0) or 200),
+            "ask": int(settings.llm_daily_call_budget or 80),
+            "agent": int(getattr(settings, "agent_daily_call_budget", 0) or 20),
+        }
+    )
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
     if not app.state.csrf_allowed_origins:
         LOGGER.critical(
@@ -129,7 +138,9 @@ def create_app() -> FastAPI:
     app.include_router(themes.router)
     app.include_router(saved_searches.router)
     app.include_router(interest.router)
+    app.include_router(acl.router)
     app.state.interest_reset_at = {}
+    app.state.project_acl_grants = {}
 
     return app
 

@@ -446,6 +446,18 @@ user_interest_resets = Table(
     updated_at_column(),
 )
 
+project_acl_grants = Table(
+    "project_acl_grants",
+    metadata,
+    Column("id", BigInteger, primary_key=True),
+    Column("project_id", Text, nullable=False),
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), nullable=False),
+    Column("role", Text, nullable=False),
+    created_at_column(),
+    CheckConstraint("role IN ('owner', 'editor', 'viewer')", name="ck_project_acl_role"),
+    UniqueConstraint("project_id", "user_id", name="uq_project_acl_user"),
+)
+
 
 Index("ix_articles_primary_feed_published", articles.c.primary_feed_id, articles.c.published_at.desc())
 Index("ix_articles_published_id", articles.c.published_at.desc(), articles.c.id.desc())

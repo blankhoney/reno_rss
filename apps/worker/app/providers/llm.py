@@ -101,6 +101,14 @@ class LLMProvider(Protocol):
 
     def translate_article(self, article: Mapping[str, object]) -> str: ...
 
+    def research_answer(
+        self,
+        *,
+        question: str,
+        citations: Sequence[Mapping[str, object]],
+        scope: str,
+    ) -> str: ...
+
 
 class MockProvider:
     def score_article(
@@ -173,6 +181,30 @@ class MockProvider:
         title = _string(article.get("title")) or "未命名文章"
         return f"<p>中文译文（mock）：{title}</p><p>{_truncate(text, 800)}</p>"
 
+    def research_answer(
+        self,
+        *,
+        question: str,
+        citations: Sequence[Mapping[str, object]],
+        scope: str,
+    ) -> str:
+        del scope
+        if not citations:
+            return (
+                f"（mock）未找到与「{question}」匹配的语料条目。"
+                "请扩大 scope、提高 max_articles，或先同步/评分。"
+            )
+        lines = [
+            f"（mock）基于 {len(citations)} 篇语料回答：「{question}」",
+            "",
+            "要点：",
+        ]
+        for index, citation in enumerate(list(citations)[:5], start=1):
+            lines.append(f"{index}. [{citation.get('title')}] {citation.get('quote')}")
+        lines.append("")
+        lines.append("引用见 citations。")
+        return "\n".join(lines)
+
 
 class MiniMaxProvider:
     model_provider = "minimax"
@@ -195,6 +227,17 @@ class MiniMaxProvider:
 
     def translate_article(self, article: Mapping[str, object]) -> str:
         response = self.client.chat_completion(_translation_messages(_limited_translation_article(article)))
+        return _strip_think_blocks(_response_content(response)).strip()
+
+    def research_answer(
+        self,
+        *,
+        question: str,
+        citations: Sequence[Mapping[str, object]],
+        scope: str,
+    ) -> str:
+        messages = _research_messages(question=question, citations=citations, scope=scope)
+        response = self.client.chat_completion(messages)
         return _strip_think_blocks(_response_content(response)).strip()
 
 
@@ -347,6 +390,37 @@ def normalize_score(raw_score: Mapping[str, object]) -> ArticleScore:
         "scoring_status": "success",
         "recommendation_tier": tier_for_score(base_score),
     }
+
+
+def _research_messages(
+    *,
+    question: str,
+    citations: Sequence[Mapping[str, object]],
+    scope: str,
+) -> list[dict[str, str]]:
+    corpus_lines: list[str] = []
+    for index, citation in enumerate(list(citations)[:12], start=1):
+        corpus_lines.append(
+            f"[{index}] id={citation.get('article_id')} title={citation.get('title')}\n"
+            f"quote: {citation.get('quote')}"
+        )
+    corpus = "\n\n".join(corpus_lines) if corpus_lines else "(no corpus articles)"
+    system = (
+        "You are a research analyst for a self-hosted RSS research OS. "
+        "Answer in Markdown Chinese-first. Only use the provided corpus quotes. "
+        "Every major claim must reference a citation index like [1]. "
+        "Do not invent sources. Strip any private chain-of-thought."
+    )
+    user = (
+        f"scope={scope}\n"
+        f"question={question}\n\n"
+        f"corpus:\n{corpus}\n\n"
+        "Write a concise research brief with: 结论、要点、风险、下一步、引用。"
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
 
 
 def _score_messages(

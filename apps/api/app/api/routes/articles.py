@@ -202,10 +202,31 @@ async def list_articles(
     cursor: str | None = None,
     module: str | None = Query(default=None, max_length=32),
     q: str | None = Query(default=None, max_length=120),
+    sort: str | None = Query(default=None, max_length=32),
 ) -> dict[str, object]:
+    # Score/dimension sorts need a wider window because SQL default is published_at.
+    score_sorts = {
+        "score",
+        "technical",
+        "business",
+        "trend",
+        "ai",
+        "product",
+        "security",
+        "default",
+    }
+    wants_score_sort = (sort or "") in score_sorts or (module or "") in {
+        "technical",
+        "business",
+        "trend",
+        "ai",
+        "product",
+        "security",
+    }
+    fetch_limit = min(100, max(limit, limit * 4 if wants_score_sort and cursor is None else limit))
     try:
         page = article_repository.list_articles(
-            limit=limit,
+            limit=fetch_limit,
             cursor=cursor,
             user_id=current_user.id,
             module=module or "all",
@@ -221,13 +242,40 @@ async def list_articles(
     except KeyError:
         raise ApiError(400, "invalid_cursor", "Invalid cursor") from None
 
-    article_ids = [article.id for article in page.items]
+    items = list(page.items)
+    article_ids = [article.id for article in items]
     scores = scoring_repository.active_scores_for_articles(article_ids)
-    states = article_repository.get_states(current_user.id, article_ids)
-    feedbacks = article_repository.get_feedbacks(current_user.id, article_ids)
+    if wants_score_sort and cursor is None:
+        sort_key = sort or module or "score"
+
+        def _rank(article: ArticleRecord) -> float:
+            score = scores.get(article.id)
+            if score is None or score.base_score is None:
+                return -1.0
+            dims = score.dimension_scores if isinstance(score.dimension_scores, dict) else {}
+            if sort_key in {"technical", "ai"}:
+                return float(dims.get("topic_relevance") or score.base_score or -1)
+            if sort_key == "business":
+                return float(dims.get("actionability") or score.base_score or -1)
+            if sort_key == "trend":
+                return float(dims.get("novelty") or score.base_score or -1)
+            if sort_key == "product":
+                return float(dims.get("actionability") or score.base_score or -1)
+            if sort_key == "security":
+                return float(
+                    (float(dims.get("source_quality") or 0) + (100 - float(dims.get("risk_uncertainty") or 100)))
+                    / 2
+                )
+            return float(score.base_score)
+
+        items = sorted(items, key=lambda article: (_rank(article), article.id), reverse=True)[
+            :limit
+        ]
+    states = article_repository.get_states(current_user.id, [article.id for article in items])
+    feedbacks = article_repository.get_feedbacks(current_user.id, [article.id for article in items])
     feed_ids = [
         int(article.primary_feed_id)
-        for article in page.items
+        for article in items
         if article.primary_feed_id is not None
     ]
     feed_meta = article_repository.feed_governance_for_user(current_user.id, feed_ids)
@@ -250,10 +298,10 @@ async def list_articles(
                     else None
                 ),
             )
-            for article in page.items
+            for article in items
         ],
-        "next_cursor": page.next_cursor,
-        "has_more": page.has_more,
+        "next_cursor": page.next_cursor if not wants_score_sort else None,
+        "has_more": page.has_more if not wants_score_sort else len(page.items) > limit,
     }
 
 

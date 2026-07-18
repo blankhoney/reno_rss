@@ -381,7 +381,12 @@ export function ResearchPanel() {
   const [question, setQuestion] = useState("总结本周最值得跟进的信号与风险");
   const [jobId, setJobId] = useState<number | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    answer?: string;
+    citations?: Array<{ article_id?: number; title?: string; quote?: string }>;
+    provider?: string;
+    question?: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -404,7 +409,19 @@ export function ResearchPanel() {
         setStatus(polled.status);
         if (polled.status === "succeeded" || polled.status === "failed") {
           terminal = true;
-          setResult(JSON.stringify(polled.result ?? {}, null, 2));
+          const raw = (polled.result ?? {}) as Record<string, unknown>;
+          const brief =
+            raw.brief && typeof raw.brief === "object"
+              ? (raw.brief as Record<string, unknown>)
+              : raw;
+          setResult({
+            answer: typeof brief.answer === "string" ? brief.answer : undefined,
+            citations: Array.isArray(brief.citations)
+              ? (brief.citations as Array<{ article_id?: number; title?: string; quote?: string }>)
+              : [],
+            provider: typeof brief.provider === "string" ? brief.provider : undefined,
+            question: typeof brief.question === "string" ? brief.question : question,
+          });
         }
       }
     } catch (caught) {
@@ -412,6 +429,31 @@ export function ResearchPanel() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function exportMarkdown() {
+    if (!result?.answer) return;
+    const lines = [
+      `# 研究简报`,
+      "",
+      `问题：${result.question || question}`,
+      `provider：${result.provider || "unknown"}`,
+      "",
+      result.answer,
+      "",
+      "## 引用",
+      ...(result.citations ?? []).map(
+        (item, index) =>
+          `${index + 1}. [#${item.article_id ?? "?"}] ${item.title ?? ""} — ${item.quote ?? ""}`,
+      ),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "research-brief.md";
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -459,9 +501,42 @@ export function ResearchPanel() {
       {jobId != null ? (
         <p className="workbenchRibbonMuted">
           job #{jobId} · {status}
+          {result?.provider ? ` · ${result.provider}` : ""}
         </p>
       ) : null}
-      {result ? <pre className="productModulePre">{result}</pre> : null}
+      {result?.answer ? (
+        <section className="productModuleCard" aria-label="研究回答">
+          <div className="articleListActions">
+            <button type="button" className="readerToolbarBtn" onClick={exportMarkdown}>
+              导出 Markdown
+            </button>
+          </div>
+          <pre className="productModulePre" style={{ whiteSpace: "pre-wrap" }}>
+            {result.answer}
+          </pre>
+          {(result.citations?.length ?? 0) > 0 ? (
+            <ul className="productModuleList">
+              {result.citations!.map((item, index) => (
+                <li key={`${item.article_id}-${index}`} className="productModuleCard">
+                  {item.article_id != null ? (
+                    <Link
+                      href={`/read/${item.article_id}?module=research&sort=default&lang=zh`}
+                      prefetch={false}
+                    >
+                      [{index + 1}] {item.title || `文章 #${item.article_id}`}
+                    </Link>
+                  ) : (
+                    <strong>
+                      [{index + 1}] {item.title || "引用"}
+                    </strong>
+                  )}
+                  <p className="workbenchRibbonMuted">{item.quote}</p>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
     </PanelShell>
   );
 }

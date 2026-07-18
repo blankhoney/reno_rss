@@ -139,7 +139,7 @@ def _research_brief(payload) -> dict[str, object]:
         raise RuntimeError("SCORING_DATABASE_URL is required for research_brief")
     sink = DatabaseResearchSink(database_url)
     try:
-        return run_research_brief(dict(payload), sink)
+        return run_research_brief(dict(payload), sink, provider=create_provider())
     finally:
         sink.dispose()
 

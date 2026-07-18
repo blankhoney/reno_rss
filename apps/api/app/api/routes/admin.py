@@ -128,6 +128,36 @@ def usage_today(
             "day": day_start.date().isoformat(),
             "accounting": "unavailable",
         }
+    ledger = getattr(request.app.state, "cost_ledger", None)
+    if ledger is not None and hasattr(ledger, "snapshot"):
+        # Keep DB score count as ground truth for score account used field.
+        ledger_snap = ledger.snapshot(day=day_start.date())
+        accounts = dict(ledger_snap.get("accounts") or {})
+        score_account = dict(accounts.get("score") or {})
+        score_account["used"] = scores_today
+        score_account["remaining"] = max(
+            0, int(score_account.get("limit") or 0) - scores_today
+        ) if int(score_account.get("limit") or 0) > 0 else None
+        accounts["score"] = score_account
+        multi = {
+            "day": ledger_snap.get("day"),
+            "accounts": accounts,
+            "accounting": ledger_snap.get("accounting", "process_memory"),
+        }
+    else:
+        multi = {
+            "day": day_start.date().isoformat(),
+            "accounts": {
+                "score": {"used": scores_today, "limit": 0, "remaining": None},
+                "ask": {
+                    "used": ask_snapshot.get("used", 0),
+                    "limit": ask_snapshot.get("limit", 0),
+                    "remaining": ask_snapshot.get("remaining"),
+                },
+                "agent": {"used": 0, "limit": 0, "remaining": None},
+            },
+            "accounting": "partial",
+        }
     return {
         "day": day_start.date().isoformat(),
         "scores": {
@@ -140,6 +170,9 @@ def usage_today(
             "ask_accounting": ask_snapshot.get("accounting", "process_memory"),
             "note": "In-process counter; resets on API restart. Prefer MiniMax console for hard caps.",
         },
+        "accounts": multi["accounts"],
+        "cost_ledger": multi,
+        "note": "score/ask/agent 分账户日限额（GOAL §4.D）。score used 以 DB 为准；ask/agent 为进程内账本。",
     }
 
 

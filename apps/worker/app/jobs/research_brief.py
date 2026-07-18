@@ -1,4 +1,4 @@
-"""Corpus research agent: mock brief with citations over TopN / project / topic (GOAL §4.D)."""
+"""Corpus research agent: brief with citations over TopN / project / topic (GOAL §4.D)."""
 
 from __future__ import annotations
 
@@ -19,11 +19,22 @@ class ResearchSink(Protocol):
     def search_articles_by_topic(self, *, topic: str, limit: int) -> list[dict[str, object]]: ...
 
 
+class ResearchProvider(Protocol):
+    def research_answer(
+        self,
+        *,
+        question: str,
+        citations: Sequence[Mapping[str, object]],
+        scope: str,
+    ) -> str: ...
+
+
 def run_research_brief(
     payload: Mapping[str, object],
     sink: ResearchSink,
     *,
     now: datetime | None = None,
+    provider: ResearchProvider | None = None,
 ) -> dict[str, object]:
     current = now or datetime.now(UTC)
     if current.tzinfo is None:
@@ -47,15 +58,26 @@ def run_research_brief(
 
     articles = _load_articles(sink, scope=scope, topic=topic, user_id=user_id, limit=max_articles)
     citations = [_citation_from_article(article, question) for article in articles]
+    answer_provider = provider or MockResearchProvider()
+    provider_name = getattr(answer_provider, "model_provider", "mock")
+    try:
+        answer = answer_provider.research_answer(
+            question=question,
+            citations=citations,
+            scope=scope,
+        )
+    except Exception as exc:  # keep job durable; fall back to mock narrative
+        answer = _mock_answer(question, citations) + f"\n\n（provider_error: {exc}）"
+        provider_name = f"{provider_name}+fallback"
     brief = {
         "generated_at": current.isoformat(),
         "scope": scope,
         "topic": topic or None,
         "question": question,
-        "answer": _mock_answer(question, citations),
+        "answer": answer,
         "citations": citations,
         "article_count": len(citations),
-        "provider": "mock",
+        "provider": provider_name,
     }
     return {
         "status": "ok",
@@ -63,6 +85,20 @@ def run_research_brief(
         "article_count": len(citations),
         "brief": brief,
     }
+
+
+class MockResearchProvider:
+    model_provider = "mock"
+
+    def research_answer(
+        self,
+        *,
+        question: str,
+        citations: Sequence[Mapping[str, object]],
+        scope: str,
+    ) -> str:
+        del scope
+        return _mock_answer(question, citations)
 
 
 def _load_articles(

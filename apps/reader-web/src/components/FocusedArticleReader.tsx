@@ -137,6 +137,8 @@ export function FocusedArticleReader({
   const [dualArticle, setDualArticle] = useState<Article | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [highlightColor, setHighlightColor] = useState("yellow");
+  const [highlightTags, setHighlightTags] = useState("");
+  const [bilingual, setBilingual] = useState(false);
   const [annotations, setAnnotations] = useState<ArticleAnnotation[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
@@ -778,7 +780,37 @@ export function FocusedArticleReader({
 
         {contentNotice ? <p className="contentPartialNotice">{contentNotice}</p> : null}
 
-        <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
+        <div className="articleListActions" style={{ marginBottom: 8 }}>
+          <button
+            type="button"
+            className="readerToolbarBtn"
+            onClick={() => setBilingual((value) => !value)}
+            disabled={!translatedHtml}
+          >
+            {bilingual ? "关闭对照" : "原文/译文对照"}
+          </button>
+        </div>
+
+        {bilingual && translatedHtml ? (
+          <div className="bilingualSplit">
+            <div>
+              <h3 className="workbenchRibbonMuted">原文</h3>
+              <div
+                className="articleContent content focusContent"
+                dangerouslySetInnerHTML={{ __html: article.contentHtml }}
+              />
+            </div>
+            <div>
+              <h3 className="workbenchRibbonMuted">译文</h3>
+              <div
+                className="articleContent content focusContent"
+                dangerouslySetInnerHTML={{ __html: translatedHtml }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
+        )}
       </article>
 
       {selectionRect && hasSelection ? (
@@ -814,18 +846,29 @@ export function FocusedArticleReader({
               <option value="purple">紫</option>
             </select>
           </label>
+          <input
+            className="selectionTagInput"
+            value={highlightTags}
+            onChange={(event) => setHighlightTags(event.target.value)}
+            onMouseDown={(event) => event.stopPropagation()}
+            placeholder="标签,逗号分隔"
+          />
           <button
             type="button"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               const text = selectedText.trim();
               if (!text) return;
+              const tags = highlightTags
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean);
               void createArticleAnnotation(article.id, {
                 content: text,
                 selectedText: text,
                 type: "annotation",
                 color: highlightColor,
-                tags: [],
+                tags,
               })
                 .then((created) => {
                   setAnnotations((current) => [created, ...current]);

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -44,12 +44,22 @@ class ResearchJobRequest(BaseModel):
 
 @router.post("/jobs")
 def enqueue_research_job(
+    request: Request,
     payload: ResearchJobRequest,
     current_user: UserRecord = Depends(require_user),
     job_repository: JobStore = Depends(get_job_repository),
 ) -> JSONResponse:
     if payload.scope == "topic" and not payload.topic:
         raise ApiError(422, "unprocessable", "topic is required when scope=topic")
+
+    ledger = getattr(request.app.state, "cost_ledger", None)
+    if ledger is not None and hasattr(ledger, "can_charge"):
+        try:
+            if not ledger.can_charge("agent", 1):
+                raise ApiError(429, "rate_limited", "Agent daily budget exceeded")
+            ledger.charge("agent", 1)
+        except RuntimeError as exc:
+            raise ApiError(429, "rate_limited", str(exc)) from exc
 
     job_payload: dict[str, object] = {
         "scope": payload.scope,
