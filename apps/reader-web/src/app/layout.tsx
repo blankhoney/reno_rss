@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Newsreader, Noto_Serif_SC } from "next/font/google";
 import { CommandPaletteHost } from "@/components/CommandPalette";
 import { MotionRoot } from "@/components/MotionRoot";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import { ToastHost } from "@/components/Toast";
 import "./globals.css";
 
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <MotionRoot>{children}</MotionRoot>
         <CommandPaletteHost />
         <ToastHost />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

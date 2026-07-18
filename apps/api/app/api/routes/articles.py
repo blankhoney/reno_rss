@@ -60,6 +60,10 @@ class ArticleAnnotationRequest(BaseModel):
     type: str = Field(default="annotation", pattern="^(annotation|comment|review)$")
 
 
+class AnnotationReviewRequest(BaseModel):
+    remembered: bool
+
+
 def article_state_public(state: ArticleStateRecord) -> dict[str, object]:
     return {
         "status": state.status,
@@ -88,6 +92,11 @@ def annotation_public(annotation: AnnotationRecord) -> dict[str, object]:
         "content": annotation.content,
         "created_at": annotation.created_at.isoformat() if annotation.created_at else None,
         "updated_at": annotation.updated_at.isoformat() if annotation.updated_at else None,
+        "next_review_at": (
+            annotation.next_review_at.isoformat() if annotation.next_review_at else None
+        ),
+        "interval_days": annotation.interval_days,
+        "review_count": annotation.review_count,
     }
 
 
@@ -350,8 +359,8 @@ def list_annotation_review_queue(
     article_repository: ArticleStore = Depends(get_article_repository),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> dict[str, object]:
-    """Private spaced-review queue: recent highlights for the current user only."""
-    items = article_repository.list_recent_annotations(current_user.id, limit=limit)
+    """Private spaced-review queue: only items due now, ordered by due time."""
+    items = article_repository.list_due_annotations(current_user.id, limit=limit)
     article_ids = [item.article_id for item in items]
     articles = article_repository.get_articles(article_ids)
     return {
@@ -367,6 +376,45 @@ def list_annotation_review_queue(
             }
             for item in items
         ]
+    }
+
+
+@router.post("/annotations/{annotation_id}/review")
+@limiter.limit(write_rate_limit)
+def review_annotation(
+    payload: AnnotationReviewRequest,
+    request: Request,
+    annotation_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+) -> dict[str, object]:
+    """Advance SM-2 lite interval after a remember / forget response."""
+    from app.domain.spaced_review import advance_review_schedule
+
+    current = article_repository.get_annotation(current_user.id, annotation_id)
+    if current is None:
+        raise ApiError(404, "not_found", "Annotation not found")
+    schedule = advance_review_schedule(
+        interval_days=current.interval_days,
+        review_count=current.review_count,
+        remembered=payload.remembered,
+    )
+    updated = article_repository.update_annotation_review(
+        current_user.id,
+        annotation_id,
+        next_review_at=schedule.next_review_at,
+        interval_days=schedule.interval_days,
+        review_count=schedule.review_count,
+    )
+    if updated is None:
+        raise ApiError(404, "not_found", "Annotation not found")
+    article = article_repository.get_article(updated.article_id)
+    return {
+        "annotation": {
+            **annotation_public(updated),
+            "article_title": article.title if article is not None else None,
+            "article_url": article.url if article is not None else None,
+        }
     }
 
 

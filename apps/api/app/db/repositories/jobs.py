@@ -63,6 +63,13 @@ class JobStore(Protocol):
 
     def mark_failed(self, job_id: int, error: str) -> JobRecord | None: ...
 
+    def latest_succeeded(
+        self,
+        job_type: str,
+        *,
+        limit: int = 10,
+    ) -> list[JobRecord]: ...
+
 
 def dedupe_key_for(job_type: str, value: object) -> str:
     return hashlib.sha256(f"{job_type}:{value}".encode("utf-8")).hexdigest()
@@ -183,6 +190,26 @@ class MemoryJobRepository:
     def mark_failed(self, job_id: int, error: str) -> JobRecord | None:
         return self._complete(job_id, status="failed", result={}, error=error)
 
+    def latest_succeeded(
+        self,
+        job_type: str,
+        *,
+        limit: int = 10,
+    ) -> list[JobRecord]:
+        matched = [
+            job
+            for job in self._jobs.values()
+            if job.job_type == job_type and job.status == "succeeded"
+        ]
+        matched.sort(
+            key=lambda job: (
+                job.completed_at or job.updated_at,
+                job.id,
+            ),
+            reverse=True,
+        )
+        return matched[: max(1, limit)]
+
     def _complete(
         self,
         job_id: int,
@@ -291,6 +318,32 @@ class DatabaseJobRepository:
             completed_at=now,
             updated_at=now,
         )
+
+    def latest_succeeded(
+        self,
+        job_type: str,
+        *,
+        limit: int = 10,
+    ) -> list[JobRecord]:
+        bound = max(1, min(int(limit), 50))
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(jobs)
+                    .where(
+                        jobs.c.job_type == job_type,
+                        jobs.c.status == "succeeded",
+                    )
+                    .order_by(
+                        desc(jobs.c.completed_at),
+                        desc(jobs.c.id),
+                    )
+                    .limit(bound)
+                )
+                .mappings()
+                .all()
+            )
+        return [_job_from_row(row) for row in rows]
 
     def dispose(self) -> None:
         self.engine.dispose()

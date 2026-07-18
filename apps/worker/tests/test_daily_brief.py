@@ -53,5 +53,9 @@ def test_generate_daily_brief_layers_items_by_tier():
     assert sink.saved is not None
     assert sink.saved["title"] == "今日情报 2026-07-18"
     assert len(sink.saved["must_read"]) == 1
-    assert len(sink.saved["worth_scan"]) == 2
+    assert len(sink.saved["worth_scan"]) == 1  # "read" only; disjoint from must_read
     assert len(sink.saved["can_skip"]) == 1
+    assert result["brief"]["must_read"][0]["title"] == "A"
+    assert result["brief"]["must_read"][0]["reason"] == "hot"
+    assert result["brief"]["must_read"][0]["tier"] == "must_read"
+    assert result["brief"]["worth_scan"][0]["article_id"] == 2

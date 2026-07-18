@@ -68,6 +68,7 @@ class ScoringStore(Protocol):
         base_score: int,
         is_active: bool,
         batch_id: int | None = None,
+        tags: list[object] | None = None,
     ) -> ScoreRecord: ...
 
     def list_scores(self, *, article_id: int) -> list[ScoreRecord]: ...
@@ -75,6 +76,8 @@ class ScoringStore(Protocol):
     def active_scores_for_articles(
         self, article_ids: list[int]
     ) -> dict[int, ScoreRecord]: ...
+
+    def list_active_scores(self, *, limit: int = 100) -> list[ScoreRecord]: ...
 
     def count_active_scored_articles(self) -> int: ...
 
@@ -107,6 +110,7 @@ class MemoryScoringRepository:
         base_score: int,
         is_active: bool,
         batch_id: int | None = None,
+        tags: list[object] | None = None,
     ) -> ScoreRecord:
         if is_active:
             for score_id, score in list(self._scores.items()):
@@ -125,7 +129,7 @@ class MemoryScoringRepository:
             source_language="unknown",
             dimension_scores={},
             dimension_reasons={},
-            tags=[],
+            tags=list(tags or []),
             reason="",
             risk_flags=[],
             confidence=1,
@@ -157,6 +161,15 @@ class MemoryScoringRepository:
             if score.is_active and score.article_id in wanted:
                 result[score.article_id] = score
         return result
+
+    def list_active_scores(self, *, limit: int = 100) -> list[ScoreRecord]:
+        active = [
+            score
+            for score in self._scores.values()
+            if score.is_active and score.scoring_status == "success"
+        ]
+        active.sort(key=lambda item: (-item.base_score, item.article_id))
+        return active[: max(1, limit)]
 
     def count_active_scored_articles(self) -> int:
         return len(
@@ -226,6 +239,7 @@ class DatabaseScoringRepository:
         base_score: int,
         is_active: bool,
         batch_id: int | None = None,
+        tags: list[object] | None = None,
     ) -> ScoreRecord:
         now = datetime.now(UTC)
         with self.engine.begin() as connection:
@@ -251,7 +265,7 @@ class DatabaseScoringRepository:
                         source_language="unknown",
                         dimension_scores={},
                         dimension_reasons={},
-                        tags=[],
+                        tags=list(tags or []),
                         reason="",
                         risk_flags=[],
                         confidence=1,
@@ -300,6 +314,26 @@ class DatabaseScoringRepository:
                 .all()
             )
         return {row["article_id"]: _score_from_row(row) for row in rows}
+
+    def list_active_scores(self, *, limit: int = 100) -> list[ScoreRecord]:
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(article_base_scores)
+                    .where(
+                        article_base_scores.c.is_active.is_(True),
+                        article_base_scores.c.scoring_status == "success",
+                    )
+                    .order_by(
+                        article_base_scores.c.base_score.desc(),
+                        article_base_scores.c.article_id.asc(),
+                    )
+                    .limit(max(1, limit))
+                )
+                .mappings()
+                .all()
+            )
+        return [_score_from_row(row) for row in rows]
 
     def count_active_scored_articles(self) -> int:
         with self.engine.begin() as connection:

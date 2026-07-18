@@ -31,9 +31,19 @@ class DatabaseBriefSink:
                 connection.execute(
                     text(
                         """
-                        SELECT i.article_id, i.rank, i.rank_score, i.tier, i.reason, a.title
+                        SELECT
+                          i.article_id,
+                          i.rank,
+                          i.rank_score,
+                          i.tier,
+                          i.reason,
+                          a.title,
+                          s.summary_zh,
+                          s.base_score AS overall_score
                         FROM recommendation_items i
                         LEFT JOIN articles a ON a.id = i.article_id
+                        LEFT JOIN article_base_scores s
+                          ON s.article_id = i.article_id AND s.is_active = true
                         WHERE i.edition_id = :edition_id
                         ORDER BY i.rank ASC
                         LIMIT :limit

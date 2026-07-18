@@ -372,6 +372,9 @@ export type ArticleAnnotation = {
   selectedText: string | null;
   content: string;
   createdAt: string | null;
+  nextReviewAt: string | null;
+  intervalDays: number;
+  reviewCount: number;
 };
 
 export type AnnotationReviewItem = ArticleAnnotation & {
@@ -379,32 +382,72 @@ export type AnnotationReviewItem = ArticleAnnotation & {
   articleUrl: string | null;
 };
 
+type AnnotationApiItem = {
+  id?: number;
+  article_id?: number;
+  type?: string;
+  selected_text?: string | null;
+  content?: string;
+  created_at?: string | null;
+  next_review_at?: string | null;
+  interval_days?: number;
+  review_count?: number;
+  article_title?: string | null;
+  article_url?: string | null;
+};
+
+function annotationFromApi(item: AnnotationApiItem, fallbackArticleId = 0): ArticleAnnotation | null {
+  if (item.id == null || typeof item.content !== "string") {
+    return null;
+  }
+  return {
+    id: item.id,
+    articleId: item.article_id ?? fallbackArticleId,
+    type: item.type ?? "annotation",
+    selectedText: item.selected_text ?? null,
+    content: item.content,
+    createdAt: item.created_at ?? null,
+    nextReviewAt: item.next_review_at ?? null,
+    intervalDays: typeof item.interval_days === "number" ? item.interval_days : 1,
+    reviewCount: typeof item.review_count === "number" ? item.review_count : 0,
+  };
+}
+
 export async function listAnnotationReviewQueue(limit = 20): Promise<AnnotationReviewItem[]> {
   const params = new URLSearchParams({ limit: String(limit) });
   const payload = await apiGet<{
-    items?: Array<{
-      id?: number;
-      article_id?: number;
-      type?: string;
-      selected_text?: string | null;
-      content?: string;
-      created_at?: string | null;
-      article_title?: string | null;
-      article_url?: string | null;
-    }>;
+    items?: AnnotationApiItem[];
   }>(`/api/annotations/review?${params.toString()}`);
   return (payload.items ?? [])
-    .filter((item) => item.id != null && typeof item.content === "string")
-    .map((item) => ({
-      id: item.id as number,
-      articleId: item.article_id ?? 0,
-      type: item.type ?? "annotation",
-      selectedText: item.selected_text ?? null,
-      content: item.content as string,
-      createdAt: item.created_at ?? null,
-      articleTitle: item.article_title ?? null,
-      articleUrl: item.article_url ?? null,
-    }));
+    .map((item) => {
+      const annotation = annotationFromApi(item);
+      if (annotation == null) return null;
+      return {
+        ...annotation,
+        articleTitle: item.article_title ?? null,
+        articleUrl: item.article_url ?? null,
+      };
+    })
+    .filter((item): item is AnnotationReviewItem => item != null);
+}
+
+export async function reviewAnnotation(
+  annotationId: number,
+  remembered: boolean,
+): Promise<AnnotationReviewItem> {
+  const payload = await apiPost<
+    { annotation?: AnnotationApiItem },
+    { remembered: boolean }
+  >(`/api/annotations/${annotationId}/review`, { remembered });
+  const annotation = annotationFromApi(payload.annotation ?? {});
+  if (annotation == null) {
+    throw new Error("API returned invalid annotation review result");
+  }
+  return {
+    ...annotation,
+    articleTitle: payload.annotation?.article_title ?? null,
+    articleUrl: payload.annotation?.article_url ?? null,
+  };
 }
 
 export async function createArticleAnnotation(
@@ -428,18 +471,11 @@ export async function createArticleAnnotation(
     selected_text: patch.selectedText ?? null,
     type: patch.type ?? "annotation",
   });
-  const annotation = payload.annotation;
-  if (annotation?.id == null || typeof annotation.content !== "string") {
+  const annotation = annotationFromApi(payload.annotation ?? {}, articleId);
+  if (annotation == null) {
     throw new Error("API returned invalid annotation");
   }
-  return {
-    id: annotation.id,
-    articleId: annotation.article_id ?? articleId,
-    type: annotation.type ?? "annotation",
-    selectedText: annotation.selected_text ?? null,
-    content: annotation.content,
-    createdAt: annotation.created_at ?? null,
-  };
+  return annotation;
 }
 
 export async function enqueueFetchContentJob(

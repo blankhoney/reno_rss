@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 import json
-from typing import Protocol
+from typing import Literal, Protocol
 
 import httpx
 from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.deps import (
     ApiError,
@@ -21,19 +21,46 @@ from app.core.ratelimit import limiter, llm_rate_limit
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import ArticleRecord, ArticleStore
 from app.db.repositories.scoring import ScoreRecord, ScoringStore
-from app.domain.ask_prompt import build_article_ask_context, stream_without_think_blocks
+from app.domain.ask_prompt import (
+    MAX_HISTORY_TOTAL_CHARS,
+    MAX_HISTORY_TURN_CHARS,
+    MAX_HISTORY_TURNS,
+    build_article_ask_context,
+    normalize_ask_history,
+    stream_without_think_blocks,
+)
+from app.domain.citations import extract_citation_candidates
 
 
 router = APIRouter(prefix="/api/articles", tags=["ask"])
 _STREAM_DONE = object()
 
 
+class AskHistoryTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=MAX_HISTORY_TURN_CHARS)
+
+
 class AskRequest(BaseModel):
-    # extra=forbid: multi-turn history payloads are rejected until a capped contract ships.
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=1000)
     selected_text: str | None = Field(default=None, max_length=5000)
+    # Capped multi-turn (GOAL Agent). Max 6 prior turns; total chars capped below.
+    history: list[AskHistoryTurn] = Field(default_factory=list, max_length=MAX_HISTORY_TURNS)
+
+    @model_validator(mode="after")
+    def validate_history_total_chars(self) -> AskRequest:
+        if not self.history:
+            return self
+        total = sum(len(turn.content) for turn in self.history)
+        if total > MAX_HISTORY_TOTAL_CHARS:
+            raise ValueError(
+                f"history total content must be at most {MAX_HISTORY_TOTAL_CHARS} characters"
+            )
+        return self
 
 
 class AskProvider(Protocol):
@@ -179,6 +206,13 @@ def ask_article(
     if article is None:
         raise ApiError(404, "not_found", "Article not found")
 
+    try:
+        history = normalize_ask_history(
+            [turn.model_dump() for turn in payload.history] if payload.history else None
+        )
+    except ValueError as error:
+        raise ApiError(400, "invalid_request", str(error)) from None
+
     score = _active_score(scoring_repository, article)
     context = build_article_ask_context(
         question=payload.question,
@@ -191,6 +225,7 @@ def ask_article(
         tags=_score_values(score, "tags"),
         risk_flags=_score_values(score, "risk_flags"),
         selected_text=payload.selected_text,
+        history=history,
     )
     if not context.has_usable_context:
         raise ApiError(409, "content_required", "Article content is required before asking")
@@ -201,7 +236,11 @@ def ask_article(
         {"role": "user", "content": context.messages.user},
     ]
     return StreamingResponse(
-        _sse_answer(ask_provider.answer_article_question(messages)),
+        _sse_answer(
+            ask_provider.answer_article_question(messages),
+            article_text=context.article_text,
+            selected_text=payload.selected_text,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
@@ -234,10 +273,37 @@ def _score_values(score: ScoreRecord | None, attr: str) -> list[object]:
     return list(value) if isinstance(value, list) else []
 
 
-def _sse_answer(chunks: Iterable[str]) -> Iterable[str]:
+def _sse_answer(
+    chunks: Iterable[str],
+    *,
+    article_text: str = "",
+    selected_text: str | None = None,
+) -> Iterable[str]:
+    answer_parts: list[str] = []
     for cleaned in stream_without_think_blocks(chunks):
         if cleaned:
+            answer_parts.append(cleaned)
             yield _sse_data(cleaned)
+    answer = "".join(answer_parts)
+    citations = extract_citation_candidates(
+        article_text,
+        answer,
+        selected_text=selected_text,
+    )
+    yield (
+        "event: citations\n"
+        + _sse_data(
+            json.dumps(
+                {
+                    "citations": [
+                        {"quote": item.quote, "start_hint": item.start_hint}
+                        for item in citations
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        )
+    )
     yield "event: done\ndata: {}\n\n"
 
 

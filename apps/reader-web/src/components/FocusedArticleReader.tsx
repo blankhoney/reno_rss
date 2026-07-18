@@ -9,7 +9,7 @@ import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
 import { createArticleAnnotation, saveArticleFeedback } from "@/lib/api/articles";
-import { streamArticleAsk } from "@/lib/api/client";
+import { streamArticleAsk, type ArticleAskCitation } from "@/lib/api/client";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AnimatedPanel } from "./AnimatedPanel";
@@ -111,6 +111,10 @@ export function FocusedArticleReader({
   const [question, setQuestion] = useState("");
   const [agentError, setAgentError] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
+  const [askHistory, setAskHistory] = useState<Array<{ role: "user" | "assistant"; content: string }>>(
+    [],
+  );
+  const [citations, setCitations] = useState<ArticleAskCitation[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -174,6 +178,8 @@ export function FocusedArticleReader({
     showTranslationWhenReadyRef.current = false;
     setIsAsking(false);
     setAgentError(null);
+    setAskHistory([]);
+    setCitations([]);
     setFeedbackScore(initialFeedbackScore(article));
     setFeedbackType(normalizeFeedbackType(article.myFeedback?.feedbackType));
     setFeedbackReason(article.myFeedback?.reason ?? "");
@@ -227,14 +233,37 @@ export function FocusedArticleReader({
     setQuestion(trimmedQuestion);
     setIsAsking(true);
     setAgentError(null);
+    setCitations([]);
     typewriter.reset();
 
+    const historyPayload = askHistory.slice(-6);
+    let answerText = "";
+
     try {
-      for await (const chunk of streamArticleAsk(article.id, {
-        question: trimmedQuestion,
-        selected_text: selectedText.trim() || undefined,
-      }, { signal: abortController.signal })) {
-        if (chunk.length > 0) typewriter.push(chunk);
+      for await (const event of streamArticleAsk(
+        article.id,
+        {
+          question: trimmedQuestion,
+          selected_text: selectedText.trim() || undefined,
+          history: historyPayload.length > 0 ? historyPayload : undefined,
+        },
+        { signal: abortController.signal },
+      )) {
+        if (event.type === "text" && event.text.length > 0) {
+          answerText += event.text;
+          typewriter.push(event.text);
+        } else if (event.type === "citations") {
+          setCitations(event.citations);
+        }
+      }
+      if (answerText.trim().length > 0) {
+        setAskHistory((current) =>
+          [
+            ...current,
+            { role: "user" as const, content: trimmedQuestion },
+            { role: "assistant" as const, content: answerText.trim() },
+          ].slice(-6),
+        );
       }
     } catch (error) {
       if (abortController.signal.aborted) return;
@@ -245,6 +274,32 @@ export function FocusedArticleReader({
       }
       typewriter.finish();
       setIsAsking(false);
+    }
+  }
+
+  function scrollToCitation(quote: string) {
+    const root = articleRef.current;
+    if (root == null || quote.trim().length === 0) return;
+    const findInPage = (window as Window & { find?: (...args: unknown[]) => boolean }).find;
+    if (typeof window !== "undefined" && typeof findInPage === "function") {
+      try {
+        window.getSelection()?.removeAllRanges();
+        const found = findInPage(quote.slice(0, 80), false, false, true, false, false, false);
+        if (found) return;
+      } catch {
+        // fall through to manual search
+      }
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      const text = node.textContent ?? "";
+      const index = text.indexOf(quote.slice(0, Math.min(quote.length, 48)));
+      if (index >= 0 && node.parentElement) {
+        node.parentElement.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      node = walker.nextNode();
     }
   }
 
@@ -720,6 +775,21 @@ export function FocusedArticleReader({
                 text={revealedAnswer}
                 trailing={cursorVisible ? <span className="typewriterCursor">▍</span> : null}
               />
+              {citations.length > 0 ? (
+                <div className="agentCitations" aria-label="原文引用">
+                  {citations.map((citation) => (
+                    <button
+                      key={`${citation.startHint ?? "x"}:${citation.quote}`}
+                      type="button"
+                      className="agentCitationBtn"
+                      title={citation.quote}
+                      onClick={() => scrollToCitation(citation.quote)}
+                    >
+                      “{citation.quote.length > 42 ? `${citation.quote.slice(0, 42)}…` : citation.quote}”
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </motion.div>

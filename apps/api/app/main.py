@@ -8,7 +8,21 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.deps import ApiError, api_error_handler, request_validation_error_handler
 from app.core.budget import DailyCallBudget
-from app.api.routes import admin, articles, ask, auth, feeds, jobs, recommendations
+from app.api.routes import (
+    admin,
+    articles,
+    ask,
+    auth,
+    briefs,
+    clusters,
+    feeds,
+    jobs,
+    recommendations,
+    research,
+    rules,
+    saved_searches,
+    themes,
+)
 from app.core.config import APP_VERSION, get_settings
 from app.core.ratelimit import limiter
 from app.core.request_timing import RequestTimingMiddleware
@@ -19,6 +33,8 @@ from app.db.repositories.benchmarks import create_benchmark_repository
 from app.db.repositories.feeds import create_feed_repository
 from app.db.repositories.jobs import create_job_repository
 from app.db.repositories.recommendations import create_recommendation_repository
+from app.db.repositories.rules import create_rule_repository
+from app.db.repositories.saved_searches import create_saved_search_repository
 from app.db.repositories.scoring import create_scoring_repository
 
 
@@ -36,6 +52,8 @@ def create_app() -> FastAPI:
     app.state.article_repository = create_article_repository(settings.database_url)
     app.state.scoring_repository = create_scoring_repository(settings.database_url)
     app.state.recommendation_repository = create_recommendation_repository(settings.database_url)
+    app.state.rule_repository = create_rule_repository(settings.database_url)
+    app.state.saved_search_repository = create_saved_search_repository(settings.database_url)
     app.state.ask_provider = ask.create_ask_provider(settings)
     app.state.llm_budget = DailyCallBudget(settings.llm_daily_call_budget)
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
@@ -103,6 +121,12 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     app.include_router(jobs.router)
     app.include_router(recommendations.router)
+    app.include_router(briefs.router)
+    app.include_router(clusters.router)
+    app.include_router(rules.router)
+    app.include_router(research.router)
+    app.include_router(themes.router)
+    app.include_router(saved_searches.router)
 
     return app
 

@@ -32,7 +32,16 @@ type JsonRequestBody<Operation> = Operation extends {
 
 export type ApiRequestInit = Omit<RequestInit, "body" | "credentials" | "method">;
 export type StreamArticleAskInit = ApiRequestInit & { timeoutMs?: number };
-export type ArticleAskRequest = components["schemas"]["AskRequest"];
+export type ArticleAskRequest = components["schemas"]["AskRequest"] & {
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+};
+export type ArticleAskCitation = {
+  quote: string;
+  startHint: number | null;
+};
+export type ArticleAskStreamEvent =
+  | { type: "text"; text: string }
+  | { type: "citations"; citations: ArticleAskCitation[] };
 
 const DEFAULT_ASK_STREAM_TIMEOUT_MS = 90_000;
 
@@ -150,7 +159,7 @@ export async function* streamArticleAsk(
   articleId: number,
   body: ArticleAskRequest,
   init: StreamArticleAskInit = {},
-): AsyncGenerator<string> {
+): AsyncGenerator<ArticleAskStreamEvent> {
   if (!Number.isInteger(articleId) || articleId <= 0) {
     throw new TypeError("articleId must be a positive integer");
   }
@@ -192,7 +201,7 @@ export async function* streamArticleAsk(
       });
     }
 
-    yield* parseSseTextStream(response.body);
+    yield* parseSseAskStream(response.body);
   } catch (error) {
     if (timedOut()) {
       throw new ApiError({
@@ -353,7 +362,9 @@ export function linkedSignalWithTimeout(
   };
 }
 
-async function* parseSseTextStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+async function* parseSseAskStream(
+  stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<ArticleAskStreamEvent> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -372,8 +383,10 @@ async function* parseSseTextStream(stream: ReadableStream<Uint8Array>): AsyncGen
         if (parsed.done) {
           return;
         }
-        if (parsed.text !== null) {
-          yield parsed.text;
+        if (parsed.citations != null) {
+          yield { type: "citations", citations: parsed.citations };
+        } else if (parsed.text !== null) {
+          yield { type: "text", text: parsed.text };
         }
         separatorIndex = buffer.indexOf("\n\n");
       }
@@ -385,8 +398,12 @@ async function* parseSseTextStream(stream: ReadableStream<Uint8Array>): AsyncGen
 
     if (buffer.trim()) {
       const parsed = parseSseFrame(buffer);
-      if (!parsed.done && parsed.text !== null) {
-        yield parsed.text;
+      if (!parsed.done) {
+        if (parsed.citations != null) {
+          yield { type: "citations", citations: parsed.citations };
+        } else if (parsed.text !== null) {
+          yield { type: "text", text: parsed.text };
+        }
       }
     }
   } finally {
@@ -395,7 +412,11 @@ async function* parseSseTextStream(stream: ReadableStream<Uint8Array>): AsyncGen
   }
 }
 
-function parseSseFrame(frame: string): { done: boolean; text: string | null } {
+function parseSseFrame(frame: string): {
+  done: boolean;
+  text: string | null;
+  citations: ArticleAskCitation[] | null;
+} {
   let eventName = "message";
   const data: string[] = [];
 
@@ -416,9 +437,36 @@ function parseSseFrame(frame: string): { done: boolean; text: string | null } {
   }
 
   if (eventName === "done") {
-    return { done: true, text: null };
+    return { done: true, text: null, citations: null };
   }
-  return { done: false, text: data.length > 0 ? data.join("\n") : null };
+  if (eventName === "citations") {
+    return {
+      done: false,
+      text: null,
+      citations: parseCitationPayload(data.join("\n")),
+    };
+  }
+  return {
+    done: false,
+    text: data.length > 0 ? data.join("\n") : null,
+    citations: null,
+  };
+}
+
+function parseCitationPayload(raw: string): ArticleAskCitation[] {
+  try {
+    const payload = JSON.parse(raw) as {
+      citations?: Array<{ quote?: string; start_hint?: number | null }>;
+    };
+    return (payload.citations ?? [])
+      .filter((item) => typeof item.quote === "string" && item.quote.trim().length > 0)
+      .map((item) => ({
+        quote: item.quote as string,
+        startHint: typeof item.start_hint === "number" ? item.start_hint : null,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 function normalizeLineBreaks(value: string): string {

@@ -8,6 +8,7 @@ import {
   apiPut,
   linkedSignalWithTimeout,
   streamArticleAsk,
+  type ArticleAskStreamEvent,
 } from "./client";
 
 function withMockFetch(
@@ -49,8 +50,10 @@ function openStreamFromStrings(chunks: string[]): { stream: ReadableStream<Uint8
   return { stream, wasCanceled: () => canceled };
 }
 
-async function collectChunks(chunks: AsyncIterable<string>): Promise<string[]> {
-  const collected: string[] = [];
+async function collectChunks(
+  chunks: AsyncIterable<ArticleAskStreamEvent>,
+): Promise<ArticleAskStreamEvent[]> {
+  const collected: ArticleAskStreamEvent[] = [];
   for await (const chunk of chunks) {
     collected.push(chunk);
   }
@@ -231,6 +234,7 @@ test("streamArticleAsk assembles SSE chunks until done", async () => {
         "lo\n\n",
         "data:  wor",
         "ld\n\n",
+        'event: citations\ndata: {"citations":[{"quote":"Important quote","start_hint":0}]}\n\n',
         "event: done\n",
         "data: {}\n\n",
         "data: ignored\n\n",
@@ -243,22 +247,36 @@ test("streamArticleAsk assembles SSE chunks until done", async () => {
   });
 
   try {
-    const chunks = await collectChunks(
+    const events = await collectChunks(
       streamArticleAsk(99, {
         question: "解释这段",
         selected_text: "Important quote",
+        history: [{ role: "user", content: "先前问题" }],
       }),
     );
+    const text = events
+      .filter((event) => event.type === "text")
+      .map((event) => event.text)
+      .join("");
+    const citations = events.find((event) => event.type === "citations");
 
-    assert.deepEqual(chunks, ["Hello", " world"]);
-    assert.equal(chunks.join(""), "Hello world");
+    assert.equal(text, "Hello world");
+    assert.ok(citations && citations.type === "citations");
+    assert.equal(citations.citations[0]?.quote, "Important quote");
     assert.equal(capturedInput, "/api/articles/99/ask");
     assert.equal(capturedInit?.method, "POST");
     assert.equal(capturedInit?.credentials, "include");
     assert.ok(capturedInit?.signal instanceof AbortSignal);
     assert.equal(headerValue(capturedInit?.headers, "accept"), "text/event-stream");
     assert.equal(headerValue(capturedInit?.headers, "content-type"), "application/json");
-    assert.equal(capturedInit?.body, JSON.stringify({ question: "解释这段", selected_text: "Important quote" }));
+    assert.equal(
+      capturedInit?.body,
+      JSON.stringify({
+        question: "解释这段",
+        selected_text: "Important quote",
+        history: [{ role: "user", content: "先前问题" }],
+      }),
+    );
   } finally {
     restoreFetch();
   }
@@ -327,9 +345,9 @@ test("streamArticleAsk cancels the response body after done before later frames"
   });
 
   try {
-    const chunks = await collectChunks(streamArticleAsk(99, { question: "总结" }));
+    const events = await collectChunks(streamArticleAsk(99, { question: "总结" }));
 
-    assert.deepEqual(chunks, ["first"]);
+    assert.deepEqual(events, [{ type: "text", text: "first" }]);
     assert.equal(wasCanceled(), true);
   } finally {
     restoreFetch();
@@ -347,7 +365,7 @@ test("streamArticleAsk cancels the response body when the consumer stops early",
 
   try {
     const chunks = streamArticleAsk(99, { question: "总结" });
-    assert.deepEqual(await chunks.next(), { done: false, value: "first" });
+    assert.deepEqual(await chunks.next(), { done: false, value: { type: "text", text: "first" } });
 
     await chunks.return(undefined);
 

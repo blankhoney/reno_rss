@@ -28,21 +28,33 @@ def generate_daily_brief(
     limit = int(payload.get("limit", 10) or 10)
     limit = max(1, min(limit, 20))
     items = sink.list_latest_recommendation_items(limit=limit)
+    # Disjoint tiers for the intelligence dashboard (must_read / read / skim|skip).
     must_read = [item for item in items if str(item.get("tier", "")) == "must_read"]
-    worth = [item for item in items if str(item.get("tier", "")) in {"read", "must_read"}]
-    skim = [item for item in items if str(item.get("tier", "")) == "skim"]
+    worth = [item for item in items if str(item.get("tier", "")) == "read"]
+    skip = [
+        item
+        for item in items
+        if str(item.get("tier", "")) in {"skim", "skip"}
+    ]
 
     brief = {
         "generated_at": current.isoformat(),
         "title": f"今日情报 {current.date().isoformat()}",
         "must_read": _brief_rows(must_read),
         "worth_scan": _brief_rows(worth),
-        "can_skip": _brief_rows(skim),
+        "can_skip": _brief_rows(skip),
         "item_count": len(items),
         "source": "recommendations_latest",
     }
     brief_id = sink.save_daily_brief(brief)
-    return {"status": "ok", "brief_id": brief_id, "item_count": len(items)}
+    # Include full `brief` so the worker job.result is readable by GET /api/briefs/latest
+    # (in addition to the sink's synthetic jobs row).
+    return {
+        "status": "ok",
+        "brief_id": brief_id,
+        "item_count": len(items),
+        "brief": brief,
+    }
 
 
 def _brief_rows(items: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
@@ -56,6 +68,10 @@ def _brief_rows(items: Sequence[Mapping[str, object]]) -> list[dict[str, object]
                 "rank_score": item.get("rank_score"),
                 "reason": item.get("reason") or "",
                 "title": item.get("title") or "",
+                "summary_zh": item.get("summary_zh") or None,
+                "overall_score": item.get("overall_score")
+                if item.get("overall_score") is not None
+                else item.get("base_score"),
             }
         )
     return rows

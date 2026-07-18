@@ -1,5 +1,6 @@
 import { AuthSessionGate } from "@/components/AuthSessionGate";
 import { AdminConsole } from "@/components/AdminConsole";
+import { DailyIntelligenceDashboard } from "@/components/DailyIntelligenceDashboard";
 import { ModuleSidebar } from "@/components/ModuleSidebar";
 import { ReaderWorkbench } from "@/components/ReaderWorkbench";
 import { ReviewQueue } from "@/components/ReviewQueue";
@@ -7,10 +8,12 @@ import {
   resolveArticleSortId,
   resolveSummaryLangId,
 } from "@/lib/articles/service";
+import { isIntelligenceModule } from "@/lib/api/briefs";
 
 function normalizeModule(raw: string | string[] | undefined): string {
   if (typeof raw === "string" && raw !== "") return raw;
-  return "all";
+  // Default home is the Daily Intelligence dashboard, not the full RSS list.
+  return "home";
 }
 
 type PageProps = {
@@ -46,6 +49,17 @@ export default async function HomePage({ searchParams }: PageProps) {
         <main className="workbench">
           <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
           <ReviewQueue />
+        </main>
+      </AuthSessionGate>
+    );
+  }
+
+  if (isIntelligenceModule(currentModule)) {
+    return (
+      <AuthSessionGate>
+        <main className="workbench">
+          <ModuleSidebar currentModule="home" currentSort={currentSort} currentLang={currentLang} />
+          <DailyIntelligenceDashboard />
         </main>
       </AuthSessionGate>
     );

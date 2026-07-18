@@ -130,6 +130,9 @@ class AnnotationRecord:
     content: str
     created_at: datetime
     updated_at: datetime
+    next_review_at: datetime | None = None
+    interval_days: int = 1
+    review_count: int = 0
 
 
 class ArticleStore(Protocol):
@@ -176,6 +179,26 @@ class ArticleStore(Protocol):
         *,
         limit: int = 20,
     ) -> list[AnnotationRecord]: ...
+
+    def list_due_annotations(
+        self,
+        user_id: UUID,
+        *,
+        limit: int = 20,
+        now: datetime | None = None,
+    ) -> list[AnnotationRecord]: ...
+
+    def get_annotation(self, user_id: UUID, annotation_id: int) -> AnnotationRecord | None: ...
+
+    def update_annotation_review(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        next_review_at: datetime,
+        interval_days: int,
+        review_count: int,
+    ) -> AnnotationRecord | None: ...
 
     def create_annotation(
         self,
@@ -461,6 +484,62 @@ class MemoryArticleRepository:
         )
         return items[: max(1, min(limit, 100))]
 
+    def list_due_annotations(
+        self,
+        user_id: UUID,
+        *,
+        limit: int = 20,
+        now: datetime | None = None,
+    ) -> list[AnnotationRecord]:
+        from app.domain.spaced_review import is_due
+
+        moment = now or datetime.now(UTC)
+        items = [
+            annotation
+            for annotation in self._annotations.values()
+            if annotation.user_id == user_id
+            and is_due(
+                annotation.next_review_at,
+                now=moment,
+                created_at=annotation.created_at,
+            )
+        ]
+        items.sort(
+            key=lambda item: (
+                item.next_review_at or item.created_at,
+                item.id,
+            )
+        )
+        return items[: max(1, min(limit, 100))]
+
+    def get_annotation(self, user_id: UUID, annotation_id: int) -> AnnotationRecord | None:
+        record = self._annotations.get(annotation_id)
+        if record is None or record.user_id != user_id:
+            return None
+        return record
+
+    def update_annotation_review(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        next_review_at: datetime,
+        interval_days: int,
+        review_count: int,
+    ) -> AnnotationRecord | None:
+        current = self.get_annotation(user_id, annotation_id)
+        if current is None:
+            return None
+        updated = replace(
+            current,
+            next_review_at=next_review_at,
+            interval_days=interval_days,
+            review_count=review_count,
+            updated_at=datetime.now(UTC),
+        )
+        self._annotations[annotation_id] = updated
+        return updated
+
     def create_annotation(
         self,
         user_id: UUID,
@@ -470,11 +549,14 @@ class MemoryArticleRepository:
         selected_text: str | None = None,
         annotation_type: str = "annotation",
     ) -> AnnotationRecord | None:
+        from app.domain.spaced_review import initial_review_schedule
+
         if article_id not in self._articles:
             return None
         if annotation_type not in {"annotation", "comment", "review"}:
             raise ValueError("unsupported annotation type")
         now = datetime.now(UTC)
+        schedule = initial_review_schedule(now)
         record = AnnotationRecord(
             id=self._next_annotation_id,
             article_id=article_id,
@@ -484,6 +566,9 @@ class MemoryArticleRepository:
             content=content,
             created_at=now,
             updated_at=now,
+            next_review_at=schedule.next_review_at,
+            interval_days=schedule.interval_days,
+            review_count=schedule.review_count,
         )
         self._annotations[record.id] = record
         self._next_annotation_id += 1
@@ -744,6 +829,89 @@ class DatabaseArticleRepository:
             )
         return [_annotation_from_row(row) for row in rows]
 
+    def list_due_annotations(
+        self,
+        user_id: UUID,
+        *,
+        limit: int = 20,
+        now: datetime | None = None,
+    ) -> list[AnnotationRecord]:
+        capped = max(1, min(limit, 100))
+        moment = now or datetime.now(UTC)
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(article_annotations)
+                    .where(
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.deleted_at.is_(None),
+                        or_(
+                            article_annotations.c.next_review_at.is_(None),
+                            article_annotations.c.next_review_at <= moment,
+                        ),
+                    )
+                    .order_by(
+                        article_annotations.c.next_review_at.asc().nullsfirst(),
+                        article_annotations.c.id.asc(),
+                    )
+                    .limit(capped)
+                )
+                .mappings()
+                .all()
+            )
+        return [_annotation_from_row(row) for row in rows]
+
+    def get_annotation(self, user_id: UUID, annotation_id: int) -> AnnotationRecord | None:
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    select(article_annotations).where(
+                        article_annotations.c.id == annotation_id,
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.deleted_at.is_(None),
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            return None
+        return _annotation_from_row(row)
+
+    def update_annotation_review(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        next_review_at: datetime,
+        interval_days: int,
+        review_count: int,
+    ) -> AnnotationRecord | None:
+        now = datetime.now(UTC)
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    article_annotations.update()
+                    .where(
+                        article_annotations.c.id == annotation_id,
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.deleted_at.is_(None),
+                    )
+                    .values(
+                        next_review_at=next_review_at,
+                        interval_days=interval_days,
+                        review_count=review_count,
+                        updated_at=now,
+                    )
+                    .returning(article_annotations)
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            return None
+        return _annotation_from_row(row)
+
     def create_annotation(
         self,
         user_id: UUID,
@@ -753,11 +921,14 @@ class DatabaseArticleRepository:
         selected_text: str | None = None,
         annotation_type: str = "annotation",
     ) -> AnnotationRecord | None:
+        from app.domain.spaced_review import initial_review_schedule
+
         if self.get_article(article_id) is None:
             return None
         if annotation_type not in {"annotation", "comment", "review"}:
             raise ValueError("unsupported annotation type")
         now = datetime.now(UTC)
+        schedule = initial_review_schedule(now)
         with self.engine.begin() as connection:
             row = (
                 connection.execute(
@@ -770,6 +941,9 @@ class DatabaseArticleRepository:
                         content=content,
                         created_at=now,
                         updated_at=now,
+                        next_review_at=schedule.next_review_at,
+                        interval_days=schedule.interval_days,
+                        review_count=schedule.review_count,
                     )
                     .returning(article_annotations)
                 )
@@ -1210,6 +1384,9 @@ def _feedback_from_row(row) -> ArticleFeedbackRecord:
 
 
 def _annotation_from_row(row) -> AnnotationRecord:
+    interval_raw = row["interval_days"] if "interval_days" in row.keys() else 1
+    review_count_raw = row["review_count"] if "review_count" in row.keys() else 0
+    next_review_raw = row["next_review_at"] if "next_review_at" in row.keys() else None
     return AnnotationRecord(
         id=int(row["id"]),
         article_id=int(row["article_id"]),
@@ -1219,6 +1396,9 @@ def _annotation_from_row(row) -> AnnotationRecord:
         content=str(row["content"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        next_review_at=next_review_raw,
+        interval_days=int(interval_raw) if interval_raw is not None else 1,
+        review_count=int(review_count_raw) if review_count_raw is not None else 0,
     )
 
 

@@ -737,7 +737,7 @@ async def test_article_list_q_matches_content_text_body(app, client):
 
 
 @pytest.mark.asyncio
-async def test_annotation_review_queue_is_private_and_recent_first(app, client):
+async def test_annotation_review_queue_is_private_and_due_first(app, client):
     await client.post("/api/auth/login", json={"display_name": "Reviewer"})
     first = app.state.article_repository.upsert_from_source(
         {
@@ -757,20 +757,73 @@ async def test_annotation_review_queue_is_private_and_recent_first(app, client):
             "content_text": "body two",
         }
     )
-    await client.post(
+    older = await client.post(
         f"/api/articles/{first.id}/annotations",
         json={"content": "older note", "selected_text": "old quote"},
     )
-    await client.post(
+    newer = await client.post(
         f"/api/articles/{second.id}/annotations",
         json={"content": "newer note", "selected_text": "new quote"},
     )
+    assert older.status_code == 201
+    assert newer.status_code == 201
+    older_id = older.json()["annotation"]["id"]
+    newer_id = newer.json()["annotation"]["id"]
+    assert older.json()["annotation"]["interval_days"] == 1
+    assert older.json()["annotation"]["next_review_at"] is not None
 
     response = await client.get("/api/annotations/review", params={"limit": 10})
 
     assert response.status_code == 200
     items = response.json()["items"]
     assert len(items) >= 2
-    assert items[0]["content"] == "newer note"
-    assert items[0]["article_title"] == "Article Two"
-    assert items[1]["content"] == "older note"
+    # Due queue is ordered by next_review_at ascending (oldest due first).
+    assert items[0]["id"] == older_id
+    assert items[0]["content"] == "older note"
+    assert items[0]["article_title"] == "Article One"
+    assert items[1]["id"] == newer_id
+    assert items[1]["content"] == "newer note"
+    assert "interval_days" in items[0]
+    assert "next_review_at" in items[0]
+
+
+@pytest.mark.asyncio
+async def test_annotation_review_advances_interval_and_hides_until_due(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Reviewer"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 903,
+            "url": "https://example.com/a3",
+            "title": "Article Three",
+            "content_text": "body three",
+        }
+    )
+    created = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        json={"content": "to review", "selected_text": "quote three"},
+    )
+    annotation_id = created.json()["annotation"]["id"]
+
+    remembered = await client.post(
+        f"/api/annotations/{annotation_id}/review",
+        json={"remembered": True},
+    )
+    assert remembered.status_code == 200
+    body = remembered.json()["annotation"]
+    assert body["interval_days"] == 3
+    assert body["review_count"] == 1
+    assert body["next_review_at"] is not None
+
+    queue = await client.get("/api/annotations/review", params={"limit": 50})
+    assert queue.status_code == 200
+    assert all(item["id"] != annotation_id for item in queue.json()["items"])
+
+    forgot = await client.post(
+        f"/api/annotations/{annotation_id}/review",
+        json={"remembered": False},
+    )
+    assert forgot.status_code == 200
+    # Forgotten items reset to 1-day interval but are scheduled into the future.
+    assert forgot.json()["annotation"]["interval_days"] == 1
+    assert forgot.json()["annotation"]["review_count"] == 2

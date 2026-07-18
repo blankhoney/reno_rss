@@ -270,6 +270,9 @@ article_annotations = Table(
     Column("type", Text, nullable=False),
     Column("selected_text", Text),
     Column("content", Text, nullable=False),
+    Column("next_review_at", DateTime(timezone=True)),
+    Column("interval_days", Integer, nullable=False, server_default=text("1")),
+    Column("review_count", Integer, nullable=False, server_default=text("0")),
     created_at_column(),
     updated_at_column(),
     Column("deleted_at", DateTime(timezone=True)),
@@ -414,6 +417,26 @@ app_settings = Table(
     updated_at_column(),
 )
 
+# Per-user reader rules (boost/mute/keyword/score_threshold) as a JSON array.
+user_reader_rules = Table(
+    "user_reader_rules",
+    metadata,
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), primary_key=True),
+    Column("rules", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    created_at_column(),
+    updated_at_column(),
+)
+
+# Per-user saved list filters (name/q/module/sort) as a JSON array — same shape as rules.
+user_saved_searches = Table(
+    "user_saved_searches",
+    metadata,
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), primary_key=True),
+    Column("items", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    created_at_column(),
+    updated_at_column(),
+)
+
 
 Index("ix_articles_primary_feed_published", articles.c.primary_feed_id, articles.c.published_at.desc())
 Index("ix_articles_published_id", articles.c.published_at.desc(), articles.c.id.desc())
@@ -467,6 +490,11 @@ Index(
     postgresql_where=article_annotations.c.deleted_at.is_(None),
 )
 Index("ix_annotations_user", article_annotations.c.user_id)
+Index(
+    "ix_annotations_user_next_review",
+    article_annotations.c.user_id,
+    article_annotations.c.next_review_at,
+)
 Index(
     "ix_recommendation_editions_user_generated",
     recommendation_editions.c.user_id,

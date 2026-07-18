@@ -14,6 +14,14 @@ const DEFAULT_COLLAPSED_GROUPS = new Set(["scores", "manage"]);
 
 const MODULE_GROUPS: ModuleNavGroup[] = [
   {
+    id: "intelligence",
+    label: "情报台",
+    items: [
+      { id: "home", label: "今日情报" },
+      { id: "review", label: "划线复习" },
+    ],
+  },
+  {
     id: "flow",
     label: "信息流",
     items: [
@@ -29,7 +37,6 @@ const MODULE_GROUPS: ModuleNavGroup[] = [
     items: [
       { id: "starred", label: "候选" },
       { id: "project", label: "已立项" },
-      { id: "review", label: "划线复习" },
     ],
   },
   {

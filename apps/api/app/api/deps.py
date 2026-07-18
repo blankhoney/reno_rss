@@ -11,6 +11,8 @@ from app.db.repositories.benchmarks import BenchmarkStore
 from app.db.repositories.feeds import FeedStore
 from app.db.repositories.jobs import JobStore
 from app.db.repositories.recommendations import RecommendationStore
+from app.db.repositories.rules import RuleStore
+from app.db.repositories.saved_searches import SavedSearchStore
 from app.db.repositories.scoring import ScoringStore
 
 
@@ -90,6 +92,14 @@ def get_scoring_repository(request: Request) -> ScoringStore:
 
 def get_recommendation_repository(request: Request) -> RecommendationStore:
     return request.app.state.recommendation_repository
+
+
+def get_rule_repository(request: Request) -> RuleStore:
+    return request.app.state.rule_repository
+
+
+def get_saved_search_repository(request: Request) -> SavedSearchStore:
+    return request.app.state.saved_search_repository
 
 
 def get_ask_provider(request: Request) -> object:

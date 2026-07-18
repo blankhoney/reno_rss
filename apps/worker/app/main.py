@@ -15,11 +15,13 @@ from app.jobs.daily_brief import generate_daily_brief
 from app.jobs.fetch_content import fetch_article_content
 from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
+from app.jobs.research_brief import run_research_brief
 from app.jobs.run_benchmark import run_benchmark
 from app.jobs.score_batch import score_batch
 from app.jobs.sync_miniflux import run_sync_miniflux_entries
 from app.jobs.translate_article import translate_article
 from app.db.brief_sink import DatabaseBriefSink
+from app.db.research_sink import DatabaseResearchSink
 from app.providers.external_content import NoExternalContentProvider
 from app.providers.llm import create_provider
 from app.providers.miniflux import MinifluxClient, MinifluxConfig
@@ -49,6 +51,7 @@ def build_handler_registry() -> dict[str, Handler]:
         "fetch_article_content": _fetch_article_content,
         "generate_daily_brief": _generate_daily_brief,
         "generate_recommendations": _generate_recommendations,
+        "research_brief": _research_brief,
         "run_benchmark": _run_benchmark,
         "score_batch": _score_batch,
         "translate_article": _translate_article,
@@ -123,6 +126,17 @@ def _generate_daily_brief(payload) -> dict[str, object]:
     sink = DatabaseBriefSink(database_url)
     try:
         return generate_daily_brief(dict(payload), sink)
+    finally:
+        sink.dispose()
+
+
+def _research_brief(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for research_brief")
+    sink = DatabaseResearchSink(database_url)
+    try:
+        return run_research_brief(dict(payload), sink)
     finally:
         sink.dispose()
 

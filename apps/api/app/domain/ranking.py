@@ -1,5 +1,21 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
+
+
+def _load_rules_module() -> Any:
+    """Import rules only when ranking runs inside the API package.
+
+    Worker loads this file via importlib without the API package on sys.path,
+    so a hard top-level import would break worker recommendation jobs.
+    """
+    try:
+        from app.domain import rules as rules_module
+
+        return rules_module
+    except ImportError:
+        return None
 
 
 FEEDBACK_BASE_ADJUSTMENTS = {
@@ -47,16 +63,26 @@ def rank_b4(
     feedback_by_article: dict[int, Feedback | dict[str, object]],
     article_status_by_article: dict[int, str | None] | None = None,
     now: datetime | None = None,
+    rules: Sequence[Any] | None = None,
+    titles_by_article: dict[int, str] | None = None,
 ) -> list[RankedItem]:
     reference_time = now or datetime.now(UTC)
     subscribed: list[tuple[Candidate, float]] = []
     exploration: list[Candidate] = []
 
-    for candidate in _eligible_candidates(
+    eligible = _eligible_candidates(
         candidates,
         article_status_by_article or {},
         reference_time,
-    ):
+    )
+    if rules:
+        eligible = _apply_rules_to_candidates(
+            eligible,
+            rules,
+            titles_by_article or {},
+        )
+
+    for candidate in eligible:
         subscribed_feed_ids = [
             feed_id for feed_id in candidate.feed_ids if feed_id in user_priority_by_feed
         ]
@@ -105,6 +131,42 @@ def rank_b4(
         )
         for index, (candidate, score, source) in enumerate(selected[:10], start=1)
     ]
+
+
+def _apply_rules_to_candidates(
+    candidates: list[Candidate],
+    rules: Sequence[Any],
+    titles_by_article: dict[int, str],
+) -> list[Candidate]:
+    """Optional reader-rule pass before B4 subscription/exploration split."""
+    rules_module = _load_rules_module()
+    if rules_module is None:
+        return candidates
+    rule_articles = rules_module.apply_rules(
+        [
+            rules_module.RuleArticle(
+                article_id=candidate.article_id,
+                feed_ids=list(candidate.feed_ids),
+                title=titles_by_article.get(candidate.article_id, ""),
+                score=float(candidate.base_score),
+            )
+            for candidate in candidates
+        ],
+        rules,
+    )
+    by_id = {candidate.article_id: candidate for candidate in candidates}
+    adjusted: list[Candidate] = []
+    for item in rule_articles:
+        original = by_id.get(item.article_id)
+        if original is None:
+            continue
+        # Keep base_score as int for tier math; clamp non-negative after boosts.
+        next_score = max(0, int(round(item.score)))
+        if next_score != original.base_score:
+            adjusted.append(replace(original, base_score=next_score))
+        else:
+            adjusted.append(original)
+    return adjusted
 
 
 def _eligible_candidates(

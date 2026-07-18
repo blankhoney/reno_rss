@@ -45,6 +45,23 @@
         }
       }
     },
+    "/api/metrics": {
+      "get": {
+        "summary": "Api Metrics",
+        "description": "Lightweight Prometheus text exposition (no extra deps).",
+        "operationId": "api_metrics_api_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": [
@@ -604,7 +621,7 @@
           "articles"
         ],
         "summary": "List Annotation Review Queue",
-        "description": "Private spaced-review queue: recent highlights for the current user only.",
+        "description": "Private spaced-review queue: only items due now, ordered by due time.",
         "operationId": "list_annotation_review_queue_api_annotations_review_get",
         "parameters": [
           {
@@ -629,6 +646,62 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response List Annotation Review Queue Api Annotations Review Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/annotations/{annotation_id}/review": {
+      "post": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Review Annotation",
+        "description": "Advance SM-2 lite interval after a remember / forget response.",
+        "operationId": "review_annotation_api_annotations__annotation_id__review_post",
+        "parameters": [
+          {
+            "name": "annotation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Annotation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnotationReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Review Annotation Api Annotations  Annotation Id  Review Post"
                 }
               }
             }
@@ -1464,10 +1537,365 @@
           }
         }
       }
+    },
+    "/api/briefs/latest": {
+      "get": {
+        "tags": [
+          "briefs"
+        ],
+        "summary": "Latest Brief",
+        "operationId": "latest_brief_api_briefs_latest_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Latest Brief Api Briefs Latest Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clusters/latest": {
+      "get": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Latest Clusters",
+        "operationId": "latest_clusters_api_clusters_latest_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Latest Clusters Api Clusters Latest Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rules": {
+      "get": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Get Rules",
+        "operationId": "get_rules_api_rules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Rules Api Rules Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "rules"
+        ],
+        "summary": "Put Rules",
+        "operationId": "put_rules_api_rules_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RulesPutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Put Rules Api Rules Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/research/jobs": {
+      "post": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Enqueue Research Job",
+        "operationId": "enqueue_research_job_api_research_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/research/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "research"
+        ],
+        "summary": "Get Research Job",
+        "description": "Thin alias over /api/jobs/{id}; only returns research_brief jobs owned/visible to the user.",
+        "operationId": "get_research_job_api_research_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Research Job Api Research Jobs  Job Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/themes/latest": {
+      "get": {
+        "tags": [
+          "themes"
+        ],
+        "summary": "Latest Themes",
+        "operationId": "latest_themes_api_themes_latest_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "max_themes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Max Themes"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Latest Themes Api Themes Latest Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/saved-searches": {
+      "get": {
+        "tags": [
+          "saved-searches"
+        ],
+        "summary": "List Saved Searches",
+        "operationId": "list_saved_searches_api_saved_searches_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Saved Searches Api Saved Searches Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "saved-searches"
+        ],
+        "summary": "Replace Saved Searches",
+        "operationId": "replace_saved_searches_api_saved_searches_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceSavedSearchesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Replace Saved Searches Api Saved Searches Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AnnotationReviewRequest": {
+        "properties": {
+          "remembered": {
+            "type": "boolean",
+            "title": "Remembered"
+          }
+        },
+        "type": "object",
+        "required": [
+          "remembered"
+        ],
+        "title": "AnnotationReviewRequest"
+      },
       "ArticleAnnotationRequest": {
         "properties": {
           "content": {
@@ -1589,6 +2017,31 @@
         "type": "object",
         "title": "ArticleStateRequest"
       },
+      "AskHistoryTurn": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "AskHistoryTurn"
+      },
       "AskRequest": {
         "properties": {
           "question": {
@@ -1608,6 +2061,14 @@
               }
             ],
             "title": "Selected Text"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/AskHistoryTurn"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "History"
           }
         },
         "additionalProperties": false,
@@ -1758,6 +2219,157 @@
           "recovery_code"
         ],
         "title": "RecoverRequest"
+      },
+      "ReplaceSavedSearchesRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SavedSearchItem"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "ReplaceSavedSearchesRequest"
+      },
+      "ResearchJobRequest": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "topn",
+              "project",
+              "topic"
+            ],
+            "title": "Scope",
+            "default": "topn"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "max_articles": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Max Articles",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "ResearchJobRequest"
+      },
+      "RulePayload": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "feed_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Id"
+          },
+          "keyword": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keyword"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "RulePayload"
+      },
+      "RulesPutRequest": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RulePayload"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Rules"
+          }
+        },
+        "type": "object",
+        "title": "RulesPutRequest"
+      },
+      "SavedSearchItem": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "q": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Q",
+            "default": ""
+          },
+          "module": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Module",
+            "default": "all"
+          },
+          "sort": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Sort",
+            "default": "published_desc"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SavedSearchItem"
       },
       "SetHiddenRequest": {
         "properties": {

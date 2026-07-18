@@ -17,6 +17,7 @@ test("moduleHref encodes module sort lang", () => {
 test("buildWorkbenchCommands covers core navigation surfaces", () => {
   const commands = buildWorkbenchCommands();
   const ids = new Set(commands.map((command) => command.id));
+  assert.ok(ids.has("nav-home"));
   assert.ok(ids.has("nav-all"));
   assert.ok(ids.has("nav-starred"));
   assert.ok(ids.has("nav-project"));

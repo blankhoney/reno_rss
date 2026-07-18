@@ -63,7 +63,8 @@ export function buildWorkbenchCommands(options?: {
   });
 
   return [
-    nav("all", "最新文章", ["home", "feed", "信息流"]),
+    nav("home", "今日情报", ["home", "intelligence", "情报台", "brief", "dashboard"]),
+    nav("all", "最新文章", ["feed", "信息流", "rss"]),
     nav("unread", "新到未读", ["inbox", "unread"]),
     nav("read", "已读", ["archive"]),
     nav("read-later", "稍后读", ["later", "queue"]),

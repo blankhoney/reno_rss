@@ -455,23 +455,68 @@ def test_ask_prompt_requires_grounded_citations():
 
 
 @pytest.mark.asyncio
-async def test_ask_rejects_multi_turn_history_payload(app, client):
+async def test_ask_accepts_capped_multi_turn_history(app, client):
     await client.post("/api/auth/login", json={"display_name": "Asker"})
+    provider = RecordingAskProvider(['结论：可以。\n引用："Body for ask multi turn"\n'])
+    app.state.ask_provider = provider
     article = app.state.article_repository.upsert_from_source(
         {
             "feed_id": 1,
             "miniflux_entry_id": 808,
             "url": "https://example.com/ask",
             "title": "Ask",
-            "content_text": "Body for ask",
+            "content_text": "Body for ask multi turn and more context.",
         }
     )
     response = await client.post(
         f"/api/articles/{article.id}/ask",
         json={
-            "question": "总结一下",
-            "history": [{"role": "user", "content": "hi"}],
+            "question": "那结论是什么？",
+            "history": [
+                {"role": "user", "content": "这篇文章在说什么？"},
+                {"role": "assistant", "content": "它讨论多轮上下文。"},
+            ],
         },
     )
+    assert response.status_code == 200
+    serialized = str(provider.calls)
+    assert "这篇文章在说什么？" in serialized
+    assert "它讨论多轮上下文" in serialized
+    assert "对话历史" in serialized
+    assert "event: citations" in response.text
+    assert "Body for ask multi turn" in response.text
+    assert "event: done" in response.text
+
+
+@pytest.mark.asyncio
+async def test_ask_rejects_history_longer_than_six_turns(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Asker"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 809,
+            "url": "https://example.com/ask-long",
+            "title": "Ask long",
+            "content_text": "Body for ask",
+        }
+    )
+    history = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"turn {i}"} for i in range(7)]
+    response = await client.post(
+        f"/api/articles/{article.id}/ask",
+        json={"question": "总结一下", "history": history},
+    )
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "unprocessable"
+
+
+def test_extract_citation_candidates_requires_article_presence():
+    from app.domain.citations import extract_citation_candidates
+
+    article = "The system should ground answers in quotes from the source body carefully."
+    answer = (
+        '结论：可以。\n引用："ground answers in quotes from the source body"\n'
+        '引用："not in article at all here!!!"'
+    )
+    cites = extract_citation_candidates(article, answer)
+    assert len(cites) == 1
+    assert "ground answers" in cites[0].quote
+    assert cites[0].start_hint >= 0
