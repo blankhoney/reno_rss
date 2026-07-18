@@ -488,6 +488,12 @@ Index(
     unique=True,
     postgresql_where=jobs.c.status.in_(("queued", "running")),
 )
+Index(
+    "uq_jobs_sched_dedupe_key",
+    jobs.c.dedupe_key,
+    unique=True,
+    postgresql_where=jobs.c.dedupe_key.like("sched:%"),
+)
 Index("ix_job_watchers_user", job_watchers.c.user_id, job_watchers.c.job_id)
 Index("ix_benchmark_runs_suite_created", benchmark_runs.c.suite, benchmark_runs.c.created_at.desc())
 Index("ix_benchmark_runs_status", benchmark_runs.c.status)

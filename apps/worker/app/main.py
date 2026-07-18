@@ -10,6 +10,7 @@ from app.db.benchmark_sink import DatabaseBenchmarkSink
 from app.db.content_sink import DatabaseContentSink
 from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
+from app.jobs.auto_score import run_auto_score_candidates
 from app.jobs.fetch_content import fetch_article_content
 from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
@@ -21,6 +22,7 @@ from app.providers.external_content import NoExternalContentProvider
 from app.providers.llm import create_provider
 from app.providers.miniflux import MinifluxClient, MinifluxConfig
 from app.runner import Handler, run_forever
+from app.scheduler import env_flag_enabled, make_tick_callback
 
 
 def normalize_database_url(database_url: str | None) -> str | None:
@@ -41,6 +43,7 @@ def create_worker_queue() -> InMemoryJobQueue | PostgresJobQueue:
 
 def build_handler_registry() -> dict[str, Handler]:
     return {
+        "auto_score_candidates": _auto_score_candidates,
         "fetch_article_content": _fetch_article_content,
         "generate_recommendations": _generate_recommendations,
         "run_benchmark": _run_benchmark,
@@ -68,7 +71,14 @@ def main() -> None:
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
 
-    logging.info("worker runtime started: worker_id=%s handlers=%s", worker_id, sorted(registry))
+    scheduler_enabled = env_flag_enabled(os.environ.get("SCHEDULER_ENABLED"), default=False)
+    on_tick = make_tick_callback(queue, enabled=scheduler_enabled)
+    logging.info(
+        "worker runtime started: worker_id=%s handlers=%s scheduler_enabled=%s",
+        worker_id,
+        sorted(registry),
+        scheduler_enabled,
+    )
     run_forever(
         queue,
         registry,
@@ -79,12 +89,28 @@ def main() -> None:
         job_lease_seconds=job_lease_seconds,
         stop_event=stop_event,
         on_heartbeat=_touch_worker_heartbeat,
+        on_tick=on_tick,
     )
     logging.info("worker runtime stopped: worker_id=%s", worker_id)
 
 
 def _worker_echo(payload) -> dict[str, object]:
     return {"payload": dict(payload)}
+
+
+def _auto_score_candidates(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for auto_score_candidates")
+    sink = DatabaseScoreSink(database_url)
+    try:
+        return run_auto_score_candidates(
+            dict(payload),
+            sink,
+            daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
+        )
+    finally:
+        sink.dispose()
 
 
 def _sync_miniflux_entries(payload) -> dict[str, object]:
