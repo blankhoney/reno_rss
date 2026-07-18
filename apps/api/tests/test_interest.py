@@ -38,11 +38,26 @@ async def test_interest_requires_session(client):
 @pytest.mark.asyncio
 async def test_interest_get_reset_export(client, app):
     await client.post("/api/auth/login", json={"display_name": "InterestUser"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 701,
+            "url": "https://example.com/rust-reactor",
+            "title": "Rust Reactor Architecture",
+            "content_text": "Rust async runtime internals",
+        }
+    )
+    projected = await client.post(
+        f"/api/articles/{article.id}/state",
+        json={"saved": True, "project": True},
+    )
+    assert projected.status_code == 200
 
     got = await client.get("/api/me/interest")
     assert got.status_code == 200
     body = got.json()
-    assert "keywords" in body
+    assert body["project_count"] == 1
+    assert any(item["term"] == "rust" for item in body["keywords"])
     assert body["reset_at"] is None
 
     reset = await client.post("/api/me/interest/reset")
@@ -54,11 +69,39 @@ async def test_interest_get_reset_export(client, app):
     assert after.status_code == 200
     assert after.json()["reset_at"] is not None
     assert after.json()["keywords"] == []
+    assert after.json()["project_count"] == 0
+
+    # A post-reset interaction opts the project back into personalization.
+    await client.post(f"/api/articles/{article.id}/state", json={"project": False})
+    await client.post(f"/api/articles/{article.id}/state", json={"project": True})
+    rebuilt = await client.get("/api/me/interest")
+    assert rebuilt.json()["project_count"] == 1
+    assert any(item["term"] == "rust" for item in rebuilt.json()["keywords"])
 
     export = await client.get("/api/me/interest/export")
     assert export.status_code == 200
     assert export.json()["format"] == "interest_vector.v1"
     assert "export" in export.json()
+
+
+def test_database_interest_reset_repository_is_shared_across_instances():
+    from uuid import uuid4
+
+    from sqlalchemy import create_engine
+
+    from app.db.models import user_interest_resets
+    from app.db.repositories.interest import DatabaseInterestResetRepository
+
+    engine = create_engine("sqlite:///:memory:")
+    user_interest_resets.create(engine)
+    first = DatabaseInterestResetRepository(engine=engine)
+    second = DatabaseInterestResetRepository(engine=engine)
+    user_id = uuid4()
+    reset_at = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
+
+    first.set_reset_at(user_id, reset_at)
+
+    assert second.get_reset_at(user_id) == reset_at
 
 
 @pytest.mark.asyncio

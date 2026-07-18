@@ -5,13 +5,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
-from sqlalchemy import text
+from fastapi import APIRouter, Depends
 
-from app.api.deps import get_article_repository, get_scoring_repository, require_user
-from app.core.config import get_settings
+from app.api.deps import (
+    get_article_repository,
+    get_interest_reset_repository,
+    get_scoring_repository,
+    require_user,
+)
 from app.db.auth_store import UserRecord
-from app.db.repositories.articles import ArticleStore
+from app.db.repositories.articles import ArticleRecord, ArticleStore
+from app.db.repositories.interest import InterestResetStore
 from app.db.repositories.scoring import ScoringStore
 from app.domain.personalization import InterestSignal, build_interest_profile
 
@@ -19,112 +23,50 @@ from app.domain.personalization import InterestSignal, build_interest_profile
 router = APIRouter(prefix="/api/me", tags=["interest"])
 
 
-def _memory_reset_store(request: Request) -> dict[str, datetime]:
-    store = getattr(request.app.state, "interest_reset_at", None)
-    if store is None:
-        store = {}
-        request.app.state.interest_reset_at = store
-    return store
-
-
-def _load_reset_at(request: Request, user_id: UUID) -> datetime | None:
-    memory = _memory_reset_store(request).get(str(user_id))
-    if memory is not None:
-        return memory
-    # Durable table when Postgres is available (best-effort).
-    try:
-        from sqlalchemy import create_engine
-
-        database_url = get_settings().database_url
-        if not database_url or database_url.startswith("sqlite"):
-            return None
-        engine = create_engine(database_url, pool_pre_ping=True)
-        with engine.begin() as connection:
-            row = (
-                connection.execute(
-                    text("SELECT reset_at FROM user_interest_resets WHERE user_id = :user_id"),
-                    {"user_id": str(user_id)},
-                )
-                .mappings()
-                .first()
-            )
-        engine.dispose()
-        if row is None:
-            return None
-        value = row["reset_at"]
-        if isinstance(value, datetime):
-            return value if value.tzinfo else value.replace(tzinfo=UTC)
-        return datetime.fromisoformat(str(value))
-    except Exception:
-        return None
-
-
-def _persist_reset_at(request: Request, user_id: UUID, reset_at: datetime) -> None:
-    _memory_reset_store(request)[str(user_id)] = reset_at
-    try:
-        from sqlalchemy import create_engine
-
-        database_url = get_settings().database_url
-        if not database_url or database_url.startswith("sqlite"):
-            return
-        engine = create_engine(database_url, pool_pre_ping=True)
-        with engine.begin() as connection:
-            connection.execute(
-                text(
-                    """
-                    INSERT INTO user_interest_resets (user_id, reset_at, updated_at)
-                    VALUES (:user_id, :reset_at, :reset_at)
-                    ON CONFLICT (user_id) DO UPDATE
-                      SET reset_at = EXCLUDED.reset_at,
-                          updated_at = EXCLUDED.updated_at
-                    """
-                ),
-                {"user_id": str(user_id), "reset_at": reset_at.isoformat()},
-            )
-        engine.dispose()
-    except Exception:
-        # Memory map still applies for this process.
-        return
-
-
 @router.get("/interest")
 def get_interest(
-    request: Request,
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
     scoring_repository: ScoringStore = Depends(get_scoring_repository),
+    interest_reset_repository: InterestResetStore = Depends(
+        get_interest_reset_repository
+    ),
 ) -> dict[str, object]:
     return _profile_for_user(
         current_user,
         article_repository,
         scoring_repository,
-        reset_at=_load_reset_at(request, current_user.id),
+        reset_at=interest_reset_repository.get_reset_at(current_user.id),
     )
 
 
 @router.get("/interest/export")
 def export_interest(
-    request: Request,
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
     scoring_repository: ScoringStore = Depends(get_scoring_repository),
+    interest_reset_repository: InterestResetStore = Depends(
+        get_interest_reset_repository
+    ),
 ) -> dict[str, object]:
     profile = _profile_for_user(
         current_user,
         article_repository,
         scoring_repository,
-        reset_at=_load_reset_at(request, current_user.id),
+        reset_at=interest_reset_repository.get_reset_at(current_user.id),
     )
     return {"export": profile, "format": "interest_vector.v1"}
 
 
 @router.post("/interest/reset")
 def reset_interest(
-    request: Request,
     current_user: UserRecord = Depends(require_user),
+    interest_reset_repository: InterestResetStore = Depends(
+        get_interest_reset_repository
+    ),
 ) -> dict[str, object]:
     now = datetime.now(UTC)
-    _persist_reset_at(request, current_user.id, now)
+    interest_reset_repository.set_reset_at(current_user.id, now)
     return {
         "status": "ok",
         "reset_at": now.isoformat(),
@@ -149,7 +91,7 @@ def _profile_for_user(
         annotations = [
             item
             for item in annotations
-            if item.created_at is None or item.created_at >= reset_at
+            if _at_or_after(item.updated_at, reset_at)
         ]
 
     project_page = article_repository.list_articles(
@@ -157,11 +99,12 @@ def _profile_for_user(
         user_id=current_user.id,
         module="project",
     )
-    project_items = project_page.items
-    if reset_at is not None:
-        # Projects lack created_at on state in all stores; keep titles for post-reset rebuild
-        # only when annotations/feedback still provide signal. Titles always contribute lightly.
-        pass
+    project_items = _articles_with_state_after_reset(
+        article_repository,
+        current_user.id,
+        project_page.items,
+        reset_at,
+    )
 
     signals: list[InterestSignal] = []
     for annotation in annotations:
@@ -182,7 +125,13 @@ def _profile_for_user(
         user_id=current_user.id,
         module="starred",
     )
-    for article in starred_page.items:
+    starred_items = _articles_with_state_after_reset(
+        article_repository,
+        current_user.id,
+        starred_page.items,
+        reset_at,
+    )
+    for article in starred_items:
         signals.append(InterestSignal(text=article.title or "", weight=1.2, kind="starred"))
         article_ids.append(article.id)
 
@@ -191,7 +140,8 @@ def _profile_for_user(
         feedbacks = {
             article_id: feedback
             for article_id, feedback in feedbacks.items()
-            if feedback.updated_at is None or feedback.updated_at >= reset_at
+            if feedback.updated_at is not None
+            and _at_or_after(feedback.updated_at, reset_at)
         }
 
     feedback_types = [feedback.feedback_type for feedback in feedbacks.values()]
@@ -220,3 +170,28 @@ def _profile_for_user(
         annotation_count=len(annotations),
         reset_at=reset_at,
     )
+
+
+def _articles_with_state_after_reset(
+    article_repository: ArticleStore,
+    user_id: UUID,
+    articles: list[ArticleRecord],
+    reset_at: datetime | None,
+) -> list[ArticleRecord]:
+    if reset_at is None or not articles:
+        return articles
+    states = article_repository.get_states(user_id, [article.id for article in articles])
+    return [
+        article
+        for article in articles
+        if states[article.id].updated_at is not None
+        and _at_or_after(states[article.id].updated_at, reset_at)
+    ]
+
+
+def _at_or_after(value: datetime, watermark: datetime) -> bool:
+    normalized_value = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+    normalized_watermark = (
+        watermark.astimezone(UTC) if watermark.tzinfo else watermark.replace(tzinfo=UTC)
+    )
+    return normalized_value >= normalized_watermark

@@ -92,6 +92,7 @@ class ArticleStateRecord:
     saved: bool
     project: bool
     read_progress: float
+    updated_at: datetime | None = None
 
 
 def state_matches_module(state: ArticleStateRecord, module: str) -> bool:
@@ -565,6 +566,7 @@ class MemoryArticleRepository:
             saved=next_saved,
             project=next_project,
             read_progress=read_progress if read_progress is not None else current.read_progress,
+            updated_at=datetime.now(UTC),
         )
         self._states[(user_id, article_id)] = updated
         return updated
@@ -1696,6 +1698,7 @@ def _state_from_row(row) -> ArticleStateRecord:
         saved=bool(row["saved"]),
         project=bool(row["project"]),
         read_progress=float(progress) if progress is not None else 0,
+        updated_at=row["updated_at"],
     )
 
 
@@ -1729,7 +1732,13 @@ def _annotation_from_row(row) -> AnnotationRecord:
 
 
 def _default_state() -> ArticleStateRecord:
-    return ArticleStateRecord(status="unread", saved=False, project=False, read_progress=0)
+    return ArticleStateRecord(
+        status="unread",
+        saved=False,
+        project=False,
+        read_progress=0,
+        updated_at=None,
+    )
 
 
 def _unique_article_ids(article_ids: list[int]) -> list[int]:
