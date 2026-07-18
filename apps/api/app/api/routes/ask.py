@@ -29,6 +29,7 @@ _STREAM_DONE = object()
 
 
 class AskRequest(BaseModel):
+    # extra=forbid: multi-turn history payloads are rejected until a capped contract ships.
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=1000)

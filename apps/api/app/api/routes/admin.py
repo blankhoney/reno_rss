@@ -143,6 +143,23 @@ def usage_today(
     }
 
 
+@router.post("/daily-brief")
+def enqueue_daily_brief(
+    current_user: UserRecord = Depends(require_admin),
+    job_repository: JobStore = Depends(get_job_repository),
+) -> JSONResponse:
+    job = job_repository.enqueue(
+        "generate_daily_brief",
+        {"limit": 10, "trigger": "admin"},
+        dedupe_key=dedupe_key_for("generate_daily_brief", datetime.now(UTC).date().isoformat()),
+        created_by=current_user.id,
+    )
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job.id, "job_type": job.job_type, "status": job.status},
+    )
+
+
 @router.post("/sync")
 def enqueue_miniflux_sync(
     payload: SyncMinifluxRequest,

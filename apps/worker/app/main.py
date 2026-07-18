@@ -11,6 +11,7 @@ from app.db.content_sink import DatabaseContentSink
 from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
 from app.jobs.auto_score import run_auto_score_candidates
+from app.jobs.daily_brief import generate_daily_brief
 from app.jobs.fetch_content import fetch_article_content
 from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
@@ -18,6 +19,7 @@ from app.jobs.run_benchmark import run_benchmark
 from app.jobs.score_batch import score_batch
 from app.jobs.sync_miniflux import run_sync_miniflux_entries
 from app.jobs.translate_article import translate_article
+from app.db.brief_sink import DatabaseBriefSink
 from app.providers.external_content import NoExternalContentProvider
 from app.providers.llm import create_provider
 from app.providers.miniflux import MinifluxClient, MinifluxConfig
@@ -45,6 +47,7 @@ def build_handler_registry() -> dict[str, Handler]:
     return {
         "auto_score_candidates": _auto_score_candidates,
         "fetch_article_content": _fetch_article_content,
+        "generate_daily_brief": _generate_daily_brief,
         "generate_recommendations": _generate_recommendations,
         "run_benchmark": _run_benchmark,
         "score_batch": _score_batch,
@@ -109,6 +112,17 @@ def _auto_score_candidates(payload) -> dict[str, object]:
             sink,
             daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
         )
+    finally:
+        sink.dispose()
+
+
+def _generate_daily_brief(payload) -> dict[str, object]:
+    database_url = normalize_database_url(os.environ.get("SCORING_DATABASE_URL"))
+    if not database_url:
+        raise RuntimeError("SCORING_DATABASE_URL is required for generate_daily_brief")
+    sink = DatabaseBriefSink(database_url)
+    try:
+        return generate_daily_brief(dict(payload), sink)
     finally:
         sink.dispose()
 

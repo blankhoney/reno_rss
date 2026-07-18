@@ -452,3 +452,26 @@ def test_ask_prompt_requires_grounded_citations():
     assert "引用" in system
     assert "原文摘录" in system or "引号" in system
     assert "不得编造" in system
+
+
+@pytest.mark.asyncio
+async def test_ask_rejects_multi_turn_history_payload(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Asker"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 808,
+            "url": "https://example.com/ask",
+            "title": "Ask",
+            "content_text": "Body for ask",
+        }
+    )
+    response = await client.post(
+        f"/api/articles/{article.id}/ask",
+        json={
+            "question": "总结一下",
+            "history": [{"role": "user", "content": "hi"}],
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "unprocessable"

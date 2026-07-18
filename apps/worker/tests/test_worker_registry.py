@@ -4,6 +4,7 @@ from app.main import build_handler_registry
 EXPECTED_JOB_TYPES = {
     "auto_score_candidates",
     "fetch_article_content",
+    "generate_daily_brief",
     "generate_recommendations",
     "run_benchmark",
     "score_batch",
