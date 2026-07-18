@@ -4,9 +4,40 @@ import {
   createScoringBatch,
   enqueueAdminSync,
   getScoringBatch,
+  getAdminUsageToday,
   getPipelineHealth,
   startScoringBatch,
 } from "./admin";
+
+test("getAdminUsageToday maps score ask and agent accounts", async () => {
+  const restoreFetch = withMockFetch(() =>
+    new Response(
+      JSON.stringify({
+        day: "2026-07-18",
+        scores: { count_today: 12, accounting: "database" },
+        accounts: {
+          score: { used: 12, limit: 60, remaining: 48 },
+          ask: { used: 3, limit: 100, remaining: 97 },
+          agent: { used: 2, limit: 20, remaining: 18 },
+        },
+        cost_ledger: { accounting: "database" },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  );
+
+  try {
+    const usage = await getAdminUsageToday();
+    assert.deepEqual(usage.accounts, {
+      score: { used: 12, limit: 60, remaining: 48 },
+      ask: { used: 3, limit: 100, remaining: 97 },
+      agent: { used: 2, limit: 20, remaining: 18 },
+    });
+    assert.equal(usage.accounting, "database");
+  } finally {
+    restoreFetch();
+  }
+});
 
 function withMockFetch(
   handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response,

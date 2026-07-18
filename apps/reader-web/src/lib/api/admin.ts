@@ -156,6 +156,14 @@ export type AdminUsageToday = {
   askLimit: number;
   askRemaining: number | null;
   askAccounting: string;
+  accounts: Record<"score" | "ask" | "agent", AdminBudgetAccount>;
+  accounting: string;
+};
+
+export type AdminBudgetAccount = {
+  used: number;
+  limit: number;
+  remaining: number | null;
 };
 
 export async function getAdminUsageToday(): Promise<AdminUsageToday> {
@@ -169,15 +177,32 @@ export async function getAdminUsageToday(): Promise<AdminUsageToday> {
       ask_accounting?: string;
       accounting?: string;
     };
+    accounts?: Partial<Record<"score" | "ask" | "agent", Partial<AdminBudgetAccount>>>;
+    cost_ledger?: { accounting?: string };
   }>("/api/admin/usage/today");
+  const account = (name: "score" | "ask" | "agent", fallbackUsed = 0): AdminBudgetAccount => {
+    const raw = payload.accounts?.[name];
+    return {
+      used: raw?.used ?? fallbackUsed,
+      limit: raw?.limit ?? 0,
+      remaining: raw?.remaining ?? null,
+    };
+  };
+  const ask = account("ask", payload.ask?.used ?? 0);
   return {
     day: payload.day ?? "",
     scoresCountToday: payload.scores?.count_today ?? 0,
     scoresAccounting: payload.scores?.accounting ?? "database",
-    askUsed: payload.ask?.used ?? 0,
-    askLimit: payload.ask?.limit ?? 0,
-    askRemaining: payload.ask?.remaining ?? null,
+    askUsed: ask.used,
+    askLimit: ask.limit,
+    askRemaining: ask.remaining,
     askAccounting: payload.ask?.ask_accounting ?? payload.ask?.accounting ?? "unavailable",
+    accounts: {
+      score: account("score", payload.scores?.count_today ?? 0),
+      ask,
+      agent: account("agent"),
+    },
+    accounting: payload.cost_ledger?.accounting ?? "unavailable",
   };
 }
 

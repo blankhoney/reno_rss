@@ -48,6 +48,12 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
         askLimit: 100,
         askRemaining: 97,
         askAccounting: "process_memory",
+        accounts: {
+          score: { used: 12, limit: 60, remaining: 48 },
+          ask: { used: 3, limit: 100, remaining: 97 },
+          agent: { used: 2, limit: 20, remaining: 18 },
+        },
+        accounting: "database",
       },
       pipelineHealth: {
         status: "degraded",
@@ -94,8 +100,9 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
   assert.equal((html.match(/class="adminConsoleCard"/g) ?? []).length, 3);
   assert.match(html, /8 篇待评分/);
   assert.match(html, /今日费用/);
-  assert.match(html, /评分 12 次/);
-  assert.match(html, /Ask 3\/100/);
+  assert.match(html, /Score.*12.*60/);
+  assert.match(html, /Ask.*3.*100/);
+  assert.match(html, /Agent.*2.*20/);
   assert.match(html, /调度常开 · 需处理/);
   assert.match(html, /24h 失败/);
   assert.match(html, /sync_miniflux_entries/);

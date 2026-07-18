@@ -129,7 +129,7 @@ export function AdminConsoleView({
               <h2>今日费用</h2>
               <p className="adminConsoleStat">
                 {usage
-                  ? `${usage.day} · 评分 ${usage.scoresCountToday} 次 · Ask ${usage.askUsed}/${usage.askLimit || "∞"}`
+                  ? `${usage.day} · Score ${usage.accounts.score.used}/${usage.accounts.score.limit || "∞"} · Ask ${usage.accounts.ask.used}/${usage.accounts.ask.limit || "∞"} · Agent ${usage.accounts.agent.used}/${usage.accounts.agent.limit || "∞"}`
                   : isStatsLoading
                     ? "费用加载中"
                     : "费用暂不可用"}
@@ -138,19 +138,20 @@ export function AdminConsoleView({
           </header>
           {usage ? (
             <ul className="adminUsageList">
-              <li>
-                评分写入（DB）: <strong>{usage.scoresCountToday}</strong>
-                <span className="adminConsoleStat"> · {usage.scoresAccounting}</span>
-              </li>
-              <li>
-                Ask 调用（共享账本）:{" "}
-                <strong>
-                  {usage.askUsed}
-                  {usage.askLimit > 0 ? ` / ${usage.askLimit}` : " / 不限"}
-                </strong>
-                {usage.askRemaining != null ? (
-                  <span className="adminConsoleStat"> · 剩余 {usage.askRemaining}</span>
-                ) : null}
+              {(["score", "ask", "agent"] as const).map((name) => {
+                const account = usage.accounts[name];
+                const label = name === "score" ? "Score" : name === "ask" ? "Ask" : "Agent";
+                return (
+                  <li key={name}>
+                    {label}: <strong>{account.used}{account.limit > 0 ? ` / ${account.limit}` : " / 不限"}</strong>
+                    {account.remaining != null ? (
+                      <span className="adminConsoleStat"> · 剩余 {account.remaining}</span>
+                    ) : null}
+                  </li>
+                );
+              })}
+              <li className="adminConsoleStat">
+                Score 以评分 DB 为真源；Ask/Agent 为{usage.accounting}共享账本。
               </li>
               <li className="adminConsoleStat">云控制台账户上限仍是最后一道硬闸。</li>
             </ul>
