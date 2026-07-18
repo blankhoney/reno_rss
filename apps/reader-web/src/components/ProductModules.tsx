@@ -13,6 +13,7 @@ import {
   putSavedSearches,
   resetInterestProfile,
   researchCitationHref,
+  savedSearchHref,
   searchAnnotations,
   type ClusterItem,
   type InterestProfile,
@@ -292,6 +293,8 @@ export function SavedSearchesPanel() {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [q, setQ] = useState("");
+  const [filterModule, setFilterModule] = useState("all");
+  const [sort, setSort] = useState("latest");
 
   useEffect(() => {
     listSavedSearches()
@@ -304,7 +307,7 @@ export function SavedSearchesPanel() {
     try {
       const next = await putSavedSearches([
         ...items,
-        { name: name.trim(), q: q.trim(), module: "search", sort: "published_desc" },
+        { name: name.trim(), q: q.trim(), module: filterModule, sort },
       ]);
       setItems(next);
       setName("");
@@ -326,6 +329,27 @@ export function SavedSearchesPanel() {
           查询
           <input value={q} onChange={(event) => setQ(event.target.value)} />
         </label>
+        <label>
+          文章过滤
+          <select value={filterModule} onChange={(event) => setFilterModule(event.target.value)}>
+            <option value="all">全部</option>
+            <option value="unread">未读</option>
+            <option value="read">已读</option>
+            <option value="read-later">稍后读</option>
+            <option value="starred">候选</option>
+            <option value="project">立项</option>
+          </select>
+        </label>
+        <label>
+          排序
+          <select value={sort} onChange={(event) => setSort(event.target.value)}>
+            <option value="latest">最新</option>
+            <option value="score">总分</option>
+            <option value="technical">技术</option>
+            <option value="business">商业</option>
+            <option value="trend">趋势</option>
+          </select>
+        </label>
         <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" onClick={saveCurrent}>
           保存
         </button>
@@ -334,7 +358,7 @@ export function SavedSearchesPanel() {
         {items.map((item) => (
           <li key={`${item.name}-${item.q}`} className="productModuleCard">
             <Link
-              href={`/?module=${encodeURIComponent(item.module)}&sort=default&lang=zh&q=${encodeURIComponent(item.q)}`}
+              href={savedSearchHref(item)}
               prefetch={false}
             >
               <strong>{item.name}</strong>
@@ -625,8 +649,18 @@ export function InterestPanel() {
   );
 }
 
-export function UnifiedSearchPanel({ initialQuery = "" }: { initialQuery?: string }) {
+export function UnifiedSearchPanel({
+  initialQuery = "",
+  initialArticleModule = "all",
+  initialSort = "default",
+}: {
+  initialQuery?: string;
+  initialArticleModule?: string;
+  initialSort?: string;
+}) {
   const [q, setQ] = useState(initialQuery);
+  const [articleModule, setArticleModule] = useState(initialArticleModule);
+  const [articleSort, setArticleSort] = useState(initialSort);
   const [articles, setArticles] = useState<Article[]>([]);
   const [annotations, setAnnotations] = useState<
     Array<{
@@ -641,7 +675,7 @@ export function UnifiedSearchPanel({ initialQuery = "" }: { initialQuery?: strin
   const [searched, setSearched] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const runSearch = useCallback(async (query: string) => {
+  const runSearch = useCallback(async (query: string, module: string, sort: string) => {
     const normalized = query.trim();
     if (!normalized) {
       setError("请输入标题、正文、划线或笔记关键词");
@@ -651,7 +685,7 @@ export function UnifiedSearchPanel({ initialQuery = "" }: { initialQuery?: strin
     setError(null);
     try {
       const [articlePage, annotationItems] = await Promise.all([
-        listArticles({ limit: 50, module: "all", q: normalized, sort: "published_desc" }),
+        listArticles({ limit: 50, module, q: normalized, sort }),
         searchAnnotations(normalized),
       ]);
       setArticles(articlePage.articles);
@@ -665,8 +699,8 @@ export function UnifiedSearchPanel({ initialQuery = "" }: { initialQuery?: strin
   }, []);
 
   useEffect(() => {
-    if (initialQuery.trim()) void runSearch(initialQuery);
-  }, [initialQuery, runSearch]);
+    if (initialQuery.trim()) void runSearch(initialQuery, initialArticleModule, initialSort);
+  }, [initialArticleModule, initialQuery, initialSort, runSearch]);
 
   return (
     <PanelShell title="统一搜索" hint="一次检索标题、正文、私人划线与笔记；中英文子串均可命中。">
@@ -675,10 +709,32 @@ export function UnifiedSearchPanel({ initialQuery = "" }: { initialQuery?: strin
         <label>
           关键词
           <input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => {
-            if (event.key === "Enter") void runSearch(q);
+            if (event.key === "Enter") void runSearch(q, articleModule, articleSort);
           }} />
         </label>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={busy} onClick={() => void runSearch(q)}>
+        <label>
+          文章过滤
+          <select value={articleModule} onChange={(event) => setArticleModule(event.target.value)}>
+            <option value="all">全部</option>
+            <option value="unread">未读</option>
+            <option value="read">已读</option>
+            <option value="read-later">稍后读</option>
+            <option value="starred">候选</option>
+            <option value="project">立项</option>
+          </select>
+        </label>
+        <label>
+          文章排序
+          <select value={articleSort} onChange={(event) => setArticleSort(event.target.value)}>
+            <option value="default">默认</option>
+            <option value="latest">最新</option>
+            <option value="score">总分</option>
+            <option value="technical">技术</option>
+            <option value="business">商业</option>
+            <option value="trend">趋势</option>
+          </select>
+        </label>
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={busy} onClick={() => void runSearch(q, articleModule, articleSort)}>
           {busy ? "搜索中…" : "搜索"}
         </button>
       </div>

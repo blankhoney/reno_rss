@@ -20,6 +20,7 @@ import { ReviewQueue } from "@/components/ReviewQueue";
 import {
   resolveArticleSortId,
   resolveSummaryLangId,
+  isModuleId,
 } from "@/lib/articles/service";
 import { isIntelligenceModule } from "@/lib/api/briefs";
 
@@ -84,7 +85,11 @@ export default async function HomePage({ searchParams }: PageProps) {
       <AuthSessionGate>
         <main className="workbench">
           <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
-          <UnifiedSearchPanel initialQuery={currentQuery} />
+          <UnifiedSearchPanel
+            initialQuery={currentQuery}
+            initialArticleModule={typeof sp.filter === "string" && isModuleId(sp.filter) ? sp.filter : "all"}
+            initialSort={currentSort}
+          />
         </main>
       </AuthSessionGate>
     );

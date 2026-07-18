@@ -53,7 +53,7 @@ class MemorySavedSearchRepository:
                     name=item["name"],
                     q=item.get("q", ""),
                     module=item.get("module", "all"),
-                    sort=item.get("sort", "published_desc"),
+                    sort=item.get("sort", "latest"),
                 )
             )
             self._next_id += 1
@@ -151,7 +151,7 @@ def _records_from_payload(
                 name=name,
                 q=str(item.get("q") or ""),
                 module=str(item.get("module") or "all"),
-                sort=str(item.get("sort") or "published_desc"),
+                sort=str(item.get("sort") or "latest"),
             )
         )
     return records

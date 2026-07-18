@@ -47,7 +47,7 @@ export interface paths {
         };
         /**
          * Api Metrics
-         * @description Lightweight Prometheus text exposition (no extra deps).
+         * @description Prometheus exposition for latency, queue, LLM spend, and errors.
          */
         get: operations["api_metrics_api_metrics_get"];
         put?: never;
@@ -1102,7 +1102,7 @@ export interface components {
             module: string;
             /**
              * Sort
-             * @default published_desc
+             * @default latest
              */
             sort: string;
         };

@@ -48,7 +48,7 @@
     "/api/metrics": {
       "get": {
         "summary": "Api Metrics",
-        "description": "Lightweight Prometheus text exposition (no extra deps).",
+        "description": "Prometheus exposition for latency, queue, LLM spend, and errors.",
         "operationId": "api_metrics_api_metrics_get",
         "responses": {
           "200": {
@@ -2832,7 +2832,7 @@
             "type": "string",
             "maxLength": 40,
             "title": "Sort",
-            "default": "published_desc"
+            "default": "latest"
           }
         },
         "type": "object",

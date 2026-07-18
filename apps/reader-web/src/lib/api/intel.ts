@@ -65,6 +65,17 @@ export function researchCitationHref(articleId: number, quote?: string): string 
   return `/read/${articleId}?${params.toString()}`;
 }
 
+export function savedSearchHref(item: SavedSearchItem): string {
+  const params = new URLSearchParams({
+    module: "search",
+    filter: item.module || "all",
+    sort: item.sort || "latest",
+    lang: "zh",
+  });
+  if (item.q.trim()) params.set("q", item.q.trim());
+  return `/?${params.toString()}`;
+}
+
 export async function listClusters(limit = 12): Promise<ClusterItem[]> {
   const payload = await apiGet<{
     clusters?: Array<{
@@ -202,7 +213,7 @@ export async function listSavedSearches(): Promise<SavedSearchItem[]> {
       name: item.name,
       q: item.q ?? "",
       module: item.module ?? "all",
-      sort: item.sort ?? "published_desc",
+      sort: item.sort ?? "latest",
     });
   }
   return items;
@@ -225,7 +236,7 @@ export async function putSavedSearches(items: SavedSearchItem[]): Promise<SavedS
     name: String(item.name ?? ""),
     q: String(item.q ?? ""),
     module: String(item.module ?? "all"),
-    sort: String(item.sort ?? "published_desc"),
+    sort: String(item.sort ?? "latest"),
   }));
 }
 

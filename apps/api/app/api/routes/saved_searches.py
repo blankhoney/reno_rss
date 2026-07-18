@@ -7,20 +7,25 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import get_saved_search_repository, require_user
 from app.db.auth_store import UserRecord
-from app.db.repositories.articles import LIST_MODULES
+from app.db.repositories.articles import LIST_MODULES, LIST_SORTS
 from app.db.repositories.saved_searches import SavedSearchRecord, SavedSearchStore
 
 
 router = APIRouter(prefix="/api/saved-searches", tags=["saved-searches"])
 
-ALLOWED_SORTS = frozenset({"published_desc", "published_asc", "score_desc", "score_asc"})
+LEGACY_SORT_ALIASES = {
+    "published_desc": "latest",
+    "published_asc": "latest",
+    "score_desc": "score",
+    "score_asc": "score",
+}
 
 
 class SavedSearchItem(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     q: str = Field(default="", max_length=200)
     module: str = Field(default="all", max_length=40)
-    sort: str = Field(default="published_desc", max_length=40)
+    sort: str = Field(default="latest", max_length=40)
 
     @field_validator("name", "q")
     @classmethod
@@ -38,10 +43,7 @@ class SavedSearchItem(BaseModel):
     @field_validator("sort")
     @classmethod
     def validate_sort(cls, value: str) -> str:
-        sort = value.strip() or "published_desc"
-        if sort not in ALLOWED_SORTS:
-            raise ValueError(f"sort must be one of: {', '.join(sorted(ALLOWED_SORTS))}")
-        return sort
+        return normalize_saved_search_sort(value, strict=True)
 
 
 class ReplaceSavedSearchesRequest(BaseModel):
@@ -54,8 +56,18 @@ def saved_search_public(record: SavedSearchRecord) -> dict[str, object]:
         "name": record.name,
         "q": record.q,
         "module": record.module,
-        "sort": record.sort,
+        "sort": normalize_saved_search_sort(record.sort, strict=False),
     }
+
+
+def normalize_saved_search_sort(value: str, *, strict: bool) -> str:
+    sort = value.strip().lower() or "latest"
+    sort = LEGACY_SORT_ALIASES.get(sort, sort)
+    if sort in LIST_SORTS:
+        return sort
+    if strict:
+        raise ValueError(f"sort must be one of: {', '.join(sorted(LIST_SORTS))}")
+    return "latest"
 
 
 @router.get("")
