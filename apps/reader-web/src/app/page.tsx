@@ -1,7 +1,19 @@
+import type { ReactElement } from "react";
 import { AuthSessionGate } from "@/components/AuthSessionGate";
 import { AdminConsole } from "@/components/AdminConsole";
 import { DailyIntelligenceDashboard } from "@/components/DailyIntelligenceDashboard";
 import { ModuleSidebar } from "@/components/ModuleSidebar";
+import {
+  ClustersPanel,
+  CraftPanel,
+  ExportPanel,
+  InterestPanel,
+  NotesSearchPanel,
+  ResearchPanel,
+  RulesPanel,
+  SavedSearchesPanel,
+  ThemesPanel,
+} from "@/components/ProductModules";
 import { ReaderWorkbench } from "@/components/ReaderWorkbench";
 import { ReviewQueue } from "@/components/ReviewQueue";
 import {
@@ -18,6 +30,18 @@ function normalizeModule(raw: string | string[] | undefined): string {
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+const PRODUCT_PANELS: Record<string, () => ReactElement> = {
+  clusters: () => <ClustersPanel />,
+  themes: () => <ThemesPanel />,
+  rules: () => <RulesPanel />,
+  "saved-searches": () => <SavedSearchesPanel />,
+  research: () => <ResearchPanel />,
+  interest: () => <InterestPanel />,
+  notes: () => <NotesSearchPanel />,
+  craft: () => <CraftPanel />,
+  export: () => <ExportPanel />,
 };
 
 export default async function HomePage({ searchParams }: PageProps) {
@@ -49,6 +73,18 @@ export default async function HomePage({ searchParams }: PageProps) {
         <main className="workbench">
           <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
           <ReviewQueue />
+        </main>
+      </AuthSessionGate>
+    );
+  }
+
+  const productPanel = PRODUCT_PANELS[currentModule];
+  if (productPanel) {
+    return (
+      <AuthSessionGate>
+        <main className="workbench">
+          <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
+          {productPanel()}
         </main>
       </AuthSessionGate>
     );

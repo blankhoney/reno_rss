@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiGet } from "@/lib/api/client";
+import { listArticles, listAnnotationReviewQueue } from "@/lib/api/articles";
+import { listClusters, listFeeds, listThemes } from "@/lib/api/intel";
 import { ScoreRing } from "./ScoreRing";
 
 type BriefItem = {
@@ -26,6 +28,15 @@ type Brief = {
   source?: string;
 };
 
+type EntryCard = {
+  id: string;
+  title: string;
+  hint: string;
+  href: string;
+  count: number;
+  preview: string[];
+};
+
 const TIERS: Array<{ key: keyof Brief; label: string; hint: string }> = [
   { key: "must_read", label: "今日必读", hint: "高信号，优先精读" },
   { key: "worth_scan", label: "值得扫", hint: "有价值，可快速浏览" },
@@ -36,23 +47,134 @@ export function DailyIntelligenceDashboard() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [entries, setEntries] = useState<EntryCard[]>([]);
+  const [clusters, setClusters] = useState<
+    Array<{ id: string; label: string; size: number; mainArticleId: number }>
+  >([]);
+  const [themes, setThemes] = useState<Array<{ label: string; weight: number }>>([]);
+  const [sourceQuality, setSourceQuality] = useState<{
+    hidden: Array<{ id: number; title: string }>;
+    lowPriority: Array<{ id: number; title: string; userPriority: number }>;
+    active: number;
+  }>({ hidden: [], lowPriority: [], active: 0 });
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    apiGet<{ brief?: Brief | null }>("/api/briefs/latest")
-      .then((payload) => {
+
+    Promise.allSettled([
+      apiGet<{ brief?: Brief | null }>("/api/briefs/latest"),
+      listArticles({ limit: 5, module: "read-later" }),
+      listArticles({ limit: 5, module: "project" }),
+      listAnnotationReviewQueue(5),
+      listClusters(8),
+      listThemes(8),
+      listFeeds(),
+    ])
+      .then((results) => {
         if (!active) return;
-        setBrief(payload.brief ?? null);
-        setError(null);
-      })
-      .catch((caught) => {
-        if (!active) return;
-        setError(caught instanceof Error ? caught.message : "情报加载失败");
+        const [
+          briefResult,
+          continueResult,
+          projectResult,
+          reviewResult,
+          clusterResult,
+          themeResult,
+          feedResult,
+        ] = results;
+
+        if (briefResult.status === "fulfilled") {
+          setBrief(briefResult.value.brief ?? null);
+          setError(null);
+        } else {
+          setError(
+            briefResult.reason instanceof Error
+              ? briefResult.reason.message
+              : "情报加载失败",
+          );
+        }
+
+        const continueItems =
+          continueResult.status === "fulfilled" ? continueResult.value.articles : [];
+        const projectItems =
+          projectResult.status === "fulfilled" ? projectResult.value.articles : [];
+        const reviewItems =
+          reviewResult.status === "fulfilled" ? reviewResult.value : [];
+
+        setEntries([
+          {
+            id: "continue",
+            title: "继续阅读",
+            hint: "稍后读 / 进度未完成",
+            href: "?module=read-later&sort=default&lang=zh",
+            count: continueItems.length,
+            preview: continueItems.slice(0, 3).map((item) => item.title),
+          },
+          {
+            id: "project",
+            title: "未完成项目",
+            hint: "已立项队列",
+            href: "?module=project&sort=default&lang=zh",
+            count: projectItems.length,
+            preview: projectItems.slice(0, 3).map((item) => item.title),
+          },
+          {
+            id: "review",
+            title: "待复习划线",
+            hint: "间隔复习到期项",
+            href: "?module=review&sort=default&lang=zh",
+            count: reviewItems.length,
+            preview: reviewItems
+              .slice(0, 3)
+              .map((item) => item.selectedText?.trim() || item.content)
+              .filter(Boolean),
+          },
+        ]);
+
+        if (clusterResult.status === "fulfilled") {
+          setClusters(
+            clusterResult.value.map((item) => ({
+              id: item.id,
+              label: item.label,
+              size: item.size,
+              mainArticleId: item.mainArticleId,
+            })),
+          );
+        }
+        if (themeResult.status === "fulfilled") {
+          setThemes(
+            themeResult.value.map((item) => ({
+              label: item.label,
+              weight: item.weight,
+            })),
+          );
+        }
+        if (feedResult.status === "fulfilled") {
+          const feeds = feedResult.value;
+          const hidden = feeds
+            .filter((feed) => feed.hidden)
+            .slice(0, 6)
+            .map((feed) => ({ id: feed.id, title: feed.title }));
+          const lowPriority = feeds
+            .filter((feed) => !feed.hidden && feed.userPriority < 0)
+            .sort((a, b) => a.userPriority - b.userPriority)
+            .slice(0, 6)
+            .map((feed) => ({
+              id: feed.id,
+              title: feed.title,
+              userPriority: feed.userPriority,
+            }));
+          setSourceQuality({
+            hidden,
+            lowPriority,
+            active: feeds.filter((feed) => !feed.hidden).length,
+          });
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
       });
+
     return () => {
       active = false;
     };
@@ -70,14 +192,133 @@ export function DailyIntelligenceDashboard() {
           </p>
         </div>
         <div className="articleListActions">
+          <Link className="readerToolbarBtn" href="?module=clusters&sort=default&lang=zh" prefetch={false}>
+            故事线
+          </Link>
+          <Link className="readerToolbarBtn" href="?module=rules&sort=default&lang=zh" prefetch={false}>
+            规则
+          </Link>
           <Link className="readerToolbarBtn" href="?module=all&sort=default&lang=zh" prefetch={false}>
             打开全部订阅
           </Link>
-          <Link className="readerToolbarBtn readerToolbarBtnPrimary" href="?module=review&sort=default&lang=zh" prefetch={false}>
+          <Link
+            className="readerToolbarBtn readerToolbarBtnPrimary"
+            href="?module=review&sort=default&lang=zh"
+            prefetch={false}
+          >
             划线复习
           </Link>
         </div>
       </header>
+
+      <section className="dailyIntelEntries" aria-label="持久入口">
+        {entries.map((entry) => (
+          <Link key={entry.id} className="dailyIntelEntryCard" href={entry.href} prefetch={false}>
+            <div className="dailyIntelEntryTop">
+              <h2>{entry.title}</h2>
+              <span className="dailyIntelEntryCount">{entry.count}</span>
+            </div>
+            <p className="workbenchRibbonMuted">{entry.hint}</p>
+            {entry.preview.length > 0 ? (
+              <ul className="dailyIntelEntryPreview">
+                {entry.preview.map((line) => (
+                  <li key={`${entry.id}-${line.slice(0, 24)}`}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="workbenchRibbonMuted">暂无条目</p>
+            )}
+          </Link>
+        ))}
+      </section>
+
+      <section className="dailyIntelRadar" aria-label="异常与机会雷达">
+        <header className="dailyIntelTierHeader">
+          <h2>异常与机会雷达</h2>
+          <span className="workbenchRibbonMuted">主题簇 · 重复风暴信号</span>
+        </header>
+        <div className="dailyIntelRadarGrid">
+          <div className="dailyIntelRadarPane">
+            <h3>突发主题簇</h3>
+            {clusters.length === 0 ? (
+              <p className="workbenchRibbonMuted">暂无聚类；评分后会出现多源故事线。</p>
+            ) : (
+              <ul className="dailyIntelRadarList">
+                {clusters.map((cluster) => (
+                  <li key={cluster.id}>
+                    <Link
+                      href={`/read/${cluster.mainArticleId}?module=home&sort=default&lang=zh`}
+                      prefetch={false}
+                    >
+                      {cluster.label}
+                      <span className="workbenchRibbonMuted"> · {cluster.size} 源</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="dailyIntelRadarPane">
+            <h3>主题热度</h3>
+            {themes.length === 0 ? (
+              <p className="workbenchRibbonMuted">尚无标签主题。</p>
+            ) : (
+              <ul className="dailyIntelRadarList">
+                {themes.map((theme) => (
+                  <li key={theme.label}>
+                    <Link
+                      href={`?module=themes&sort=default&lang=zh`}
+                      prefetch={false}
+                    >
+                      {theme.label}
+                      <span className="workbenchRibbonMuted"> · w={theme.weight.toFixed(1)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="dailyIntelSourceQuality" aria-label="源可信度">
+        <header className="dailyIntelTierHeader">
+          <h2>源可信度</h2>
+          <span className="workbenchRibbonMuted">
+            活跃 {sourceQuality.active} · 隐藏 {sourceQuality.hidden.length} · 低优先{" "}
+            {sourceQuality.lowPriority.length}
+          </span>
+        </header>
+        <div className="dailyIntelRadarGrid">
+          <div className="dailyIntelRadarPane">
+            <h3>已 demote / 隐藏</h3>
+            {sourceQuality.hidden.length === 0 ? (
+              <p className="workbenchRibbonMuted">没有隐藏源。</p>
+            ) : (
+              <ul className="dailyIntelRadarList">
+                {sourceQuality.hidden.map((feed) => (
+                  <li key={feed.id}>{feed.title}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="dailyIntelRadarPane">
+            <h3>低优先级源</h3>
+            {sourceQuality.lowPriority.length === 0 ? (
+              <p className="workbenchRibbonMuted">没有负优先级源。</p>
+            ) : (
+              <ul className="dailyIntelRadarList">
+                {sourceQuality.lowPriority.map((feed) => (
+                  <li key={feed.id}>
+                    {feed.title}
+                    <span className="workbenchRibbonMuted"> · p={feed.userPriority}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
 
       {loading ? <p className="workbenchRibbonMuted">正在生成情报视图…</p> : null}
       {error ? <p className="adminConsoleError">{error}</p> : null}
@@ -100,7 +341,9 @@ export function DailyIntelligenceDashboard() {
               <section key={tier.key} className="dailyIntelTier" aria-label={tier.label}>
                 <header className="dailyIntelTierHeader">
                   <h2>{tier.label}</h2>
-                  <span className="workbenchRibbonMuted">{tier.hint} · {items.length}</span>
+                  <span className="workbenchRibbonMuted">
+                    {tier.hint} · {items.length}
+                  </span>
                 </header>
                 {items.length === 0 ? (
                   <p className="workbenchRibbonMuted">本层暂无条目</p>
@@ -118,7 +361,9 @@ export function DailyIntelligenceDashboard() {
                               {item.rank != null ? <span>#{item.rank}</span> : null}
                               {item.tier ? <span>{item.tier}</span> : null}
                               {item.risk_flags && item.risk_flags.length > 0 ? (
-                                <span className="dailyIntelRisk">风险 {item.risk_flags.join("·")}</span>
+                                <span className="dailyIntelRisk">
+                                  风险 {item.risk_flags.join("·")}
+                                </span>
                               ) : null}
                             </div>
                             <h3 className="dailyIntelCardTitle">{item.title}</h3>

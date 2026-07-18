@@ -15,6 +15,7 @@ import {
   primeSessionCache,
   readCachedSessionUser,
 } from "@/lib/auth/sessionCache";
+import { readCraftPreferences, writeCraftPreferences } from "@/lib/craft/preferences";
 import { ThemeToggle } from "./ThemeToggle";
 
 type AuthMode = "login" | "recover";
@@ -162,6 +163,11 @@ export function AuthSessionGate({ children }: { children: ReactNode }) {
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    // Hydrate Scan/Focus/Keep density dual-pane prefs onto documentElement.
+    writeCraftPreferences(readCraftPreferences());
+  }, []);
 
   useEffect(() => {
     let active = true;

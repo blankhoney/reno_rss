@@ -3024,6 +3024,174 @@ body:has(.focusReader) .toastHost {
   color: var(--warning);
 }
 
+.dailyIntelEntries {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dailyIntelEntryCard {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+  min-height: 140px;
+}
+
+.dailyIntelEntryCard:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.dailyIntelEntryTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dailyIntelEntryTop h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dailyIntelEntryCount {
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.dailyIntelEntryPreview {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.dailyIntelRadar,
+.dailyIntelSourceQuality {
+  display: grid;
+  gap: 10px;
+}
+
+.dailyIntelRadarGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dailyIntelRadarPane {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  padding: 12px 14px;
+}
+
+.dailyIntelRadarPane h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.dailyIntelRadarList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.dailyIntelRadarList a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dailyIntelRadarList a:hover {
+  color: var(--accent);
+}
+
+.productModulePane {
+  min-width: 0;
+  padding: var(--space-5) var(--space-6);
+  display: grid;
+  gap: 16px;
+}
+
+.productModuleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.productModuleCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  padding: 12px 14px;
+}
+
+.productModuleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.productModuleForm {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.productModuleForm label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.productModuleForm input,
+.productModuleForm select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel2, var(--panel));
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+.productModulePre {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--panel2, var(--panel));
+  border: 1px solid var(--border);
+  overflow: auto;
+  max-height: 420px;
+  font-size: 0.82rem;
+}
+
+html[data-density="compact"] .articleList,
+html[data-density="compact"] .dailyIntelList {
+  gap: 6px;
+}
+
+html[data-dual-pane="true"] .workbench {
+  --workbench-reader-cols: 1fr 1fr;
+}
+
+@media (max-width: 960px) {
+  .dailyIntelEntries,
+  .dailyIntelRadarGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .reviewQueueActions {
   display: flex;
   gap: 8px;
