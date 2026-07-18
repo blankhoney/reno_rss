@@ -256,6 +256,15 @@ test("all module sorts by most recent publishedAt", () => {
   assert.deepEqual(sorted.map((item) => item.id), [2, 1]);
 });
 
+test("sanitizeArticleHtml stamps paragraph anchors for citation jump", () => {
+  const html = sanitizeArticleHtml(
+    "<p>First paragraph about Rust.</p><p>Second about LLM agents.</p>",
+  );
+  assert.match(html, /data-paragraph-id="1"/);
+  assert.match(html, /data-paragraph-id="2"/);
+  assert.match(html, /id="p-1"/);
+});
+
 test("sanitizeArticleHtml removes script tags and inline event handlers", () => {
   const html = sanitizeArticleHtml('<p onclick="bad()">Hi</p><script>alert(1)</script>');
   assert.equal(html.includes("<script"), false);

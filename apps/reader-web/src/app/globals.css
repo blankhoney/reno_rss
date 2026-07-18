@@ -3244,6 +3244,13 @@ html[data-dual-pane="true"] .focusReader {
   color: var(--accent);
 }
 
+.citationJumpFlash {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 4px;
+  transition: background 160ms var(--ease-standard, ease);
+}
+
 @media (max-width: 960px) {
   .dailyIntelEntries,
   .dailyIntelRadarGrid {

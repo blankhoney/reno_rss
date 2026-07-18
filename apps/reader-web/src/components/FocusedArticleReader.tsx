@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/types";
 import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
-import type { SummaryLangId } from "@/lib/articles/service";
+import { findCitationTarget, type SummaryLangId } from "@/lib/articles/service";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
 import { createArticleAnnotation, saveArticleFeedback } from "@/lib/api/articles";
 import { streamArticleAsk, type ArticleAskCitation } from "@/lib/api/client";
@@ -342,6 +342,16 @@ export function FocusedArticleReader({
   function scrollToCitation(quote: string) {
     const root = articleRef.current;
     if (root == null || quote.trim().length === 0) return;
+    root.querySelectorAll(".citationJumpFlash").forEach((node) => {
+      node.classList.remove("citationJumpFlash");
+    });
+    const target = findCitationTarget(root, quote);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("citationJumpFlash");
+      window.setTimeout(() => target.classList.remove("citationJumpFlash"), 1600);
+      return;
+    }
     const findInPage = (window as Window & { find?: (...args: unknown[]) => boolean }).find;
     if (typeof window !== "undefined" && typeof findInPage === "function") {
       try {
@@ -359,6 +369,7 @@ export function FocusedArticleReader({
       const index = text.indexOf(quote.slice(0, Math.min(quote.length, 48)));
       if (index >= 0 && node.parentElement) {
         node.parentElement.scrollIntoView({ behavior: "smooth", block: "center" });
+        node.parentElement.classList.add("citationJumpFlash");
         return;
       }
       node = walker.nextNode();
