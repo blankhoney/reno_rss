@@ -734,3 +734,43 @@ async def test_article_list_q_matches_content_text_body(app, client):
     ids_titles = [(item["id"], item["title"]) for item in response.json()["items"]]
     assert len(ids_titles) == 1
     assert ids_titles[0][1] == "Completely different headline"
+
+
+@pytest.mark.asyncio
+async def test_annotation_review_queue_is_private_and_recent_first(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Reviewer"})
+    first = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 901,
+            "url": "https://example.com/a1",
+            "title": "Article One",
+            "content_text": "body one",
+        }
+    )
+    second = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 902,
+            "url": "https://example.com/a2",
+            "title": "Article Two",
+            "content_text": "body two",
+        }
+    )
+    await client.post(
+        f"/api/articles/{first.id}/annotations",
+        json={"content": "older note", "selected_text": "old quote"},
+    )
+    await client.post(
+        f"/api/articles/{second.id}/annotations",
+        json={"content": "newer note", "selected_text": "new quote"},
+    )
+
+    response = await client.get("/api/annotations/review", params={"limit": 10})
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) >= 2
+    assert items[0]["content"] == "newer note"
+    assert items[0]["article_title"] == "Article Two"
+    assert items[1]["content"] == "older note"

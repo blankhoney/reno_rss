@@ -170,6 +170,13 @@ class ArticleStore(Protocol):
 
     def list_annotations(self, user_id: UUID, article_id: int) -> list[AnnotationRecord]: ...
 
+    def list_recent_annotations(
+        self,
+        user_id: UUID,
+        *,
+        limit: int = 20,
+    ) -> list[AnnotationRecord]: ...
+
     def create_annotation(
         self,
         user_id: UUID,
@@ -437,6 +444,23 @@ class MemoryArticleRepository:
             reverse=True,
         )
 
+    def list_recent_annotations(
+        self,
+        user_id: UUID,
+        *,
+        limit: int = 20,
+    ) -> list[AnnotationRecord]:
+        items = sorted(
+            [
+                annotation
+                for annotation in self._annotations.values()
+                if annotation.user_id == user_id
+            ],
+            key=lambda item: (item.created_at, item.id),
+            reverse=True,
+        )
+        return items[: max(1, min(limit, 100))]
+
     def create_annotation(
         self,
         user_id: UUID,
@@ -688,6 +712,32 @@ class DatabaseArticleRepository:
                         article_annotations.c.deleted_at.is_(None),
                     )
                     .order_by(desc(article_annotations.c.id))
+                )
+                .mappings()
+                .all()
+            )
+        return [_annotation_from_row(row) for row in rows]
+
+    def list_recent_annotations(
+        self,
+        user_id: UUID,
+        *,
+        limit: int = 20,
+    ) -> list[AnnotationRecord]:
+        capped = max(1, min(limit, 100))
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(article_annotations)
+                    .where(
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.deleted_at.is_(None),
+                    )
+                    .order_by(
+                        desc(article_annotations.c.created_at),
+                        desc(article_annotations.c.id),
+                    )
+                    .limit(capped)
                 )
                 .mappings()
                 .all()

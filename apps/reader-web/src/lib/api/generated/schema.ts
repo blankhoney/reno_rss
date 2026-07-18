@@ -209,6 +209,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/annotations/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Annotation Review Queue
+         * @description Private spaced-review queue: recent highlights for the current user only.
+         */
+        get: operations["list_annotation_review_queue_api_annotations_review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/articles/{article_id}/fetch-content": {
         parameters: {
             query?: never;
@@ -323,6 +343,23 @@ export interface paths {
         get?: never;
         /** Set Feed Priority */
         put: operations["set_feed_priority_api_feeds__feed_id__priority_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/feeds/{feed_id}/hidden": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Feed Hidden */
+        put: operations["set_feed_hidden_api_feeds__feed_id__hidden_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -611,6 +648,11 @@ export interface components {
         RecoverRequest: {
             /** Recovery Code */
             recovery_code: string;
+        };
+        /** SetHiddenRequest */
+        SetHiddenRequest: {
+            /** Hidden */
+            hidden: boolean;
         };
         /** SetPriorityRequest */
         SetPriorityRequest: {
@@ -1038,6 +1080,39 @@ export interface operations {
             };
         };
     };
+    list_annotation_review_queue_api_annotations_review_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     enqueue_fetch_content_job_api_articles__article_id__fetch_content_post: {
         parameters: {
             query?: never;
@@ -1296,6 +1371,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SetPriorityRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_feed_hidden_api_feeds__feed_id__hidden_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feed_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetHiddenRequest"];
             };
         };
         responses: {

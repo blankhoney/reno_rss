@@ -374,6 +374,39 @@ export type ArticleAnnotation = {
   createdAt: string | null;
 };
 
+export type AnnotationReviewItem = ArticleAnnotation & {
+  articleTitle: string | null;
+  articleUrl: string | null;
+};
+
+export async function listAnnotationReviewQueue(limit = 20): Promise<AnnotationReviewItem[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const payload = await apiGet<{
+    items?: Array<{
+      id?: number;
+      article_id?: number;
+      type?: string;
+      selected_text?: string | null;
+      content?: string;
+      created_at?: string | null;
+      article_title?: string | null;
+      article_url?: string | null;
+    }>;
+  }>(`/api/annotations/review?${params.toString()}`);
+  return (payload.items ?? [])
+    .filter((item) => item.id != null && typeof item.content === "string")
+    .map((item) => ({
+      id: item.id as number,
+      articleId: item.article_id ?? 0,
+      type: item.type ?? "annotation",
+      selectedText: item.selected_text ?? null,
+      content: item.content as string,
+      createdAt: item.created_at ?? null,
+      articleTitle: item.article_title ?? null,
+      articleUrl: item.article_url ?? null,
+    }));
+}
+
 export async function createArticleAnnotation(
   articleId: number,
   patch: { content: string; selectedText?: string | null; type?: string },

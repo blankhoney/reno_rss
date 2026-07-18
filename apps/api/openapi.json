@@ -543,6 +543,54 @@
         }
       }
     },
+    "/api/annotations/review": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "List Annotation Review Queue",
+        "description": "Private spaced-review queue: recent highlights for the current user only.",
+        "operationId": "list_annotation_review_queue_api_annotations_review_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Annotation Review Queue Api Annotations Review Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/articles/{article_id}/fetch-content": {
       "post": {
         "tags": [
@@ -901,6 +949,61 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Set Feed Priority Api Feeds  Feed Id  Priority Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/feeds/{feed_id}/hidden": {
+      "put": {
+        "tags": [
+          "feeds"
+        ],
+        "summary": "Set Feed Hidden",
+        "operationId": "set_feed_hidden_api_feeds__feed_id__hidden_put",
+        "parameters": [
+          {
+            "name": "feed_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Feed Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetHiddenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Set Feed Hidden Api Feeds  Feed Id  Hidden Put"
                 }
               }
             }
@@ -1581,6 +1684,19 @@
           "recovery_code"
         ],
         "title": "RecoverRequest"
+      },
+      "SetHiddenRequest": {
+        "properties": {
+          "hidden": {
+            "type": "boolean",
+            "title": "Hidden"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hidden"
+        ],
+        "title": "SetHiddenRequest"
       },
       "SetPriorityRequest": {
         "properties": {

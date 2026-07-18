@@ -305,6 +305,32 @@ def list_article_annotations(
     return {"items": [annotation_public(item) for item in items]}
 
 
+@router.get("/annotations/review")
+def list_annotation_review_queue(
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict[str, object]:
+    """Private spaced-review queue: recent highlights for the current user only."""
+    items = article_repository.list_recent_annotations(current_user.id, limit=limit)
+    article_ids = [item.article_id for item in items]
+    articles = article_repository.get_articles(article_ids)
+    return {
+        "items": [
+            {
+                **annotation_public(item),
+                "article_title": (
+                    articles[item.article_id].title if item.article_id in articles else None
+                ),
+                "article_url": (
+                    articles[item.article_id].url if item.article_id in articles else None
+                ),
+            }
+            for item in items
+        ]
+    }
+
+
 @router.post("/articles/{article_id}/annotations", status_code=201)
 @limiter.limit(write_rate_limit)
 def create_article_annotation(
