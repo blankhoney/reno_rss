@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+
+
+@dataclass(frozen=True)
+class ExportAnnotation:
+    selected_text: str
+    note: str
+    color: str | None
+    tags: list[str]
+    created_at: str
 
 
 @dataclass(frozen=True)
@@ -17,6 +26,7 @@ class ExportArticle:
     tier: str | None
     reason: str
     tags: list[str]
+    annotations: list[ExportAnnotation] = field(default_factory=list)
 
 
 def build_project_export_markdown(
@@ -52,6 +62,20 @@ def build_project_export_markdown(
                 "",
             ]
         )
+        if article.annotations:
+            lines.extend(["### 私人划线与笔记", ""])
+            for annotation in article.annotations:
+                if annotation.selected_text:
+                    lines.extend(
+                        [f"> {line}" for line in annotation.selected_text.splitlines()]
+                    )
+                if annotation.note:
+                    lines.append(f"- 笔记: {annotation.note}")
+                if annotation.color:
+                    lines.append(f"- 颜色: {annotation.color}")
+                if annotation.tags:
+                    lines.append(f"- 标签: {', '.join(annotation.tags)}")
+                lines.extend([f"- 创建时间: {annotation.created_at}", ""])
     return "\n".join(lines)
 
 
@@ -74,6 +98,16 @@ def build_project_export_json(
                 "tier": article.tier,
                 "reason": article.reason,
                 "tags": list(article.tags),
+                "annotations": [
+                    {
+                        "selected_text": annotation.selected_text,
+                        "note": annotation.note,
+                        "color": annotation.color,
+                        "tags": list(annotation.tags),
+                        "created_at": annotation.created_at,
+                    }
+                    for annotation in article.annotations
+                ],
             }
             for article in articles
         ],

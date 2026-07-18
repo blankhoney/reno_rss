@@ -10,10 +10,12 @@ from app.api.deps import (
     require_user,
 )
 from app.domain.export_project import (
+    ExportAnnotation,
     ExportArticle,
     build_project_export_json,
     build_project_export_markdown,
 )
+from app.domain.annotations_meta import decode_annotation_content
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import (
     AnnotationRecord,
@@ -376,6 +378,10 @@ def export_project_articles(
         module="project",
     )
     scores = scoring_repository.active_scores_for_articles([item.id for item in page.items])
+    annotations = article_repository.list_annotations_for_articles(
+        current_user.id,
+        [item.id for item in page.items],
+    )
     export_items = [
         ExportArticle(
             id=article.id,
@@ -386,6 +392,7 @@ def export_project_articles(
             tier=scores[article.id].recommendation_tier if article.id in scores else None,
             reason=scores[article.id].reason if article.id in scores else "",
             tags=[str(tag) for tag in (scores[article.id].tags if article.id in scores else [])],
+            annotations=_export_annotations(annotations.get(article.id, [])),
         )
         for article in page.items
     ]
@@ -408,6 +415,22 @@ def export_project_articles(
         )
     body = build_project_export_markdown(export_items)
     return PlainTextResponse(body, media_type="text/markdown; charset=utf-8")
+
+
+def _export_annotations(records: list[AnnotationRecord]) -> list[ExportAnnotation]:
+    exported: list[ExportAnnotation] = []
+    for record in records:
+        meta = decode_annotation_content(record.content)
+        exported.append(
+            ExportAnnotation(
+                selected_text=record.selected_text or "",
+                note=meta.body,
+                color=meta.color,
+                tags=list(meta.tags),
+                created_at=record.created_at.isoformat(),
+            )
+        )
+    return exported
 
 
 @router.get("/annotations/search")

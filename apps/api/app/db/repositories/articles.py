@@ -1,6 +1,7 @@
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 import base64
+from collections import defaultdict
 import hashlib
 import json
 from collections.abc import Callable, Mapping
@@ -179,6 +180,12 @@ class ArticleStore(Protocol):
     ) -> ArticleStateRecord | None: ...
 
     def list_annotations(self, user_id: UUID, article_id: int) -> list[AnnotationRecord]: ...
+
+    def list_annotations_for_articles(
+        self,
+        user_id: UUID,
+        article_ids: list[int],
+    ) -> dict[int, list[AnnotationRecord]]: ...
 
     def list_recent_annotations(
         self,
@@ -581,6 +588,21 @@ class MemoryArticleRepository:
             key=lambda item: item.id,
             reverse=True,
         )
+
+    def list_annotations_for_articles(
+        self,
+        user_id: UUID,
+        article_ids: list[int],
+    ) -> dict[int, list[AnnotationRecord]]:
+        wanted = set(article_ids)
+        grouped: dict[int, list[AnnotationRecord]] = defaultdict(list)
+        for annotation in self._annotations.values():
+            if annotation.user_id == user_id and annotation.article_id in wanted:
+                grouped[annotation.article_id].append(annotation)
+        return {
+            article_id: sorted(items, key=lambda item: item.id, reverse=True)
+            for article_id, items in grouped.items()
+        }
 
     def list_recent_annotations(
         self,
@@ -999,6 +1021,36 @@ class DatabaseArticleRepository:
                 .all()
             )
         return [_annotation_from_row(row) for row in rows]
+
+    def list_annotations_for_articles(
+        self,
+        user_id: UUID,
+        article_ids: list[int],
+    ) -> dict[int, list[AnnotationRecord]]:
+        if not article_ids:
+            return {}
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(article_annotations)
+                    .where(
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.article_id.in_(article_ids),
+                        article_annotations.c.deleted_at.is_(None),
+                    )
+                    .order_by(
+                        article_annotations.c.article_id.asc(),
+                        desc(article_annotations.c.id),
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        grouped: dict[int, list[AnnotationRecord]] = defaultdict(list)
+        for row in rows:
+            record = _annotation_from_row(row)
+            grouped[record.article_id].append(record)
+        return dict(grouped)
 
     def list_recent_annotations(
         self,
