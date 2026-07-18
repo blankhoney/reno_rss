@@ -30,6 +30,7 @@ from app.providers.llm import create_provider
 from app.providers.miniflux import MinifluxClient, MinifluxConfig
 from app.runner import Handler, run_forever
 from app.scheduler import env_flag_enabled, make_tick_callback
+from app.webhooks import webhook_client_from_env
 
 
 def normalize_database_url(database_url: str | None) -> str | None:
@@ -129,7 +130,11 @@ def _generate_daily_brief(payload) -> dict[str, object]:
         raise RuntimeError("SCORING_DATABASE_URL is required for generate_daily_brief")
     sink = DatabaseBriefSink(database_url)
     try:
-        return generate_daily_brief(dict(payload), sink)
+        return generate_daily_brief(
+            dict(payload),
+            sink,
+            webhook=webhook_client_from_env(),
+        )
     finally:
         sink.dispose()
 
@@ -208,6 +213,11 @@ def _score_batch(payload) -> dict[str, object]:
             sink,
             create_provider(),
             daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
+            webhook=webhook_client_from_env(),
+            high_score_threshold=_env_non_negative_int(
+                "AI_READER_WEBHOOK_HIGH_SCORE_THRESHOLD",
+                85,
+            ),
         )
     finally:
         sink.dispose()

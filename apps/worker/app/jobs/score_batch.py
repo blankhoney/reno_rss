@@ -21,6 +21,10 @@ class ScoreSink(Protocol):
     def save_score(self, article_id: object, score: dict[str, object]) -> object: ...
 
 
+class WebhookEmitter(Protocol):
+    def emit(self, event: str, payload: Mapping[str, object]) -> dict[str, object]: ...
+
+
 def score_batch(
     payload: Mapping[str, object],
     sink: ScoreSink,
@@ -28,6 +32,8 @@ def score_batch(
     *,
     daily_article_cap: int = 0,
     now: datetime | None = None,
+    webhook: WebhookEmitter | None = None,
+    high_score_threshold: int = 85,
 ) -> dict[str, object]:
     batch_id = payload.get("batch_id")
     if batch_id is None:
@@ -62,6 +68,9 @@ def score_batch(
     scores_saved = 0
     scores_succeeded = 0
     scores_failed = 0
+    webhook_attempted = 0
+    webhook_delivered = 0
+    threshold = max(0, min(100, int(high_score_threshold)))
     for article in articles_to_score:
         article_id = _article_id(article)
         try:
@@ -77,12 +86,29 @@ def score_batch(
         scores_saved += 1
         if score.get("scoring_status") == "success":
             scores_succeeded += 1
+            base_score = int(score.get("base_score") or 0)
+            if webhook is not None and base_score >= threshold:
+                webhook_attempted += 1
+                delivery = webhook.emit(
+                    "high_score",
+                    {
+                        "article_id": article_id,
+                        "title": str(article.get("title") or ""),
+                        "url": str(article.get("url") or ""),
+                        "base_score": base_score,
+                        "tier": str(score.get("recommendation_tier") or ""),
+                        "tags": list(score.get("tags") or []),
+                        "risk_flags": list(score.get("risk_flags") or []),
+                    },
+                )
+                if delivery.get("ok") is True:
+                    webhook_delivered += 1
         else:
             scores_failed += 1
 
     _call_optional(sink, "finish_batch", batch_id)
     _call_optional(sink, "enqueue_recommendations", batch_id)
-    return {
+    result: dict[str, object] = {
         "batch_id": batch_id,
         "articles_seen": len(articles),
         "scores_saved": scores_saved,
@@ -92,6 +118,13 @@ def score_batch(
         "daily_cap": daily_article_cap,
         "scored_today_before": scored_today_before,
     }
+    if webhook is not None:
+        result["webhooks"] = {
+            "attempted": webhook_attempted,
+            "delivered": webhook_delivered,
+            "failed": webhook_attempted - webhook_delivered,
+        }
+    return result
 
 
 def _utc_day_start(now: datetime | None = None) -> datetime:

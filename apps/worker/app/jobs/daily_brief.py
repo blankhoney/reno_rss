@@ -13,11 +13,16 @@ class BriefSink(Protocol):
     def save_daily_brief(self, brief: dict[str, object]) -> int: ...
 
 
+class WebhookEmitter(Protocol):
+    def emit(self, event: str, payload: Mapping[str, object]) -> dict[str, object]: ...
+
+
 def generate_daily_brief(
     payload: Mapping[str, object],
     sink: BriefSink,
     *,
     now: datetime | None = None,
+    webhook: WebhookEmitter | None = None,
 ) -> dict[str, object]:
     current = now or datetime.now(UTC)
     if current.tzinfo is None:
@@ -47,7 +52,6 @@ def generate_daily_brief(
         "source": "recommendations_latest",
     }
     brief_id = sink.save_daily_brief(brief)
-    webhook = _maybe_emit_brief_webhook(brief)
     # Include full `brief` so the worker job.result is readable by GET /api/briefs/latest
     # (in addition to the sink's synthetic jobs row).
     result: dict[str, object] = {
@@ -57,59 +61,16 @@ def generate_daily_brief(
         "brief": brief,
     }
     if webhook is not None:
-        result["webhook"] = webhook
-    return result
-
-
-def _maybe_emit_brief_webhook(brief: Mapping[str, object]) -> dict[str, object] | None:
-    """Optional outbound webhook when AI_READER_WEBHOOK_URL is set."""
-    import os
-
-    url = (os.environ.get("AI_READER_WEBHOOK_URL") or "").strip()
-    if not url:
-        return None
-    secret = (os.environ.get("AI_READER_WEBHOOK_SECRET") or "").strip() or None
-    try:
-        import importlib.util
-        import sys
-        from pathlib import Path
-
-        domain_path = None
-        for parent in Path(__file__).resolve().parents:
-            candidate = parent / "apps/api/app/domain/webhooks.py"
-            if candidate.exists():
-                domain_path = candidate
-                break
-        if domain_path is None:
-            return {"ok": False, "error": "webhooks_module_missing"}
-        module_name = "ai_reader_webhooks"
-        spec = importlib.util.spec_from_file_location(module_name, domain_path)
-        if spec is None or spec.loader is None:
-            return {"ok": False, "error": "webhooks_load_failed"}
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        delivery = module.deliver_webhook(
-            url,
+        result["webhook"] = webhook.emit(
             "daily_brief",
             {
-                "title": brief.get("title"),
-                "generated_at": brief.get("generated_at"),
-                "item_count": brief.get("item_count"),
-                "must_read_count": len(brief.get("must_read") or [])
-                if isinstance(brief.get("must_read"), list)
-                else 0,
+                "title": brief["title"],
+                "generated_at": brief["generated_at"],
+                "item_count": brief["item_count"],
+                "must_read_count": len(brief["must_read"]),
             },
-            secret=secret,
         )
-        return {
-            "ok": delivery.ok,
-            "status_code": delivery.status_code,
-            "error": delivery.error,
-            "event": delivery.event,
-        }
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    return result
 
 
 def _brief_rows(items: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:

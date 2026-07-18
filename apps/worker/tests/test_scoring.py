@@ -273,6 +273,72 @@ def test_score_batch_scores_all_articles_and_preserves_batch_id():
     }
 
 
+def test_score_batch_emits_high_score_webhook_only_after_successful_save():
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.saved: list[tuple[int, dict[str, object]]] = []
+
+        def list_batch_articles(self, _batch_id):
+            return [
+                {
+                    "id": 201,
+                    "title": "High signal",
+                    "url": "https://example.com/high",
+                },
+                {
+                    "id": 202,
+                    "title": "Below threshold",
+                    "url": "https://example.com/low",
+                },
+            ]
+
+        def save_score(self, article_id, score):
+            self.saved.append((article_id, dict(score)))
+
+    class Provider:
+        model_provider = "minimax"
+        model_name = "MiniMax-M2.7"
+
+        def score_article(self, article, _rubric):
+            score = MockProvider().score_article(article, {})
+            score["base_score"] = 91 if article["id"] == 201 else 84
+            score["recommendation_tier"] = "must_read" if article["id"] == 201 else "read"
+            return score
+
+    class RecordingWebhook:
+        def __init__(self) -> None:
+            self.events: list[tuple[str, dict[str, object]]] = []
+
+        def emit(self, event: str, payload: dict[str, object]):
+            self.events.append((event, payload))
+            return {"ok": True, "event": event, "status_code": 204, "error": None}
+
+    webhook = RecordingWebhook()
+    result = score_batch(
+        {"batch_id": "batch-7"},
+        RecordingSink(),
+        Provider(),
+        webhook=webhook,
+        high_score_threshold=85,
+    )
+
+    assert webhook.events == [
+        (
+            "high_score",
+            {
+                "article_id": 201,
+                "title": "High signal",
+                "url": "https://example.com/high",
+                "base_score": 91,
+                "tier": "must_read",
+                "tags": ["high", "signal", "https"],
+                "risk_flags": [],
+            },
+        )
+    ]
+    assert result["webhooks"] == {"attempted": 1, "delivered": 1, "failed": 0}
+
+
 def test_score_batch_daily_cap_scores_only_remaining_articles():
     class RecordingSink:
         def __init__(self) -> None:

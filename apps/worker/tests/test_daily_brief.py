@@ -40,6 +40,15 @@ class FakeBriefSink:
         return 99
 
 
+class RecordingWebhook:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, object]]] = []
+
+    def emit(self, event: str, payload: dict[str, object]):
+        self.events.append((event, payload))
+        return {"ok": True, "event": event, "status_code": 204, "error": None}
+
+
 def test_generate_daily_brief_layers_items_by_tier():
     sink = FakeBriefSink()
     result = generate_daily_brief(
@@ -59,3 +68,32 @@ def test_generate_daily_brief_layers_items_by_tier():
     assert result["brief"]["must_read"][0]["reason"] == "hot"
     assert result["brief"]["must_read"][0]["tier"] == "must_read"
     assert result["brief"]["worth_scan"][0]["article_id"] == 2
+
+
+def test_generate_daily_brief_emits_auditable_webhook_summary():
+    webhook = RecordingWebhook()
+
+    result = generate_daily_brief(
+        {"limit": 10},
+        FakeBriefSink(),
+        now=datetime(2026, 7, 18, 8, 0, tzinfo=UTC),
+        webhook=webhook,
+    )
+
+    assert webhook.events == [
+        (
+            "daily_brief",
+            {
+                "title": "今日情报 2026-07-18",
+                "generated_at": "2026-07-18T08:00:00+00:00",
+                "item_count": 3,
+                "must_read_count": 1,
+            },
+        )
+    ]
+    assert result["webhook"] == {
+        "ok": True,
+        "event": "daily_brief",
+        "status_code": 204,
+        "error": None,
+    }
