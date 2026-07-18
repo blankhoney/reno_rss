@@ -260,6 +260,37 @@ def test_b4_feedback_adjusts_ranking_order():
     assert [item.article_id for item in ranked] == [2, 1]
 
 
+def test_b4_interest_weights_boost_matching_title():
+    from app.domain.ranking import Candidate, rank_b4
+
+    ranked = rank_b4(
+        user_priority_by_feed={1: 0, 2: 0},
+        candidates=[
+            Candidate(
+                article_id=1,
+                feed_ids=[1],
+                base_score=70,
+                published_at=datetime(2026, 7, 17, tzinfo=UTC),
+                risk_uncertainty=20,
+            ),
+            Candidate(
+                article_id=2,
+                feed_ids=[2],
+                base_score=71,
+                published_at=datetime(2026, 7, 17, tzinfo=UTC),
+                risk_uncertainty=20,
+            ),
+        ],
+        feedback_by_article={},
+        now=datetime(2026, 7, 18, tzinfo=UTC),
+        titles_by_article={1: "Deep dive into Rust async", 2: "Market notes"},
+        interest_weights={"rust": 4.0, "async": 2.0},
+    )
+
+    assert ranked[0].article_id == 1
+    assert ranked[0].rank_score > ranked[1].rank_score
+
+
 @pytest.mark.asyncio
 async def test_latest_recommendations_requires_session(client):
     response = await client.get("/api/recommendations/latest")

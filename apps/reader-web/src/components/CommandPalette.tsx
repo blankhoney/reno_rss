@@ -12,6 +12,11 @@ import {
   moveCommandIndex,
   type CommandItem,
 } from "@/lib/commandPalette";
+import {
+  cycleReaderMode,
+  patchCraftPreferences,
+  readCraftPreferences,
+} from "@/lib/craft/preferences";
 
 const THEME_STORAGE_KEY = "ai-reader.theme";
 
@@ -38,6 +43,23 @@ function runCommand(command: CommandItem, router: { push: (href: string) => void
   }
   if (command.action === "focus-list") {
     window.dispatchEvent(new Event(FOCUS_ARTICLE_LIST_EVENT));
+    return;
+  }
+  if (command.action === "cycle-mode") {
+    const prefs = readCraftPreferences();
+    patchCraftPreferences({ mode: cycleReaderMode(prefs.mode) });
+    return;
+  }
+  if (command.action === "toggle-density") {
+    const prefs = readCraftPreferences();
+    patchCraftPreferences({
+      density: prefs.density === "compact" ? "comfortable" : "compact",
+    });
+    return;
+  }
+  if (command.action === "toggle-dual-pane") {
+    const prefs = readCraftPreferences();
+    patchCraftPreferences({ dualPane: !prefs.dualPane });
   }
 }
 

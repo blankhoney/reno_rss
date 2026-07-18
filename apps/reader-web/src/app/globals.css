@@ -3181,8 +3181,32 @@ html[data-density="compact"] .dailyIntelList {
   gap: 6px;
 }
 
-html[data-dual-pane="true"] .workbench {
-  --workbench-reader-cols: 1fr 1fr;
+html[data-density="compact"] .articleCard,
+html[data-density="compact"] .dailyIntelCardLink {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+html[data-reader-mode="focus"] .workbench {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+html[data-reader-mode="focus"] .moduleSidebar {
+  display: none;
+}
+
+html[data-dual-pane="true"] .workbenchMain,
+html[data-dual-pane="true"] .focusedArticleScreen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  gap: 0;
+}
+
+html[data-dual-pane="true"] .focusedArticleNotes,
+html[data-dual-pane="true"] .articleAskPane {
+  border-left: 1px solid var(--border);
+  min-height: 100%;
+  background: var(--panel);
 }
 
 @media (max-width: 960px) {

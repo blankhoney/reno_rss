@@ -11,7 +11,7 @@ export type CommandItem = {
   /** Navigation target when kind === "navigate" */
   href?: string;
   /** Action id when kind === "action" */
-  action?: "toggle-theme" | "focus-list";
+  action?: "toggle-theme" | "focus-list" | "cycle-mode" | "toggle-density" | "toggle-dual-pane";
   group: string;
   shortcut?: string;
 };
@@ -111,6 +111,31 @@ export function buildWorkbenchCommands(options?: {
       action: "focus-list",
       group: "快捷键",
       shortcut: "G L",
+    },
+    {
+      id: "action-cycle-mode",
+      label: "切换 Scan / Focus / Keep 态",
+      keywords: ["mode", "scan", "focus", "keep", "扫描", "精读", "沉淀"],
+      kind: "action",
+      action: "cycle-mode",
+      group: "工艺",
+      shortcut: "M",
+    },
+    {
+      id: "action-toggle-density",
+      label: "切换舒适 / 紧凑密度",
+      keywords: ["density", "compact", "密度"],
+      kind: "action",
+      action: "toggle-density",
+      group: "工艺",
+    },
+    {
+      id: "action-toggle-dual-pane",
+      label: "切换双栏对照",
+      keywords: ["dual", "pane", "split", "双栏"],
+      kind: "action",
+      action: "toggle-dual-pane",
+      group: "工艺",
     },
   ];
 }

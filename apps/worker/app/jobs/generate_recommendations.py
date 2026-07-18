@@ -24,6 +24,8 @@ class RecommendationContext:
     # User reader rules (boost/mute/keyword/threshold) applied inside rank_b4.
     rules: list[object] | None = None
     titles_by_article: dict[int, str] | None = None
+    # Long-term interest keyword weights (term -> weight) for soft ranking boost.
+    interest_weights: dict[str, float] | None = None
 
 
 class RecommendationSink(Protocol):
@@ -126,6 +128,7 @@ def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[o
         now=context.now,
         rules=list(context.rules or []),
         titles_by_article=dict(context.titles_by_article or {}),
+        interest_weights=dict(context.interest_weights or {}),
     )
 
 

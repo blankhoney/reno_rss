@@ -104,10 +104,13 @@ def rank_b4(
     now: datetime | None = None,
     rules: Sequence[Any] | None = None,
     titles_by_article: dict[int, str] | None = None,
+    interest_weights: dict[str, float] | None = None,
 ) -> list[RankedItem]:
     reference_time = now or datetime.now(UTC)
     subscribed: list[tuple[Candidate, float]] = []
     exploration: list[Candidate] = []
+    titles = titles_by_article or {}
+    interests = interest_weights or {}
 
     eligible = _eligible_candidates(
         candidates,
@@ -118,7 +121,7 @@ def rank_b4(
         eligible = _apply_rules_to_candidates(
             eligible,
             rules,
-            titles_by_article or {},
+            titles,
         )
 
     for candidate in eligible:
@@ -132,6 +135,7 @@ def rank_b4(
                 + priority
                 + _feedback_adjustment(candidate, feedback_by_article.get(candidate.article_id))
                 + _freshness_adjustment(candidate.published_at, reference_time)
+                + _interest_adjustment(titles.get(candidate.article_id, ""), interests)
             )
             subscribed.append((candidate, float(score)))
             continue
@@ -285,6 +289,25 @@ def _freshness_adjustment(published_at: datetime, now: datetime) -> int:
     if age > timedelta(days=7):
         return -4
     return 0
+
+
+def _interest_adjustment(title: str, interest_weights: dict[str, float]) -> float:
+    """Soft boost when title tokens overlap long-term interest keywords."""
+    if not interest_weights or not title:
+        return 0.0
+    haystack = title.casefold()
+    total = 0.0
+    for term, weight in interest_weights.items():
+        token = str(term or "").casefold().strip()
+        if len(token) < 2:
+            continue
+        if token in haystack:
+            try:
+                total += min(float(weight), 5.0)
+            except (TypeError, ValueError):
+                continue
+    # Cap so interest cannot dominate base score / feedback.
+    return _clamp(total, 0.0, 8.0)
 
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:

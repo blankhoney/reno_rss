@@ -41,6 +41,7 @@ class DatabaseRecommendationSink:
             now=now,
             rules=self._rules_for_user(user_id),
             titles_by_article=self._titles_from_candidates(candidates),
+            interest_weights=self._interest_weights_for_user(user_id, candidates),
         )
 
     def save_recommendation_edition(
@@ -299,6 +300,90 @@ class DatabaseRecommendationSink:
             title = candidate.get("title")
             titles[article_id] = str(title) if title is not None else ""
         return titles
+
+    def _interest_weights_for_user(
+        self,
+        user_id: object,
+        candidates: list[dict[str, object]],
+    ) -> dict[str, float]:
+        """Lightweight interest terms from annotations + feedback reasons + project titles."""
+        weights: dict[str, float] = {}
+        try:
+            with self.engine.begin() as connection:
+                annotation_rows = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT content, selected_text
+                            FROM article_annotations
+                            WHERE user_id = :user_id
+                              AND deleted_at IS NULL
+                            ORDER BY id DESC
+                            LIMIT 80;
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+                feedback_rows = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT reason, feedback_type
+                            FROM user_article_feedback_scores
+                            WHERE user_id = :user_id
+                            LIMIT 80;
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+                project_rows = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT a.title
+                            FROM user_article_states s
+                            JOIN articles a ON a.id = s.article_id
+                            WHERE s.user_id = :user_id AND s.project = TRUE
+                            LIMIT 40;
+                            """
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+        except Exception:
+            return {}
+
+        for row in annotation_rows:
+            _accumulate_interest_tokens(
+                weights,
+                f"{row.get('selected_text') or ''} {row.get('content') or ''}",
+                2.0,
+            )
+        for row in feedback_rows:
+            boost = 1.6 if row.get("feedback_type") == "underrated" else 0.5
+            _accumulate_interest_tokens(weights, str(row.get("reason") or ""), boost)
+        for row in project_rows:
+            _accumulate_interest_tokens(weights, str(row.get("title") or ""), 1.4)
+        # Keep top terms only; ranking caps the boost so this stays soft.
+        del candidates  # reserved for future title-seeded personalization
+        ranked = sorted(weights.items(), key=lambda item: item[1], reverse=True)[:40]
+        return {term: round(weight, 3) for term, weight in ranked}
+
+
+def _accumulate_interest_tokens(weights: dict[str, float], text: str, amount: float) -> None:
+    import re
+
+    for match in re.finditer(r"[\w\u4e00-\u9fff]{2,}", text or "", re.UNICODE):
+        token = match.group(0).casefold()
+        weights[token] = weights.get(token, 0.0) + amount
 
 
 def _parse_datetime(value: object) -> datetime:
