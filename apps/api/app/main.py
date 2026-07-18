@@ -35,6 +35,7 @@ from app.db.repositories.articles import create_article_repository
 from app.db.repositories.benchmarks import create_benchmark_repository
 from app.db.repositories.feeds import create_feed_repository
 from app.db.repositories.jobs import create_job_repository
+from app.db.repositories.project_acl import create_project_acl_repository
 from app.db.repositories.recommendations import create_recommendation_repository
 from app.db.repositories.rules import create_rule_repository
 from app.db.repositories.saved_searches import create_saved_search_repository
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     app.state.recommendation_repository = create_recommendation_repository(settings.database_url)
     app.state.rule_repository = create_rule_repository(settings.database_url)
     app.state.saved_search_repository = create_saved_search_repository(settings.database_url)
+    app.state.project_acl_repository = create_project_acl_repository(settings.database_url)
     app.state.ask_provider = ask.create_ask_provider(settings)
     app.state.llm_budget = DailyCallBudget(settings.llm_daily_call_budget)
     app.state.cost_ledger = CostLedger(
@@ -140,7 +142,6 @@ def create_app() -> FastAPI:
     app.include_router(interest.router)
     app.include_router(acl.router)
     app.state.interest_reset_at = {}
-    app.state.project_acl_grants = {}
 
     return app
 

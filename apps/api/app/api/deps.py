@@ -10,6 +10,7 @@ from app.db.repositories.articles import ArticleStore
 from app.db.repositories.benchmarks import BenchmarkStore
 from app.db.repositories.feeds import FeedStore
 from app.db.repositories.jobs import JobStore
+from app.db.repositories.project_acl import ProjectAclStore
 from app.db.repositories.recommendations import RecommendationStore
 from app.db.repositories.rules import RuleStore
 from app.db.repositories.saved_searches import SavedSearchStore
@@ -100,6 +101,10 @@ def get_rule_repository(request: Request) -> RuleStore:
 
 def get_saved_search_repository(request: Request) -> SavedSearchStore:
     return request.app.state.saved_search_repository
+
+
+def get_project_acl_repository(request: Request) -> ProjectAclStore:
+    return request.app.state.project_acl_repository
 
 
 def get_ask_provider(request: Request) -> object:
