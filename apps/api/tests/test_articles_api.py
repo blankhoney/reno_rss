@@ -183,6 +183,35 @@ def test_normalize_list_module_and_state_matches():
 
 
 @pytest.mark.asyncio
+async def test_article_list_q_filters_title_substring(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Searcher"})
+    now = datetime(2026, 7, 18, 12, tzinfo=UTC)
+    hit = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 401,
+            "url": "https://example.com/rust-async",
+            "title": "Rust async runtime notes",
+            "published_at": now,
+        }
+    )
+    app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 402,
+            "url": "https://example.com/other",
+            "title": "Unrelated marketing post",
+            "published_at": now - timedelta(hours=1),
+        }
+    )
+
+    response = await client.get("/api/articles", params={"q": "rust async", "limit": 20})
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.json()["items"]]
+    assert ids == [hit.id]
+
+
+@pytest.mark.asyncio
 async def test_article_annotations_are_private_to_current_user(app, client):
     await client.post("/api/auth/login", json={"display_name": "Annotator"})
     article = app.state.article_repository.upsert_from_source(

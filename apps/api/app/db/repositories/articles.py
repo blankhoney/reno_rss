@@ -144,6 +144,7 @@ class ArticleStore(Protocol):
         cursor: str | None = None,
         user_id: UUID | None = None,
         module: str = "all",
+        q: str | None = None,
     ) -> ArticlePage: ...
 
     def count_articles(self) -> int: ...
@@ -340,8 +341,10 @@ class MemoryArticleRepository:
         cursor: str | None = None,
         user_id: UUID | None = None,
         module: str = "all",
+        q: str | None = None,
     ) -> ArticlePage:
         list_module = normalize_list_module(module)
+        query = (q or "").strip().lower()
         items = sorted(
             [self._with_source_metadata(article) for article in self._articles.values()],
             key=lambda article: (
@@ -350,6 +353,8 @@ class MemoryArticleRepository:
             ),
             reverse=True,
         )
+        if query:
+            items = [article for article in items if query in article.title.lower()]
         if list_module != "all":
             if user_id is None:
                 raise ValueError("user_id is required for non-all list modules")
@@ -584,9 +589,13 @@ class DatabaseArticleRepository:
         cursor: str | None = None,
         user_id: UUID | None = None,
         module: str = "all",
+        q: str | None = None,
     ) -> ArticlePage:
         list_module = normalize_list_module(module)
+        query = (q or "").strip()
         statement = _article_select()
+        if query:
+            statement = statement.where(articles.c.title.ilike(f"%{query}%"))
         if list_module != "all":
             if user_id is None:
                 raise ValueError("user_id is required for non-all list modules")

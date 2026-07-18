@@ -96,10 +96,12 @@ export function ReaderWorkbench({
   currentModule,
   currentSort,
   currentLang,
+  currentQuery = "",
 }: {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
+  currentQuery?: string;
 }) {
   const [rawArticles, setRawArticles] = useState<Article[]>([]);
   const [recommendationPage, setRecommendationPage] = useState<RecommendationPage | null>(null);
@@ -147,6 +149,7 @@ export function ReaderWorkbench({
         limit: ARTICLE_LIST_PAGE_SIZE,
         cursor,
         module: currentModule,
+        q: currentQuery,
       });
       if (!isCurrent()) return;
       setRawArticles(page.articles);
@@ -167,7 +170,7 @@ export function ReaderWorkbench({
         setIsPaging(false);
       }
     }
-  }, [currentModule]);
+  }, [currentModule, currentQuery]);
 
   const loadRail = useCallback(async () => {
     const requestSeq = railSeqRef.current + 1;
@@ -257,7 +260,7 @@ export function ReaderWorkbench({
     setCursorStack([null]);
     void loadPage(null, true);
     void loadRail();
-  }, [currentModule, loadPage, loadRail]);
+  }, [currentModule, currentQuery, loadPage, loadRail]);
 
   useEffect(() => {
     setActiveSort(currentSort);

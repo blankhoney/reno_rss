@@ -171,6 +171,7 @@ async def list_articles(
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
     module: str | None = Query(default=None, max_length=32),
+    q: str | None = Query(default=None, max_length=120),
 ) -> dict[str, object]:
     try:
         page = article_repository.list_articles(
@@ -178,6 +179,7 @@ async def list_articles(
             cursor=cursor,
             user_id=current_user.id,
             module=module or "all",
+            q=q,
         )
     except ValueError as error:
         message = str(error)

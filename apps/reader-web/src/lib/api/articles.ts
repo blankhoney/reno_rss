@@ -298,14 +298,17 @@ export async function listArticles({
   limit,
   cursor,
   module,
+  q,
 }: {
   limit: number;
   cursor?: string | null;
   module?: string | null;
+  q?: string | null;
 }): Promise<ArticleListPage> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
   if (module && module !== "") params.set("module", module);
+  if (q && q.trim() !== "") params.set("q", q.trim());
   const payload = await apiGet<ApiListResponse>(`/api/articles?${params.toString()}`);
   return {
     articles: (payload.items ?? []).map(articleFromApiItem),

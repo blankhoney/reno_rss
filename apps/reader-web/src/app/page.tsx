@@ -26,6 +26,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   );
   const currentSort = sortResolution.ok ? sortResolution.sortId : "default";
   const currentLang = resolveSummaryLangId(typeof sp.lang === "string" ? sp.lang : null);
+  const currentQuery = typeof sp.q === "string" ? sp.q : "";
 
   if (currentModule === "admin") {
     return (
@@ -44,6 +45,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         currentModule={currentModule}
         currentSort={currentSort}
         currentLang={currentLang}
+        currentQuery={currentQuery}
       />
     </AuthSessionGate>
   );
