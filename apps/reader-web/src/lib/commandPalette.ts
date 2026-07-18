@@ -20,9 +20,31 @@ export function moduleHref(
   moduleId: string,
   sort: string = "default",
   lang: string = "zh",
+  q?: string,
 ): string {
   const qs = new URLSearchParams({ module: moduleId, sort, lang });
+  if (q && q.trim()) qs.set("q", q.trim());
   return `/?${qs.toString()}`;
+}
+
+/** When the user types a free-text query, offer an article search jump. */
+export function searchArticlesCommand(
+  query: string,
+  options?: { sort?: string; lang?: string },
+): CommandItem | null {
+  const q = query.trim();
+  if (!q) return null;
+  const sort = options?.sort ?? "default";
+  const lang = options?.lang ?? "zh";
+  return {
+    id: `search-articles:${q}`,
+    label: `搜索文章：${q}`,
+    keywords: ["search", "搜索", "q", q],
+    kind: "navigate",
+    href: moduleHref("all", sort, lang, q),
+    group: "搜索",
+    shortcut: "↵",
+  };
 }
 
 export function buildWorkbenchCommands(options?: {
@@ -89,11 +111,17 @@ export function normalizeCommandQuery(query: string): string {
 export function filterCommands(commands: CommandItem[], query: string): CommandItem[] {
   const q = normalizeCommandQuery(query);
   if (!q) return commands;
-  return commands.filter((command) => {
+  const matched = commands.filter((command) => {
     if (command.label.toLowerCase().includes(q)) return true;
     if (command.id.toLowerCase().includes(q)) return true;
     return command.keywords.some((keyword) => keyword.toLowerCase().includes(q));
   });
+  const search = searchArticlesCommand(query);
+  if (search) {
+    // Put free-text article search first so ⌘K doubles as research search.
+    return [search, ...matched.filter((command) => command.id !== search.id)];
+  }
+  return matched;
 }
 
 export function moveCommandIndex(

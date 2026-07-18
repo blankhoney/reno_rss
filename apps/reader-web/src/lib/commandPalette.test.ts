@@ -30,7 +30,10 @@ test("filterCommands matches labels and keywords case-insensitively", () => {
   assert.ok(byLabel.some((command) => command.id === "nav-project"));
   const byKeyword = filterCommands(commands, "candidate");
   assert.ok(byKeyword.some((command) => command.id === "nav-starred"));
-  assert.equal(filterCommands(commands, "zzz-no-match").length, 0);
+  const noMatch = filterCommands(commands, "zzz-no-match");
+  // Free-text always offers article search, even when no static commands match.
+  assert.equal(noMatch.length, 1);
+  assert.equal(noMatch[0].id.startsWith("search-articles:"), true);
 });
 
 test("normalizeCommandQuery trims and lowercases", () => {
@@ -55,4 +58,12 @@ test("isEditableKeyboardTarget detects form fields", () => {
   assert.equal(isEditableKeyboardTarget(input), true);
   assert.equal(isEditableKeyboardTarget(div), false);
   assert.equal(isEditableKeyboardTarget(null), false);
+});
+
+test("filterCommands prepends free-text article search jump", () => {
+  const commands = buildWorkbenchCommands();
+  const filtered = filterCommands(commands, "zephyr quantum");
+  assert.ok(filtered.length >= 1);
+  assert.equal(filtered[0].id.startsWith("search-articles:"), true);
+  assert.match(filtered[0].href ?? "", /q=zephyr/);
 });
