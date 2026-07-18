@@ -143,7 +143,11 @@ export function ReaderWorkbench({
     }
     setError(null);
     try {
-      const page = await listArticles({ limit: ARTICLE_LIST_PAGE_SIZE, cursor });
+      const page = await listArticles({
+        limit: ARTICLE_LIST_PAGE_SIZE,
+        cursor,
+        module: currentModule,
+      });
       if (!isCurrent()) return;
       setRawArticles(page.articles);
       setNextCursor(page.nextCursor);
@@ -163,7 +167,7 @@ export function ReaderWorkbench({
         setIsPaging(false);
       }
     }
-  }, []);
+  }, [currentModule]);
 
   const loadRail = useCallback(async () => {
     const requestSeq = railSeqRef.current + 1;

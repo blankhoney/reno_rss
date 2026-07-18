@@ -758,6 +758,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string | null;
+                module?: string | null;
             };
             header?: never;
             path?: never;

@@ -203,6 +203,23 @@
               ],
               "title": "Cursor"
             }
+          },
+          {
+            "name": "module",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Module"
+            }
           }
         ],
         "responses": {

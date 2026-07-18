@@ -297,12 +297,15 @@ function translationStatusFromApi(value: string | null | undefined): Article["co
 export async function listArticles({
   limit,
   cursor,
+  module,
 }: {
   limit: number;
   cursor?: string | null;
+  module?: string | null;
 }): Promise<ArticleListPage> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
+  if (module && module !== "") params.set("module", module);
   const payload = await apiGet<ApiListResponse>(`/api/articles?${params.toString()}`);
   return {
     articles: (payload.items ?? []).map(articleFromApiItem),

@@ -151,10 +151,23 @@ async def list_articles(
     scoring_repository: ScoringStore = Depends(get_scoring_repository),
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
+    module: str | None = Query(default=None, max_length=32),
 ) -> dict[str, object]:
     try:
-        page = article_repository.list_articles(limit=limit, cursor=cursor)
-    except (ValueError, KeyError):
+        page = article_repository.list_articles(
+            limit=limit,
+            cursor=cursor,
+            user_id=current_user.id,
+            module=module or "all",
+        )
+    except ValueError as error:
+        message = str(error)
+        if "cursor" in message.lower():
+            raise ApiError(400, "invalid_cursor", "Invalid cursor") from None
+        if "unsupported list module" in message:
+            raise ApiError(400, "invalid_module", "Unsupported module") from None
+        raise ApiError(400, "invalid_request", message) from None
+    except KeyError:
         raise ApiError(400, "invalid_cursor", "Invalid cursor") from None
 
     article_ids = [article.id for article in page.items]

@@ -7,7 +7,7 @@ from typing import Protocol
 from uuid import UUID
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import Engine, and_, create_engine, desc, func, select, update
+from sqlalchemy import Engine, and_, create_engine, desc, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -19,6 +19,24 @@ from app.db.models import (
     user_article_feedback_scores,
     user_article_states,
 )
+
+# State/queue modules filtered server-side. Dimension modules map to "all"
+# for SQL (ranking still uses client score formulas until composite cursors).
+LIST_STATE_MODULES = frozenset({"all", "unread", "read", "starred", "project", "read-later"})
+LIST_DIMENSION_MODULES = frozenset(
+    {"technical", "business", "trend", "ai", "product", "security"}
+)
+LIST_MODULES = LIST_STATE_MODULES | LIST_DIMENSION_MODULES
+
+
+def normalize_list_module(module: str | None) -> str:
+    if module is None or module == "":
+        return "all"
+    if module not in LIST_MODULES:
+        raise ValueError(f"unsupported list module: {module}")
+    if module in LIST_DIMENSION_MODULES:
+        return "all"
+    return module
 
 
 TRACKING_PARAMS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
@@ -71,6 +89,20 @@ class ArticleStateRecord:
     read_progress: float
 
 
+def state_matches_module(state: ArticleStateRecord, module: str) -> bool:
+    if module == "all":
+        return True
+    if module == "unread":
+        return state.status == "unread"
+    if module == "read":
+        return state.status == "read"
+    if module in {"starred", "read-later"}:
+        return state.saved is True
+    if module == "project":
+        return state.project is True
+    return True
+
+
 @dataclass(frozen=True)
 class ArticleFeedbackRecord:
     user_score: int
@@ -92,7 +124,14 @@ class ArticleStore(Protocol):
 
     def sources_for_article(self, article_id: int) -> list[ArticleSourceRecord]: ...
 
-    def list_articles(self, *, limit: int, cursor: str | None = None) -> ArticlePage: ...
+    def list_articles(
+        self,
+        *,
+        limit: int,
+        cursor: str | None = None,
+        user_id: UUID | None = None,
+        module: str = "all",
+    ) -> ArticlePage: ...
 
     def count_articles(self) -> int: ...
 
@@ -267,7 +306,15 @@ class MemoryArticleRepository:
             key=lambda source: (source.feed_id, source.miniflux_entry_id),
         )
 
-    def list_articles(self, *, limit: int, cursor: str | None = None) -> ArticlePage:
+    def list_articles(
+        self,
+        *,
+        limit: int,
+        cursor: str | None = None,
+        user_id: UUID | None = None,
+        module: str = "all",
+    ) -> ArticlePage:
+        list_module = normalize_list_module(module)
         items = sorted(
             [self._with_source_metadata(article) for article in self._articles.values()],
             key=lambda article: (
@@ -276,6 +323,14 @@ class MemoryArticleRepository:
             ),
             reverse=True,
         )
+        if list_module != "all":
+            if user_id is None:
+                raise ValueError("user_id is required for non-all list modules")
+            items = [
+                article
+                for article in items
+                if state_matches_module(self.get_state(user_id, article.id), list_module)
+            ]
         if cursor:
             cursor_published_at, cursor_id = decode_article_cursor(cursor)
             items = [
@@ -456,8 +511,37 @@ class DatabaseArticleRepository:
             rows = connection.execute(statement).mappings().all()
         return [_source_from_row(row) for row in rows]
 
-    def list_articles(self, *, limit: int, cursor: str | None = None) -> ArticlePage:
+    def list_articles(
+        self,
+        *,
+        limit: int,
+        cursor: str | None = None,
+        user_id: UUID | None = None,
+        module: str = "all",
+    ) -> ArticlePage:
+        list_module = normalize_list_module(module)
         statement = _article_select()
+        if list_module != "all":
+            if user_id is None:
+                raise ValueError("user_id is required for non-all list modules")
+            state_on = and_(
+                user_article_states.c.article_id == articles.c.id,
+                user_article_states.c.user_id == user_id,
+            )
+            statement = statement.outerjoin(user_article_states, state_on)
+            if list_module == "unread":
+                statement = statement.where(
+                    or_(
+                        user_article_states.c.user_id.is_(None),
+                        user_article_states.c.status == "unread",
+                    )
+                )
+            elif list_module == "read":
+                statement = statement.where(user_article_states.c.status == "read")
+            elif list_module in {"starred", "read-later"}:
+                statement = statement.where(user_article_states.c.saved.is_(True))
+            elif list_module == "project":
+                statement = statement.where(user_article_states.c.project.is_(True))
         if cursor:
             cursor_published_at, cursor_id = decode_article_cursor(cursor)
             if cursor_published_at is None:

@@ -304,9 +304,9 @@ test("listArticles fetches a cursor page from FastAPI", async () => {
   });
 
   try {
-    const page = await listArticles({ limit: 1, cursor: "abc" });
+    const page = await listArticles({ limit: 1, cursor: "abc", module: "starred" });
 
-    assert.equal(capturedInput, "/api/articles?limit=1&cursor=abc");
+    assert.equal(capturedInput, "/api/articles?limit=1&cursor=abc&module=starred");
     assert.equal(page.articles[0]?.title, "One");
     assert.equal(page.nextCursor, "next");
     assert.equal(page.hasMore, true);

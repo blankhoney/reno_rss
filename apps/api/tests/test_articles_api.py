@@ -106,6 +106,83 @@ async def test_article_list_uses_published_at_id_keyset_order(app, client):
 
 
 @pytest.mark.asyncio
+async def test_article_list_module_filters_saved_and_project_server_side(app, client):
+    from uuid import UUID
+
+    login = await client.post("/api/auth/login", json={"display_name": "Queue User"})
+    user_id = UUID(login.json()["user"]["id"])
+    now = datetime(2026, 7, 18, 12, tzinfo=UTC)
+    plain = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 201,
+            "url": "https://example.com/plain",
+            "title": "Plain",
+            "published_at": now - timedelta(hours=3),
+        }
+    )
+    saved = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 202,
+            "url": "https://example.com/saved",
+            "title": "Saved",
+            "published_at": now - timedelta(hours=2),
+        }
+    )
+    project = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 203,
+            "url": "https://example.com/project",
+            "title": "Project",
+            "published_at": now - timedelta(hours=1),
+        }
+    )
+    app.state.article_repository.upsert_state(user_id, plain.id, status="read")
+    app.state.article_repository.upsert_state(user_id, saved.id, saved=True)
+    app.state.article_repository.upsert_state(user_id, project.id, saved=True, project=True)
+
+    starred = await client.get("/api/articles", params={"module": "starred", "limit": 20})
+    projects = await client.get("/api/articles", params={"module": "project", "limit": 20})
+    read = await client.get("/api/articles", params={"module": "read", "limit": 20})
+    bad = await client.get("/api/articles", params={"module": "nope", "limit": 20})
+    dimension = await client.get("/api/articles", params={"module": "technical", "limit": 20})
+
+    assert starred.status_code == 200
+    assert {item["id"] for item in starred.json()["items"]} == {saved.id, project.id}
+    assert projects.status_code == 200
+    assert [item["id"] for item in projects.json()["items"]] == [project.id]
+    assert read.status_code == 200
+    assert [item["id"] for item in read.json()["items"]] == [plain.id]
+    assert bad.status_code == 400
+    assert bad.json()["error"]["code"] == "invalid_module"
+    assert dimension.status_code == 200
+    assert {item["id"] for item in dimension.json()["items"]} >= {plain.id, saved.id, project.id}
+
+
+def test_normalize_list_module_and_state_matches():
+    from app.db.repositories.articles import (
+        ArticleStateRecord,
+        normalize_list_module,
+        state_matches_module,
+    )
+
+    assert normalize_list_module(None) == "all"
+    assert normalize_list_module("technical") == "all"
+    assert normalize_list_module("starred") == "starred"
+    try:
+        normalize_list_module("bogus")
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+    saved = ArticleStateRecord(status="unread", saved=True, project=False, read_progress=0.0)
+    assert state_matches_module(saved, "starred") is True
+    assert state_matches_module(saved, "project") is False
+
+
+@pytest.mark.asyncio
 async def test_article_detail_returns_sources_and_content(app, client):
     await client.post("/api/auth/login", json={"display_name": "Blank"})
     article = app.state.article_repository.upsert_from_source(
