@@ -4,11 +4,24 @@ import logging
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.request_timing import LOGGER
+from app.core.request_timing import LOGGER, RequestMetrics
 from app.main import create_app
 
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_request_metrics_tracks_latency_errors_and_slow_requests():
+    metrics = RequestMetrics()
+    metrics.observe(status_code=200, duration_ms=20.0, slow=False)
+    metrics.observe(status_code=503, duration_ms=80.0, slow=True)
+
+    assert metrics.snapshot() == {
+        "requests_total": 2,
+        "errors_total": 1,
+        "duration_seconds_sum": 0.1,
+        "slow_requests_total": 1,
+    }
 
 
 def _timing_records(caplog):
