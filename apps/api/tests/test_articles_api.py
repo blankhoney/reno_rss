@@ -183,6 +183,38 @@ def test_normalize_list_module_and_state_matches():
 
 
 @pytest.mark.asyncio
+async def test_article_annotations_are_private_to_current_user(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Annotator"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 301,
+            "url": "https://example.com/annotated",
+            "title": "Annotated",
+            "content_html": "<p>Body</p>",
+        }
+    )
+
+    created = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        json={"content": "关键判断", "selected_text": "Body", "type": "annotation"},
+    )
+    listed = await client.get(f"/api/articles/{article.id}/annotations")
+    missing = await client.post(
+        "/api/articles/99999/annotations",
+        json={"content": "ghost"},
+    )
+
+    assert created.status_code == 201
+    assert created.json()["annotation"]["content"] == "关键判断"
+    assert created.json()["annotation"]["selected_text"] == "Body"
+    assert listed.status_code == 200
+    assert len(listed.json()["items"]) == 1
+    assert listed.json()["items"][0]["id"] == created.json()["annotation"]["id"]
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_article_detail_returns_sources_and_content(app, client):
     await client.post("/api/auth/login", json={"display_name": "Blank"})
     article = app.state.article_repository.upsert_from_source(

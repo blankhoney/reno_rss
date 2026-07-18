@@ -362,6 +362,50 @@ export async function saveArticleFeedback(
   return feedback;
 }
 
+export type ArticleAnnotation = {
+  id: number;
+  articleId: number;
+  type: string;
+  selectedText: string | null;
+  content: string;
+  createdAt: string | null;
+};
+
+export async function createArticleAnnotation(
+  articleId: number,
+  patch: { content: string; selectedText?: string | null; type?: string },
+): Promise<ArticleAnnotation> {
+  const payload = await apiPost<
+    {
+      annotation?: {
+        id?: number;
+        article_id?: number;
+        type?: string;
+        selected_text?: string | null;
+        content?: string;
+        created_at?: string | null;
+      };
+    },
+    { content: string; selected_text?: string | null; type?: string }
+  >(`/api/articles/${articleId}/annotations`, {
+    content: patch.content,
+    selected_text: patch.selectedText ?? null,
+    type: patch.type ?? "annotation",
+  });
+  const annotation = payload.annotation;
+  if (annotation?.id == null || typeof annotation.content !== "string") {
+    throw new Error("API returned invalid annotation");
+  }
+  return {
+    id: annotation.id,
+    articleId: annotation.article_id ?? articleId,
+    type: annotation.type ?? "annotation",
+    selectedText: annotation.selected_text ?? null,
+    content: annotation.content,
+    createdAt: annotation.created_at ?? null,
+  };
+}
+
 export async function enqueueFetchContentJob(
   articleId: number,
   init?: ApiRequestInit,

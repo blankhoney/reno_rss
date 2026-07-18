@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
+    article_annotations,
     article_sources,
     articles,
     categories,
@@ -119,6 +120,18 @@ class ArticlePage:
     has_more: bool
 
 
+@dataclass(frozen=True)
+class AnnotationRecord:
+    id: int
+    article_id: int
+    user_id: UUID
+    type: str
+    selected_text: str | None
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class ArticleStore(Protocol):
     def upsert_from_source(self, entry: dict[str, object]) -> ArticleRecord: ...
 
@@ -153,6 +166,18 @@ class ArticleStore(Protocol):
         project: bool | None = None,
         read_progress: float | None = None,
     ) -> ArticleStateRecord | None: ...
+
+    def list_annotations(self, user_id: UUID, article_id: int) -> list[AnnotationRecord]: ...
+
+    def create_annotation(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        content: str,
+        selected_text: str | None = None,
+        annotation_type: str = "annotation",
+    ) -> AnnotationRecord | None: ...
 
     def get_feedback(self, user_id: UUID, article_id: int) -> ArticleFeedbackRecord | None: ...
 
@@ -235,7 +260,9 @@ class MemoryArticleRepository:
         self._sources_by_feed_entry: dict[tuple[int, int], ArticleSourceRecord] = {}
         self._states: dict[tuple[UUID, int], ArticleStateRecord] = {}
         self._feedbacks: dict[tuple[UUID, int], ArticleFeedbackRecord] = {}
+        self._annotations: dict[int, AnnotationRecord] = {}
         self._next_id = 1
+        self._next_annotation_id = 1
 
     def upsert_from_source(self, entry: dict[str, object]) -> ArticleRecord:
         feed_id = int(entry["feed_id"])
@@ -389,6 +416,45 @@ class MemoryArticleRepository:
         )
         self._states[(user_id, article_id)] = updated
         return updated
+
+    def list_annotations(self, user_id: UUID, article_id: int) -> list[AnnotationRecord]:
+        return sorted(
+            [
+                annotation
+                for annotation in self._annotations.values()
+                if annotation.user_id == user_id and annotation.article_id == article_id
+            ],
+            key=lambda item: item.id,
+            reverse=True,
+        )
+
+    def create_annotation(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        content: str,
+        selected_text: str | None = None,
+        annotation_type: str = "annotation",
+    ) -> AnnotationRecord | None:
+        if article_id not in self._articles:
+            return None
+        if annotation_type not in {"annotation", "comment", "review"}:
+            raise ValueError("unsupported annotation type")
+        now = datetime.now(UTC)
+        record = AnnotationRecord(
+            id=self._next_annotation_id,
+            article_id=article_id,
+            user_id=user_id,
+            type=annotation_type,
+            selected_text=selected_text,
+            content=content,
+            created_at=now,
+            updated_at=now,
+        )
+        self._annotations[record.id] = record
+        self._next_annotation_id += 1
+        return record
 
     def get_feedback(self, user_id: UUID, article_id: int) -> ArticleFeedbackRecord | None:
         return self._feedbacks.get((user_id, article_id))
@@ -591,6 +657,57 @@ class DatabaseArticleRepository:
 
     def get_state(self, user_id: UUID, article_id: int) -> ArticleStateRecord:
         return self.get_states(user_id, [article_id])[article_id]
+
+    def list_annotations(self, user_id: UUID, article_id: int) -> list[AnnotationRecord]:
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(article_annotations)
+                    .where(
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.article_id == article_id,
+                        article_annotations.c.deleted_at.is_(None),
+                    )
+                    .order_by(desc(article_annotations.c.id))
+                )
+                .mappings()
+                .all()
+            )
+        return [_annotation_from_row(row) for row in rows]
+
+    def create_annotation(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        content: str,
+        selected_text: str | None = None,
+        annotation_type: str = "annotation",
+    ) -> AnnotationRecord | None:
+        if self.get_article(article_id) is None:
+            return None
+        if annotation_type not in {"annotation", "comment", "review"}:
+            raise ValueError("unsupported annotation type")
+        now = datetime.now(UTC)
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    article_annotations.insert()
+                    .values(
+                        article_id=article_id,
+                        user_id=user_id,
+                        type=annotation_type,
+                        selected_text=selected_text,
+                        content=content,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    .returning(article_annotations)
+                )
+                .mappings()
+                .one()
+            )
+        return _annotation_from_row(row)
 
     def get_states(self, user_id: UUID, article_ids: list[int]) -> dict[int, ArticleStateRecord]:
         unique_article_ids = _unique_article_ids(article_ids)
@@ -1018,6 +1135,19 @@ def _feedback_from_row(row) -> ArticleFeedbackRecord:
         user_score=int(row["user_score"]),
         feedback_type=row["feedback_type"],
         reason=row["reason"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _annotation_from_row(row) -> AnnotationRecord:
+    return AnnotationRecord(
+        id=int(row["id"]),
+        article_id=int(row["article_id"]),
+        user_id=row["user_id"],
+        type=str(row["type"]),
+        selected_text=row["selected_text"],
+        content=str(row["content"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

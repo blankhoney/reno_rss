@@ -428,6 +428,104 @@
         }
       }
     },
+    "/api/articles/{article_id}/annotations": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "List Article Annotations",
+        "operationId": "list_article_annotations_api_articles__article_id__annotations_get",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Article Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Article Annotations Api Articles  Article Id  Annotations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Create Article Annotation",
+        "operationId": "create_article_annotation_api_articles__article_id__annotations_post",
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "title": "Article Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleAnnotationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Article Annotation Api Articles  Article Id  Annotations Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/articles/{article_id}/fetch-content": {
       "post": {
         "tags": [
@@ -1152,6 +1250,39 @@
   },
   "components": {
     "schemas": {
+      "ArticleAnnotationRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content"
+          },
+          "selected_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Text"
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^(annotation|comment|review)$",
+            "title": "Type",
+            "default": "annotation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "ArticleAnnotationRequest"
+      },
       "ArticleFeedbackRequest": {
         "properties": {
           "user_score": {

@@ -11,6 +11,7 @@ from app.api.deps import (
 )
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import (
+    AnnotationRecord,
     ArticleFeedbackRecord,
     ArticleRecord,
     ArticleSourceRecord,
@@ -48,6 +49,12 @@ class ArticleFeedbackRequest(BaseModel):
         return value
 
 
+class ArticleAnnotationRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
+    selected_text: str | None = Field(default=None, max_length=4000)
+    type: str = Field(default="annotation", pattern="^(annotation|comment|review)$")
+
+
 def article_state_public(state: ArticleStateRecord) -> dict[str, object]:
     return {
         "status": state.status,
@@ -64,6 +71,18 @@ def article_feedback_public(feedback: ArticleFeedbackRecord) -> dict[str, object
         "reason": feedback.reason,
         "created_at": feedback.created_at.isoformat() if feedback.created_at else None,
         "updated_at": feedback.updated_at.isoformat() if feedback.updated_at else None,
+    }
+
+
+def annotation_public(annotation: AnnotationRecord) -> dict[str, object]:
+    return {
+        "id": annotation.id,
+        "article_id": annotation.article_id,
+        "type": annotation.type,
+        "selected_text": annotation.selected_text,
+        "content": annotation.content,
+        "created_at": annotation.created_at.isoformat() if annotation.created_at else None,
+        "updated_at": annotation.updated_at.isoformat() if annotation.updated_at else None,
     }
 
 
@@ -269,6 +288,47 @@ def update_article_feedback(
     if feedback is None:
         raise ApiError(404, "not_found", "Article not found")
     return {"feedback": article_feedback_public(feedback)}
+
+
+@router.get("/articles/{article_id}/annotations")
+def list_article_annotations(
+    article_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+) -> dict[str, object]:
+    if article_repository.get_article(article_id) is None:
+        raise ApiError(404, "not_found", "Article not found")
+    # Private v1: only the current user's annotations are returned.
+    items = article_repository.list_annotations(current_user.id, article_id)
+    return {"items": [annotation_public(item) for item in items]}
+
+
+@router.post("/articles/{article_id}/annotations", status_code=201)
+@limiter.limit(write_rate_limit)
+def create_article_annotation(
+    payload: ArticleAnnotationRequest,
+    request: Request,
+    article_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+) -> dict[str, object]:
+    content = payload.content.strip()
+    selected = payload.selected_text.strip() if payload.selected_text else None
+    if not content:
+        raise ApiError(400, "invalid_request", "content is required")
+    try:
+        annotation = article_repository.create_annotation(
+            current_user.id,
+            article_id,
+            content=content,
+            selected_text=selected or None,
+            annotation_type=payload.type,
+        )
+    except ValueError as error:
+        raise ApiError(400, "invalid_request", str(error)) from None
+    if annotation is None:
+        raise ApiError(404, "not_found", "Article not found")
+    return {"annotation": annotation_public(annotation)}
 
 
 @router.post("/articles/{article_id}/fetch-content")

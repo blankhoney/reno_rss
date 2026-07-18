@@ -191,6 +191,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/articles/{article_id}/annotations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Article Annotations */
+        get: operations["list_article_annotations_api_articles__article_id__annotations_get"];
+        put?: never;
+        /** Create Article Annotation */
+        post: operations["create_article_annotation_api_articles__article_id__annotations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/articles/{article_id}/fetch-content": {
         parameters: {
             query?: never;
@@ -469,6 +487,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ArticleAnnotationRequest */
+        ArticleAnnotationRequest: {
+            /** Content */
+            content: string;
+            /** Selected Text */
+            selected_text?: string | null;
+            /**
+             * Type
+             * @default annotation
+             */
+            type: string;
+        };
         /** ArticleFeedbackRequest */
         ArticleFeedbackRequest: {
             /** User Score */
@@ -897,6 +927,76 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_article_annotations_api_articles__article_id__annotations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                article_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_article_annotation_api_articles__article_id__annotations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                article_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArticleAnnotationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

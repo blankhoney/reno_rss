@@ -8,7 +8,7 @@ import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/
 import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
-import { saveArticleFeedback } from "@/lib/api/articles";
+import { createArticleAnnotation, saveArticleFeedback } from "@/lib/api/articles";
 import { streamArticleAsk } from "@/lib/api/client";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -605,6 +605,32 @@ export function FocusedArticleReader({
             onClick={() => void askAgent("请解释我选中的这段内容。")}
           >
             解释选中
+          </button>
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              const text = selectedText.trim();
+              if (!text) return;
+              void createArticleAnnotation(article.id, {
+                content: text,
+                selectedText: text,
+                type: "annotation",
+              })
+                .then(() => {
+                  emitToast({ title: "已保存划线", variant: "success" });
+                  clearSelection();
+                })
+                .catch((error: unknown) => {
+                  emitToast({
+                    title: "划线保存失败",
+                    body: error instanceof Error ? error.message : "请稍后重试",
+                    variant: "error",
+                  });
+                });
+            }}
+          >
+            保存划线
           </button>
         </div>
       ) : null}
