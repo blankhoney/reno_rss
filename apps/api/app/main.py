@@ -16,6 +16,7 @@ from app.api.routes import (
     briefs,
     clusters,
     feeds,
+    interest,
     jobs,
     recommendations,
     research,
@@ -127,6 +128,8 @@ def create_app() -> FastAPI:
     app.include_router(research.router)
     app.include_router(themes.router)
     app.include_router(saved_searches.router)
+    app.include_router(interest.router)
+    app.state.interest_reset_at = {}
 
     return app
 

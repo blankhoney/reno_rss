@@ -188,6 +188,14 @@ class ArticleStore(Protocol):
         now: datetime | None = None,
     ) -> list[AnnotationRecord]: ...
 
+    def search_annotations(
+        self,
+        user_id: UUID,
+        *,
+        q: str,
+        limit: int = 30,
+    ) -> list[AnnotationRecord]: ...
+
     def get_annotation(self, user_id: UUID, annotation_id: int) -> AnnotationRecord | None: ...
 
     def update_annotation_review(
@@ -511,6 +519,29 @@ class MemoryArticleRepository:
             )
         )
         return items[: max(1, min(limit, 100))]
+
+    def search_annotations(
+        self,
+        user_id: UUID,
+        *,
+        q: str,
+        limit: int = 30,
+    ) -> list[AnnotationRecord]:
+        needle = (q or "").strip().casefold()
+        if not needle:
+            return []
+        capped = max(1, min(limit, 100))
+        items = [
+            annotation
+            for annotation in self._annotations.values()
+            if annotation.user_id == user_id
+            and (
+                needle in (annotation.content or "").casefold()
+                or needle in (annotation.selected_text or "").casefold()
+            )
+        ]
+        items.sort(key=lambda item: item.id, reverse=True)
+        return items[:capped]
 
     def get_annotation(self, user_id: UUID, annotation_id: int) -> AnnotationRecord | None:
         record = self._annotations.get(annotation_id)
@@ -854,6 +885,38 @@ class DatabaseArticleRepository:
                         article_annotations.c.next_review_at.asc().nullsfirst(),
                         article_annotations.c.id.asc(),
                     )
+                    .limit(capped)
+                )
+                .mappings()
+                .all()
+            )
+        return [_annotation_from_row(row) for row in rows]
+
+    def search_annotations(
+        self,
+        user_id: UUID,
+        *,
+        q: str,
+        limit: int = 30,
+    ) -> list[AnnotationRecord]:
+        needle = (q or "").strip()
+        if not needle:
+            return []
+        capped = max(1, min(limit, 100))
+        pattern = f"%{needle}%"
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(article_annotations)
+                    .where(
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.deleted_at.is_(None),
+                        or_(
+                            article_annotations.c.content.ilike(pattern),
+                            article_annotations.c.selected_text.ilike(pattern),
+                        ),
+                    )
+                    .order_by(desc(article_annotations.c.id))
                     .limit(capped)
                 )
                 .mappings()

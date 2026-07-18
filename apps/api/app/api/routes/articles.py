@@ -324,10 +324,14 @@ def export_project_articles(
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
     scoring_repository: ScoringStore = Depends(get_scoring_repository),
-    format: str = Query(default="markdown", pattern="^(markdown|json)$"),
+    format: str = Query(default="markdown", pattern="^(markdown|json|zip)$"),
     limit: int = Query(default=100, ge=1, le=200),
 ) -> Response:
-    """Export the current user's project queue as Markdown or JSON (no secrets)."""
+    """Export the current user's project queue as Markdown, JSON, or zip (no secrets)."""
+    import io
+    import json
+    import zipfile
+
     page = article_repository.list_articles(
         limit=limit,
         user_id=current_user.id,
@@ -349,8 +353,49 @@ def export_project_articles(
     ]
     if format == "json":
         return JSONResponse(build_project_export_json(export_items))
+    if format == "zip":
+        markdown = build_project_export_markdown(export_items)
+        payload = build_project_export_json(export_items)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("project.md", markdown)
+            archive.writestr(
+                "project.json",
+                json.dumps(payload, ensure_ascii=False, indent=2),
+            )
+        return Response(
+            content=buffer.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="project-export.zip"'},
+        )
     body = build_project_export_markdown(export_items)
     return PlainTextResponse(body, media_type="text/markdown; charset=utf-8")
+
+
+@router.get("/annotations/search")
+def search_annotations(
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+    q: str = Query(default="", max_length=200),
+    limit: int = Query(default=30, ge=1, le=100),
+) -> dict[str, object]:
+    """Search private notes/highlights by content substring."""
+    items = article_repository.search_annotations(current_user.id, q=q, limit=limit)
+    articles = article_repository.get_articles([item.article_id for item in items])
+    return {
+        "items": [
+            {
+                **annotation_public(item),
+                "article_title": (
+                    articles[item.article_id].title if item.article_id in articles else None
+                ),
+                "article_url": (
+                    articles[item.article_id].url if item.article_id in articles else None
+                ),
+            }
+            for item in items
+        ]
+    }
 
 
 @router.get("/annotations/review")
