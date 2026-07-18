@@ -59,6 +59,41 @@ def test_apply_rules_boost_and_keyword_raise_score():
     assert by_id[2].score == 60
 
 
+def test_must_read_rule_promotes_matching_source_to_must_read_tier():
+    from app.domain.ranking import Candidate, rank_b4
+    from app.domain.rules import Rule, RuleArticle, apply_rules
+
+    adjusted = apply_rules(
+        [RuleArticle(article_id=1, feed_ids=[5], title="Trusted dispatch", score=42)],
+        [Rule(type="must_read", feed_id=5)],
+    )
+    assert adjusted[0].score == 85
+
+    ranked = rank_b4(
+        user_priority_by_feed={5: 0},
+        candidates=[
+            Candidate(
+                article_id=1,
+                feed_ids=[5],
+                base_score=42,
+                published_at=datetime(2026, 7, 17, tzinfo=UTC),
+            )
+        ],
+        feedback_by_article={},
+        now=datetime(2026, 7, 18, tzinfo=UTC),
+        rules=[Rule(type="must_read", feed_id=5)],
+        titles_by_article={1: "Trusted dispatch"},
+    )
+    assert ranked[0].tier == "must_read"
+
+
+def test_must_read_rule_requires_feed_or_keyword():
+    from app.domain.rules import validate_rule
+
+    with pytest.raises(ValueError, match="must_read rule requires"):
+        validate_rule({"type": "must_read"})
+
+
 def test_rank_b4_optional_rules_mute_feed():
     from app.domain.ranking import Candidate, rank_b4
     from app.domain.rules import Rule
@@ -111,12 +146,13 @@ async def test_rules_put_get_roundtrip(app, client):
                 {"type": "mute", "keyword": "sponsored"},
                 {"type": "keyword", "keyword": "rust", "weight": 8},
                 {"type": "score_threshold", "weight": 55},
+                {"type": "must_read", "feed_id": 9},
             ]
         },
     )
     assert put.status_code == 200
     rules = put.json()["rules"]
-    assert len(rules) == 4
+    assert len(rules) == 5
     assert rules[0] == {"type": "boost", "feed_id": 3, "weight": 12.0}
     assert rules[1] == {"type": "mute", "keyword": "sponsored"}
 

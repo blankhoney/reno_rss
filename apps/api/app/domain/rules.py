@@ -1,4 +1,4 @@
-"""User reader rules: boost / mute / keyword radar / score threshold (GOAL §4.A)."""
+"""User reader rules: boost / mute / must-read / radar / threshold (GOAL §4.A)."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 
-RULE_TYPES = frozenset({"boost", "mute", "keyword", "score_threshold"})
+RULE_TYPES = frozenset({"boost", "mute", "must_read", "keyword", "score_threshold"})
 DEFAULT_BOOST_WEIGHT = 10.0
+MUST_READ_SCORE = 85.0
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,9 @@ def validate_rule(rule: Rule | dict[str, object]) -> Rule:
     elif candidate.type == "boost":
         if candidate.feed_id is None and not candidate.keyword:
             raise ValueError("boost rule requires feed_id or keyword")
+    elif candidate.type == "must_read":
+        if candidate.feed_id is None and not candidate.keyword:
+            raise ValueError("must_read rule requires feed_id or keyword")
     elif candidate.type == "keyword":
         if not candidate.keyword:
             raise ValueError("keyword rule requires keyword")
@@ -100,6 +104,7 @@ def apply_rules(
     1. mute (drop matching feed or title keyword)
     2. score_threshold (drop below max configured threshold weight)
     3. boost / keyword (add weight when feed or keyword matches)
+    4. must_read (raise matching items to the must-read tier floor)
     """
     if not candidates:
         return []
@@ -123,15 +128,22 @@ def apply_rules(
     adjusted: list[RuleArticle] = []
     for article in muted:
         bonus = 0.0
+        force_must_read = False
         for rule in normalized:
+            if rule.type == "must_read" and _matches_target(article, rule):
+                force_must_read = True
+                continue
             if rule.type not in {"boost", "keyword"}:
                 continue
             if not _matches_target(article, rule):
                 continue
             weight = rule.weight if rule.weight is not None else DEFAULT_BOOST_WEIGHT
             bonus += float(weight)
-        if bonus:
-            adjusted.append(replace(article, score=article.score + bonus))
+        next_score = article.score + bonus
+        if force_must_read:
+            next_score = max(next_score, MUST_READ_SCORE)
+        if next_score != article.score:
+            adjusted.append(replace(article, score=next_score))
         else:
             adjusted.append(article)
     return adjusted

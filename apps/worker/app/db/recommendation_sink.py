@@ -305,7 +305,7 @@ class DatabaseRecommendationSink:
         return {int(row["article_id"]): row["status"] for row in rows}
 
     def _rules_for_user(self, user_id: object) -> list[object]:
-        """Load boost/mute/keyword/threshold rules for the ranking pipeline."""
+        """Load boost/mute/must-read/keyword/threshold rules for ranking."""
         try:
             with self.engine.begin() as connection:
                 row = (

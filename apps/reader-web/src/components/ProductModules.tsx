@@ -238,7 +238,7 @@ export function RulesPanel() {
   return (
     <PanelShell
       title="规则引擎"
-      hint="boost / mute / keyword / score_threshold —— 写入后参与 Top10 与简报排序。"
+      hint="boost / mute / must_read / keyword / score_threshold —— 写入后参与 Top10 与简报排序。"
     >
       {error ? <p className="adminConsoleError">{error}</p> : null}
       <div className="productModuleForm">
@@ -247,6 +247,7 @@ export function RulesPanel() {
           <select value={draftType} onChange={(event) => setDraftType(event.target.value)}>
             <option value="mute">mute</option>
             <option value="boost">boost</option>
+            <option value="must_read">must_read</option>
             <option value="keyword">keyword</option>
             <option value="score_threshold">score_threshold</option>
           </select>
