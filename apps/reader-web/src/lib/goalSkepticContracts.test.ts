@@ -33,6 +33,7 @@ test("ProductModules + page + palette cover clusters/rules/themes/research/inter
   assert.match(page, /ResearchPanel/);
   assert.match(page, /InterestPanel/);
   assert.match(page, /ExportPanel/);
+  assert.match(page, /UnifiedSearchPanel/);
   const palette = read("lib/commandPalette.ts");
   assert.match(palette, /clusters/);
   assert.match(palette, /rules/);
@@ -40,6 +41,7 @@ test("ProductModules + page + palette cover clusters/rules/themes/research/inter
   assert.match(palette, /research/);
   assert.match(palette, /interest/);
   assert.match(palette, /export/);
+  assert.match(palette, /nav\("search"/);
 });
 
 test("craft prefs include Scan/Focus/Keep density dualPane and pin themes", () => {

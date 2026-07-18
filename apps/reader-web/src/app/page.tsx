@@ -13,6 +13,7 @@ import {
   RulesPanel,
   SavedSearchesPanel,
   ThemesPanel,
+  UnifiedSearchPanel,
 } from "@/components/ProductModules";
 import { ReaderWorkbench } from "@/components/ReaderWorkbench";
 import { ReviewQueue } from "@/components/ReviewQueue";
@@ -73,6 +74,17 @@ export default async function HomePage({ searchParams }: PageProps) {
         <main className="workbench">
           <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
           <ReviewQueue />
+        </main>
+      </AuthSessionGate>
+    );
+  }
+
+  if (currentModule === "search") {
+    return (
+      <AuthSessionGate>
+        <main className="workbench">
+          <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
+          <UnifiedSearchPanel initialQuery={currentQuery} />
         </main>
       </AuthSessionGate>
     );

@@ -36,7 +36,7 @@ export function moduleHref(
   return `/?${qs.toString()}`;
 }
 
-/** When the user types a free-text query, offer an article search jump. */
+/** When the user types free text, search articles and private annotations together. */
 export function searchArticlesCommand(
   query: string,
   options?: { sort?: string; lang?: string },
@@ -47,10 +47,10 @@ export function searchArticlesCommand(
   const lang = options?.lang ?? "zh";
   return {
     id: `search-articles:${q}`,
-    label: `搜索文章：${q}`,
+    label: `统一搜索：${q}`,
     keywords: ["search", "搜索", "q", q],
     kind: "navigate",
-    href: moduleHref("all", sort, lang, q),
+    href: moduleHref("search", sort, lang, q),
     group: "搜索",
     shortcut: "↵",
   };
@@ -77,9 +77,9 @@ export function buildWorkbenchCommands(options?: {
     nav("clusters", "故事线 Clusters", ["cluster", "dedupe", "故事线"]),
     nav("themes", "主题簇 Themes", ["theme", "tag", "主题"]),
     nav("research", "语料研究 Agent", ["research", "agent", "corpus", "研究"]),
+    nav("search", "统一搜索", ["search", "article", "highlight", "note", "全文", "划线", "笔记"]),
     nav("rules", "规则引擎", ["rules", "mute", "boost", "规则"]),
     nav("saved-searches", "保存的搜索", ["saved", "search", "filter", "过滤器"]),
-    nav("notes", "划线笔记搜索", ["notes", "highlight", "annotation", "笔记"]),
     nav("interest", "兴趣向量", ["interest", "personalization", "兴趣"]),
     nav("craft", "阅读工艺 Scan/Focus/Keep", ["craft", "density", "mode", "工艺"]),
     nav("export", "立项导出", ["export", "zip", "markdown", "导出"]),
@@ -195,7 +195,7 @@ export function filterCommands(commands: CommandItem[], query: string): CommandI
   });
   const search = searchArticlesCommand(query);
   if (search) {
-    // Put free-text article search first so ⌘K doubles as research search.
+    // Put unified search first so ⌘K covers corpus text and private knowledge.
     return [search, ...matched.filter((command) => command.id !== search.id)];
   }
   return matched;

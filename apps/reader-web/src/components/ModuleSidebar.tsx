@@ -47,7 +47,7 @@ const MODULE_GROUPS: ModuleNavGroup[] = [
     id: "knowledge",
     label: "知识",
     items: [
-      { id: "notes", label: "笔记搜索" },
+      { id: "search", label: "统一搜索" },
       { id: "saved-searches", label: "保存搜索" },
       { id: "rules", label: "规则引擎" },
       { id: "interest", label: "兴趣向量" },

@@ -21,6 +21,7 @@ test("buildWorkbenchCommands covers core navigation surfaces", () => {
   assert.ok(ids.has("nav-all"));
   assert.ok(ids.has("nav-starred"));
   assert.ok(ids.has("nav-project"));
+  assert.ok(ids.has("nav-search"));
   assert.ok(ids.has("nav-admin"));
   assert.ok(ids.has("action-theme"));
 });
@@ -66,5 +67,5 @@ test("filterCommands prepends free-text article search jump", () => {
   const filtered = filterCommands(commands, "zephyr quantum");
   assert.ok(filtered.length >= 1);
   assert.equal(filtered[0].id.startsWith("search-articles:"), true);
-  assert.match(filtered[0].href ?? "", /q=zephyr/);
+  assert.equal(filtered[0].href, "/?module=search&sort=default&lang=zh&q=zephyr+quantum");
 });

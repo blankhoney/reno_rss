@@ -27,8 +27,9 @@ import {
   readCraftPreferences,
   type CraftPreferences,
 } from "@/lib/craft/preferences";
-import { pollJobUntilTerminal } from "@/lib/api/articles";
+import { listArticles, pollJobUntilTerminal } from "@/lib/api/articles";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
+import type { Article } from "@/lib/articles/types";
 
 function PanelShell({
   title,
@@ -302,7 +303,7 @@ export function SavedSearchesPanel() {
     try {
       const next = await putSavedSearches([
         ...items,
-        { name: name.trim(), q: q.trim(), module: "all", sort: "published_desc" },
+        { name: name.trim(), q: q.trim(), module: "search", sort: "published_desc" },
       ]);
       setItems(next);
       setName("");
@@ -623,9 +624,10 @@ export function InterestPanel() {
   );
 }
 
-export function NotesSearchPanel() {
-  const [q, setQ] = useState("");
-  const [items, setItems] = useState<
+export function UnifiedSearchPanel({ initialQuery = "" }: { initialQuery?: string }) {
+  const [q, setQ] = useState(initialQuery);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [annotations, setAnnotations] = useState<
     Array<{
       id: number;
       articleId: number;
@@ -635,34 +637,77 @@ export function NotesSearchPanel() {
     }>
   >([]);
   const [error, setError] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function runSearch() {
+  const runSearch = useCallback(async (query: string) => {
+    const normalized = query.trim();
+    if (!normalized) {
+      setError("请输入标题、正文、划线或笔记关键词");
+      return;
+    }
+    setBusy(true);
     setError(null);
     try {
-      setItems(await searchAnnotations(q));
+      const [articlePage, annotationItems] = await Promise.all([
+        listArticles({ limit: 50, module: "all", q: normalized, sort: "published_desc" }),
+        searchAnnotations(normalized),
+      ]);
+      setArticles(articlePage.articles);
+      setAnnotations(annotationItems);
+      setSearched(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "搜索失败");
+    } finally {
+      setBusy(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (initialQuery.trim()) void runSearch(initialQuery);
+  }, [initialQuery, runSearch]);
 
   return (
-    <PanelShell title="划线 / 笔记搜索" hint="统一检索选区与笔记内容。">
+    <PanelShell title="统一搜索" hint="一次检索标题、正文、私人划线与笔记；中英文子串均可命中。">
       {error ? <p className="adminConsoleError">{error}</p> : null}
       <div className="productModuleForm">
         <label>
           关键词
           <input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => {
-            if (event.key === "Enter") void runSearch();
+            if (event.key === "Enter") void runSearch(q);
           }} />
         </label>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" onClick={runSearch}>
-          搜索
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={busy} onClick={() => void runSearch(q)}>
+          {busy ? "搜索中…" : "搜索"}
         </button>
       </div>
+      {searched ? (
+        <p className="workbenchRibbonMuted">文章 {articles.length} · 划线/笔记 {annotations.length}</p>
+      ) : null}
+      {searched && articles.length === 0 && annotations.length === 0 ? (
+        <div className="articleListEmpty">
+          <p className="articleListEmptyTitle">没有匹配结果</p>
+          <p className="articleListEmptyHint">尝试缩短关键词，或先同步正文再搜索。</p>
+        </div>
+      ) : null}
+      {articles.length > 0 ? <h2 className="productModuleSectionTitle">文章标题 / 正文</h2> : null}
       <ul className="productModuleList">
-        {items.map((item) => (
+        {articles.map((article) => (
+          <li key={article.id} className="productModuleCard">
+            <Link href={`/read/${article.id}?module=search&sort=default&lang=zh`} prefetch={false}>
+              <strong>{article.title}</strong>
+            </Link>
+            <p className="workbenchRibbonMuted">
+              {article.feedTitle}{article.summaryZh ? ` · ${article.summaryZh}` : ""}
+            </p>
+          </li>
+        ))}
+      </ul>
+      {annotations.length > 0 ? <h2 className="productModuleSectionTitle">私人划线 / 笔记</h2> : null}
+      <ul className="productModuleList">
+        {annotations.map((item) => (
           <li key={item.id} className="productModuleCard">
-            <Link href={`/read/${item.articleId}?module=notes&sort=default&lang=zh`} prefetch={false}>
+            <Link href={`/read/${item.articleId}?module=search&sort=default&lang=zh`} prefetch={false}>
               <strong>{item.articleTitle || `文章 #${item.articleId}`}</strong>
             </Link>
             <p>{item.selectedText || item.content}</p>
@@ -671,6 +716,11 @@ export function NotesSearchPanel() {
       </ul>
     </PanelShell>
   );
+}
+
+/** Backward-compatible route for old ?module=notes bookmarks. */
+export function NotesSearchPanel() {
+  return <UnifiedSearchPanel />;
 }
 
 export function CraftPanel() {
