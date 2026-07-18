@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Newsreader, Noto_Serif_SC } from "next/font/google";
+import { CommandPaletteHost } from "@/components/CommandPalette";
 import { MotionRoot } from "@/components/MotionRoot";
 import { ToastHost } from "@/components/Toast";
 import "./globals.css";
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <MotionRoot>{children}</MotionRoot>
+        <CommandPaletteHost />
         <ToastHost />
       </body>
     </html>

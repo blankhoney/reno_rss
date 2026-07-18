@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { Article } from "@/lib/articles/types";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import { ScoreRing, tierLabel } from "./ScoreRing";
 import { ArticleListSkeleton } from "./Skeleton";
 import { SortMenu, type SortOption } from "./SortMenu";
+import { FOCUS_ARTICLE_LIST_EVENT, isEditableKeyboardTarget } from "@/lib/commandPalette";
 import Link from "next/link";
 
 type ArticleListProps = {
@@ -79,6 +81,56 @@ export function ArticleList({
   notice,
 }: ArticleListProps) {
   const isEmpty = articles.length === 0;
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const listRef = useRef<HTMLUListElement | null>(null);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [articles, pageIndex, currentModule]);
+
+  useEffect(() => {
+    function onFocusList() {
+      listRef.current?.focus();
+    }
+    window.addEventListener(FOCUS_ARTICLE_LIST_EVENT, onFocusList);
+    return () => window.removeEventListener(FOCUS_ARTICLE_LIST_EVENT, onFocusList);
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (isEditableKeyboardTarget(event.target)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (articles.length === 0 || isLoading) return;
+
+      if (event.key === "j" || event.key === "J") {
+        event.preventDefault();
+        setSelectedIndex((index) => Math.min(index + 1, articles.length - 1));
+        return;
+      }
+      if (event.key === "k" || event.key === "K") {
+        event.preventDefault();
+        setSelectedIndex((index) => Math.max(index - 1, 0));
+        return;
+      }
+      if (event.key === "Enter") {
+        const article = articles[selectedIndex];
+        if (!article) return;
+        event.preventDefault();
+        const href = readHref(currentModule, currentSort, currentLang, article.id);
+        window.location.assign(href);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [articles, currentLang, currentModule, currentSort, isLoading, selectedIndex]);
+
+  useEffect(() => {
+    if (articles.length === 0) return;
+    const selected = listRef.current?.querySelector<HTMLElement>(
+      `[data-list-index="${selectedIndex}"]`,
+    );
+    selected?.scrollIntoView({ block: "nearest" });
+  }, [articles.length, selectedIndex]);
 
   function updateSort(nextSort: ArticleSortId) {
     onSortChange?.(nextSort);
@@ -89,6 +141,12 @@ export function ArticleList({
       <header className="articleListHeader">
         <h1 className="articleListTitle">阅读工作台</h1>
         <div className="articleListActions">
+          <span className="articleListKbdHint" title="命令面板与列表快捷键">
+            <kbd>⌘K</kbd>
+            <span className="articleListKbdHintSep">·</span>
+            <kbd>j</kbd>
+            <kbd>k</kbd>
+          </span>
           <SortMenu currentSort={currentSort} options={SORT_OPTIONS} onChange={updateSort} />
         </div>
       </header>
@@ -108,8 +166,10 @@ export function ArticleList({
       ) : null}
       {!isLoading ? (
         <ul
+          ref={listRef}
           className={isPaging ? "articleList articleListPaging" : "articleList"}
           aria-busy={isPaging ? "true" : undefined}
+          tabIndex={-1}
         >
           {articles.map((article, index) => {
             const score = article.score;
@@ -117,12 +177,14 @@ export function ArticleList({
             const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
             const isHeadline = pageIndex === 0 && index === 0;
             const rowNumber = pageIndex === 0 ? index : index + 1;
+            const isKeyboardSelected = index === selectedIndex;
             const cardClassName =
               [
                 "articleCard",
                 isHeadline ? "articleCardHeadline" : "",
                 article.status === "read" ? "articleCardRead" : "",
                 article.id === highlightArticleId ? "articleCardReturnTarget" : "",
+                isKeyboardSelected ? "articleCardKeyboardSelected" : "",
               ]
                 .filter(Boolean)
                 .join(" ");
@@ -134,6 +196,8 @@ export function ArticleList({
                   prefetch={false}
                   aria-label={`${article.title}，进入专注阅读`}
                   data-article-id={article.id}
+                  data-list-index={index}
+                  aria-current={isKeyboardSelected ? "true" : undefined}
                 >
                   {!isHeadline ? (
                     <span className="articleCardIndex" aria-hidden="true">
