@@ -459,3 +459,46 @@ async def test_latest_recommendations_surfaces_current_user_feedback(app, client
     assert feedback["reason"] == "Great read."
     assert feedback["created_at"] is not None
     assert feedback["updated_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_latest_recommendations_include_explain_factors(app, client):
+    from app.domain.ranking import RankedItem
+
+    login = await client.post("/api/auth/login", json={"display_name": "Explainer"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 777,
+            "url": "https://example.com/factors",
+            "title": "Factors",
+            "published_at": datetime(2026, 7, 18, tzinfo=UTC),
+        }
+    )
+    app.state.scoring_repository.create_score(
+        article_id=article.id,
+        base_score=91,
+        is_active=True,
+    )
+    app.state.recommendation_repository.save_edition(
+        user_id=login.json()["user"]["id"],
+        items=[
+            RankedItem(
+                article_id=article.id,
+                rank=1,
+                rank_score=95.0,
+                tier="must_read",
+                reason="Top signal",
+                source="subscription",
+            )
+        ],
+        algorithm_version="b4.v1",
+    )
+
+    response = await client.get("/api/recommendations/latest")
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["factors"]["reason"] == "Top signal"
+    assert item["factors"]["source"] == "subscription"
+    assert item["factors"]["base_score"] == 91
+    assert item["factors"]["tier"] == "must_read"

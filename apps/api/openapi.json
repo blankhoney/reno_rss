@@ -543,6 +543,61 @@
         }
       }
     },
+    "/api/export/project": {
+      "get": {
+        "tags": [
+          "articles"
+        ],
+        "summary": "Export Project Articles",
+        "description": "Export the current user's project queue as Markdown or JSON (no secrets).",
+        "operationId": "export_project_articles_api_export_project_get",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(markdown|json)$",
+              "default": "markdown",
+              "title": "Format"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/annotations/review": {
       "get": {
         "tags": [
@@ -1065,6 +1120,25 @@
                   "type": "object",
                   "title": "Response Usage Today Api Admin Usage Today Get"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/daily-brief": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Enqueue Daily Brief",
+        "operationId": "enqueue_daily_brief_api_admin_daily_brief_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }

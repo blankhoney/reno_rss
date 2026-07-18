@@ -24,6 +24,25 @@ from app.db.repositories.scoring import ScoreRecord, ScoringStore
 router = APIRouter(prefix="/api/recommendations", tags=["recommendations"])
 
 
+def recommendation_explain_factors(
+    item: RecommendationItemRecord,
+    score: ScoreRecord | None,
+) -> dict[str, object]:
+    """Why this item is in TopN — derived at read time (no extra storage)."""
+    risk_flags = list(score.risk_flags) if score is not None else []
+    dimensions = dict(score.dimension_scores) if score is not None else {}
+    return {
+        "rank_score": item.rank_score,
+        "tier": item.tier,
+        "source": item.source,
+        "reason": item.reason,
+        "base_score": score.base_score if score is not None else None,
+        "risk_flags": risk_flags,
+        "risk_uncertainty": dimensions.get("risk_uncertainty"),
+        "dimensions": dimensions,
+    }
+
+
 def recommendation_item_public(
     item: RecommendationItemRecord,
     articles_by_id: dict[int, ArticleRecord],
@@ -40,6 +59,7 @@ def recommendation_item_public(
             score,
             feedback,
         )
+    factors = recommendation_explain_factors(item, score)
     return {
         "rank": item.rank,
         "article": article_payload,
@@ -47,6 +67,9 @@ def recommendation_item_public(
         "tier": item.tier,
         "reason": item.reason,
         "source": item.source,
+        "risk_flags": factors["risk_flags"],
+        "risk_uncertainty": factors["risk_uncertainty"],
+        "factors": factors,
     }
 
 

@@ -84,6 +84,12 @@ export function WorkbenchRibbon({
             <span>共 {stats.total}</span>
             <span>已评分 {stats.scored}</span>
             <span>待评分 {stats.unscored}</span>
+            <Link className="workbenchRibbonLink" href="?module=review&sort=default&lang=zh" prefetch={false}>
+              复习划线
+            </Link>
+            <a className="workbenchRibbonLink" href="/api/export/project?format=markdown">
+              导出立项
+            </a>
           </>
         ) : (
           <span className="workbenchRibbonMuted">统计待加载</span>
@@ -149,7 +155,16 @@ export function WorkbenchRibbon({
                             prefetch={false}
                           >
                             <span className="workbenchRibbonRank">#{rank}</span>
-                            <span className="workbenchRibbonTop10Title">{article.title}</span>
+                            <span
+                              className="workbenchRibbonTop10Title"
+                              title={
+                                item.factors
+                                  ? `为什么：${item.factors.reason || item.reason} · 源=${item.factors.source} · 基分=${item.factors.baseScore ?? "—"}`
+                                  : item.reason || undefined
+                              }
+                            >
+                              {article.title}
+                            </span>
                             <ScoreRing value={article.score?.overall ?? item.rankScore} tier={item.tier} size={46} />
                           </Link>
                         </li>
