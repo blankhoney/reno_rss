@@ -17,6 +17,8 @@ type BriefItem = {
   summary_zh?: string | null;
   overall_score?: number | null;
   risk_flags?: string[];
+  source_quality?: number | null;
+  content_quality?: string | null;
 };
 
 type Brief = {
@@ -364,6 +366,12 @@ export function DailyIntelligenceDashboard() {
                                 <span className="dailyIntelRisk">
                                   风险 {item.risk_flags.join("·")}
                                 </span>
+                              ) : null}
+                              {item.source_quality != null ? (
+                                <span title="来源质量维度">源可信 {Math.round(item.source_quality)}</span>
+                              ) : null}
+                              {item.content_quality ? (
+                                <span title="正文质量">{item.content_quality}</span>
                               ) : null}
                             </div>
                             <h3 className="dailyIntelCardTitle">{item.title}</h3>

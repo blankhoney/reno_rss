@@ -38,8 +38,11 @@ class DatabaseBriefSink:
                           i.tier,
                           i.reason,
                           a.title,
+                          a.content_quality,
                           s.summary_zh,
-                          s.base_score AS overall_score
+                          s.base_score AS overall_score,
+                          s.risk_flags,
+                          s.dimension_scores
                         FROM recommendation_items i
                         LEFT JOIN articles a ON a.id = i.article_id
                         LEFT JOIN article_base_scores s
@@ -54,7 +57,33 @@ class DatabaseBriefSink:
                 .mappings()
                 .all()
             )
-        return [dict(row) for row in rows]
+        items: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            risk_flags = item.get("risk_flags")
+            if isinstance(risk_flags, str):
+                try:
+                    risk_flags = json.loads(risk_flags)
+                except json.JSONDecodeError:
+                    risk_flags = []
+            if not isinstance(risk_flags, list):
+                risk_flags = []
+            item["risk_flags"] = risk_flags
+            dims = item.get("dimension_scores")
+            if isinstance(dims, str):
+                try:
+                    dims = json.loads(dims)
+                except json.JSONDecodeError:
+                    dims = {}
+            source_quality = None
+            if isinstance(dims, dict) and dims.get("source_quality") is not None:
+                try:
+                    source_quality = float(dims["source_quality"])
+                except (TypeError, ValueError):
+                    source_quality = None
+            item["source_quality"] = source_quality
+            items.append(item)
+        return items
 
     def save_daily_brief(self, brief: dict[str, object]) -> int:
         # Store as a completed jobs row so no new table is required for v1.

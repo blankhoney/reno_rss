@@ -77,6 +77,20 @@ def brief_item_public(
     if not isinstance(reason, str):
         reason = str(reason) if reason is not None else ""
     risk_flags = list(score.risk_flags) if score is not None else []
+    if not risk_flags:
+        raw_flags = raw.get("risk_flags")
+        if isinstance(raw_flags, list):
+            risk_flags = [str(flag) for flag in raw_flags]
+
+    source_quality = None
+    if score is not None and isinstance(score.dimension_scores, dict):
+        raw_sq = score.dimension_scores.get("source_quality")
+        try:
+            source_quality = float(raw_sq) if raw_sq is not None else None
+        except (TypeError, ValueError):
+            source_quality = None
+    if source_quality is None:
+        source_quality = _optional_float(raw.get("source_quality"))
 
     return {
         "article_id": article_id,
@@ -88,6 +102,10 @@ def brief_item_public(
         "summary_zh": summary_zh,
         "overall_score": overall_score,
         "risk_flags": risk_flags,
+        "source_quality": source_quality,
+        "content_quality": (
+            article.content_quality if article is not None else raw.get("content_quality")
+        ),
     }
 
 
