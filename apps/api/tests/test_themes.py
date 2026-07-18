@@ -1,3 +1,5 @@
+import pytest
+
 from app.domain.themes import cluster_themes
 
 
@@ -27,10 +29,6 @@ def test_cluster_themes_respects_max_themes():
     ]
     themes = cluster_themes(scores, max_themes=3)
     assert len(themes) == 3
-
-
-import pytest
-
 
 @pytest.mark.asyncio
 async def test_themes_latest_endpoint(app, client):
