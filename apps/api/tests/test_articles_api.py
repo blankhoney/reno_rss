@@ -701,3 +701,36 @@ async def test_anonymous_demo_can_submit_article_feedback(app, client):
 
     assert response.status_code == 200
     assert response.json()["feedback"]["reason"] == "demo feedback"
+
+
+@pytest.mark.asyncio
+async def test_article_list_q_matches_content_text_body(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Searcher"})
+    now = datetime(2026, 7, 18, 12, tzinfo=UTC)
+    app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 701,
+            "url": "https://example.com/title-only",
+            "title": "Completely different headline",
+            "published_at": now,
+            "content_text": "Unique body token zephyr-quantum appears here only.",
+        }
+    )
+    app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 702,
+            "url": "https://example.com/other",
+            "title": "Other",
+            "published_at": now,
+            "content_text": "No match here",
+        }
+    )
+
+    response = await client.get("/api/articles", params={"q": "zephyr-quantum", "limit": 10})
+
+    assert response.status_code == 200
+    ids_titles = [(item["id"], item["title"]) for item in response.json()["items"]]
+    assert len(ids_titles) == 1
+    assert ids_titles[0][1] == "Completely different headline"

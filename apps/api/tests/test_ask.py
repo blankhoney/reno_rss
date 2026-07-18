@@ -432,3 +432,23 @@ async def test_ask_ignores_provider_reasoning_content_delta(app, client):
     assert response.status_code == 200
     assert "hidden provider reasoning" not in response.text
     assert "data: 结论：可读" in response.text
+
+
+def test_ask_prompt_requires_grounded_citations():
+    from app.domain.ask_prompt import build_article_ask_context
+
+    ctx = build_article_ask_context(
+        question="文章核心观点是什么？",
+        title="Example",
+        url="https://example.com",
+        content_text="The system should ground answers in quotes.",
+        content_html=None,
+        summary_zh="摘要",
+        scoring_reason="有价值",
+        tags=["ai"],
+        risk_flags=[],
+    )
+    system = ctx.messages.system
+    assert "引用" in system
+    assert "原文摘录" in system or "引号" in system
+    assert "不得编造" in system

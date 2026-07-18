@@ -354,7 +354,11 @@ class MemoryArticleRepository:
             reverse=True,
         )
         if query:
-            items = [article for article in items if query in article.title.lower()]
+            items = [
+                article
+                for article in items
+                if _article_matches_query(article, query)
+            ]
         if list_module != "all":
             if user_id is None:
                 raise ValueError("user_id is required for non-all list modules")
@@ -595,7 +599,13 @@ class DatabaseArticleRepository:
         query = (q or "").strip()
         statement = _article_select()
         if query:
-            statement = statement.where(articles.c.title.ilike(f"%{query}%"))
+            pattern = f"%{query}%"
+            statement = statement.where(
+                or_(
+                    articles.c.title.ilike(pattern),
+                    articles.c.content_text.ilike(pattern),
+                )
+            )
         if list_module != "all":
             if user_id is None:
                 raise ValueError("user_id is required for non-all list modules")
@@ -1192,6 +1202,15 @@ def _optional_datetime(value: object) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
     return datetime.fromisoformat(str(value))
+
+
+def _article_matches_query(article: ArticleRecord, query: str) -> bool:
+    """Case-insensitive substring match on title or body text."""
+    needle = query.lower()
+    if needle in article.title.lower():
+        return True
+    body = (article.content_text or "").lower()
+    return needle in body
 
 
 def _is_after_cursor(
