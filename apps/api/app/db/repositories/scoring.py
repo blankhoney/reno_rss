@@ -78,6 +78,8 @@ class ScoringStore(Protocol):
 
     def count_active_scored_articles(self) -> int: ...
 
+    def count_scores_since(self, day_start: datetime) -> int: ...
+
     def create_batch(
         self,
         *,
@@ -164,6 +166,10 @@ class MemoryScoringRepository:
                 if score.is_active and score.scoring_status == "success"
             }
         )
+
+    def count_scores_since(self, day_start: datetime) -> int:
+        # Count every score row (success + error): each is one LLM attempt.
+        return sum(1 for score in self._scores.values() if score.scored_at >= day_start)
 
     def create_batch(
         self,
@@ -303,6 +309,16 @@ class DatabaseScoringRepository:
                         article_base_scores.c.is_active.is_(True),
                         article_base_scores.c.scoring_status == "success",
                     )
+                ).scalar_one()
+            )
+
+    def count_scores_since(self, day_start: datetime) -> int:
+        with self.engine.begin() as connection:
+            return int(
+                connection.execute(
+                    select(func.count())
+                    .select_from(article_base_scores)
+                    .where(article_base_scores.c.scored_at >= day_start)
                 ).scalar_one()
             )
 

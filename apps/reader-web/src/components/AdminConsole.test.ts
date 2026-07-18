@@ -14,6 +14,7 @@ test("AdminConsoleView hides admin controls from non-admin users", () => {
       isBusy: false,
       batch: null,
       stats: null,
+      usage: null,
       onSync: () => {},
       onCreateBatch: () => {},
       onStartBatch: () => {},
@@ -38,6 +39,15 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
         scored: 22,
         unscored: 8,
       },
+      usage: {
+        day: "2026-07-18",
+        scoresCountToday: 12,
+        scoresAccounting: "database",
+        askUsed: 3,
+        askLimit: 100,
+        askRemaining: 97,
+        askAccounting: "process_memory",
+      },
       batch: {
         id: 3,
         name: "Today",
@@ -61,8 +71,11 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
   );
 
   assert.match(html, /管理控制台/);
-  assert.equal((html.match(/class="adminConsoleCard"/g) ?? []).length, 2);
+  assert.equal((html.match(/class="adminConsoleCard"/g) ?? []).length, 3);
   assert.match(html, /8 篇待评分/);
+  assert.match(html, /今日费用/);
+  assert.match(html, /评分 12 次/);
+  assert.match(html, /Ask 3\/100/);
   assert.match(html, /翻译任务由文章页触发,无全局队列视图/);
   assert.match(html, /启动同步/);
   assert.match(html, /创建评分批次/);

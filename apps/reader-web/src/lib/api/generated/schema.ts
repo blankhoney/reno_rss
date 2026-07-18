@@ -347,6 +347,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/usage/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Usage Today
+         * @description Admin cost cockpit: worker scores (DB) + API ask budget (process memory).
+         */
+        get: operations["usage_today_api_admin_usage_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/sync": {
         parameters: {
             query?: never;
@@ -1318,6 +1338,28 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: unknown[];
+                    };
+                };
+            };
+        };
+    };
+    usage_today_api_admin_usage_today_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
                     };
                 };
             };

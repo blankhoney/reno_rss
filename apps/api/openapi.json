@@ -944,6 +944,30 @@
         }
       }
     },
+    "/api/admin/usage/today": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Usage Today",
+        "description": "Admin cost cockpit: worker scores (DB) + API ask budget (process memory).",
+        "operationId": "usage_today_api_admin_usage_today_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Usage Today Api Admin Usage Today Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/sync": {
       "post": {
         "tags": [

@@ -5,8 +5,10 @@ import { useEffect, useState } from "react";
 import {
   createScoringBatch,
   enqueueAdminSync,
+  getAdminUsageToday,
   getScoringBatch,
   startScoringBatch,
+  type AdminUsageToday,
   type CandidateWindow,
   type ScoringBatch,
 } from "@/lib/api/admin";
@@ -25,6 +27,7 @@ type AdminConsoleViewProps = {
   isBusy: boolean;
   batch: ScoringBatch | null;
   stats: ArticleStats | null;
+  usage: AdminUsageToday | null;
   isStatsLoading?: boolean;
   onSync: (event: FormEvent<HTMLFormElement>) => void;
   onCreateBatch: (event: FormEvent<HTMLFormElement>) => void;
@@ -65,6 +68,7 @@ export function AdminConsoleView({
   isBusy,
   batch,
   stats,
+  usage,
   isStatsLoading = false,
   onSync,
   onCreateBatch,
@@ -108,6 +112,42 @@ export function AdminConsoleView({
       {error ? <p className="adminConsoleError">{error}</p> : null}
 
       <div className="adminConsoleGrid">
+        <section className="adminConsoleCard" aria-label="今日费用">
+          <header className="adminConsoleCardHeader">
+            <div>
+              <h2>今日费用</h2>
+              <p className="adminConsoleStat">
+                {usage
+                  ? `${usage.day} · 评分 ${usage.scoresCountToday} 次 · Ask ${usage.askUsed}/${usage.askLimit || "∞"}`
+                  : isStatsLoading
+                    ? "费用加载中"
+                    : "费用暂不可用"}
+              </p>
+            </div>
+          </header>
+          {usage ? (
+            <ul className="adminUsageList">
+              <li>
+                评分写入（DB）: <strong>{usage.scoresCountToday}</strong>
+                <span className="adminConsoleStat"> · {usage.scoresAccounting}</span>
+              </li>
+              <li>
+                Ask 调用（进程内存）:{" "}
+                <strong>
+                  {usage.askUsed}
+                  {usage.askLimit > 0 ? ` / ${usage.askLimit}` : " / 不限"}
+                </strong>
+                {usage.askRemaining != null ? (
+                  <span className="adminConsoleStat"> · 剩余 {usage.askRemaining}</span>
+                ) : null}
+              </li>
+              <li className="adminConsoleStat">云控制台账户上限仍是最后一道硬闸。</li>
+            </ul>
+          ) : (
+            <p className="adminConsoleEmpty">无法读取 /api/admin/usage/today。</p>
+          )}
+        </section>
+
         <section className="adminConsoleCard" aria-label="批量评分">
           <header className="adminConsoleCardHeader">
             <div>
@@ -205,6 +245,7 @@ export function AdminConsole() {
   const [isBusy, setIsBusy] = useState(false);
   const [batch, setBatch] = useState<ScoringBatch | null>(null);
   const [stats, setStats] = useState<ArticleStats | null>(null);
+  const [usage, setUsage] = useState<AdminUsageToday | null>(null);
   const [isStatsLoading, setIsStatsLoading] = useState(false);
 
   useEffect(() => {
@@ -224,18 +265,18 @@ export function AdminConsole() {
   useEffect(() => {
     if (role !== "admin") {
       setStats(null);
+      setUsage(null);
       setIsStatsLoading(false);
       return;
     }
 
     let active = true;
     setIsStatsLoading(true);
-    getArticleStats()
-      .then((nextStats) => {
-        if (active) setStats(nextStats);
-      })
-      .catch(() => {
-        if (active) setStats(null);
+    Promise.allSettled([getArticleStats(), getAdminUsageToday()])
+      .then(([statsResult, usageResult]) => {
+        if (!active) return;
+        setStats(statsResult.status === "fulfilled" ? statsResult.value : null);
+        setUsage(usageResult.status === "fulfilled" ? usageResult.value : null);
       })
       .finally(() => {
         if (active) setIsStatsLoading(false);
@@ -309,6 +350,7 @@ export function AdminConsole() {
       isBusy={isBusy}
       batch={batch}
       stats={stats}
+      usage={usage}
       isStatsLoading={isStatsLoading}
       onSync={(event) => void handleSync(event)}
       onCreateBatch={(event) => void handleCreateBatch(event)}

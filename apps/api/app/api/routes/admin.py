@@ -1,6 +1,7 @@
+from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Path, Response
+from fastapi import APIRouter, Depends, Path, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -12,6 +13,7 @@ from app.api.deps import (
     get_scoring_repository,
     require_admin,
 )
+from app.core.budget import DailyCallBudget
 from app.db.auth_store import DEMO_USER_DISPLAY_NAME, AuthStore, UserRecord
 from app.db.repositories.benchmarks import BenchmarkRunRecord, BenchmarkStore
 from app.db.repositories.jobs import JobStore, dedupe_key_for
@@ -104,6 +106,41 @@ async def list_users(
     auth_store: AuthStore = Depends(get_auth_store),
 ) -> dict[str, list[object]]:
     return {"items": [user_public(user) for user in auth_store.list_users()]}
+
+
+@router.get("/usage/today")
+def usage_today(
+    request: Request,
+    _current_user: UserRecord = Depends(require_admin),
+    scoring_repository: ScoringStore = Depends(get_scoring_repository),
+) -> dict[str, object]:
+    """Admin cost cockpit: worker scores (DB) + API ask budget (process memory)."""
+    day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    scores_today = scoring_repository.count_scores_since(day_start)
+    budget = getattr(request.app.state, "llm_budget", None)
+    if isinstance(budget, DailyCallBudget):
+        ask_snapshot = budget.snapshot()
+    else:
+        ask_snapshot = {
+            "used": 0,
+            "limit": 0,
+            "remaining": None,
+            "day": day_start.date().isoformat(),
+            "accounting": "unavailable",
+        }
+    return {
+        "day": day_start.date().isoformat(),
+        "scores": {
+            "count_today": scores_today,
+            "accounting": "database",
+            "note": "Counts success and error score rows (each is one scoring attempt).",
+        },
+        "ask": {
+            **ask_snapshot,
+            "ask_accounting": ask_snapshot.get("accounting", "process_memory"),
+            "note": "In-process counter; resets on API restart. Prefer MiniMax console for hard caps.",
+        },
+    }
 
 
 @router.post("/sync")

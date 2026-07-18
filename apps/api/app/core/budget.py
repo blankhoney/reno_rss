@@ -43,6 +43,23 @@ class DailyCallBudget:
             self._reset_if_needed()
             return self._used
 
+    def snapshot(self) -> dict[str, object]:
+        """Return a read-only view for admin cost cockpits."""
+        with self._lock:
+            self._reset_if_needed()
+            remaining: int | None
+            if self.limit == 0:
+                remaining = None
+            else:
+                remaining = max(self.limit - self._used, 0)
+            return {
+                "used": self._used,
+                "limit": self.limit,
+                "remaining": remaining,
+                "day": self._day.isoformat(),
+                "accounting": "process_memory",
+            }
+
     def _reset_if_needed(self) -> None:
         today = self._today()
         if today != self._day:

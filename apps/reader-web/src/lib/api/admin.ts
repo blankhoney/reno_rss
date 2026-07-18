@@ -147,3 +147,36 @@ export async function startScoringBatch(batchId: number): Promise<StartedScoring
     status: payload.status,
   };
 }
+
+export type AdminUsageToday = {
+  day: string;
+  scoresCountToday: number;
+  scoresAccounting: string;
+  askUsed: number;
+  askLimit: number;
+  askRemaining: number | null;
+  askAccounting: string;
+};
+
+export async function getAdminUsageToday(): Promise<AdminUsageToday> {
+  const payload = await apiGet<{
+    day?: string;
+    scores?: { count_today?: number; accounting?: string };
+    ask?: {
+      used?: number;
+      limit?: number;
+      remaining?: number | null;
+      ask_accounting?: string;
+      accounting?: string;
+    };
+  }>("/api/admin/usage/today");
+  return {
+    day: payload.day ?? "",
+    scoresCountToday: payload.scores?.count_today ?? 0,
+    scoresAccounting: payload.scores?.accounting ?? "database",
+    askUsed: payload.ask?.used ?? 0,
+    askLimit: payload.ask?.limit ?? 0,
+    askRemaining: payload.ask?.remaining ?? null,
+    askAccounting: payload.ask?.ask_accounting ?? payload.ask?.accounting ?? "process_memory",
+  };
+}

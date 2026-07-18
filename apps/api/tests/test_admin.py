@@ -108,3 +108,48 @@ async def test_admin_benchmark_rejects_real_llm_without_manual_confirmation(app,
     assert ci_response.status_code == 400
     assert manual_response.status_code == 400
     assert ci_response.json()["error"]["code"] == "real_llm_confirmation_required"
+
+
+async def test_admin_usage_today_reports_scores_and_ask_budget(app, client):
+    from datetime import UTC, datetime
+
+    from app.core.budget import DailyCallBudget
+
+    _admin, session_token, _recovery_code = app.state.auth_store.create_user(
+        display_name="AdminUsage",
+        role="admin",
+    )
+    client.cookies.set("ar_session", session_token)
+    app.state.llm_budget = DailyCallBudget(10)
+    assert app.state.llm_budget.try_consume(2) is True
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 501,
+            "url": "https://example.com/usage",
+            "title": "Usage article",
+            "content_text": "body",
+        }
+    )
+    app.state.scoring_repository.create_score(
+        article_id=article.id,
+        base_score=80,
+        is_active=True,
+    )
+
+    response = await client.get("/api/admin/usage/today")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scores"]["count_today"] >= 1
+    assert body["scores"]["accounting"] == "database"
+    assert body["ask"]["used"] == 2
+    assert body["ask"]["limit"] == 10
+    assert body["ask"]["remaining"] == 8
+    assert body["ask"]["ask_accounting"] == "process_memory"
+
+
+async def test_admin_usage_today_requires_admin(client):
+    await client.post("/api/auth/login", json={"display_name": "User"})
+    response = await client.get("/api/admin/usage/today")
+    assert response.status_code == 403
