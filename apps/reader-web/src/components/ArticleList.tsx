@@ -23,6 +23,8 @@ type ArticleListProps = {
   onPrev?: () => void;
   onNext?: () => void;
   onSortChange?: (nextSort: ArticleSortId) => void;
+  onToggleRead?: (article: Article) => void;
+  onToggleCandidate?: (article: Article) => void;
   notice?: {
     title: string;
     body: string;
@@ -78,6 +80,8 @@ export function ArticleList({
   onPrev,
   onNext,
   onSortChange,
+  onToggleRead,
+  onToggleCandidate,
   notice,
 }: ArticleListProps) {
   const isEmpty = articles.length === 0;
@@ -118,11 +122,34 @@ export function ArticleList({
         event.preventDefault();
         const href = readHref(currentModule, currentSort, currentLang, article.id);
         window.location.assign(href);
+        return;
+      }
+      if ((event.key === "r" || event.key === "R") && onToggleRead) {
+        const article = articles[selectedIndex];
+        if (!article) return;
+        event.preventDefault();
+        onToggleRead(article);
+        return;
+      }
+      if ((event.key === "s" || event.key === "S") && onToggleCandidate) {
+        const article = articles[selectedIndex];
+        if (!article) return;
+        event.preventDefault();
+        onToggleCandidate(article);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [articles, currentLang, currentModule, currentSort, isLoading, selectedIndex]);
+  }, [
+    articles,
+    currentLang,
+    currentModule,
+    currentSort,
+    isLoading,
+    onToggleCandidate,
+    onToggleRead,
+    selectedIndex,
+  ]);
 
   useEffect(() => {
     if (articles.length === 0) return;
@@ -146,6 +173,8 @@ export function ArticleList({
             <span className="articleListKbdHintSep">·</span>
             <kbd>j</kbd>
             <kbd>k</kbd>
+            <kbd>r</kbd>
+            <kbd>s</kbd>
           </span>
           <SortMenu currentSort={currentSort} options={SORT_OPTIONS} onChange={updateSort} />
         </div>

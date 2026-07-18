@@ -8,6 +8,15 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "AI Reader",
   description: "AI-assisted RSS reading workspace",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "AI Reader",
+    statusBarStyle: "default",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 // Runs before first paint so the saved (or system) theme is applied without a

@@ -24,7 +24,9 @@ import {
 import { ArticleList } from "./ArticleList";
 import { ModuleSidebar } from "./ModuleSidebar";
 import { WorkbenchRibbon } from "./WorkbenchRibbon";
+import { updateArticleState } from "@/lib/api/articles";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
+import { emitToast } from "./Toast";
 
 const ARTICLE_LIST_PAGE_SIZE = 12;
 const RETURN_HIGHLIGHT_MS = 1800;
@@ -347,6 +349,44 @@ export function ReaderWorkbench({
           hasPrev={pageIndex > 0}
           hasNext={hasMore}
           isPaging={isPaging}
+          onToggleRead={(article) => {
+            const nextStatus = article.status === "read" ? "unread" : "read";
+            void updateArticleState(article.id, { status: nextStatus })
+              .then(() => {
+                emitToast({
+                  title: nextStatus === "read" ? "已标为已读" : "已标为未读",
+                  variant: "success",
+                });
+                window.dispatchEvent(
+                  new CustomEvent(ARTICLE_DATA_CHANGED_EVENT, { detail: { articleId: article.id } }),
+                );
+              })
+              .catch((error) => {
+                emitToast({
+                  title: error instanceof Error ? error.message : "更新已读状态失败",
+                  variant: "error",
+                });
+              });
+          }}
+          onToggleCandidate={(article) => {
+            const nextSaved = !article.starred;
+            void updateArticleState(article.id, { saved: nextSaved })
+              .then(() => {
+                emitToast({
+                  title: nextSaved ? "已加入候选" : "已移出候选",
+                  variant: "success",
+                });
+                window.dispatchEvent(
+                  new CustomEvent(ARTICLE_DATA_CHANGED_EVENT, { detail: { articleId: article.id } }),
+                );
+              })
+              .catch((error) => {
+                emitToast({
+                  title: error instanceof Error ? error.message : "更新候选状态失败",
+                  variant: "error",
+                });
+              });
+          }}
           isLoading={isLoading}
           onPrev={goPrev}
           onNext={goNext}

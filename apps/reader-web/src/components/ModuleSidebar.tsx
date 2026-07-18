@@ -29,6 +29,7 @@ const MODULE_GROUPS: ModuleNavGroup[] = [
     items: [
       { id: "starred", label: "候选" },
       { id: "project", label: "已立项" },
+      { id: "review", label: "划线复习" },
     ],
   },
   {

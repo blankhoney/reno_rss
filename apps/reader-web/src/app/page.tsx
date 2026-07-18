@@ -2,6 +2,7 @@ import { AuthSessionGate } from "@/components/AuthSessionGate";
 import { AdminConsole } from "@/components/AdminConsole";
 import { ModuleSidebar } from "@/components/ModuleSidebar";
 import { ReaderWorkbench } from "@/components/ReaderWorkbench";
+import { ReviewQueue } from "@/components/ReviewQueue";
 import {
   resolveArticleSortId,
   resolveSummaryLangId,
@@ -34,6 +35,17 @@ export default async function HomePage({ searchParams }: PageProps) {
         <main className="workbench">
           <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
           <AdminConsole />
+        </main>
+      </AuthSessionGate>
+    );
+  }
+
+  if (currentModule === "review") {
+    return (
+      <AuthSessionGate>
+        <main className="workbench">
+          <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
+          <ReviewQueue />
         </main>
       </AuthSessionGate>
     );
