@@ -58,3 +58,26 @@ async def test_research_job_dedupes_identical_request(client):
     assert first.status_code == 202
     assert second.status_code == 202
     assert first.json()["job_id"] == second.json()["job_id"]
+
+
+async def test_research_job_respects_agent_daily_budget(app, client):
+    from app.domain.cost_ledger import CostLedger
+
+    app.state.cost_ledger = CostLedger(limits={"score": 0, "ask": 0, "agent": 1})
+    await client.post("/api/auth/login", json={"display_name": "Budgeted Researcher"})
+
+    first = await client.post(
+        "/api/research/jobs",
+        json={"scope": "topn", "question": "first paid research run"},
+    )
+    # Worker-side execution reserves the unit; reproduce that shared-ledger
+    # state before the next enqueue attempt.
+    app.state.cost_ledger.charge("agent", 1)
+    second = await client.post(
+        "/api/research/jobs",
+        json={"scope": "topn", "question": "second paid research run"},
+    )
+
+    assert first.status_code == 202
+    assert second.status_code == 429
+    assert second.json()["error"]["message"] == "Agent daily budget exceeded"

@@ -29,6 +29,39 @@ class ResearchProvider(Protocol):
     ) -> str: ...
 
 
+class AgentBudgetLedger(Protocol):
+    def charge(
+        self,
+        account: str,
+        units: int = 1,
+        *,
+        limit: int = 0,
+    ) -> int: ...
+
+
+def run_budgeted_research_brief(
+    payload: Mapping[str, object],
+    sink: ResearchSink,
+    *,
+    provider: ResearchProvider,
+    ledger: AgentBudgetLedger,
+    daily_limit: int = 0,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Reserve one agent unit immediately before a non-mock provider call."""
+    if getattr(provider, "model_provider", "unknown") != "mock":
+        try:
+            ledger.charge("agent", 1, limit=daily_limit)
+        except RuntimeError:
+            return {
+                "status": "skipped_cap",
+                "account": "agent",
+                "article_count": 0,
+                "brief": None,
+            }
+    return run_research_brief(payload, sink, now=now, provider=provider)
+
+
 def run_research_brief(
     payload: Mapping[str, object],
     sink: ResearchSink,

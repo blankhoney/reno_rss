@@ -112,9 +112,12 @@ def get_ask_provider(request: Request) -> object:
     if not getattr(provider, "spends_llm_budget", True):
         return provider
 
-    budget = request.app.state.llm_budget
-    if budget.try_consume():
+    ledger = request.app.state.cost_ledger
+    try:
+        ledger.charge("ask", 1)
         return provider
+    except RuntimeError:
+        pass
 
     from app.api.routes.ask import DeterministicAskProvider
 

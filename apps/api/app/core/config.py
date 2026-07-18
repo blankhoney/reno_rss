@@ -16,6 +16,8 @@ DEFAULT_LLM_RATELIMIT = "5/minute;100/day"
 DEFAULT_WRITE_RATELIMIT = "30/minute"
 DEFAULT_AUTH_RATELIMIT = "5/minute;30/hour"
 DEFAULT_LLM_DAILY_CALL_BUDGET = 500
+DEFAULT_SCORE_DAILY_CALL_BUDGET = 60
+DEFAULT_AGENT_DAILY_CALL_BUDGET = 20
 DEFAULT_SLOW_REQUEST_MS = 500
 
 
@@ -39,9 +41,11 @@ class Settings:
     write_ratelimit: str = DEFAULT_WRITE_RATELIMIT
     auth_ratelimit: str = DEFAULT_AUTH_RATELIMIT
     slow_request_ms: int = DEFAULT_SLOW_REQUEST_MS
-    # In-memory API-process budget for direct ask calls. Worker LLM calls are
-    # guarded separately by scheduler caps and operator-side provider limits.
+    # Per-account database budgets. Score attempts remain independently
+    # auditable from article_base_scores and worker-side caps.
     llm_daily_call_budget: int = DEFAULT_LLM_DAILY_CALL_BUDGET
+    score_daily_call_budget: int = DEFAULT_SCORE_DAILY_CALL_BUDGET
+    agent_daily_call_budget: int = DEFAULT_AGENT_DAILY_CALL_BUDGET
     # When true, requests without a session cookie are resolved to a shared demo
     # user (role=user) so staging can be a fully public functional demo. MUST stay
     # False in production — only the staging compose overlay enables it.
@@ -156,6 +160,14 @@ def get_settings() -> Settings:
         llm_daily_call_budget=_parse_int(
             os.environ.get("LLM_DAILY_CALL_BUDGET"),
             DEFAULT_LLM_DAILY_CALL_BUDGET,
+        ),
+        score_daily_call_budget=_parse_int(
+            os.environ.get("SCHEDULE_SCORE_DAILY_ARTICLE_CAP"),
+            DEFAULT_SCORE_DAILY_CALL_BUDGET,
+        ),
+        agent_daily_call_budget=_parse_int(
+            os.environ.get("AGENT_DAILY_CALL_BUDGET"),
+            DEFAULT_AGENT_DAILY_CALL_BUDGET,
         ),
         anonymous_demo_user_enabled=_parse_bool(
             os.environ.get("AI_READER_ANONYMOUS_DEMO")

@@ -53,13 +53,15 @@ def enqueue_research_job(
         raise ApiError(422, "unprocessable", "topic is required when scope=topic")
 
     ledger = getattr(request.app.state, "cost_ledger", None)
-    if ledger is not None and hasattr(ledger, "can_charge"):
-        try:
-            if not ledger.can_charge("agent", 1):
-                raise ApiError(429, "rate_limited", "Agent daily budget exceeded")
-            ledger.charge("agent", 1)
-        except RuntimeError as exc:
-            raise ApiError(429, "rate_limited", str(exc)) from exc
+    # The worker reserves the agent unit immediately before a real provider
+    # call. The API only rejects an already exhausted account so deduped jobs do
+    # not consume budget twice and queued jobs remain auditable.
+    if (
+        ledger is not None
+        and hasattr(ledger, "can_charge")
+        and not ledger.can_charge("agent", 1)
+    ):
+        raise ApiError(429, "rate_limited", "Agent daily budget exceeded")
 
     job_payload: dict[str, object] = {
         "scope": payload.scope,

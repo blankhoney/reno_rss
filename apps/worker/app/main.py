@@ -8,6 +8,7 @@ from threading import Event
 from app.db.article_sink import DatabaseArticleSink
 from app.db.benchmark_sink import DatabaseBenchmarkSink
 from app.db.content_sink import DatabaseContentSink
+from app.db.cost_ledger import DatabaseDailyUsageLedger
 from app.db.governance_sink import DatabaseGovernanceSink
 from app.db.recommendation_sink import DatabaseRecommendationSink
 from app.db.score_sink import DatabaseScoreSink
@@ -17,7 +18,7 @@ from app.jobs.fetch_content import fetch_article_content
 from app.jobs.generate_recommendations import generate_recommendations, rank_b4_recommendation_context
 from app.jobs.govern_sources import govern_sources
 from app.jobs.queue import InMemoryJobQueue, PostgresJobQueue
-from app.jobs.research_brief import run_research_brief
+from app.jobs.research_brief import run_budgeted_research_brief
 from app.jobs.run_benchmark import run_benchmark
 from app.jobs.score_batch import score_batch
 from app.jobs.sync_miniflux import run_sync_miniflux_entries
@@ -138,10 +139,18 @@ def _research_brief(payload) -> dict[str, object]:
     if not database_url:
         raise RuntimeError("SCORING_DATABASE_URL is required for research_brief")
     sink = DatabaseResearchSink(database_url)
+    ledger = DatabaseDailyUsageLedger(database_url)
     try:
-        return run_research_brief(dict(payload), sink, provider=create_provider())
+        return run_budgeted_research_brief(
+            dict(payload),
+            sink,
+            provider=create_provider(),
+            ledger=ledger,
+            daily_limit=_env_non_negative_int("AGENT_DAILY_CALL_BUDGET", 20),
+        )
     finally:
         sink.dispose()
+        ledger.dispose()
 
 
 def _sync_miniflux_entries(payload) -> dict[str, object]:

@@ -111,17 +111,15 @@ async def test_admin_benchmark_rejects_real_llm_without_manual_confirmation(app,
 
 
 async def test_admin_usage_today_reports_scores_and_ask_budget(app, client):
-    from datetime import UTC, datetime
-
-    from app.core.budget import DailyCallBudget
+    from app.domain.cost_ledger import CostLedger
 
     _admin, session_token, _recovery_code = app.state.auth_store.create_user(
         display_name="AdminUsage",
         role="admin",
     )
     client.cookies.set("ar_session", session_token)
-    app.state.llm_budget = DailyCallBudget(10)
-    assert app.state.llm_budget.try_consume(2) is True
+    app.state.cost_ledger = CostLedger(limits={"score": 60, "ask": 10, "agent": 20})
+    assert app.state.cost_ledger.charge("ask", 2) == 2
     article = app.state.article_repository.upsert_from_source(
         {
             "feed_id": 1,
@@ -147,6 +145,7 @@ async def test_admin_usage_today_reports_scores_and_ask_budget(app, client):
     assert body["ask"]["limit"] == 10
     assert body["ask"]["remaining"] == 8
     assert body["ask"]["ask_accounting"] == "process_memory"
+    assert body["accounts"]["agent"]["limit"] == 20
 
 
 async def test_admin_usage_today_requires_admin(client):

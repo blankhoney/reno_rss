@@ -42,11 +42,11 @@ def test_zero_daily_call_budget_means_unlimited():
 
 @pytest.mark.asyncio
 async def test_ask_budget_exhaustion_degrades_without_calling_provider(app, client):
-    from app.core.budget import DailyCallBudget
+    from app.domain.cost_ledger import CostLedger
 
     provider = RecordingAskProvider()
     app.state.ask_provider = provider
-    app.state.llm_budget = DailyCallBudget(1)
+    app.state.cost_ledger = CostLedger(limits={"score": 0, "ask": 1, "agent": 0})
     await client.post("/api/auth/login", json={"display_name": "Blank"})
     article = app.state.article_repository.upsert_from_source(
         {

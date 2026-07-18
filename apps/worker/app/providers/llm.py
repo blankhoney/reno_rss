@@ -111,6 +111,9 @@ class LLMProvider(Protocol):
 
 
 class MockProvider:
+    model_provider = "mock"
+    model_name = "deterministic"
+
     def score_article(
         self,
         article: Mapping[str, object],

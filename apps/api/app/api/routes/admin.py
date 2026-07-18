@@ -13,7 +13,6 @@ from app.api.deps import (
     get_scoring_repository,
     require_admin,
 )
-from app.core.budget import DailyCallBudget
 from app.db.auth_store import DEMO_USER_DISPLAY_NAME, AuthStore, UserRecord
 from app.db.repositories.benchmarks import BenchmarkRunRecord, BenchmarkStore
 from app.db.repositories.jobs import JobStore, dedupe_key_for
@@ -114,20 +113,9 @@ def usage_today(
     _current_user: UserRecord = Depends(require_admin),
     scoring_repository: ScoringStore = Depends(get_scoring_repository),
 ) -> dict[str, object]:
-    """Admin cost cockpit: worker scores (DB) + API ask budget (process memory)."""
+    """Admin cost cockpit backed by DB score rows and a shared daily ledger."""
     day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     scores_today = scoring_repository.count_scores_since(day_start)
-    budget = getattr(request.app.state, "llm_budget", None)
-    if isinstance(budget, DailyCallBudget):
-        ask_snapshot = budget.snapshot()
-    else:
-        ask_snapshot = {
-            "used": 0,
-            "limit": 0,
-            "remaining": None,
-            "day": day_start.date().isoformat(),
-            "accounting": "unavailable",
-        }
     ledger = getattr(request.app.state, "cost_ledger", None)
     if ledger is not None and hasattr(ledger, "snapshot"):
         # Keep DB score count as ground truth for score account used field.
@@ -149,15 +137,17 @@ def usage_today(
             "day": day_start.date().isoformat(),
             "accounts": {
                 "score": {"used": scores_today, "limit": 0, "remaining": None},
-                "ask": {
-                    "used": ask_snapshot.get("used", 0),
-                    "limit": ask_snapshot.get("limit", 0),
-                    "remaining": ask_snapshot.get("remaining"),
-                },
+                "ask": {"used": 0, "limit": 0, "remaining": None},
                 "agent": {"used": 0, "limit": 0, "remaining": None},
             },
             "accounting": "partial",
         }
+    ask_account = dict(multi["accounts"]["ask"])
+    ask_snapshot = {
+        **ask_account,
+        "day": multi["day"],
+        "accounting": multi["accounting"],
+    }
     return {
         "day": day_start.date().isoformat(),
         "scores": {
@@ -167,12 +157,12 @@ def usage_today(
         },
         "ask": {
             **ask_snapshot,
-            "ask_accounting": ask_snapshot.get("accounting", "process_memory"),
-            "note": "In-process counter; resets on API restart. Prefer MiniMax console for hard caps.",
+            "ask_accounting": ask_snapshot.get("accounting", "unavailable"),
+            "note": "Shared daily reservation ledger; provider console remains the final hard spend cap.",
         },
         "accounts": multi["accounts"],
         "cost_ledger": multi,
-        "note": "score/ask/agent 分账户日限额（GOAL §4.D）。score used 以 DB 为准；ask/agent 为进程内账本。",
+        "note": "score/ask/agent 分账户日限额（GOAL §4.D）。score used 以评分 DB 为准；ask/agent 使用共享日账本。",
     }
 
 

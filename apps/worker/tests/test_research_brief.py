@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.jobs.research_brief import run_research_brief
+from app.jobs.research_brief import run_budgeted_research_brief, run_research_brief
 
 
 class FakeResearchSink:
@@ -46,6 +46,25 @@ class FakeResearchSink:
     def search_articles_by_topic(self, *, topic: str, limit: int) -> list[dict[str, object]]:
         self.calls.append(("topic", {"topic": topic, "limit": limit}))
         return self.topic_hits[:limit]
+
+
+class RecordingResearchProvider:
+    model_provider = "minimax"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def research_answer(self, *, question, citations, scope):
+        self.calls += 1
+        return f"{scope}: {question} ({len(citations)})"
+
+
+class RejectingAgentLedger:
+    def charge(self, account: str, units: int = 1, *, limit: int = 0) -> int:
+        assert account == "agent"
+        assert units == 1
+        assert limit == 0
+        raise RuntimeError("daily budget exceeded for agent")
 
 
 def test_research_brief_topn_builds_mock_citations():
@@ -112,6 +131,25 @@ def test_research_brief_rejects_empty_question_and_bad_scope():
         run_research_brief({"scope": "all", "question": "hi"}, sink)
     with pytest.raises(ValueError, match="topic"):
         run_research_brief({"scope": "topic", "question": "hi"}, sink)
+
+
+def test_budgeted_research_skips_real_provider_when_agent_cap_is_exhausted():
+    provider = RecordingResearchProvider()
+
+    result = run_budgeted_research_brief(
+        {"scope": "topn", "question": "What matters?"},
+        FakeResearchSink(),
+        provider=provider,
+        ledger=RejectingAgentLedger(),
+    )
+
+    assert result == {
+        "status": "skipped_cap",
+        "account": "agent",
+        "article_count": 0,
+        "brief": None,
+    }
+    assert provider.calls == 0
 
 
 def test_worker_registry_includes_research_brief_handler():

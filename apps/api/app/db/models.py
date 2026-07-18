@@ -3,6 +3,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -415,6 +416,22 @@ app_settings = Table(
     Column("key", Text, primary_key=True),
     Column("value", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
     updated_at_column(),
+)
+
+# Atomic day buckets shared by every API process. Score usage is also
+# independently auditable from article_base_scores; ask/agent reserve here.
+llm_daily_usage = Table(
+    "llm_daily_usage",
+    metadata,
+    Column("day", Date, primary_key=True),
+    Column("account", Text, primary_key=True),
+    Column("used", Integer, nullable=False, server_default=text("0")),
+    updated_at_column(),
+    CheckConstraint(
+        "account IN ('score', 'ask', 'agent')",
+        name="ck_llm_daily_usage_account",
+    ),
+    CheckConstraint("used >= 0", name="ck_llm_daily_usage_used"),
 )
 
 # Per-user reader rules (boost/mute/keyword/score_threshold) as a JSON array.

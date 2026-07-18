@@ -7,8 +7,6 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.deps import ApiError, api_error_handler, request_validation_error_handler
-from app.core.budget import DailyCallBudget
-from app.domain.cost_ledger import CostLedger
 from app.api.routes import (
     acl,
     admin,
@@ -35,6 +33,7 @@ from app.db.repositories.articles import create_article_repository
 from app.db.repositories.benchmarks import create_benchmark_repository
 from app.db.repositories.feeds import create_feed_repository
 from app.db.repositories.jobs import create_job_repository
+from app.db.repositories.cost_ledger import create_cost_ledger
 from app.db.repositories.project_acl import create_project_acl_repository
 from app.db.repositories.recommendations import create_recommendation_repository
 from app.db.repositories.rules import create_rule_repository
@@ -60,13 +59,13 @@ def create_app() -> FastAPI:
     app.state.saved_search_repository = create_saved_search_repository(settings.database_url)
     app.state.project_acl_repository = create_project_acl_repository(settings.database_url)
     app.state.ask_provider = ask.create_ask_provider(settings)
-    app.state.llm_budget = DailyCallBudget(settings.llm_daily_call_budget)
-    app.state.cost_ledger = CostLedger(
+    app.state.cost_ledger = create_cost_ledger(
+        settings.database_url,
         limits={
-            "score": int(getattr(settings, "score_daily_call_budget", 0) or 200),
-            "ask": int(settings.llm_daily_call_budget or 80),
-            "agent": int(getattr(settings, "agent_daily_call_budget", 0) or 20),
-        }
+            "score": settings.score_daily_call_budget,
+            "ask": settings.llm_daily_call_budget,
+            "agent": settings.agent_daily_call_budget,
+        },
     )
     app.state.csrf_allowed_origins = settings.csrf_allowed_origins or set()
     if not app.state.csrf_allowed_origins:
@@ -109,17 +108,19 @@ def create_app() -> FastAPI:
     @app.get("/api/metrics")
     async def api_metrics(request: Request) -> Response:
         """Lightweight Prometheus text exposition (no extra deps)."""
-        budget = getattr(request.app.state, "llm_budget", None)
-        used = int(getattr(budget, "used", 0) or 0)
-        limit = int(getattr(budget, "limit", 0) or 0)
+        ledger = request.app.state.cost_ledger
+        snapshot = ledger.snapshot()
+        ask_account = dict(snapshot["accounts"]["ask"])
+        used = int(ask_account.get("used", 0) or 0)
+        limit = int(ask_account.get("limit", 0) or 0)
         lines = [
             "# HELP ai_reader_up Always 1 when the API process is serving.",
             "# TYPE ai_reader_up gauge",
             "ai_reader_up 1",
-            "# HELP ai_reader_ask_calls_used Process-local ask budget used today.",
+            "# HELP ai_reader_ask_calls_used Ask budget units reserved today.",
             "# TYPE ai_reader_ask_calls_used gauge",
             f"ai_reader_ask_calls_used {used}",
-            "# HELP ai_reader_ask_calls_limit Process-local ask budget limit (0=unlimited).",
+            "# HELP ai_reader_ask_calls_limit Ask budget daily limit (0=unlimited).",
             "# TYPE ai_reader_ask_calls_limit gauge",
             f"ai_reader_ask_calls_limit {limit}",
             "",
