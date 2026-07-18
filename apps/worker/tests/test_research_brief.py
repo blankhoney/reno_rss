@@ -3,6 +3,10 @@ from datetime import UTC, datetime
 import pytest
 
 from app.jobs.research_brief import run_budgeted_research_brief, run_research_brief
+from app.runner import RetryableJobError
+
+
+USER_ID = "11111111-1111-1111-1111-111111111111"
 
 
 class FakeResearchSink:
@@ -35,8 +39,8 @@ class FakeResearchSink:
         ]
         self.calls: list[tuple[str, dict[str, object]]] = []
 
-    def list_topn_articles(self, *, limit: int) -> list[dict[str, object]]:
-        self.calls.append(("topn", {"limit": limit}))
+    def list_topn_articles(self, *, user_id: str, limit: int) -> list[dict[str, object]]:
+        self.calls.append(("topn", {"user_id": user_id, "limit": limit}))
         return self.topn[:limit]
 
     def list_project_articles(self, *, user_id: str, limit: int) -> list[dict[str, object]]:
@@ -56,7 +60,7 @@ class RecordingResearchProvider:
 
     def research_answer(self, *, question, citations, scope):
         self.calls += 1
-        return f"{scope}: {question} ({len(citations)})"
+        return f"{scope}: {question} ({len(citations)}) [1]"
 
 
 class RejectingAgentLedger:
@@ -67,10 +71,45 @@ class RejectingAgentLedger:
         raise RuntimeError("daily budget exceeded for agent")
 
 
+class RecordingAgentLedger:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def charge(self, account: str, units: int = 1, *, limit: int = 0) -> int:
+        self.calls += 1
+        return self.calls
+
+
+class FailingResearchProvider:
+    model_provider = "minimax"
+
+    def research_answer(self, *, question, citations, scope):
+        raise RuntimeError("provider timeout")
+
+
+class UncitedResearchProvider:
+    model_provider = "minimax"
+
+    def research_answer(self, *, question, citations, scope):
+        return "This answer contains no evidence marker."
+
+
+class OutOfRangeCitationProvider:
+    model_provider = "minimax"
+
+    def research_answer(self, *, question, citations, scope):
+        return "This answer points at evidence that was never retrieved [99]."
+
+
 def test_research_brief_topn_builds_mock_citations():
     sink = FakeResearchSink()
     result = run_research_brief(
-        {"scope": "topn", "question": "What matters for agents?", "max_articles": 5},
+        {
+            "scope": "topn",
+            "question": "What matters for agents?",
+            "max_articles": 5,
+            "user_id": USER_ID,
+        },
         sink,
         now=datetime(2026, 7, 18, 10, 0, tzinfo=UTC),
     )
@@ -84,11 +123,12 @@ def test_research_brief_topn_builds_mock_citations():
         "article_id": 1,
         "title": "Agents need evals",
         "quote": "Evaluation harnesses catch regressions early.",
-        "relevance": "mock",
+        "start_hint": 0,
+        "relevance_score": 1.0,
         "question_hint": "What matters for agents?",
     }
     assert "mock" in brief["answer"].lower() or "（mock）" in brief["answer"]
-    assert sink.calls == [("topn", {"limit": 5})]
+    assert sink.calls == [("topn", {"user_id": USER_ID, "limit": 5})]
 
 
 def test_research_brief_project_requires_user_and_loads_project_articles():
@@ -102,7 +142,7 @@ def test_research_brief_project_requires_user_and_loads_project_articles():
         {
             "scope": "project",
             "question": "summarize project",
-            "user_id": "11111111-1111-1111-1111-111111111111",
+            "user_id": USER_ID,
             "max_articles": 1,
         },
         sink,
@@ -123,6 +163,37 @@ def test_research_brief_topic_searches_titles():
     assert sink.calls == [("topic", {"topic": "LLM", "limit": 10})]
 
 
+def test_research_citation_selects_the_question_relevant_source_window():
+    sink = FakeResearchSink()
+    sink.topic_hits = [
+        {
+            "article_id": 7,
+            "title": "Retrieval systems",
+            "content_text": (
+                "This introduction is unrelated. "
+                "Chunking strategy dominates retrieval quality for RAG systems. "
+                "The closing sentence is also unrelated."
+            ),
+        }
+    ]
+
+    result = run_research_brief(
+        {
+            "scope": "topic",
+            "topic": "RAG",
+            "question": "How does chunking affect retrieval quality?",
+        },
+        sink,
+    )
+
+    citation = result["brief"]["citations"][0]
+    assert citation["quote"] == (
+        "Chunking strategy dominates retrieval quality for RAG systems."
+    )
+    assert citation["start_hint"] > 0
+    assert citation["relevance_score"] > 0
+
+
 def test_research_brief_rejects_empty_question_and_bad_scope():
     sink = FakeResearchSink()
     with pytest.raises(ValueError, match="question"):
@@ -137,7 +208,7 @@ def test_budgeted_research_skips_real_provider_when_agent_cap_is_exhausted():
     provider = RecordingResearchProvider()
 
     result = run_budgeted_research_brief(
-        {"scope": "topn", "question": "What matters?"},
+        {"scope": "topn", "question": "What matters?", "user_id": USER_ID},
         FakeResearchSink(),
         provider=provider,
         ledger=RejectingAgentLedger(),
@@ -150,6 +221,49 @@ def test_budgeted_research_skips_real_provider_when_agent_cap_is_exhausted():
         "brief": None,
     }
     assert provider.calls == 0
+
+
+def test_real_provider_failure_is_retryable_not_mock_success():
+    with pytest.raises(RetryableJobError, match="research provider failed"):
+        run_budgeted_research_brief(
+            {"scope": "topn", "question": "What matters?", "user_id": USER_ID},
+            FakeResearchSink(),
+            provider=FailingResearchProvider(),
+            ledger=RecordingAgentLedger(),
+        )
+
+
+@pytest.mark.parametrize(
+    "provider",
+    [UncitedResearchProvider(), OutOfRangeCitationProvider()],
+)
+def test_real_provider_requires_valid_citation_markers(provider):
+    with pytest.raises(RetryableJobError, match="citation markers"):
+        run_budgeted_research_brief(
+            {"scope": "topn", "question": "What matters?", "user_id": USER_ID},
+            FakeResearchSink(),
+            provider=provider,
+            ledger=RecordingAgentLedger(),
+        )
+
+
+def test_empty_real_corpus_does_not_spend_agent_budget():
+    sink = FakeResearchSink()
+    sink.topn = []
+    provider = RecordingResearchProvider()
+    ledger = RecordingAgentLedger()
+
+    result = run_budgeted_research_brief(
+        {"scope": "topn", "question": "What matters?", "user_id": USER_ID},
+        sink,
+        provider=provider,
+        ledger=ledger,
+    )
+
+    assert result["status"] == "empty"
+    assert result["brief"]["provider"] == "none"
+    assert provider.calls == 0
+    assert ledger.calls == 0
 
 
 def test_worker_registry_includes_research_brief_handler():

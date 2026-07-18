@@ -49,6 +49,8 @@ export default async function FocusReadPage({ params, searchParams }: PageProps)
   );
   const currentSort = sortResolution.ok ? sortResolution.sortId : "default";
   const currentLang = resolveSummaryLangId(typeof sp.lang === "string" ? sp.lang : null);
+  const initialCitation =
+    typeof sp.quote === "string" ? sp.quote.trim().slice(0, 500) : "";
 
   if (articleId == null) {
     return (
@@ -68,7 +70,12 @@ export default async function FocusReadPage({ params, searchParams }: PageProps)
 
   return (
     <AuthSessionGate>
-      <FocusedArticleScreen articleId={articleId} currentLang={currentLang} returnHref={returnHref} />
+      <FocusedArticleScreen
+        articleId={articleId}
+        currentLang={currentLang}
+        returnHref={returnHref}
+        initialCitation={initialCitation || undefined}
+      />
     </AuthSessionGate>
   );
 }

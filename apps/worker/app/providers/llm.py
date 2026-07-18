@@ -203,7 +203,7 @@ class MockProvider:
             "要点：",
         ]
         for index, citation in enumerate(list(citations)[:5], start=1):
-            lines.append(f"{index}. [{citation.get('title')}] {citation.get('quote')}")
+            lines.append(f"{index}. {citation.get('quote')} [{index}]")
         lines.append("")
         lines.append("引用见 citations。")
         return "\n".join(lines)

@@ -55,6 +55,16 @@ export type AnnotationSearchItem = {
   articleTitle: string | null;
 };
 
+export function researchCitationHref(articleId: number, quote?: string): string {
+  const params = new URLSearchParams({
+    module: "research",
+    sort: "default",
+    lang: "zh",
+  });
+  if (quote?.trim()) params.set("quote", quote.trim());
+  return `/read/${articleId}?${params.toString()}`;
+}
+
 export async function listClusters(limit = 12): Promise<ClusterItem[]> {
   const payload = await apiGet<{
     clusters?: Array<{

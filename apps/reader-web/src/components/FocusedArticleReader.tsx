@@ -116,10 +116,12 @@ export function FocusedArticleReader({
   article,
   currentLang,
   returnHref,
+  initialCitation,
 }: {
   article: Article;
   currentLang: SummaryLangId;
   returnHref: string;
+  initialCitation?: string;
 }) {
   const [question, setQuestion] = useState("");
   const [agentError, setAgentError] = useState<string | null>(null);
@@ -430,6 +432,12 @@ export function FocusedArticleReader({
       node = walker.nextNode();
     }
   }
+
+  useEffect(() => {
+    if (!initialCitation?.trim()) return;
+    const frame = window.requestAnimationFrame(() => scrollToCitation(initialCitation));
+    return () => window.cancelAnimationFrame(frame);
+  }, [article.id, initialCitation]);
 
   function cancelAsk() {
     askAbortRef.current?.abort();

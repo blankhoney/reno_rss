@@ -22,10 +22,12 @@ export function FocusedArticleScreen({
   articleId,
   currentLang,
   returnHref,
+  initialCitation,
 }: {
   articleId: number;
   currentLang: SummaryLangId;
   returnHref: string;
+  initialCitation?: string;
 }) {
   const [article, setArticle] = useState<Article | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -122,5 +124,12 @@ export function FocusedArticleScreen({
     );
   }
 
-  return <FocusedArticleReader article={article} currentLang={currentLang} returnHref={returnHref} />;
+  return (
+    <FocusedArticleReader
+      article={article}
+      currentLang={currentLang}
+      returnHref={returnHref}
+      initialCitation={initialCitation}
+    />
+  );
 }

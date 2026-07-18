@@ -11,16 +11,18 @@ class DatabaseResearchSink:
             raise ValueError("database_url or engine is required")
         self.engine = engine or create_engine(str(database_url), pool_pre_ping=True)
 
-    def list_topn_articles(self, *, limit: int) -> list[dict[str, object]]:
+    def list_topn_articles(self, *, user_id: str, limit: int) -> list[dict[str, object]]:
         with self.engine.begin() as connection:
             edition_id = connection.execute(
                 text(
                     """
                     SELECT id FROM recommendation_editions
+                    WHERE user_id = CAST(:user_id AS uuid)
                     ORDER BY generated_at DESC, id DESC
                     LIMIT 1
                     """
-                )
+                ),
+                {"user_id": user_id},
             ).scalar_one_or_none()
             if edition_id is None:
                 return []
@@ -81,7 +83,17 @@ class DatabaseResearchSink:
                         LEFT JOIN article_base_scores s
                           ON s.article_id = a.id AND s.is_active = true
                         WHERE a.title ILIKE :pattern
-                        ORDER BY a.published_at DESC NULLS LAST, a.id DESC
+                           OR a.content_text ILIKE :pattern
+                           OR s.summary_zh ILIKE :pattern
+                           OR CAST(s.tags AS text) ILIKE :pattern
+                        ORDER BY
+                          CASE
+                            WHEN a.title ILIKE :pattern THEN 0
+                            WHEN s.summary_zh ILIKE :pattern THEN 1
+                            ELSE 2
+                          END,
+                          a.published_at DESC NULLS LAST,
+                          a.id DESC
                         LIMIT :limit
                         """
                     ),

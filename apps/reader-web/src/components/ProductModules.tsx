@@ -12,6 +12,7 @@ import {
   putRules,
   putSavedSearches,
   resetInterestProfile,
+  researchCitationHref,
   searchAnnotations,
   type ClusterItem,
   type InterestProfile,
@@ -26,7 +27,8 @@ import {
   readCraftPreferences,
   type CraftPreferences,
 } from "@/lib/craft/preferences";
-import { getJob } from "@/lib/api/articles";
+import { pollJobUntilTerminal } from "@/lib/api/articles";
+import { AgentMarkdown } from "@/components/AgentMarkdown";
 
 function PanelShell({
   title,
@@ -383,7 +385,12 @@ export function ResearchPanel() {
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<{
     answer?: string;
-    citations?: Array<{ article_id?: number; title?: string; quote?: string }>;
+    citations?: Array<{
+      article_id?: number;
+      title?: string;
+      quote?: string;
+      start_hint?: number;
+    }>;
     provider?: string;
     question?: string;
   } | null>(null);
@@ -402,28 +409,32 @@ export function ResearchPanel() {
       });
       setJobId(job.jobId);
       setStatus("queued");
-      let terminal = false;
-      for (let i = 0; i < 20 && !terminal; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const polled = await getJob(job.jobId);
-        setStatus(polled.status);
-        if (polled.status === "succeeded" || polled.status === "failed") {
-          terminal = true;
-          const raw = (polled.result ?? {}) as Record<string, unknown>;
-          const brief =
-            raw.brief && typeof raw.brief === "object"
-              ? (raw.brief as Record<string, unknown>)
-              : raw;
-          setResult({
-            answer: typeof brief.answer === "string" ? brief.answer : undefined,
-            citations: Array.isArray(brief.citations)
-              ? (brief.citations as Array<{ article_id?: number; title?: string; quote?: string }>)
-              : [],
-            provider: typeof brief.provider === "string" ? brief.provider : undefined,
-            question: typeof brief.question === "string" ? brief.question : question,
-          });
-        }
+      const polled = await pollJobUntilTerminal(job.jobId);
+      setStatus(polled.status);
+      if (polled.status === "failed") {
+        throw new Error(polled.lastError || "研究任务失败，可重试");
       }
+      if (polled.status !== "succeeded") {
+        throw new Error("研究任务仍在运行，请稍后再次打开或重试轮询");
+      }
+      const raw = (polled.result ?? {}) as Record<string, unknown>;
+      const brief =
+        raw.brief && typeof raw.brief === "object"
+          ? (raw.brief as Record<string, unknown>)
+          : raw;
+      setResult({
+        answer: typeof brief.answer === "string" ? brief.answer : undefined,
+        citations: Array.isArray(brief.citations)
+          ? (brief.citations as Array<{
+              article_id?: number;
+              title?: string;
+              quote?: string;
+              start_hint?: number;
+            }>)
+          : [],
+        provider: typeof brief.provider === "string" ? brief.provider : undefined,
+        question: typeof brief.question === "string" ? brief.question : question,
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "研究任务失败");
     } finally {
@@ -511,16 +522,14 @@ export function ResearchPanel() {
               导出 Markdown
             </button>
           </div>
-          <pre className="productModulePre" style={{ whiteSpace: "pre-wrap" }}>
-            {result.answer}
-          </pre>
+          <AgentMarkdown text={result.answer} />
           {(result.citations?.length ?? 0) > 0 ? (
             <ul className="productModuleList">
               {result.citations!.map((item, index) => (
                 <li key={`${item.article_id}-${index}`} className="productModuleCard">
                   {item.article_id != null ? (
                     <Link
-                      href={`/read/${item.article_id}?module=research&sort=default&lang=zh`}
+                      href={researchCitationHref(item.article_id, item.quote)}
                       prefetch={false}
                     >
                       [{index + 1}] {item.title || `文章 #${item.article_id}`}
