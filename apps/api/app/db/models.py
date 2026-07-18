@@ -437,6 +437,15 @@ user_saved_searches = Table(
     updated_at_column(),
 )
 
+# Durable personalization reset watermark (signals after this timestamp rebuild vectors).
+user_interest_resets = Table(
+    "user_interest_resets",
+    metadata,
+    Column("user_id", UUID(as_uuid=True), ForeignKey("app_users.id"), primary_key=True),
+    Column("reset_at", DateTime(timezone=True), nullable=False),
+    updated_at_column(),
+)
+
 
 Index("ix_articles_primary_feed_published", articles.c.primary_feed_id, articles.c.published_at.desc())
 Index("ix_articles_published_id", articles.c.published_at.desc(), articles.c.id.desc())

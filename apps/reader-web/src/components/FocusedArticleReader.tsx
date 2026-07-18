@@ -40,6 +40,10 @@ const QUICK_ACTIONS = [
   { label: "要点", question: "请提炼这篇文章最重要的 5 个要点。" },
   { label: "解释选中", question: "请解释我选中的这段内容。", requiresSelection: true },
   { label: "行动建议", question: "基于这篇文章，给出可执行的行动建议。" },
+  { label: "定义", question: "请用简明中文解释本文中的关键术语与定义。" },
+  { label: "简化", question: "请把这篇文章改写成更易懂的版本，保留关键数字与结论。" },
+  { label: "反驳", question: "请站在批评者角度，反驳或挑战本文的核心论点，并给出证据缺口。" },
+  { label: "闪卡", question: "请基于本文生成 5 张间隔复习闪卡（正面问题 / 背面答案）。" },
 ];
 
 const FEEDBACK_OPTIONS: { type: ArticleFeedbackType; label: string }[] = [

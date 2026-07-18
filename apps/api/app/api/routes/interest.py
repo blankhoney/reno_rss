@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import text
 
 from app.api.deps import get_article_repository, get_scoring_repository, require_user
+from app.core.config import get_settings
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import ArticleStore
 from app.db.repositories.scoring import ScoringStore
@@ -16,12 +19,72 @@ from app.domain.personalization import InterestSignal, build_interest_profile
 router = APIRouter(prefix="/api/me", tags=["interest"])
 
 
-def _reset_store(request: Request) -> dict[str, datetime]:
+def _memory_reset_store(request: Request) -> dict[str, datetime]:
     store = getattr(request.app.state, "interest_reset_at", None)
     if store is None:
         store = {}
         request.app.state.interest_reset_at = store
     return store
+
+
+def _load_reset_at(request: Request, user_id: UUID) -> datetime | None:
+    memory = _memory_reset_store(request).get(str(user_id))
+    if memory is not None:
+        return memory
+    # Durable table when Postgres is available (best-effort).
+    try:
+        from sqlalchemy import create_engine
+
+        database_url = get_settings().database_url
+        if not database_url or database_url.startswith("sqlite"):
+            return None
+        engine = create_engine(database_url, pool_pre_ping=True)
+        with engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text("SELECT reset_at FROM user_interest_resets WHERE user_id = :user_id"),
+                    {"user_id": str(user_id)},
+                )
+                .mappings()
+                .first()
+            )
+        engine.dispose()
+        if row is None:
+            return None
+        value = row["reset_at"]
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=UTC)
+        return datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+
+
+def _persist_reset_at(request: Request, user_id: UUID, reset_at: datetime) -> None:
+    _memory_reset_store(request)[str(user_id)] = reset_at
+    try:
+        from sqlalchemy import create_engine
+
+        database_url = get_settings().database_url
+        if not database_url or database_url.startswith("sqlite"):
+            return
+        engine = create_engine(database_url, pool_pre_ping=True)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO user_interest_resets (user_id, reset_at, updated_at)
+                    VALUES (:user_id, :reset_at, :reset_at)
+                    ON CONFLICT (user_id) DO UPDATE
+                      SET reset_at = EXCLUDED.reset_at,
+                          updated_at = EXCLUDED.updated_at
+                    """
+                ),
+                {"user_id": str(user_id), "reset_at": reset_at.isoformat()},
+            )
+        engine.dispose()
+    except Exception:
+        # Memory map still applies for this process.
+        return
 
 
 @router.get("/interest")
@@ -35,7 +98,7 @@ def get_interest(
         current_user,
         article_repository,
         scoring_repository,
-        reset_at=_reset_store(request).get(str(current_user.id)),
+        reset_at=_load_reset_at(request, current_user.id),
     )
 
 
@@ -50,7 +113,7 @@ def export_interest(
         current_user,
         article_repository,
         scoring_repository,
-        reset_at=_reset_store(request).get(str(current_user.id)),
+        reset_at=_load_reset_at(request, current_user.id),
     )
     return {"export": profile, "format": "interest_vector.v1"}
 
@@ -61,7 +124,7 @@ def reset_interest(
     current_user: UserRecord = Depends(require_user),
 ) -> dict[str, object]:
     now = datetime.now(UTC)
-    _reset_store(request)[str(current_user.id)] = now
+    _persist_reset_at(request, current_user.id, now)
     return {
         "status": "ok",
         "reset_at": now.isoformat(),

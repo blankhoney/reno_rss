@@ -29,6 +29,7 @@ EXPECTED_TABLES = {
     "app_settings",
     "user_reader_rules",
     "user_saved_searches",
+    "user_interest_resets",
 }
 
 
@@ -168,6 +169,7 @@ def test_migration_column_nullability_matches_model():
         load_migration("0005_annotation_spaced_review.py"),
         load_migration("0006_user_reader_rules.py"),
         load_migration("0007_user_saved_searches.py"),
+        load_migration("0008_user_interest_reset.py"),
     ]
     recorder = MigrationOpRecorder()
     for migration in migrations:
