@@ -11,6 +11,9 @@ DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS = 16_384
 DEFAULT_MINIMAX_REASONING_SPLIT = True
 DEFAULT_MINIMAX_THINKING_TYPE = "disabled"
 DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
+DEFAULT_LOCAL_LLM_BASE_URL = "http://host.docker.internal:11434/v1"
+DEFAULT_LOCAL_LLM_MODEL = "llama3.2"
+DEFAULT_LOCAL_LLM_API_KEY = "local"
 DEFAULT_API_RATELIMIT = "120/minute"
 DEFAULT_LLM_RATELIMIT = "5/minute;100/day"
 DEFAULT_WRITE_RATELIMIT = "30/minute"
@@ -35,6 +38,12 @@ class Settings:
     minimax_max_completion_tokens: int | None = DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS
     minimax_reasoning_split: bool = DEFAULT_MINIMAX_REASONING_SPLIT
     minimax_thinking_type: str | None = DEFAULT_MINIMAX_THINKING_TYPE
+    local_llm_api_key: str = DEFAULT_LOCAL_LLM_API_KEY
+    local_llm_base_url: str = DEFAULT_LOCAL_LLM_BASE_URL
+    local_llm_model: str = DEFAULT_LOCAL_LLM_MODEL
+    local_llm_temperature: float = DEFAULT_MINIMAX_TEMPERATURE
+    local_llm_top_p: float = DEFAULT_MINIMAX_TOP_P
+    local_llm_max_completion_tokens: int | None = DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS
     llm_timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
     api_ratelimit_default: str = DEFAULT_API_RATELIMIT
     llm_ratelimit: str = DEFAULT_LLM_RATELIMIT
@@ -145,6 +154,24 @@ def get_settings() -> Settings:
             os.environ.get("MINIMAX_THINKING_TYPE"),
             DEFAULT_MINIMAX_THINKING_TYPE,
             {"adaptive", "disabled"},
+        ),
+        local_llm_api_key=os.environ.get("LOCAL_LLM_API_KEY", DEFAULT_LOCAL_LLM_API_KEY),
+        local_llm_base_url=os.environ.get(
+            "LOCAL_LLM_BASE_URL",
+            DEFAULT_LOCAL_LLM_BASE_URL,
+        ).rstrip("/"),
+        local_llm_model=os.environ.get("LOCAL_LLM_MODEL", DEFAULT_LOCAL_LLM_MODEL),
+        local_llm_temperature=_parse_float(
+            os.environ.get("LOCAL_LLM_TEMPERATURE"),
+            DEFAULT_MINIMAX_TEMPERATURE,
+        ),
+        local_llm_top_p=_parse_float(
+            os.environ.get("LOCAL_LLM_TOP_P"),
+            DEFAULT_MINIMAX_TOP_P,
+        ),
+        local_llm_max_completion_tokens=_parse_optional_positive_int(
+            os.environ.get("LOCAL_LLM_MAX_COMPLETION_TOKENS"),
+            DEFAULT_MINIMAX_MAX_COMPLETION_TOKENS,
         ),
         llm_timeout_seconds=_parse_float(
             os.environ.get("LLM_TIMEOUT_SECONDS"),

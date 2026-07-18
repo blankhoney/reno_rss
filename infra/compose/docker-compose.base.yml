@@ -103,6 +103,12 @@ services:
       SCORING_DATABASE_URL: ${SCORING_DATABASE_URL}
       AI_READER_CSRF_ALLOWED_ORIGINS: ${AI_READER_CSRF_ALLOWED_ORIGINS:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LOCAL_LLM_API_KEY: ${LOCAL_LLM_API_KEY:-local}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2}
+      LOCAL_LLM_TEMPERATURE: ${LOCAL_LLM_TEMPERATURE:-0.2}
+      LOCAL_LLM_TOP_P: ${LOCAL_LLM_TOP_P:-0.9}
+      LOCAL_LLM_MAX_COMPLETION_TOKENS: ${LOCAL_LLM_MAX_COMPLETION_TOKENS:-16384}
       MINIMAX_API_KEY: ${MINIMAX_API_KEY}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
       MINIMAX_MODEL: ${MINIMAX_MODEL}
@@ -124,6 +130,8 @@ services:
     networks:
       - app          # Caddy 通过 app 网络访问 API
       - data         # 写入 scoring 数据库
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 30s
@@ -154,6 +162,12 @@ services:
       MINIFLUX_USERNAME: ${MINIFLUX_ADMIN}
       MINIFLUX_PASSWORD: ${MINIFLUX_ADMIN_PASSWORD}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LOCAL_LLM_API_KEY: ${LOCAL_LLM_API_KEY:-local}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2}
+      LOCAL_LLM_TEMPERATURE: ${LOCAL_LLM_TEMPERATURE:-0.2}
+      LOCAL_LLM_TOP_P: ${LOCAL_LLM_TOP_P:-0.9}
+      LOCAL_LLM_MAX_COMPLETION_TOKENS: ${LOCAL_LLM_MAX_COMPLETION_TOKENS:-16384}
       MINIMAX_API_KEY: ${MINIMAX_API_KEY}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL}
       MINIMAX_MODEL: ${MINIMAX_MODEL}
@@ -181,6 +195,8 @@ services:
     networks:
       - app          # 访问 Miniflux API
       - data         # 读写业务数据库
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import os,sys,time; p=os.environ.get('WORKER_HEARTBEAT_FILE','/tmp/worker-heartbeat'); sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<960 else 1)"]
       interval: 30s

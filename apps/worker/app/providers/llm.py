@@ -212,8 +212,11 @@ class MockProvider:
 class MiniMaxProvider:
     model_provider = "minimax"
 
-    def __init__(self, client: object) -> None:
+    def __init__(self, client: object, *, provider_name: str = "minimax") -> None:
         self.client = client
+        # The OpenAI-compatible local profile shares the wire client but keeps
+        # a distinct audit identity in score/research results.
+        self.model_provider = provider_name
         self.model_name = getattr(client, "model", "unknown")
 
     def score_article(
@@ -353,7 +356,7 @@ def create_provider(provider_name: str | None = None) -> LLMProvider:
                 os.environ.get("LLM_TIMEOUT_SECONDS", str(DEFAULT_LLM_TIMEOUT_SECONDS))
             ),
         )
-        return MiniMaxProvider(MinimaxLLMClient(config))
+        return MiniMaxProvider(MinimaxLLMClient(config), provider_name="local")
     raise ValueError("LLM_PROVIDER must be 'mock', 'minimax', or 'local'")
 
 

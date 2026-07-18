@@ -176,15 +176,13 @@ def create_ask_provider(settings: Settings) -> AskProvider:
             timeout_seconds=settings.llm_timeout_seconds,
         )
     if selected in {"local", "openai_compatible"}:
-        import os
-
         return MiniMaxAskProvider(
-            api_key=os.environ.get("LOCAL_LLM_API_KEY", "local"),
-            base_url=os.environ.get("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1").rstrip("/"),
-            model=os.environ.get("LOCAL_LLM_MODEL", "llama3.2"),
-            temperature=settings.minimax_temperature,
-            top_p=settings.minimax_top_p,
-            max_completion_tokens=settings.minimax_max_completion_tokens,
+            api_key=settings.local_llm_api_key,
+            base_url=settings.local_llm_base_url,
+            model=settings.local_llm_model,
+            temperature=settings.local_llm_temperature,
+            top_p=settings.local_llm_top_p,
+            max_completion_tokens=settings.local_llm_max_completion_tokens,
             reasoning_split=False,
             thinking_type=None,
             timeout_seconds=settings.llm_timeout_seconds,

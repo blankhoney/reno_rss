@@ -119,6 +119,33 @@ def test_create_ask_provider_uses_minimax_generation_settings():
     assert provider.thinking_type == "adaptive"
 
 
+def test_create_ask_provider_uses_local_profile_settings():
+    from app.api.routes.ask import MiniMaxAskProvider, create_ask_provider
+    from app.core.config import Settings
+
+    settings = Settings(
+        llm_provider="local",
+        local_llm_api_key="ollama",
+        local_llm_base_url="http://host.docker.internal:11434/v1",
+        local_llm_model="qwen3:8b",
+        local_llm_temperature=0.15,
+        local_llm_top_p=0.75,
+        local_llm_max_completion_tokens=4096,
+    )
+
+    provider = create_ask_provider(settings)
+
+    assert isinstance(provider, MiniMaxAskProvider)
+    assert provider.api_key == "ollama"
+    assert provider.base_url == "http://host.docker.internal:11434/v1"
+    assert provider.model == "qwen3:8b"
+    assert provider.temperature == 0.15
+    assert provider.top_p == 0.75
+    assert provider.max_completion_tokens == 4096
+    assert provider.reasoning_split is False
+    assert provider.thinking_type is None
+
+
 @pytest.mark.asyncio
 async def test_ask_rejects_client_supplied_article_content(app, client):
     await client.post("/api/auth/login", json={"display_name": "Blank"})
