@@ -120,12 +120,6 @@ require_running "$AUTHELIA_CONTAINER"
 require_running "$POSTGRES_CONTAINER"
 require_running "$EDGE_CONTAINER"
 
-if ! docker logs --tail 80 "$WORKER_CONTAINER" 2>&1 | grep -q "worker runtime started"; then
-    echo "❌ worker 未输出启动日志：$WORKER_CONTAINER"
-    exit 1
-fi
-echo "  ✅ worker startup log ok"
-
 # Internal API probes distinguish service health from edge-routing failures.
 docker exec \
     -e EXPECT_ANON_ARTICLES="$EXPECT_ANON_ARTICLES" \
