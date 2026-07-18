@@ -3,9 +3,13 @@ from datetime import UTC, datetime, timedelta
 from app.jobs.queue import InMemoryJobQueue
 from app.scheduler import (
     AUTO_SCORE_JOB_TYPE,
+    BRIEF_JOB_TYPE,
+    GOVERN_JOB_TYPE,
+    RECS_JOB_TYPE,
     SYNC_JOB_TYPE,
     ScheduleSpec,
     bucket_start,
+    default_schedule_specs,
     due_jobs,
     env_flag_enabled,
     sched_dedupe_key,
@@ -58,3 +62,15 @@ def test_env_flag_enabled():
     assert env_flag_enabled("true") is True
     assert env_flag_enabled("0") is False
     assert env_flag_enabled("yes") is True
+
+
+def test_default_schedule_specs_close_intel_loop():
+    specs = default_schedule_specs()
+    types = {spec.job_type for spec in specs}
+    assert types == {
+        SYNC_JOB_TYPE,
+        AUTO_SCORE_JOB_TYPE,
+        RECS_JOB_TYPE,
+        BRIEF_JOB_TYPE,
+        GOVERN_JOB_TYPE,
+    }

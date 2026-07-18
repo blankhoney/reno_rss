@@ -17,6 +17,9 @@ LOGGER = logging.getLogger(__name__)
 
 SYNC_JOB_TYPE = "sync_miniflux_entries"
 AUTO_SCORE_JOB_TYPE = "auto_score_candidates"
+RECS_JOB_TYPE = "generate_recommendations"
+BRIEF_JOB_TYPE = "generate_daily_brief"
+GOVERN_JOB_TYPE = "govern_sources"
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,10 @@ def default_schedule_specs(
     score_lookback_hours: int = 72,
     score_max_articles: int = 30,
 ) -> tuple[ScheduleSpec, ...]:
+    """Full unattended intel loop: sync → score → recs → brief → source governance.
+
+    Still gated by SCHEDULER_ENABLED so operators must opt in before spend.
+    """
     return (
         ScheduleSpec(
             job_type=SYNC_JOB_TYPE,
@@ -72,6 +79,30 @@ def default_schedule_specs(
                 "trigger": "scheduled",
             },
             priority=3,
+        ),
+        ScheduleSpec(
+            job_type=RECS_JOB_TYPE,
+            interval=timedelta(hours=6),
+            payload={"algorithm_version": "b4.v1", "trigger": "scheduled"},
+            priority=2,
+        ),
+        ScheduleSpec(
+            job_type=BRIEF_JOB_TYPE,
+            interval=timedelta(hours=6),
+            payload={"limit": 10, "trigger": "scheduled"},
+            priority=1,
+        ),
+        ScheduleSpec(
+            job_type=GOVERN_JOB_TYPE,
+            interval=timedelta(hours=12),
+            payload={
+                "limit": 500,
+                "min_samples": 5,
+                "bad_ratio_threshold": 0.6,
+                "dry_run": False,
+                "trigger": "scheduled",
+            },
+            priority=0,
         ),
     )
 

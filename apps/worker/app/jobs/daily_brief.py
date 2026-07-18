@@ -60,6 +60,12 @@ def generate_daily_brief(
 def _brief_rows(items: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for item in items:
+        risk_flags = item.get("risk_flags")
+        if not isinstance(risk_flags, list):
+            risk_flags = []
+        source_quality = item.get("source_quality")
+        if source_quality is None:
+            source_quality = item.get("source_quality_score")
         rows.append(
             {
                 "article_id": item.get("article_id"),
@@ -72,6 +78,8 @@ def _brief_rows(items: Sequence[Mapping[str, object]]) -> list[dict[str, object]
                 "overall_score": item.get("overall_score")
                 if item.get("overall_score") is not None
                 else item.get("base_score"),
+                "risk_flags": list(risk_flags),
+                "source_quality": source_quality,
             }
         )
     return rows

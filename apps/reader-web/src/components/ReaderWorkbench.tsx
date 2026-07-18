@@ -387,6 +387,29 @@ export function ReaderWorkbench({
                 });
               });
           }}
+          onToggleProject={(article) => {
+            // Project requires candidate first (saved → project contract).
+            const nextProject = !article.project;
+            const body = nextProject
+              ? { saved: true, project: true }
+              : { project: false };
+            void updateArticleState(article.id, body)
+              .then(() => {
+                emitToast({
+                  title: nextProject ? "已立项" : "已取消立项",
+                  variant: "success",
+                });
+                window.dispatchEvent(
+                  new CustomEvent(ARTICLE_DATA_CHANGED_EVENT, { detail: { articleId: article.id } }),
+                );
+              })
+              .catch((error) => {
+                emitToast({
+                  title: error instanceof Error ? error.message : "立项状态更新失败",
+                  variant: "error",
+                });
+              });
+          }}
           isLoading={isLoading}
           onPrev={goPrev}
           onNext={goNext}

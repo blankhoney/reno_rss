@@ -17,6 +17,8 @@ import {
   patchCraftPreferences,
   readCraftPreferences,
 } from "@/lib/craft/preferences";
+import { apiPost } from "@/lib/api/client";
+import { emitToast } from "./Toast";
 
 const THEME_STORAGE_KEY = "ai-reader.theme";
 
@@ -60,6 +62,43 @@ function runCommand(command: CommandItem, router: { push: (href: string) => void
   if (command.action === "toggle-dual-pane") {
     const prefs = readCraftPreferences();
     patchCraftPreferences({ dualPane: !prefs.dualPane });
+    return;
+  }
+  if (command.action === "open-usage") {
+    router.push("/?module=admin&sort=default&lang=zh");
+    return;
+  }
+  if (command.action === "admin-sync") {
+    void apiPost("/api/admin/sync", { limit: 100 })
+      .then(() => emitToast({ title: "已触发同步", variant: "success" }))
+      .catch((error) =>
+        emitToast({
+          title: error instanceof Error ? error.message : "同步失败（需管理员）",
+          variant: "error",
+        }),
+      );
+    return;
+  }
+  if (command.action === "admin-brief") {
+    void apiPost("/api/admin/daily-brief", {})
+      .then(() => emitToast({ title: "已排队生成今日情报", variant: "success" }))
+      .catch((error) =>
+        emitToast({
+          title: error instanceof Error ? error.message : "生成简报失败（需管理员）",
+          variant: "error",
+        }),
+      );
+    return;
+  }
+  if (command.action === "admin-govern") {
+    void apiPost("/api/admin/govern-sources", {})
+      .then(() => emitToast({ title: "已排队源治理 demote", variant: "success" }))
+      .catch((error) =>
+        emitToast({
+          title: error instanceof Error ? error.message : "源治理失败（需管理员）",
+          variant: "error",
+        }),
+      );
   }
 }
 

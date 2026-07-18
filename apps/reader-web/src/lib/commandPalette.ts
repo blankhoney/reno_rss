@@ -11,7 +11,16 @@ export type CommandItem = {
   /** Navigation target when kind === "navigate" */
   href?: string;
   /** Action id when kind === "action" */
-  action?: "toggle-theme" | "focus-list" | "cycle-mode" | "toggle-density" | "toggle-dual-pane";
+  action?:
+    | "toggle-theme"
+    | "focus-list"
+    | "cycle-mode"
+    | "toggle-density"
+    | "toggle-dual-pane"
+    | "admin-sync"
+    | "admin-brief"
+    | "admin-govern"
+    | "open-usage";
   group: string;
   shortcut?: string;
 };
@@ -136,6 +145,38 @@ export function buildWorkbenchCommands(options?: {
       kind: "action",
       action: "toggle-dual-pane",
       group: "工艺",
+    },
+    {
+      id: "action-admin-sync",
+      label: "触发同步 Miniflux",
+      keywords: ["sync", "同步", "miniflux"],
+      kind: "action",
+      action: "admin-sync",
+      group: "运维",
+    },
+    {
+      id: "action-admin-brief",
+      label: "生成今日情报简报",
+      keywords: ["brief", "情报", "daily"],
+      kind: "action",
+      action: "admin-brief",
+      group: "运维",
+    },
+    {
+      id: "action-admin-govern",
+      label: "运行源治理 demote",
+      keywords: ["govern", "demote", "源治理"],
+      kind: "action",
+      action: "admin-govern",
+      group: "运维",
+    },
+    {
+      id: "action-open-usage",
+      label: "查看费用 / 用量（管理台）",
+      keywords: ["usage", "budget", "费用", "余额"],
+      kind: "action",
+      action: "open-usage",
+      group: "运维",
     },
   ];
 }

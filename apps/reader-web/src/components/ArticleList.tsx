@@ -25,6 +25,7 @@ type ArticleListProps = {
   onSortChange?: (nextSort: ArticleSortId) => void;
   onToggleRead?: (article: Article) => void;
   onToggleCandidate?: (article: Article) => void;
+  onToggleProject?: (article: Article) => void;
   notice?: {
     title: string;
     body: string;
@@ -82,6 +83,7 @@ export function ArticleList({
   onSortChange,
   onToggleRead,
   onToggleCandidate,
+  onToggleProject,
   notice,
 }: ArticleListProps) {
   const isEmpty = articles.length === 0;
@@ -136,6 +138,21 @@ export function ArticleList({
         if (!article) return;
         event.preventDefault();
         onToggleCandidate(article);
+        return;
+      }
+      if ((event.key === "p" || event.key === "P") && onToggleProject) {
+        const article = articles[selectedIndex];
+        if (!article) return;
+        event.preventDefault();
+        onToggleProject(article);
+        return;
+      }
+      if (event.key === "1" || event.key === "2" || event.key === "3") {
+        // Dimension sort shortcuts: 1 score, 2 technical, 3 business
+        event.preventDefault();
+        if (event.key === "1") onSortChange?.("score");
+        if (event.key === "2") onSortChange?.("technical");
+        if (event.key === "3") onSortChange?.("business");
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -146,7 +163,9 @@ export function ArticleList({
     currentModule,
     currentSort,
     isLoading,
+    onSortChange,
     onToggleCandidate,
+    onToggleProject,
     onToggleRead,
     selectedIndex,
   ]);
@@ -175,6 +194,10 @@ export function ArticleList({
             <kbd>k</kbd>
             <kbd>r</kbd>
             <kbd>s</kbd>
+            <kbd>p</kbd>
+            <kbd>1</kbd>
+            <kbd>2</kbd>
+            <kbd>3</kbd>
           </span>
           <SortMenu currentSort={currentSort} options={SORT_OPTIONS} onChange={updateSort} />
         </div>
