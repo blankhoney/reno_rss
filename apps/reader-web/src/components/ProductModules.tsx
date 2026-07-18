@@ -629,10 +629,36 @@ export function CraftPanel() {
             onChange={(event) => update({ dualPane: event.target.checked })}
           />
         </label>
+        <label>
+          双栏内容
+          <select
+            value={prefs.dualPaneKind}
+            onChange={(event) =>
+              update({ dualPaneKind: event.target.value === "article" ? "article" : "notes" })
+            }
+          >
+            <option value="notes">文章 + 笔记</option>
+            <option value="article">两篇文章对照</option>
+          </select>
+        </label>
+        <label>
+          对照文章 ID
+          <input
+            value={prefs.dualArticleId ?? ""}
+            onChange={(event) => {
+              const raw = event.target.value.trim();
+              const id = Number(raw);
+              update({
+                dualArticleId: raw && Number.isFinite(id) && id > 0 ? Math.floor(id) : null,
+              });
+            }}
+            placeholder="例如 42"
+          />
+        </label>
       </div>
       <p className="workbenchRibbonMuted">
         模式会写入 localStorage，并在 documentElement 上暴露 data-reader-mode / data-density /
-        data-dual-pane，供列表与精读页读取。
+        data-dual-pane，供列表与精读页读取。双文对照在精读页右侧加载第二篇。
       </p>
     </PanelShell>
   );

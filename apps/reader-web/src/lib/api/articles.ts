@@ -371,6 +371,8 @@ export type ArticleAnnotation = {
   type: string;
   selectedText: string | null;
   content: string;
+  color: string | null;
+  tags: string[];
   createdAt: string | null;
   nextReviewAt: string | null;
   intervalDays: number;
@@ -388,6 +390,8 @@ type AnnotationApiItem = {
   type?: string;
   selected_text?: string | null;
   content?: string;
+  color?: string | null;
+  tags?: string[] | null;
   created_at?: string | null;
   next_review_at?: string | null;
   interval_days?: number;
@@ -406,6 +410,8 @@ function annotationFromApi(item: AnnotationApiItem, fallbackArticleId = 0): Arti
     type: item.type ?? "annotation",
     selectedText: item.selected_text ?? null,
     content: item.content,
+    color: typeof item.color === "string" ? item.color : null,
+    tags: Array.isArray(item.tags) ? item.tags.map(String) : [],
     createdAt: item.created_at ?? null,
     nextReviewAt: item.next_review_at ?? null,
     intervalDays: typeof item.interval_days === "number" ? item.interval_days : 1,
@@ -452,30 +458,49 @@ export async function reviewAnnotation(
 
 export async function createArticleAnnotation(
   articleId: number,
-  patch: { content: string; selectedText?: string | null; type?: string },
+  patch: {
+    content: string;
+    selectedText?: string | null;
+    type?: string;
+    color?: string | null;
+    tags?: string[];
+  },
 ): Promise<ArticleAnnotation> {
   const payload = await apiPost<
     {
-      annotation?: {
-        id?: number;
-        article_id?: number;
-        type?: string;
-        selected_text?: string | null;
-        content?: string;
-        created_at?: string | null;
-      };
+      annotation?: AnnotationApiItem;
     },
-    { content: string; selected_text?: string | null; type?: string }
+    {
+      content: string;
+      selected_text?: string | null;
+      type?: string;
+      color?: string | null;
+      tags?: string[];
+    }
   >(`/api/articles/${articleId}/annotations`, {
     content: patch.content,
     selected_text: patch.selectedText ?? null,
     type: patch.type ?? "annotation",
+    color: patch.color ?? null,
+    tags: patch.tags ?? [],
   });
   const annotation = annotationFromApi(payload.annotation ?? {}, articleId);
   if (annotation == null) {
     throw new Error("API returned invalid annotation");
   }
   return annotation;
+}
+
+export async function listArticleAnnotations(articleId: number): Promise<ArticleAnnotation[]> {
+  const payload = await apiGet<{ items?: AnnotationApiItem[] }>(
+    `/api/articles/${articleId}/annotations`,
+  );
+  const items: ArticleAnnotation[] = [];
+  for (const item of payload.items ?? []) {
+    const mapped = annotationFromApi(item, articleId);
+    if (mapped) items.push(mapped);
+  }
+  return items;
 }
 
 export async function enqueueFetchContentJob(

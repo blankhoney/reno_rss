@@ -3,14 +3,21 @@
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/types";
 import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
 import { findCitationTarget, type SummaryLangId } from "@/lib/articles/service";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
-import { createArticleAnnotation, saveArticleFeedback } from "@/lib/api/articles";
+import {
+  createArticleAnnotation,
+  getArticle,
+  listArticleAnnotations,
+  saveArticleFeedback,
+  type ArticleAnnotation,
+} from "@/lib/api/articles";
 import { streamArticleAsk, type ArticleAskCitation } from "@/lib/api/client";
 import { listClusters, listThemes } from "@/lib/api/intel";
+import { applyHighlightMarks } from "@/lib/articles/highlights";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { readCraftPreferences } from "@/lib/craft/preferences";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -125,7 +132,12 @@ export function FocusedArticleReader({
     Array<{ kind: "theme" | "cluster"; label: string; href: string }>
   >([]);
   const [dualPane, setDualPane] = useState(false);
+  const [dualPaneKind, setDualPaneKind] = useState<"notes" | "article">("notes");
+  const [dualArticleId, setDualArticleId] = useState<number | null>(null);
+  const [dualArticle, setDualArticle] = useState<Article | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [highlightColor, setHighlightColor] = useState("yellow");
+  const [annotations, setAnnotations] = useState<ArticleAnnotation[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -183,11 +195,52 @@ export function FocusedArticleReader({
   ];
 
   useEffect(() => {
-    setDualPane(readCraftPreferences().dualPane);
-    const onPrefs = () => setDualPane(readCraftPreferences().dualPane);
-    window.addEventListener("ai-reader:craft-prefs", onPrefs);
-    return () => window.removeEventListener("ai-reader:craft-prefs", onPrefs);
+    function applyPrefs() {
+      const prefs = readCraftPreferences();
+      setDualPane(prefs.dualPane);
+      setDualPaneKind(prefs.dualPaneKind);
+      setDualArticleId(prefs.dualArticleId);
+    }
+    applyPrefs();
+    window.addEventListener("ai-reader:craft-prefs", applyPrefs);
+    return () => window.removeEventListener("ai-reader:craft-prefs", applyPrefs);
   }, []);
+
+  useEffect(() => {
+    if (!dualPane || dualPaneKind !== "article" || dualArticleId == null) {
+      setDualArticle(null);
+      return;
+    }
+    if (dualArticleId === article.id) {
+      setDualArticle(null);
+      return;
+    }
+    let active = true;
+    getArticle(dualArticleId)
+      .then((next) => {
+        if (active) setDualArticle(next);
+      })
+      .catch(() => {
+        if (active) setDualArticle(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [article.id, dualArticleId, dualPane, dualPaneKind]);
+
+  useEffect(() => {
+    let active = true;
+    listArticleAnnotations(article.id)
+      .then((items) => {
+        if (active) setAnnotations(items);
+      })
+      .catch(() => {
+        if (active) setAnnotations([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [article.id]);
 
   useEffect(() => {
     let active = true;
@@ -443,7 +496,19 @@ export function FocusedArticleReader({
   const score = article.score;
   const contentNotice = articleContentNotice(article);
   const agentNotice = articleAgentNotice(article);
-  const displayedHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
+  const baseHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
+  const displayedHtml = useMemo(
+    () =>
+      applyHighlightMarks(
+        baseHtml,
+        annotations.map((item) => ({
+          id: item.id,
+          selectedText: item.selectedText || item.content,
+          color: item.color,
+        })),
+      ),
+    [annotations, baseHtml],
+  );
   const scoreStatusStyle: TierStatusStyle | undefined = score
     ? { "--statusTierColor": `var(${tierColorVar(score.tier, score.overall)})` }
     : undefined;
@@ -734,6 +799,21 @@ export function FocusedArticleReader({
           >
             解释选中
           </button>
+          <label className="selectionColorPicker">
+            <span className="visuallyHidden">划线颜色</span>
+            <select
+              value={highlightColor}
+              onChange={(event) => setHighlightColor(event.target.value)}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <option value="yellow">黄</option>
+              <option value="green">绿</option>
+              <option value="blue">蓝</option>
+              <option value="pink">粉</option>
+              <option value="orange">橙</option>
+              <option value="purple">紫</option>
+            </select>
+          </label>
           <button
             type="button"
             onMouseDown={(event) => event.preventDefault()}
@@ -744,8 +824,11 @@ export function FocusedArticleReader({
                 content: text,
                 selectedText: text,
                 type: "annotation",
+                color: highlightColor,
+                tags: [],
               })
-                .then(() => {
+                .then((created) => {
+                  setAnnotations((current) => [created, ...current]);
                   emitToast({ title: "已保存划线", variant: "success" });
                   clearSelection();
                 })
@@ -883,7 +966,7 @@ export function FocusedArticleReader({
         </aside>
       ) : null}
 
-      {dualPane ? (
+      {dualPane && dualPaneKind === "notes" ? (
         <aside className="focusedArticleNotes" aria-label="笔记双栏">
           <h2>笔记</h2>
           <p className="workbenchRibbonMuted">双栏模式：文章 + 笔记。选区高亮仍会保存到私有标注。</p>
@@ -902,8 +985,10 @@ export function FocusedArticleReader({
               void createArticleAnnotation(article.id, {
                 content: noteDraft.trim(),
                 selectedText: selectedText || null,
+                color: highlightColor,
               })
-                .then(() => {
+                .then((created) => {
+                  setAnnotations((current) => [created, ...current]);
                   setNoteDraft("");
                   emitToast({ title: "笔记已保存", variant: "success" });
                 })
@@ -917,6 +1002,31 @@ export function FocusedArticleReader({
           >
             保存笔记
           </button>
+        </aside>
+      ) : null}
+
+      {dualPane && dualPaneKind === "article" ? (
+        <aside className="focusedArticleNotes dualArticlePane" aria-label="对照文章">
+          <h2>对照阅读</h2>
+          {dualArticle == null ? (
+            <p className="workbenchRibbonMuted">
+              在「阅读工艺」设置对照文章 ID，或 ⌘K 打开工艺面板。
+            </p>
+          ) : (
+            <>
+              <p className="workbenchRibbonMuted">
+                #{dualArticle.id} ·{" "}
+                <Link href={`/read/${dualArticle.id}?module=all&sort=default&lang=zh`} prefetch={false}>
+                  单独打开
+                </Link>
+              </p>
+              <h3 className="dailyIntelCardTitle">{dualArticle.title}</h3>
+              <div
+                className="articleContent content focusContent dualArticleBody"
+                dangerouslySetInnerHTML={{ __html: dualArticle.contentHtml }}
+              />
+            </>
+          )}
         </aside>
       ) : null}
     </motion.main>

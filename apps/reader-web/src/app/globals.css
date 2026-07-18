@@ -3251,6 +3251,39 @@ html[data-dual-pane="true"] .focusReader {
   transition: background 160ms var(--ease-standard, ease);
 }
 
+.articleHighlight {
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.articleHighlight.hl-yellow {
+  background: color-mix(in srgb, #f5d76e 55%, transparent);
+}
+.articleHighlight.hl-green {
+  background: color-mix(in srgb, #7dcea0 50%, transparent);
+}
+.articleHighlight.hl-blue {
+  background: color-mix(in srgb, #85c1e9 50%, transparent);
+}
+.articleHighlight.hl-pink {
+  background: color-mix(in srgb, #f5b7b1 50%, transparent);
+}
+.articleHighlight.hl-orange {
+  background: color-mix(in srgb, #f0b27a 50%, transparent);
+}
+.articleHighlight.hl-purple {
+  background: color-mix(in srgb, #c39bd3 50%, transparent);
+}
+
+.selectionColorPicker select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 2px 4px;
+}
+
 @media (max-width: 960px) {
   .dailyIntelEntries,
   .dailyIntelRadarGrid {

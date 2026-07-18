@@ -17,11 +17,15 @@ test("parseCraftPreferences accepts valid craft fields", () => {
     mode: "focus",
     density: "compact",
     dualPane: true,
+    dualPaneKind: "article",
+    dualArticleId: 42,
     pinnedThemes: ["rust", "llm", ""],
   });
   assert.equal(parsed.mode, "focus");
   assert.equal(parsed.density, "compact");
   assert.equal(parsed.dualPane, true);
+  assert.equal(parsed.dualPaneKind, "article");
+  assert.equal(parsed.dualArticleId, 42);
   assert.deepEqual(parsed.pinnedThemes, ["rust", "llm"]);
 });
 

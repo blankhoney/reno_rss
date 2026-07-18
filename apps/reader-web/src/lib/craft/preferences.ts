@@ -3,10 +3,14 @@
 export type ReaderMode = "scan" | "focus" | "keep";
 export type DensityMode = "comfortable" | "compact";
 
+export type DualPaneKind = "notes" | "article";
+
 export type CraftPreferences = {
   mode: ReaderMode;
   density: DensityMode;
   dualPane: boolean;
+  dualPaneKind: DualPaneKind;
+  dualArticleId: number | null;
   pinnedThemes: string[];
 };
 
@@ -16,6 +20,8 @@ export const DEFAULT_CRAFT_PREFERENCES: CraftPreferences = {
   mode: "scan",
   density: "comfortable",
   dualPane: false,
+  dualPaneKind: "notes",
+  dualArticleId: null,
   pinnedThemes: [],
 };
 
@@ -33,10 +39,17 @@ export function parseCraftPreferences(raw: unknown): CraftPreferences {
   const pinned = Array.isArray(data.pinnedThemes)
     ? data.pinnedThemes.map(String).filter(Boolean).slice(0, 20)
     : [];
+  const dualArticleRaw = data.dualArticleId;
+  const dualArticleId =
+    typeof dualArticleRaw === "number" && Number.isFinite(dualArticleRaw) && dualArticleRaw > 0
+      ? Math.floor(dualArticleRaw)
+      : null;
   return {
     mode: isReaderMode(data.mode) ? data.mode : DEFAULT_CRAFT_PREFERENCES.mode,
     density: isDensityMode(data.density) ? data.density : DEFAULT_CRAFT_PREFERENCES.density,
     dualPane: data.dualPane === true,
+    dualPaneKind: data.dualPaneKind === "article" ? "article" : "notes",
+    dualArticleId,
     pinnedThemes: pinned,
   };
 }

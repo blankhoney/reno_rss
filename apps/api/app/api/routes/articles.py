@@ -58,6 +58,8 @@ class ArticleAnnotationRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     selected_text: str | None = Field(default=None, max_length=4000)
     type: str = Field(default="annotation", pattern="^(annotation|comment|review)$")
+    color: str | None = Field(default=None, max_length=20)
+    tags: list[str] | None = Field(default=None, max_length=12)
 
 
 class AnnotationReviewRequest(BaseModel):
@@ -84,12 +86,17 @@ def article_feedback_public(feedback: ArticleFeedbackRecord) -> dict[str, object
 
 
 def annotation_public(annotation: AnnotationRecord) -> dict[str, object]:
+    from app.domain.annotations_meta import decode_annotation_content
+
+    meta = decode_annotation_content(annotation.content)
     return {
         "id": annotation.id,
         "article_id": annotation.article_id,
         "type": annotation.type,
         "selected_text": annotation.selected_text,
-        "content": annotation.content,
+        "content": meta.body,
+        "color": meta.color,
+        "tags": list(meta.tags),
         "created_at": annotation.created_at.isoformat() if annotation.created_at else None,
         "updated_at": annotation.updated_at.isoformat() if annotation.updated_at else None,
         "next_review_at": (
@@ -472,15 +479,22 @@ def create_article_annotation(
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
 ) -> dict[str, object]:
+    from app.domain.annotations_meta import encode_annotation_content
+
     content = payload.content.strip()
     selected = payload.selected_text.strip() if payload.selected_text else None
     if not content:
         raise ApiError(400, "invalid_request", "content is required")
     try:
+        stored_content = encode_annotation_content(
+            content,
+            color=payload.color,
+            tags=payload.tags,
+        )
         annotation = article_repository.create_annotation(
             current_user.id,
             article_id,
-            content=content,
+            content=stored_content,
             selected_text=selected or None,
             annotation_type=payload.type,
         )
