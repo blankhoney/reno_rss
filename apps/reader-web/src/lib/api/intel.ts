@@ -19,6 +19,7 @@ export type FeedItem = {
   title: string;
   status: string;
   hidden: boolean;
+  qualityScore: number;
   userPriority: number;
   articleCount: number;
 };
@@ -127,6 +128,7 @@ export async function listFeeds(): Promise<FeedItem[]> {
       title?: string;
       status?: string;
       hidden?: boolean;
+      quality_score?: number;
       user_priority?: number;
       article_count?: number;
     }>;
@@ -139,6 +141,7 @@ export async function listFeeds(): Promise<FeedItem[]> {
       title: item.title ?? `Feed #${item.id}`,
       status: item.status ?? "unknown",
       hidden: item.hidden === true,
+      qualityScore: typeof item.quality_score === "number" ? item.quality_score : 70,
       userPriority: typeof item.user_priority === "number" ? item.user_priority : 0,
       articleCount: typeof item.article_count === "number" ? item.article_count : 0,
     });

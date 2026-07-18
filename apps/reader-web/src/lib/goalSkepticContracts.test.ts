@@ -20,6 +20,7 @@ test("DailyIntelligenceDashboard has three persistent entries + radar + source q
   assert.match(src, /异常与机会雷达/);
   assert.match(src, /源可信度/);
   assert.match(src, /source_quality|源可信/);
+  assert.match(src, /qualityScore/);
 });
 
 test("ProductModules + page + palette cover clusters/rules/themes/research/interest", () => {

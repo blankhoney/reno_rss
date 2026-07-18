@@ -56,9 +56,15 @@ export function DailyIntelligenceDashboard() {
   const [themes, setThemes] = useState<Array<{ label: string; weight: number }>>([]);
   const [sourceQuality, setSourceQuality] = useState<{
     hidden: Array<{ id: number; title: string }>;
-    lowPriority: Array<{ id: number; title: string; userPriority: number }>;
+    highQuality: Array<{ id: number; title: string; qualityScore: number }>;
+    needsAttention: Array<{
+      id: number;
+      title: string;
+      userPriority: number;
+      qualityScore: number;
+    }>;
     active: number;
-  }>({ hidden: [], lowPriority: [], active: 0 });
+  }>({ hidden: [], highQuality: [], needsAttention: [], active: 0 });
 
   useEffect(() => {
     let active = true;
@@ -157,18 +163,29 @@ export function DailyIntelligenceDashboard() {
             .filter((feed) => feed.hidden)
             .slice(0, 6)
             .map((feed) => ({ id: feed.id, title: feed.title }));
-          const lowPriority = feeds
-            .filter((feed) => !feed.hidden && feed.userPriority < 0)
-            .sort((a, b) => a.userPriority - b.userPriority)
+          const highQuality = feeds
+            .filter((feed) => !feed.hidden && feed.qualityScore >= 80)
+            .sort((a, b) => b.qualityScore - a.qualityScore)
+            .slice(0, 6)
+            .map((feed) => ({
+              id: feed.id,
+              title: feed.title,
+              qualityScore: feed.qualityScore,
+            }));
+          const needsAttention = feeds
+            .filter((feed) => !feed.hidden && (feed.userPriority < 0 || feed.qualityScore < 50))
+            .sort((a, b) => a.qualityScore - b.qualityScore || a.userPriority - b.userPriority)
             .slice(0, 6)
             .map((feed) => ({
               id: feed.id,
               title: feed.title,
               userPriority: feed.userPriority,
+              qualityScore: feed.qualityScore,
             }));
           setSourceQuality({
             hidden,
-            lowPriority,
+            highQuality,
+            needsAttention,
             active: feeds.filter((feed) => !feed.hidden).length,
           });
         }
@@ -287,8 +304,8 @@ export function DailyIntelligenceDashboard() {
         <header className="dailyIntelTierHeader">
           <h2>源可信度</h2>
           <span className="workbenchRibbonMuted">
-            活跃 {sourceQuality.active} · 隐藏 {sourceQuality.hidden.length} · 低优先{" "}
-            {sourceQuality.lowPriority.length}
+            活跃 {sourceQuality.active} · 高质量 {sourceQuality.highQuality.length} · 需关注{" "}
+            {sourceQuality.needsAttention.length} · 隐藏 {sourceQuality.hidden.length}
           </span>
         </header>
         <div className="dailyIntelRadarGrid">
@@ -305,15 +322,32 @@ export function DailyIntelligenceDashboard() {
             )}
           </div>
           <div className="dailyIntelRadarPane">
-            <h3>低优先级源</h3>
-            {sourceQuality.lowPriority.length === 0 ? (
-              <p className="workbenchRibbonMuted">没有负优先级源。</p>
+            <h3>高质量源机会</h3>
+            {sourceQuality.highQuality.length === 0 ? (
+              <p className="workbenchRibbonMuted">尚无质量分 ≥80 的源。</p>
             ) : (
               <ul className="dailyIntelRadarList">
-                {sourceQuality.lowPriority.map((feed) => (
+                {sourceQuality.highQuality.map((feed) => (
                   <li key={feed.id}>
                     {feed.title}
-                    <span className="workbenchRibbonMuted"> · p={feed.userPriority}</span>
+                    <span className="workbenchRibbonMuted"> · q={feed.qualityScore.toFixed(0)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="dailyIntelRadarPane">
+            <h3>需关注源</h3>
+            {sourceQuality.needsAttention.length === 0 ? (
+              <p className="workbenchRibbonMuted">没有低质量或负优先级源。</p>
+            ) : (
+              <ul className="dailyIntelRadarList">
+                {sourceQuality.needsAttention.map((feed) => (
+                  <li key={feed.id}>
+                    {feed.title}
+                    <span className="workbenchRibbonMuted">
+                      {` · q=${feed.qualityScore.toFixed(0)} · p=${feed.userPriority}`}
+                    </span>
                   </li>
                 ))}
               </ul>
