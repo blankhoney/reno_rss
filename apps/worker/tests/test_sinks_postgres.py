@@ -147,6 +147,7 @@ def test_postgres_scoring_and_recommendation_sinks_use_real_schema_types():
         assert candidate_rows == [
             {
                 "article_id": ids["article_id"],
+                "title": "Scored article",
                 "feed_ids": [ids["feed_id"]],
                 "base_score": 91,
                 "published_at": datetime(2026, 6, 24, 12, tzinfo=UTC),
