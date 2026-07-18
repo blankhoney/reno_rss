@@ -107,6 +107,11 @@ def _item_value(item: object, key: str) -> object:
 
 
 def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[object]:
+    """Apply B4 ranking with user rules + interest weights (GOAL §4.A).
+
+    PUT /api/rules is NOT dead: DatabaseRecommendationSink loads rules into
+    RecommendationContext.rules, and this function always forwards them.
+    """
     ranking_module = _load_online_ranking_module()
     candidates = [
         ranking_module.Candidate(
@@ -120,15 +125,19 @@ def rank_b4_recommendation_context(context: RecommendationContext) -> Iterable[o
         for candidate in context.candidates
         if isinstance(candidate, Mapping)
     ]
+    # Critical unattended path: rules / titles / interest must all be passed.
+    user_rules = list(context.rules or [])
+    titles = dict(context.titles_by_article or {})
+    interests = dict(context.interest_weights or {})
     return ranking_module.rank_b4(
         user_priority_by_feed=context.user_priority_by_feed,
         candidates=candidates,
         feedback_by_article=context.feedback_by_article,
         article_status_by_article=context.article_status_by_article,
         now=context.now,
-        rules=list(context.rules or []),
-        titles_by_article=dict(context.titles_by_article or {}),
-        interest_weights=dict(context.interest_weights or {}),
+        rules=user_rules,
+        titles_by_article=titles,
+        interest_weights=interests,
     )
 
 
