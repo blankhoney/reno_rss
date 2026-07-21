@@ -7,7 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node .next/standalone/server.js",
-    "test": "node --test --import tsx 'src/**/*.test.ts'"
+    "start:e2e": "npm run build && rm -rf .next/standalone/public .next/standalone/.next/static && cp -R public .next/standalone/public && mkdir -p .next/standalone/.next && cp -R .next/static .next/standalone/.next/static && cd .next/standalone && HOSTNAME=127.0.0.1 PORT=3010 node server.js",
+    "test": "node --test --import tsx 'src/**/*.test.ts'",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "motion": "^12.38.0",
@@ -17,6 +19,7 @@
     "sanitize-html": "^2.17.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "25.7.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",

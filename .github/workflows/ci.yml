@@ -141,6 +141,22 @@ jobs:
         working-directory: apps/reader-web
         run: npm run build
 
+      - name: Install Playwright Chromium
+        working-directory: apps/reader-web
+        run: npx playwright install --with-deps chromium
+
+      - name: Test reader-web browser flows
+        working-directory: apps/reader-web
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/reader-web/playwright-report/
+          retention-days: 14
+
       - name: Validate Compose config
         run: |
           cp .env.example .env
