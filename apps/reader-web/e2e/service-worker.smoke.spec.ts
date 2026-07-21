@@ -124,18 +124,30 @@ test("mobile selection toolbar stays above navigation and yields to the Agent dr
   await resetFixtures(page);
   await page.goto("/read/7?module=all&sort=default&lang=zh");
   await expect(page.getByRole("button", { name: /文章助手/ })).toBeVisible();
-  await page.evaluate(() => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())));
+  await expect(page.locator(".toastHost")).toBeAttached();
+  await page.evaluate(
+    () => new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))),
+  );
   await selectReaderText(page);
   const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
   await expect(toolbar).toBeVisible();
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent("ai-reader:toast", { detail: { title: "选区布局检查", variant: "info" } }),
+    );
+  });
+  await expect(page.getByText("选区布局检查", { exact: true })).toBeVisible();
 
   const geometry = await page.evaluate(() => {
     const selection = document.querySelector<HTMLElement>(".selectionPopover")!.getBoundingClientRect();
+    const toast = document.querySelector<HTMLElement>(".toastCard")!.getBoundingClientRect();
     const navigation = document.querySelector<HTMLElement>(".mobileBottomNav")!.getBoundingClientRect();
     return {
       selectionLeft: selection.left,
       selectionRight: selection.right,
+      selectionTop: selection.top,
       selectionBottom: selection.bottom,
+      toastBottom: toast.bottom,
       navigationTop: navigation.top,
       viewportWidth: window.innerWidth,
     };
@@ -143,10 +155,17 @@ test("mobile selection toolbar stays above navigation and yields to the Agent dr
   expect(geometry.selectionLeft).toBeGreaterThanOrEqual(0);
   expect(geometry.selectionRight).toBeLessThanOrEqual(geometry.viewportWidth);
   expect(geometry.selectionBottom).toBeLessThanOrEqual(geometry.navigationTop);
+  expect(geometry.toastBottom).toBeLessThanOrEqual(geometry.selectionTop + 0.1);
 
   await page.getByRole("button", { name: /文章助手/ }).click();
   await expect(toolbar).toBeHidden();
   await expect(page.getByText(/已选中：user-a/)).toBeVisible();
+  const agentGeometry = await page.evaluate(() => {
+    const toast = document.querySelector<HTMLElement>(".toastCard")!.getBoundingClientRect();
+    const agent = document.querySelector<HTMLElement>(".agentDrawer")!.getBoundingClientRect();
+    return { toastBottom: toast.bottom, agentTop: agent.top };
+  });
+  expect(agentGeometry.toastBottom).toBeLessThanOrEqual(agentGeometry.agentTop + 0.1);
 });
 
 for (const viewport of [

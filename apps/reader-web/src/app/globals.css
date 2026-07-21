@@ -2717,6 +2717,10 @@ body:has(.focusReader) .toastHost {
     width: auto;
   }
 
+  body:has(.selectionPopover) .toastHost {
+    bottom: calc(var(--mobile-bottom-nav-offset) + 116px);
+  }
+
   body:has(.agentDrawerOpen) .toastHost {
     bottom: calc(50vh + var(--mobile-bottom-nav-offset) + var(--space-4));
   }
