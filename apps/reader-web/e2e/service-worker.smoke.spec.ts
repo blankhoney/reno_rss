@@ -95,6 +95,43 @@ test("article shortcuts only apply when the article list owns focus", async ({ p
   await expect(page.getByRole("link", { name: /Keyboard article two/ })).toHaveAttribute("aria-current", "true");
 });
 
+test("mobile module drawer traps focus, inerts the background, and restores its trigger", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  const trigger = page.getByRole("button", { name: "打开阅读模块" });
+  await trigger.click();
+  const drawer = page.getByRole("dialog", { name: "阅读模块" });
+  await expect(drawer).toBeVisible();
+  await expect(page.locator(".workbenchMain")).toHaveJSProperty("inert", true);
+  await expect(page.locator(".mobileBottomNav")).toHaveJSProperty("inert", true);
+
+  const focusables = drawer.locator("a[href], button:not([disabled])");
+  await focusables.last().focus();
+  await page.keyboard.press("Tab");
+  await expect.poll(() => drawer.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test("command palette inerts the app and restores prior focus after Escape", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  const sortButton = page.getByRole("button", { name: /排序/ });
+  await sortButton.focus();
+  await page.keyboard.press("Meta+k");
+  const dialog = page.getByRole("dialog", { name: "命令面板" });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator(".workbench")).toHaveJSProperty("inert", true);
+  await expect(dialog.getByRole("textbox")).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(sortButton).toBeFocused();
+});
+
 test("Focus mode preserves a visible workbench column at the 899px breakpoint", async ({ page }) => {
   await page.setViewportSize({ width: 899, height: 900 });
   await resetFixtures(page);

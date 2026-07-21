@@ -107,6 +107,7 @@ export function CommandPaletteHost() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -129,6 +130,8 @@ export function CommandPaletteHost() {
     enabled: open,
     layerRef: dialogRef,
     onDismiss: close,
+    trapFocus: true,
+    initialFocusRef: inputRef,
   });
 
   useEffect(() => {
@@ -150,9 +153,19 @@ export function CommandPaletteHost() {
   }, [close, open, openPalette]);
 
   useEffect(() => {
-    if (!open) return;
-    const id = window.requestAnimationFrame(() => inputRef.current?.focus());
-    return () => window.cancelAnimationFrame(id);
+    if (!open || rootRef.current == null) return;
+    const background = Array.from(document.body.children).filter(
+      (element): element is HTMLElement => element instanceof HTMLElement && element !== rootRef.current,
+    );
+    const previousInert = background.map((element) => [element, element.inert] as const);
+    background.forEach((element) => {
+      element.inert = true;
+    });
+    return () => {
+      previousInert.forEach(([element, inert]) => {
+        element.inert = inert;
+      });
+    };
   }, [open]);
 
   useEffect(() => {
@@ -169,7 +182,7 @@ export function CommandPaletteHost() {
   if (!open) return null;
 
   return (
-    <div className="commandPaletteRoot" role="presentation">
+    <div ref={rootRef} className="commandPaletteRoot" role="presentation">
       <div className="commandPaletteBackdrop" aria-hidden="true" />
       <div
         ref={dialogRef}
@@ -199,6 +212,7 @@ export function CommandPaletteHost() {
             placeholder="搜索命令、模块…（⌘K / Ctrl+K）"
             aria-autocomplete="list"
             aria-controls="command-palette-list"
+            aria-activedescendant={filtered[activeIndex] ? `command-palette-option-${filtered[activeIndex].id}` : undefined}
             autoComplete="off"
             spellCheck={false}
           />
@@ -211,7 +225,7 @@ export function CommandPaletteHost() {
             filtered.map((command, index) => {
               const active = index === activeIndex;
               return (
-                <li key={command.id} role="option" aria-selected={active}>
+                <li id={`command-palette-option-${command.id}`} key={command.id} role="option" aria-selected={active}>
                   <button
                     type="button"
                     className={active ? "commandPaletteItem commandPaletteItemActive" : "commandPaletteItem"}
