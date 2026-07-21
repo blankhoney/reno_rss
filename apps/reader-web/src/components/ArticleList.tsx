@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Article } from "@/lib/articles/types";
 import type { ArticleSortId, SummaryLangId } from "@/lib/articles/service";
 import { ScoreRing, tierLabel } from "./ScoreRing";
 import { ArticleListSkeleton } from "./Skeleton";
 import { SortMenu, type SortOption } from "./SortMenu";
-import { FOCUS_ARTICLE_LIST_EVENT, isEditableKeyboardTarget } from "@/lib/commandPalette";
+import { FOCUS_ARTICLE_LIST_EVENT, isInteractiveKeyboardTarget } from "@/lib/commandPalette";
 import Link from "next/link";
 
 type ArticleListProps = {
@@ -102,73 +102,58 @@ export function ArticleList({
     return () => window.removeEventListener(FOCUS_ARTICLE_LIST_EVENT, onFocusList);
   }, []);
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (isEditableKeyboardTarget(event.target)) return;
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (articles.length === 0 || isLoading) return;
+  function onListKeyDown(event: KeyboardEvent<HTMLUListElement>) {
+    if (isInteractiveKeyboardTarget(event.target)) return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (articles.length === 0 || isLoading) return;
 
-      if (event.key === "j" || event.key === "J") {
-        event.preventDefault();
-        setSelectedIndex((index) => Math.min(index + 1, articles.length - 1));
-        return;
-      }
-      if (event.key === "k" || event.key === "K") {
-        event.preventDefault();
-        setSelectedIndex((index) => Math.max(index - 1, 0));
-        return;
-      }
-      if (event.key === "Enter") {
-        const article = articles[selectedIndex];
-        if (!article) return;
-        event.preventDefault();
-        const href = readHref(currentModule, currentSort, currentLang, article.id);
-        window.location.assign(href);
-        return;
-      }
-      if ((event.key === "r" || event.key === "R") && onToggleRead) {
-        const article = articles[selectedIndex];
-        if (!article) return;
-        event.preventDefault();
-        onToggleRead(article);
-        return;
-      }
-      if ((event.key === "s" || event.key === "S") && onToggleCandidate) {
-        const article = articles[selectedIndex];
-        if (!article) return;
-        event.preventDefault();
-        onToggleCandidate(article);
-        return;
-      }
-      if ((event.key === "p" || event.key === "P") && onToggleProject) {
-        const article = articles[selectedIndex];
-        if (!article) return;
-        event.preventDefault();
-        onToggleProject(article);
-        return;
-      }
-      if (event.key === "1" || event.key === "2" || event.key === "3") {
-        // Dimension sort shortcuts: 1 score, 2 technical, 3 business
-        event.preventDefault();
-        if (event.key === "1") onSortChange?.("score");
-        if (event.key === "2") onSortChange?.("technical");
-        if (event.key === "3") onSortChange?.("business");
-      }
+    if (event.key === "j" || event.key === "J") {
+      event.preventDefault();
+      setSelectedIndex((index) => Math.min(index + 1, articles.length - 1));
+      return;
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    articles,
-    currentLang,
-    currentModule,
-    currentSort,
-    isLoading,
-    onSortChange,
-    onToggleCandidate,
-    onToggleProject,
-    onToggleRead,
-    selectedIndex,
-  ]);
+    if (event.key === "k" || event.key === "K") {
+      event.preventDefault();
+      setSelectedIndex((index) => Math.max(index - 1, 0));
+      return;
+    }
+    if (event.key === "Enter") {
+      const article = articles[selectedIndex];
+      if (!article) return;
+      event.preventDefault();
+      const href = readHref(currentModule, currentSort, currentLang, article.id);
+      window.location.assign(href);
+      return;
+    }
+    if ((event.key === "r" || event.key === "R") && onToggleRead) {
+      const article = articles[selectedIndex];
+      if (!article) return;
+      event.preventDefault();
+      onToggleRead(article);
+      return;
+    }
+    if ((event.key === "s" || event.key === "S") && onToggleCandidate) {
+      const article = articles[selectedIndex];
+      if (!article) return;
+      event.preventDefault();
+      onToggleCandidate(article);
+      return;
+    }
+    if ((event.key === "p" || event.key === "P") && onToggleProject) {
+      const article = articles[selectedIndex];
+      if (!article) return;
+      event.preventDefault();
+      onToggleProject(article);
+      return;
+    }
+    if (event.key === "1" || event.key === "2" || event.key === "3") {
+      // Dimension sort shortcuts: 1 score, 2 technical, 3 business
+      event.preventDefault();
+      if (event.key === "1") onSortChange?.("score");
+      if (event.key === "2") onSortChange?.("technical");
+      if (event.key === "3") onSortChange?.("business");
+    }
+  }
 
   useEffect(() => {
     if (articles.length === 0) return;
@@ -221,7 +206,8 @@ export function ArticleList({
           ref={listRef}
           className={isPaging ? "articleList articleListPaging" : "articleList"}
           aria-busy={isPaging ? "true" : undefined}
-          tabIndex={-1}
+          onKeyDown={onListKeyDown}
+          tabIndex={0}
         >
           {articles.map((article, index) => {
             const score = article.score;

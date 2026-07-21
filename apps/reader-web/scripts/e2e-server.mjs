@@ -84,6 +84,47 @@ const proxy = createServer((request, response) => {
     sendJson(response, 204, undefined);
     return;
   }
+  if (url.pathname === "/api/articles" && request.method === "GET") {
+    sendJson(response, 200, {
+      items: [
+        {
+          id: 7,
+          title: "Keyboard article one",
+          url: "https://example.com/one",
+          feed: { id: 1, title: "Fixture feed" },
+          category: null,
+          published_at: "2026-07-21T00:00:00Z",
+          content_quality: "full",
+          summary_zh: "第一篇测试文章。",
+          score: null,
+          state: { status: "unread", saved: false, project: false, read_progress: 0 },
+        },
+        {
+          id: 8,
+          title: "Keyboard article two",
+          url: "https://example.com/two",
+          feed: { id: 1, title: "Fixture feed" },
+          category: null,
+          published_at: "2026-07-20T00:00:00Z",
+          content_quality: "full",
+          summary_zh: "第二篇测试文章。",
+          score: null,
+          state: { status: "unread", saved: false, project: false, read_progress: 0 },
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    });
+    return;
+  }
+  if (url.pathname === "/api/articles/stats" && request.method === "GET") {
+    sendJson(response, 200, { total: 2, scored: 0, unscored: 2 });
+    return;
+  }
+  if (url.pathname === "/api/recommendations/latest" && request.method === "GET") {
+    sendJson(response, 200, { items: [], generated_at: "2026-07-21T00:00:00Z" });
+    return;
+  }
   if (url.pathname === "/api/articles/7" && request.method === "GET") {
     sendJson(response, 200, { id: 7, owner: currentUser.id, content_html: `<p>${currentUser.id}</p>` });
     return;

@@ -218,6 +218,17 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
+export function isInteractiveKeyboardTarget(target: EventTarget | null): boolean {
+  if (isEditableKeyboardTarget(target)) return true;
+  if (target == null || typeof target !== "object") return false;
+  const el = target as { closest?: (selector: string) => unknown; tagName?: string };
+  if (typeof el.closest === "function") {
+    return Boolean(el.closest("a, button, [role='button'], [role='dialog'], [role='listbox'], [role='menuitem'], [role='option']"));
+  }
+  const tag = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+  return tag === "A" || tag === "BUTTON";
+}
+
 export function isCommandPaletteToggle(event: {
   key: string;
   metaKey: boolean;

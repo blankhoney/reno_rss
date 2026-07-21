@@ -78,6 +78,23 @@ test("mobile module drawer overlays the bottom navigation", async ({ page }) => 
   expect(layers.drawer).toBeGreaterThan(layers.bottomNav);
 });
 
+test("article shortcuts only apply when the article list owns focus", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+
+  const sortButton = page.getByRole("button", { name: /排序/ });
+  await sortButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("listbox", { name: "排序方式" })).toBeVisible();
+  await expect(page).toHaveURL(/\?module=all/);
+
+  const list = page.locator(".articleList");
+  await list.focus();
+  await page.keyboard.press("j");
+  await expect(page.getByRole("link", { name: /Keyboard article two/ })).toHaveAttribute("aria-current", "true");
+});
+
 test("Focus mode preserves a visible workbench column at the 899px breakpoint", async ({ page }) => {
   await page.setViewportSize({ width: 899, height: 900 });
   await resetFixtures(page);
