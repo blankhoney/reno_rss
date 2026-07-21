@@ -550,12 +550,14 @@ export function FocusedArticleReader({
 
   return (
     <motion.main
-      className="focusReader"
+      className={dualPane ? "focusReader focusReaderDualPane" : "focusReader"}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.19, ease: "easeOut" }}
     >
-      <header className="focusTopbar">
+      <div className="focusReaderLayout">
+        <div className="focusReaderPrimary">
+          <header className="focusTopbar">
         <Link className="readerToolbarBtn" href={returnHref} prefetch={false}>
           返回工作台
         </Link>
@@ -890,6 +892,70 @@ export function FocusedArticleReader({
           <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
         )}
       </article>
+        </div>
+
+        {dualPane && dualPaneKind === "notes" ? (
+          <aside className="focusedArticleNotes" aria-label="笔记双栏">
+            <h2>笔记</h2>
+            <p className="workbenchRibbonMuted">双栏模式：文章 + 笔记。选区高亮仍会保存到私有标注。</p>
+            <textarea
+              className="agentQuestion"
+              rows={12}
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              placeholder="边读边记…"
+            />
+            <button
+              type="button"
+              className="readerToolbarBtn readerToolbarBtnPrimary"
+              disabled={noteDraft.trim().length === 0}
+              onClick={() => {
+                void createArticleAnnotation(article.id, {
+                  content: noteDraft.trim(),
+                  selectedText: selectedText || null,
+                  color: highlightColor,
+                })
+                  .then((created) => {
+                    setAnnotations((current) => [created, ...current]);
+                    setNoteDraft("");
+                    emitToast({ title: "笔记已保存", variant: "success" });
+                  })
+                  .catch((error) => {
+                    emitToast({
+                      title: error instanceof Error ? error.message : "笔记保存失败",
+                      variant: "error",
+                    });
+                  });
+              }}
+            >
+              保存笔记
+            </button>
+          </aside>
+        ) : null}
+
+        {dualPane && dualPaneKind === "article" ? (
+          <aside className="focusedArticleNotes dualArticlePane" aria-label="对照文章">
+            <h2>对照阅读</h2>
+            {dualArticle == null ? (
+              <p className="workbenchRibbonMuted">在「阅读工艺」设置对照文章 ID，或 ⌘K 打开工艺面板。</p>
+            ) : (
+              <>
+                <p className="workbenchRibbonMuted">
+                  #{dualArticle.id} ·{" "}
+                  <Link href={`/read/${dualArticle.id}?module=all&sort=default&lang=zh`} prefetch={false}>
+                    单独打开
+                  </Link>
+                </p>
+                <h3 className="dailyIntelCardTitle">{dualArticle.title}</h3>
+                <div
+                  className="articleContent content focusContent dualArticleBody"
+                  dangerouslySetInnerHTML={{ __html: dualArticle.contentHtml }}
+                />
+              </>
+            )}
+          </aside>
+        ) : null}
+      </div>
 
       {selectionRect && hasSelection ? (
         <div
@@ -1084,70 +1150,6 @@ export function FocusedArticleReader({
               </li>
             ))}
           </ul>
-        </aside>
-      ) : null}
-
-      {dualPane && dualPaneKind === "notes" ? (
-        <aside className="focusedArticleNotes" aria-label="笔记双栏">
-          <h2>笔记</h2>
-          <p className="workbenchRibbonMuted">双栏模式：文章 + 笔记。选区高亮仍会保存到私有标注。</p>
-          <textarea
-            className="agentQuestion"
-            rows={12}
-            value={noteDraft}
-            onChange={(event) => setNoteDraft(event.target.value)}
-            placeholder="边读边记…"
-          />
-          <button
-            type="button"
-            className="readerToolbarBtn readerToolbarBtnPrimary"
-            disabled={noteDraft.trim().length === 0}
-            onClick={() => {
-              void createArticleAnnotation(article.id, {
-                content: noteDraft.trim(),
-                selectedText: selectedText || null,
-                color: highlightColor,
-              })
-                .then((created) => {
-                  setAnnotations((current) => [created, ...current]);
-                  setNoteDraft("");
-                  emitToast({ title: "笔记已保存", variant: "success" });
-                })
-                .catch((error) => {
-                  emitToast({
-                    title: error instanceof Error ? error.message : "笔记保存失败",
-                    variant: "error",
-                  });
-                });
-            }}
-          >
-            保存笔记
-          </button>
-        </aside>
-      ) : null}
-
-      {dualPane && dualPaneKind === "article" ? (
-        <aside className="focusedArticleNotes dualArticlePane" aria-label="对照文章">
-          <h2>对照阅读</h2>
-          {dualArticle == null ? (
-            <p className="workbenchRibbonMuted">
-              在「阅读工艺」设置对照文章 ID，或 ⌘K 打开工艺面板。
-            </p>
-          ) : (
-            <>
-              <p className="workbenchRibbonMuted">
-                #{dualArticle.id} ·{" "}
-                <Link href={`/read/${dualArticle.id}?module=all&sort=default&lang=zh`} prefetch={false}>
-                  单独打开
-                </Link>
-              </p>
-              <h3 className="dailyIntelCardTitle">{dualArticle.title}</h3>
-              <div
-                className="articleContent content focusContent dualArticleBody"
-                dangerouslySetInnerHTML={{ __html: dualArticle.contentHtml }}
-              />
-            </>
-          )}
         </aside>
       ) : null}
     </motion.main>

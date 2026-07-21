@@ -3231,22 +3231,20 @@ html[data-density="compact"] .dailyIntelCardLink {
   }
 }
 
-html[data-dual-pane="true"] .focusReader {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.75fr);
-  gap: 0;
-  align-items: start;
+.focusReaderLayout {
+  min-width: 0;
+}
+
+.focusReaderPrimary {
+  min-width: 0;
 }
 
 .focusedArticleNotes {
-  border-left: 1px solid var(--border);
-  min-height: 100%;
+  border-top: 1px solid var(--border);
   background: var(--panel);
   padding: 16px 18px;
   display: grid;
   gap: 10px;
-  position: sticky;
-  top: var(--topbar-h);
 }
 
 .focusedArticleNotes h2,
@@ -3256,10 +3254,34 @@ html[data-dual-pane="true"] .focusReader {
 }
 
 .focusRelatedRail {
-  grid-column: 1 / -1;
   border-top: 1px solid var(--border);
   padding: 14px 18px 20px;
   background: var(--panel2, var(--panel));
+}
+
+@media (min-width: 901px) {
+  .focusReaderDualPane {
+    width: min(100%, 1180px);
+  }
+
+  .focusReaderDualPane .focusReaderLayout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.48fr);
+    align-items: start;
+  }
+
+  .focusReaderDualPane .focusedArticleNotes {
+    position: sticky;
+    top: var(--topbar-h);
+    min-height: 100%;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+
+  .focusReaderDualPane .agentDrawer {
+    left: max(20px, calc((100vw - 1180px) / 2));
+    right: max(20px, calc((100vw - 1180px) / 2));
+  }
 }
 
 .focusRelatedRail ul {

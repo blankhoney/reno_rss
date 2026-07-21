@@ -4,6 +4,22 @@ async function resetFixtures(page: import("@playwright/test").Page) {
   await page.request.post("/__e2e/reset");
 }
 
+async function enableNotesDualPane(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "ai-reader.craft.preferences",
+      JSON.stringify({
+        mode: "focus",
+        density: "comfortable",
+        dualPane: true,
+        dualPaneKind: "notes",
+        dualArticleId: null,
+        pinnedThemes: [],
+      }),
+    );
+  });
+}
+
 test("registers and controls the second local page load", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/");
@@ -186,6 +202,60 @@ test("reader overflow menu supports roving keys and Escape focus restoration", a
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(trigger).toBeFocused();
+});
+
+test("dual-pane reader uses readable desktop columns at 1440px", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await enableNotesDualPane(page);
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  const layout = page.locator(".focusReaderLayout");
+  const notes = page.getByRole("complementary", { name: "笔记双栏" });
+  await expect(notes).toBeVisible();
+  await expect(page.locator(".focusReader")).toHaveClass(/focusReaderDualPane/);
+
+  const geometry = await layout.evaluate((element) => {
+    const primary = element.querySelector<HTMLElement>(".focusReaderPrimary")!;
+    const secondary = element.querySelector<HTMLElement>(".focusedArticleNotes")!;
+    const primaryBounds = primary.getBoundingClientRect();
+    const secondaryBounds = secondary.getBoundingClientRect();
+    return {
+      display: getComputedStyle(element).display,
+      primaryWidth: primaryBounds.width,
+      secondaryWidth: secondaryBounds.width,
+      secondaryLeft: secondaryBounds.left,
+      primaryRight: primaryBounds.right,
+    };
+  });
+  expect(geometry.display).toBe("grid");
+  expect(geometry.primaryWidth).toBeGreaterThan(geometry.secondaryWidth);
+  expect(geometry.secondaryLeft).toBeGreaterThanOrEqual(geometry.primaryRight);
+});
+
+test("dual-pane reader intentionally stacks notes after content at 899px", async ({ page }) => {
+  await page.setViewportSize({ width: 899, height: 900 });
+  await enableNotesDualPane(page);
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  const layout = page.locator(".focusReaderLayout");
+  const notes = page.getByRole("complementary", { name: "笔记双栏" });
+  await expect(notes).toBeVisible();
+
+  const geometry = await layout.evaluate((element) => {
+    const primary = element.querySelector<HTMLElement>(".focusReaderPrimary")!;
+    const secondary = element.querySelector<HTMLElement>(".focusedArticleNotes")!;
+    const primaryBounds = primary.getBoundingClientRect();
+    const secondaryBounds = secondary.getBoundingClientRect();
+    return {
+      display: getComputedStyle(element).display,
+      secondaryTop: secondaryBounds.top,
+      primaryBottom: primaryBounds.bottom,
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    };
+  });
+  expect(geometry.display).toBe("block");
+  expect(geometry.secondaryTop).toBeGreaterThanOrEqual(geometry.primaryBottom);
+  expect(geometry.horizontalOverflow).toBe(false);
 });
 
 test("Focus mode preserves a visible workbench column at the 899px breakpoint", async ({ page }) => {
