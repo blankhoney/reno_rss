@@ -957,7 +957,7 @@ export function FocusedArticleReader({
         ) : null}
       </div>
 
-      {selectionRect && hasSelection ? (
+      {selectionRect && hasSelection && !drawerOpen ? (
         <div
           className="selectionPopover"
           role="toolbar"

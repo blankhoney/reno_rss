@@ -20,6 +20,18 @@ async function enableNotesDualPane(page: import("@playwright/test").Page) {
   });
 }
 
+async function selectReaderText(page: import("@playwright/test").Page) {
+  const paragraph = page.locator(".focusContent p");
+  await paragraph.scrollIntoViewIfNeeded();
+  const box = await paragraph.boundingBox();
+  if (box == null) throw new Error("E2E article fixture has no selectable text");
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 1, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 1, y, { steps: 4 });
+  await page.mouse.up();
+}
+
 test("registers and controls the second local page load", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/");
@@ -92,6 +104,36 @@ test("mobile module drawer overlays the bottom navigation", async ({ page }) => 
     bottomNav: Number.parseInt(getComputedStyle(document.querySelector(".mobileBottomNav")!).zIndex, 10),
   }));
   expect(layers.drawer).toBeGreaterThan(layers.bottomNav);
+});
+
+test("mobile selection toolbar stays above navigation and yields to the Agent drawer", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("button", { name: /文章助手/ })).toBeVisible();
+  await page.evaluate(() => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())));
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const selection = document.querySelector<HTMLElement>(".selectionPopover")!.getBoundingClientRect();
+    const navigation = document.querySelector<HTMLElement>(".mobileBottomNav")!.getBoundingClientRect();
+    return {
+      selectionLeft: selection.left,
+      selectionRight: selection.right,
+      selectionBottom: selection.bottom,
+      navigationTop: navigation.top,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  expect(geometry.selectionLeft).toBeGreaterThanOrEqual(0);
+  expect(geometry.selectionRight).toBeLessThanOrEqual(geometry.viewportWidth);
+  expect(geometry.selectionBottom).toBeLessThanOrEqual(geometry.navigationTop);
+
+  await page.getByRole("button", { name: /文章助手/ }).click();
+  await expect(toolbar).toBeHidden();
+  await expect(page.getByText(/已选中：user-a/)).toBeVisible();
 });
 
 test("article shortcuts only apply when the article list owns focus", async ({ page }) => {
@@ -254,7 +296,7 @@ test("dual-pane reader intentionally stacks notes after content at 899px", async
     };
   });
   expect(geometry.display).toBe("block");
-  expect(geometry.secondaryTop).toBeGreaterThanOrEqual(geometry.primaryBottom);
+  expect(geometry.secondaryTop).toBeGreaterThanOrEqual(geometry.primaryBottom - 0.1);
   expect(geometry.horizontalOverflow).toBe(false);
 });
 

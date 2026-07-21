@@ -2698,6 +2698,26 @@ body:has(.focusReader) .toastHost {
   }
 }
 
+@media (max-width: 900px) {
+  .selectionPopover {
+    top: auto !important;
+    right: 12px;
+    bottom: calc(var(--mobile-bottom-nav-offset) + var(--space-2));
+    left: 12px !important;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    transform: none;
+  }
+
+  .selectionTagInput {
+    flex: 1 1 108px;
+    width: auto;
+  }
+}
+
 @media (max-width: 600px) {
   .authSessionBar {
     padding-inline: 10px;
