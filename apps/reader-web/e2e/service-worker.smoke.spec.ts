@@ -4,20 +4,33 @@ async function resetFixtures(page: import("@playwright/test").Page) {
   await page.request.post("/__e2e/reset");
 }
 
-async function enableNotesDualPane(page: import("@playwright/test").Page) {
-  await page.addInitScript(() => {
+async function setCraftPreferences(
+  page: import("@playwright/test").Page,
+  preferences: {
+    mode: "scan" | "focus" | "keep";
+    dualPane?: boolean;
+    dualPaneKind?: "notes" | "article";
+  },
+) {
+  await page.addInitScript((prefs) => {
     window.localStorage.setItem(
       "ai-reader.craft.preferences",
       JSON.stringify({
-        mode: "focus",
+        mode: prefs.mode,
         density: "comfortable",
-        dualPane: true,
-        dualPaneKind: "notes",
+        dualPane: prefs.dualPane ?? false,
+        dualPaneKind: prefs.dualPaneKind ?? "notes",
         dualArticleId: null,
         pinnedThemes: [],
       }),
     );
-  });
+    document.documentElement.dataset.readerMode = prefs.mode;
+    document.documentElement.dataset.dualPane = prefs.dualPane ? "true" : "false";
+  }, preferences);
+}
+
+async function enableNotesDualPane(page: import("@playwright/test").Page) {
+  await setCraftPreferences(page, { mode: "focus", dualPane: true, dualPaneKind: "notes" });
 }
 
 async function selectReaderText(page: import("@playwright/test").Page) {
@@ -338,6 +351,31 @@ test("dual-pane reader intentionally stacks notes after content at 899px", async
   expect(geometry.secondaryTop).toBeGreaterThanOrEqual(geometry.primaryBottom - 0.1);
   expect(geometry.horizontalOverflow).toBe(false);
 });
+
+for (const viewport of [
+  { width: 375, height: 812 },
+  { width: 768, height: 1024 },
+  { width: 1440, height: 1000 },
+]) {
+  for (const mode of ["scan", "focus", "keep"] as const) {
+    test(`${mode} mode remains navigable at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await setCraftPreferences(page, { mode });
+      await resetFixtures(page);
+      await page.goto("/?module=all");
+      const articleLink = page.getByRole("link", { name: /Keyboard article one/ });
+      await expect(articleLink).toBeVisible();
+      await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe(mode);
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth))
+        .toBe(false);
+
+      await articleLink.click();
+      await expect(page).toHaveURL(/\/read\/7\?module=all/);
+      await expect(page.getByRole("button", { name: "更多文章操作" })).toBeVisible();
+    });
+  }
+}
 
 test("Focus mode switches to its intentional desktop layout at 901px", async ({ page }) => {
   await page.setViewportSize({ width: 901, height: 900 });
