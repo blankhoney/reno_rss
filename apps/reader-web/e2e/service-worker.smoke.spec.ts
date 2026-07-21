@@ -119,8 +119,48 @@ test("mobile module drawer overlays the bottom navigation", async ({ page }) => 
   expect(layers.drawer).toBeGreaterThan(layers.bottomNav);
 });
 
-test("mobile selection toolbar stays above navigation and yields to the Agent drawer", async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 812 });
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 768, height: 1024 },
+]) {
+  test(`mobile module drawer isolates navigation at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await resetFixtures(page);
+    await page.goto("/?module=all");
+    await page.getByRole("button", { name: "打开阅读模块" }).click();
+    const drawer = page.getByRole("dialog", { name: "阅读模块" });
+    await expect(drawer).toBeVisible();
+    await expect(page.locator(".mobileBottomNav")).toHaveJSProperty("inert", true);
+    await expect.poll(() => drawer.evaluate((element) => element.getBoundingClientRect().left >= 0)).toBe(true);
+
+    const geometry = await page.evaluate(() => {
+      const drawer = document.querySelector<HTMLElement>(".mobileNavDrawer")!.getBoundingClientRect();
+      const navigation = document.querySelector<HTMLElement>(".mobileBottomNav")!.getBoundingClientRect();
+      return {
+        drawerLeft: drawer.left,
+        drawerRight: drawer.right,
+        drawerTop: drawer.top,
+        drawerBottom: drawer.bottom,
+        navigationTop: navigation.top,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    expect(geometry.drawerLeft).toBeGreaterThanOrEqual(0);
+    expect(geometry.drawerRight).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(geometry.drawerTop).toBeGreaterThanOrEqual(0);
+    expect(geometry.drawerBottom).toBeLessThanOrEqual(geometry.viewportHeight);
+    expect(geometry.navigationTop).toBeGreaterThan(geometry.drawerTop);
+  });
+}
+
+for (const viewport of [
+  { width: 375, height: 812 },
+  { width: 390, height: 844 },
+  { width: 768, height: 1024 },
+]) {
+  test(`mobile selection toolbar stays above navigation and yields to the Agent drawer at ${viewport.width}px`, async ({ page }) => {
+  await page.setViewportSize(viewport);
   await resetFixtures(page);
   await page.goto("/read/7?module=all&sort=default&lang=zh");
   await expect(page.getByRole("button", { name: /文章助手/ })).toBeVisible();
@@ -166,7 +206,8 @@ test("mobile selection toolbar stays above navigation and yields to the Agent dr
     return { toastBottom: toast.bottom, agentTop: agent.top };
   });
   expect(agentGeometry.toastBottom).toBeLessThanOrEqual(agentGeometry.agentTop + 0.1);
-});
+  });
+}
 
 for (const viewport of [
   { width: 390, height: 844 },
@@ -233,6 +274,7 @@ test("article links and command input retain native keyboard behavior", async ({
   await expect(page).toHaveURL(/\/read\/7\?module=all/);
 
   await page.goto("/?module=all");
+  await expect(page.getByRole("link", { name: /Keyboard article one/ })).toBeVisible();
   await page.keyboard.press("Meta+k");
   const input = page.getByRole("textbox");
   await expect(input).toBeFocused();
@@ -418,7 +460,7 @@ for (const viewport of [
   }
 }
 
-test("Focus mode switches to its intentional desktop layout at 901px", async ({ page }) => {
+test("Focus mode preserves desktop module navigation at 901px", async ({ page }) => {
   await page.setViewportSize({ width: 901, height: 900 });
   await resetFixtures(page);
   await page.goto("/?module=all");
@@ -438,19 +480,28 @@ test("Focus mode switches to its intentional desktop layout at 901px", async ({ 
     };
   });
   expect(layout.gridColumns.startsWith("0px")).toBe(false);
-  expect(layout.sidebarDisplay).toBe("none");
+  expect(layout.sidebarDisplay).not.toBe("none");
   expect(layout.bottomNavDisplay).toBe("none");
   expect(layout.horizontalOverflow).toBe(false);
+  await expect(page.getByRole("link", { name: "新到" })).toBeVisible();
 });
 
 test("Focus mode preserves a visible workbench column at the 899px breakpoint", async ({ page }) => {
   await page.setViewportSize({ width: 899, height: 900 });
   await resetFixtures(page);
   await page.goto("/?module=all");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
   await page.evaluate(() => {
     document.documentElement.dataset.readerMode = "focus";
   });
 
   const gridColumns = await page.locator(".workbench").evaluate((element) => getComputedStyle(element).gridTemplateColumns);
   expect(gridColumns.startsWith("0px")).toBe(false);
+  const moduleTrigger = page.getByRole("button", { name: "打开阅读模块" });
+  await expect(moduleTrigger).toBeVisible();
+  await moduleTrigger.click();
+  await expect(page.getByRole("dialog", { name: "阅读模块" })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth))
+    .toBe(false);
 });

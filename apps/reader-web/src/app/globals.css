@@ -3249,16 +3249,6 @@ html[data-density="compact"] .dailyIntelCardLink {
   padding-bottom: 8px;
 }
 
-@media (min-width: 901px) {
-  html[data-reader-mode="focus"] .workbench {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  html[data-reader-mode="focus"] .moduleSidebar {
-    display: none;
-  }
-}
-
 .focusReaderLayout {
   min-width: 0;
 }
