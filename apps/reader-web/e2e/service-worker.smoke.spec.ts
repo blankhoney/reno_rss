@@ -63,3 +63,29 @@ test("clears cached article details when the authenticated user changes", async 
 
   expect(articleForBOffline).toMatchObject({ status: 503, body: { error: { code: "offline" } } });
 });
+
+test("mobile module drawer overlays the bottom navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  await page.getByRole("button", { name: "打开阅读模块" }).click();
+  await expect(page.getByRole("dialog", { name: "阅读模块" })).toBeVisible();
+
+  const layers = await page.evaluate(() => ({
+    drawer: Number.parseInt(getComputedStyle(document.querySelector(".mobileNavOverlay")!).zIndex, 10),
+    bottomNav: Number.parseInt(getComputedStyle(document.querySelector(".mobileBottomNav")!).zIndex, 10),
+  }));
+  expect(layers.drawer).toBeGreaterThan(layers.bottomNav);
+});
+
+test("Focus mode preserves a visible workbench column at the 899px breakpoint", async ({ page }) => {
+  await page.setViewportSize({ width: 899, height: 900 });
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  await page.evaluate(() => {
+    document.documentElement.dataset.readerMode = "focus";
+  });
+
+  const gridColumns = await page.locator(".workbench").evaluate((element) => getComputedStyle(element).gridTemplateColumns);
+  expect(gridColumns.startsWith("0px")).toBe(false);
+});
