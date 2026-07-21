@@ -6,6 +6,7 @@ import {
   articleFromApiItem,
   enqueueFetchContentJob,
   feedbackFromApi,
+  getArticle,
   getArticleStats,
   getJob,
   listArticles,
@@ -210,6 +211,41 @@ test("articleFromApiDetail sanitizes detail HTML and maps full content", () => {
   assert.equal(article.categoryTitle, "AI");
   assert.equal(article.summaryOriginal, "Original summary");
   assert.equal(article.sourceLanguage, "en");
+});
+
+test("getArticle sanitizes article-detail JSON regardless of where fetch obtained it", async () => {
+  const restoreFetch = withMockFetch(() =>
+    new Response(
+      JSON.stringify({
+        id: 77,
+        title: "Cached-style article",
+        url: "https://example.com/cached",
+        feed: null,
+        category: null,
+        published_at: null,
+        content_quality: "full",
+        content_html: '<p>Safe text</p><img src="javascript:alert(1)"><script>alert(1)</script>',
+        content_zh: null,
+        content_zh_status: "none",
+        translated_at: null,
+        content_text: "Safe text",
+        content_source: "rss",
+        score: null,
+        state: { status: "unread", saved: false, read_progress: 0 },
+        sources: [],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  );
+
+  try {
+    const article = await getArticle(77);
+    assert.match(article.contentHtml, /Safe text/);
+    assert.doesNotMatch(article.contentHtml, /<script/i);
+    assert.doesNotMatch(article.contentHtml, /javascript:/i);
+  } finally {
+    restoreFetch();
+  }
 });
 
 test("articleFromApiDetail tolerates missing content fields", () => {

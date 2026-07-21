@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ARTICLE_DETAIL_CACHE, PRIVATE_CACHE_OWNER_KEY } from "@/lib/pwa/cacheKey";
 import { getCurrentSession, loginWithDisplayName, logoutSession, recoverSession } from "./auth";
 
 function withMockFetch(
@@ -16,6 +17,43 @@ function withMockFetch(
 function headerValue(headers: HeadersInit | undefined, name: string): string | null {
   if (!headers) return null;
   return new Headers(headers).get(name);
+}
+
+function withPwaStorage(owner: string | null) {
+  const originalCaches = Object.getOwnPropertyDescriptor(globalThis, "caches");
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const values = new Map<string, string>();
+  const deletedCaches: string[] = [];
+  if (owner != null) values.set(PRIVATE_CACHE_OWNER_KEY, owner);
+
+  Object.defineProperty(globalThis, "caches", {
+    configurable: true,
+    value: {
+      delete: async (name: string) => {
+        deletedCaches.push(name);
+        return true;
+      },
+    },
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+
+  return {
+    deletedCaches,
+    values,
+    restore() {
+      if (originalCaches == null) delete (globalThis as { caches?: unknown }).caches;
+      else Object.defineProperty(globalThis, "caches", originalCaches);
+      if (originalStorage == null) delete (globalThis as { localStorage?: unknown }).localStorage;
+      else Object.defineProperty(globalThis, "localStorage", originalStorage);
+    },
+  };
 }
 
 test("loginWithDisplayName posts display name and returns recovery code", async () => {
@@ -99,6 +137,49 @@ test("recoverSession posts recovery code and returns the refreshed code", async 
     assert.equal(session.recoveryCode, "recover-grace-7890");
   } finally {
     restoreFetch();
+  }
+});
+
+test("auth transitions clear private article cache when the owner changes or ends", async () => {
+  const pwa = withPwaStorage("user-a");
+  const restoreFetch = withMockFetch((input) => {
+    if (input === "/api/auth/login") {
+      return new Response(
+        JSON.stringify({
+          user: {
+            id: "user-b",
+            display_name: "Babbage",
+            role: "user",
+            created_at: "2026-06-25T00:00:00Z",
+            last_seen_at: null,
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (input === "/api/auth/me") {
+      return new Response(
+        JSON.stringify({ error: { code: "unauthenticated", message: "Authentication required" } }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response(null, { status: 204 });
+  });
+
+  try {
+    await loginWithDisplayName("Babbage");
+    assert.deepEqual(pwa.deletedCaches, [ARTICLE_DETAIL_CACHE]);
+    assert.equal(pwa.values.get(PRIVATE_CACHE_OWNER_KEY), "user-b");
+
+    await getCurrentSession();
+    assert.deepEqual(pwa.deletedCaches, [ARTICLE_DETAIL_CACHE, ARTICLE_DETAIL_CACHE]);
+    assert.equal(pwa.values.has(PRIVATE_CACHE_OWNER_KEY), false);
+
+    await logoutSession();
+    assert.deepEqual(pwa.deletedCaches, [ARTICLE_DETAIL_CACHE, ARTICLE_DETAIL_CACHE, ARTICLE_DETAIL_CACHE]);
+  } finally {
+    restoreFetch();
+    pwa.restore();
   }
 });
 

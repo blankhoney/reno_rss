@@ -44,11 +44,11 @@ Do not pre-mark rows as passed. Replace `Pending` only with an observed result o
 
 | ID | Status | Implementation evidence | Verification evidence |
 |---|---|---|---|
-| FEX-01 | Pending | | |
-| FEX-02 | Pending | | |
-| FEX-03 | Pending | | |
-| FEX-04 | Pending | | |
-| FEX-05 | Pending | | |
+| FEX-01 | Passed | `sw.js` allowlists exact article-detail JSON and explicit shell/static assets; auth/jobs/annotations/export/Admin/search/list routes are not intercepted. | Node VM policy test plus Chromium job route sees two network responses. |
+| FEX-02 | Passed | v2 owned cache names; activation removes obsolete `ai-reader-*` caches only; cache writes require successful JSON and use named cache matches. | Node VM tests cover failed/non-JSON exclusion and old-owned-cache deletion while preserving unrelated cache. |
+| FEX-03 | Passed | `auth.ts` synchronizes the article-cache owner on session establishment and clears private cache on 401/logout; `sessionCache.ts` invalidates stale in-flight requests. | Chromium drives A article cache → real logout/login UI → offline B request; B receives 503 offline, never A payload. |
+| FEX-04 | Passed | `/api/jobs/{id}` is outside the worker fetch allowlist. | Chromium worker-controlled second load receives queued then succeeded from two network job requests. |
+| FEX-05 | Passed | Cached JSON remains on `getArticle()` → `articleFromApiDetail()` → `sanitizeArticleHtml()` path. | Node adapter test feeds script/`javascript:` JSON and asserts dangerous content is absent. |
 | FEX-06 | Pending | | |
 | FEX-07 | Pending | | |
 | FEX-08 | Pending | | |
@@ -98,8 +98,8 @@ Record the date, cwd, exact command, exit code, and meaningful output. Do not wr
 |---|---|---|---|
 | 2026-07-21 | `npm --prefix apps/reader-web test` | 0 — 171 passed | First invocation from repository root was an `ENOENT` command-path error and did not run tests; corrected command is recorded here. |
 | 2026-07-21 | `npm --prefix apps/reader-web run build` | 0 — compiled, TypeScript, 4 routes | Also restored the dev-generated `next-env.d.ts` reference. |
-| 2026-07-21 | `npm --prefix apps/reader-web run test:e2e` | 0 — 1 Chromium test passed | Smoke verifies standalone public/static copy and second-load Service Worker control. |
-| TBD | `git diff --check` | Pending | Run after Wave 0 implementation files are complete. |
+| 2026-07-21 | `npm --prefix apps/reader-web run test:e2e` | 0 — 1 Chromium test passed | Initial smoke verifies standalone public/static copy and second-load Service Worker control. |
+| 2026-07-21 | `npm test && npm run build && npm run test:e2e && git diff --check` (cwd `apps/reader-web`) | 0 — 176 Node tests, build passed, 3 Chromium tests passed | Wave 1 full gate: allowlist/lifecycle, job freshness, A→B offline isolation, sanitizer path. |
 
 ## API/OpenAPI gate
 
