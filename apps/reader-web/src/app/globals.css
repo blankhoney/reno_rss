@@ -2716,6 +2716,10 @@ body:has(.focusReader) .toastHost {
     flex: 1 1 108px;
     width: auto;
   }
+
+  body:has(.agentDrawerOpen) .toastHost {
+    bottom: calc(50vh + var(--mobile-bottom-nav-offset) + var(--space-4));
+  }
 }
 
 @media (max-width: 600px) {

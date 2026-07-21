@@ -136,6 +136,45 @@ test("mobile selection toolbar stays above navigation and yields to the Agent dr
   await expect(page.getByText(/已选中：user-a/)).toBeVisible();
 });
 
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 768, height: 1024 },
+]) {
+  test(`mobile Agent and Toast avoid bottom-navigation overlap at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await resetFixtures(page);
+    await page.goto("/read/7?module=all&sort=default&lang=zh");
+    await expect(page.locator(".toastHost")).toBeAttached();
+    await page.evaluate(
+      () => new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))),
+    );
+    await page.getByRole("button", { name: /文章助手/ }).click();
+    await expect(page.locator(".agentDrawer")).toHaveClass(/agentDrawerOpen/);
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("ai-reader:toast", { detail: { title: "移动布局检查", variant: "info" } }),
+      );
+    });
+    await expect(page.getByText("移动布局检查", { exact: true })).toBeVisible();
+
+    const geometry = await page.evaluate(() => {
+      const toast = document.querySelector<HTMLElement>(".toastCard")!.getBoundingClientRect();
+      const agent = document.querySelector<HTMLElement>(".agentDrawer")!.getBoundingClientRect();
+      const navigation = document.querySelector<HTMLElement>(".mobileBottomNav")!.getBoundingClientRect();
+      return {
+        toastBottom: toast.bottom,
+        agentTop: agent.top,
+        agentBottom: agent.bottom,
+        navigationTop: navigation.top,
+        horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      };
+    });
+    expect(geometry.toastBottom).toBeLessThanOrEqual(geometry.agentTop + 0.1);
+    expect(geometry.agentBottom).toBeLessThanOrEqual(geometry.navigationTop);
+    expect(geometry.horizontalOverflow).toBe(false);
+  });
+}
+
 test("article shortcuts only apply when the article list owns focus", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=all");
@@ -298,6 +337,31 @@ test("dual-pane reader intentionally stacks notes after content at 899px", async
   expect(geometry.display).toBe("block");
   expect(geometry.secondaryTop).toBeGreaterThanOrEqual(geometry.primaryBottom - 0.1);
   expect(geometry.horizontalOverflow).toBe(false);
+});
+
+test("Focus mode switches to its intentional desktop layout at 901px", async ({ page }) => {
+  await page.setViewportSize({ width: 901, height: 900 });
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.dataset.readerMode = "focus";
+  });
+
+  const layout = await page.evaluate(() => {
+    const sidebar = document.querySelector(".moduleSidebar");
+    const bottomNav = document.querySelector(".mobileBottomNav");
+    return {
+      gridColumns: getComputedStyle(document.querySelector(".workbench")!).gridTemplateColumns,
+      sidebarDisplay: sidebar == null ? "none" : getComputedStyle(sidebar).display,
+      bottomNavDisplay: bottomNav == null ? "none" : getComputedStyle(bottomNav).display,
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    };
+  });
+  expect(layout.gridColumns.startsWith("0px")).toBe(false);
+  expect(layout.sidebarDisplay).toBe("none");
+  expect(layout.bottomNavDisplay).toBe("none");
+  expect(layout.horizontalOverflow).toBe(false);
 });
 
 test("Focus mode preserves a visible workbench column at the 899px breakpoint", async ({ page }) => {
