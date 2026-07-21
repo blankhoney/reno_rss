@@ -132,6 +132,62 @@ test("command palette inerts the app and restores prior focus after Escape", asy
   await expect(sortButton).toBeFocused();
 });
 
+test("sort listbox supports roving keys, selection, and Escape focus restoration", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  const trigger = page.getByRole("button", { name: /排序/ });
+  await trigger.focus();
+  await page.keyboard.press("ArrowDown");
+  const listbox = page.getByRole("listbox", { name: "排序方式" });
+  await expect(listbox).toBeVisible();
+  await expect(page.getByRole("option", { name: "默认排序" })).toBeFocused();
+
+  await page.keyboard.press("End");
+  await expect(page.getByRole("option", { name: "按趋势" })).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(page.getByRole("option", { name: "默认排序" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("option", { name: "按最新" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/sort=latest/);
+
+  await trigger.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(listbox).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(listbox).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("option", { name: "默认排序" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("option", { name: "按最新" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("option", { name: "按总分" })).toBeFocused();
+  await page.keyboard.press(" ");
+  await expect(page).toHaveURL(/sort=score/);
+});
+
+test("reader overflow menu supports roving keys and Escape focus restoration", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  const trigger = page.getByRole("button", { name: "更多文章操作" });
+  await expect(trigger).toBeVisible();
+  await trigger.focus();
+  await page.keyboard.press("ArrowDown");
+  const menu = page.getByRole("menu", { name: "更多文章操作" });
+  await expect(menu).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "刷新全文" })).toBeFocused();
+
+  await page.keyboard.press("End");
+  await expect(page.getByRole("menuitem", { name: "标记已读" })).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(page.getByRole("menuitem", { name: "刷新全文" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
 test("Focus mode preserves a visible workbench column at the 899px breakpoint", async ({ page }) => {
   await page.setViewportSize({ width: 899, height: 900 });
   await resetFixtures(page);

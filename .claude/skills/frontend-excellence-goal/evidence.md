@@ -54,7 +54,7 @@ Do not pre-mark rows as passed. Replace `Pending` only with an observed result o
 | FEX-08 | In progress | Focus-specific desktop grid rule is constrained to `min-width: 901px`. | Chromium at 899×900 confirms nonzero workbench column. Required 901px continuity and overflow proof remain pending. |
 | FEX-09 | Pending | | |
 | FEX-10 | In progress | Article triage keys are handled only by the focusable article-list root; interactive controls are excluded. | Chromium proves Sort button retains Enter behavior and focused article list accepts `j`. Broader keyboard/native control matrix remains pending. |
-| FEX-11 | In progress | Module drawer and Command Palette use `useDismissableLayer` with initial focus, Tab containment, topmost Escape/outside arbitration, focus restoration, and inert background. Palette options expose active descendant IDs. | Chromium proves drawer focus stays inside, Escape restores hamburger; palette inerts workbench, focuses input, and Escape restores Sort. Sort/reader overflow arrow-key menus remain pending. |
+| FEX-11 | In progress | Module drawer and Command Palette use `useDismissableLayer` with initial focus, Tab containment, topmost Escape/outside arbitration, focus restoration, and inert background. Palette options expose active descendant IDs. Sort listbox and reader overflow now use roving `tabIndex`, Arrow/Home/End, Enter/Space execution, `aria-controls`, and trigger restoration. | Chromium proves drawer focus stays inside, Escape restores hamburger; palette inerts workbench, focuses input, and Escape restores Sort. Sort proves Arrow/Home/End, Enter and Space selection and Escape restoration; reader overflow proves Arrow/Home/End and Escape restoration. Broader menu/modal matrix remains pending. |
 | FEX-12 | Pending | | |
 | FEX-13 | Pending | | |
 | FEX-14 | Pending | | |
@@ -101,6 +101,7 @@ Record the date, cwd, exact command, exit code, and meaningful output. Do not wr
 | 2026-07-21 | `npm --prefix apps/reader-web run test:e2e` | 0 — 1 Chromium test passed | Initial smoke verifies standalone public/static copy and second-load Service Worker control. |
 | 2026-07-21 | `npm test && npm run build && npm run test:e2e && git diff --check` (cwd `apps/reader-web`) | 0 — 176 Node tests, build passed, 3 Chromium tests passed | Wave 1 full gate: allowlist/lifecycle, job freshness, A→B offline isolation, sanitizer path. |
 | 2026-07-21 | `npm test && npm run build && npm run test:e2e && git diff --check` (cwd `apps/reader-web`) | 0 — 178 Node tests, production build passed, 8 Chromium tests passed | Wave 2 modal slice: drawer/palette focus trap, inert background, Escape top-layer dismissal and trigger restoration; prior PWA/layer/keyboard tests also passed. Verified before commit `591a829`. |
+| 2026-07-21 | `npm test && npm run build && npm run test:e2e && git diff --check` (cwd `apps/reader-web`) | 0 — 178 Node tests, production build passed, 10 Chromium tests passed | Wave 2 menu slice: Sort listbox and reader overflow roving keyboard operation, Enter/Space selection, Escape and trigger restoration. |
 
 ## API/OpenAPI gate
 

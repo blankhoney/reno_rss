@@ -20,6 +20,7 @@ import { listClusters, listThemes } from "@/lib/api/intel";
 import { applyHighlightMarks } from "@/lib/articles/highlights";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { readCraftPreferences } from "@/lib/craft/preferences";
+import { moveCommandIndex } from "@/lib/commandPalette";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AnimatedPanel } from "./AnimatedPanel";
 import { ScoreRing, tierColorVar, tierLabel } from "./ScoreRing";
@@ -153,10 +154,12 @@ export function FocusedArticleReader({
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [isSavingFeedback, setIsSavingFeedback] = useState(false);
   const [secondaryActionsOpen, setSecondaryActionsOpen] = useState(false);
+  const [activeSecondaryActionIndex, setActiveSecondaryActionIndex] = useState(0);
   const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
   const secondaryMenuRef = useRef<HTMLDivElement | null>(null);
   const secondaryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const secondaryActionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const articleRef = useRef<HTMLElement | null>(null);
   const scoreDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const feedbackPanelRef = useRef<HTMLDivElement | null>(null);
@@ -197,6 +200,27 @@ export function FocusedArticleReader({
       run: () => void articleActions.markRead(),
     },
   ];
+
+  function focusSecondaryAction(index: number) {
+    window.requestAnimationFrame(() => secondaryActionRefs.current[index]?.focus());
+  }
+
+  function openSecondaryActions(index = 0) {
+    setActiveSecondaryActionIndex(index);
+    setSecondaryActionsOpen(true);
+    focusSecondaryAction(index);
+  }
+
+  function closeSecondaryActions() {
+    setSecondaryActionsOpen(false);
+  }
+
+  function runSecondaryAction(index: number) {
+    const action = secondaryActions[index];
+    if (!action || action.disabled) return;
+    closeSecondaryActions();
+    action.run();
+  }
 
   useEffect(() => {
     function applyPrefs() {
@@ -338,7 +362,8 @@ export function FocusedArticleReader({
     enabled: secondaryActionsOpen,
     layerRef: secondaryMenuRef,
     ignoreRefs: [secondaryMenuButtonRef],
-    onDismiss: () => setSecondaryActionsOpen(false),
+    onDismiss: closeSecondaryActions,
+    restoreFocusRef: secondaryMenuButtonRef,
   });
 
   async function askAgent(nextQuestion = question) {
@@ -553,8 +578,21 @@ export function FocusedArticleReader({
               className="readerToolbarBtn focusOverflowMenuButton"
               aria-haspopup="menu"
               aria-expanded={secondaryActionsOpen}
+              aria-controls="focus-overflow-menu"
               aria-label="更多文章操作"
-              onClick={() => setSecondaryActionsOpen((value) => !value)}
+              onClick={() => {
+                if (secondaryActionsOpen) closeSecondaryActions();
+                else openSecondaryActions();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" || event.key === "Home") {
+                  event.preventDefault();
+                  openSecondaryActions(0);
+                } else if (event.key === "ArrowUp" || event.key === "End") {
+                  event.preventDefault();
+                  openSecondaryActions(Math.max(secondaryActions.length - 1, 0));
+                }
+              }}
             >
               ⋯
             </button>
@@ -562,22 +600,54 @@ export function FocusedArticleReader({
               {secondaryActionsOpen ? (
                 <AnimatedPanel
                   key="focus-overflow-menu"
+                  id="focus-overflow-menu"
                   variant="popover"
                   className="focusOverflowPopover"
                   role="menu"
                   aria-label="更多文章操作"
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      setActiveSecondaryActionIndex((index) => {
+                        const next = moveCommandIndex(index, 1, secondaryActions.length);
+                        focusSecondaryAction(next);
+                        return next;
+                      });
+                    } else if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setActiveSecondaryActionIndex((index) => {
+                        const next = moveCommandIndex(index, -1, secondaryActions.length);
+                        focusSecondaryAction(next);
+                        return next;
+                      });
+                    } else if (event.key === "Home") {
+                      event.preventDefault();
+                      setActiveSecondaryActionIndex(0);
+                      focusSecondaryAction(0);
+                    } else if (event.key === "End") {
+                      event.preventDefault();
+                      const lastIndex = Math.max(secondaryActions.length - 1, 0);
+                      setActiveSecondaryActionIndex(lastIndex);
+                      focusSecondaryAction(lastIndex);
+                    } else if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      runSecondaryAction(activeSecondaryActionIndex);
+                    }
+                  }}
                 >
-                  {secondaryActions.map((action) => (
+                  {secondaryActions.map((action, index) => (
                     <button
+                      ref={(element) => {
+                        secondaryActionRefs.current[index] = element;
+                      }}
                       key={action.key}
                       type="button"
                       className="focusOverflowOption"
                       role="menuitem"
                       disabled={action.disabled}
-                      onClick={() => {
-                        setSecondaryActionsOpen(false);
-                        action.run();
-                      }}
+                      tabIndex={index === activeSecondaryActionIndex ? 0 : -1}
+                      onFocus={() => setActiveSecondaryActionIndex(index)}
+                      onClick={() => runSecondaryAction(index)}
                     >
                       {action.label}
                     </button>
