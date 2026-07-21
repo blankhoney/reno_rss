@@ -205,6 +205,28 @@ test("article shortcuts only apply when the article list owns focus", async ({ p
   await expect(page.getByRole("link", { name: /Keyboard article two/ })).toHaveAttribute("aria-current", "true");
 });
 
+test("article links and command input retain native keyboard behavior", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  const articleLink = page.getByRole("link", { name: /Keyboard article one/ });
+  await articleLink.focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/read\/7\?module=all/);
+
+  await page.goto("/?module=all");
+  await page.keyboard.press("Meta+k");
+  const input = page.getByRole("textbox");
+  await expect(input).toBeFocused();
+  await page.keyboard.type("search phrase");
+  await expect(input).toHaveValue("search phrase");
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await page.getByRole("button", { name: /文章助手/ }).click();
+  const question = page.getByPlaceholder("问当前文章...");
+  await question.fill("keep this editor input");
+  await expect(question).toHaveValue("keep this editor input");
+});
+
 test("mobile module drawer traps focus, inerts the background, and restores its trigger", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await resetFixtures(page);
