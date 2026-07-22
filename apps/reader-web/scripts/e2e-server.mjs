@@ -31,6 +31,10 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function sendJsonAfter(response, status, payload, delayMs) {
+  setTimeout(() => sendJson(response, status, payload), delayMs);
+}
+
 function resetFixtures() {
   currentUser = users.ada;
   jobRequestCount = 0;
@@ -85,6 +89,49 @@ const proxy = createServer((request, response) => {
     return;
   }
   if (url.pathname === "/api/articles" && request.method === "GET") {
+    const searchQuery = url.searchParams.get("q");
+    if (searchQuery === "annotations-only") {
+      sendJson(response, 500, { error: { message: "article fixture failure" } });
+      return;
+    }
+    if (searchQuery === "slow") {
+      sendJsonAfter(response, 200, {
+        items: [{
+          id: 7,
+          title: "Slow search result",
+          url: "https://example.com/slow",
+          feed: { id: 1, title: "Fixture feed" },
+          category: null,
+          published_at: "2026-07-21T00:00:00Z",
+          content_quality: "full",
+          summary_zh: "慢搜索结果。",
+          score: null,
+          state: { status: "unread", saved: false, project: false, read_progress: 0 },
+        }],
+        next_cursor: null,
+        has_more: false,
+      }, 350);
+      return;
+    }
+    if (searchQuery === "fast" || searchQuery === "partial") {
+      sendJson(response, 200, {
+        items: [{
+          id: 9,
+          title: searchQuery === "fast" ? "Fast search result" : "Partial search result",
+          url: "https://example.com/search",
+          feed: { id: 1, title: "Fixture feed" },
+          category: null,
+          published_at: "2026-07-19T00:00:00Z",
+          content_quality: "full",
+          summary_zh: "搜索测试文章。",
+          score: null,
+          state: { status: "unread", saved: false, project: false, read_progress: 0 },
+        }],
+        next_cursor: null,
+        has_more: false,
+      });
+      return;
+    }
     if (url.searchParams.get("cursor") === "cursor-page-2") {
       sendJson(response, 200, {
         items: [
@@ -136,6 +183,26 @@ const proxy = createServer((request, response) => {
       next_cursor: "cursor-page-2",
       has_more: true,
     });
+    return;
+  }
+  if (url.pathname === "/api/annotations/search" && request.method === "GET") {
+    const searchQuery = url.searchParams.get("q");
+    if (searchQuery === "partial") {
+      sendJson(response, 500, { error: { message: "annotation fixture failure" } });
+      return;
+    }
+    const items = searchQuery === "fast"
+      ? [{ id: 2, article_id: 9, content: "Fast annotation", selected_text: null, article_title: "Fast search result" }]
+      : searchQuery === "slow"
+        ? [{ id: 1, article_id: 7, content: "Slow annotation", selected_text: null, article_title: "Slow search result" }]
+        : searchQuery === "annotations-only"
+          ? [{ id: 3, article_id: 7, content: "Annotation-only result", selected_text: null, article_title: "Annotation-only article" }]
+          : [];
+    if (searchQuery === "slow") {
+      sendJsonAfter(response, 200, { items }, 350);
+    } else {
+      sendJson(response, 200, { items });
+    }
     return;
   }
   if (url.pathname === "/api/articles/stats" && request.method === "GET") {

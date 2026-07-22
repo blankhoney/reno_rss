@@ -307,6 +307,45 @@ test("later-page article return restores cursor page and its highlighted card", 
   await expect(returnedCard).toHaveClass(/articleCardReturnTarget/);
 });
 
+test("search URL state ignores slow results after a newer query", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=search&filter=all&sort=default&q=slow");
+  const query = page.getByLabel("关键词");
+  await expect(query).toHaveValue("slow");
+  await query.fill("fast");
+  await query.press("Enter");
+
+  await expect(page).toHaveURL(/module=search.*q=fast/);
+  const fastResult = page.getByRole("link", { name: "Fast search result" }).first();
+  await expect(fastResult).toBeVisible();
+  await expect(fastResult).toHaveAttribute("href", /module=search.*filter=all.*sort=default.*q=fast/);
+  await page.waitForTimeout(450);
+  await expect(page.getByText("Slow search result", { exact: true })).toHaveCount(0);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/module=search.*q=slow/);
+  await expect(query).toHaveValue("slow");
+  await expect(page.getByText("Slow search result", { exact: true }).first()).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(/module=search.*q=fast/);
+  await expect(query).toHaveValue("fast");
+  await expect(page.getByText("Fast search result", { exact: true }).first()).toBeVisible();
+});
+
+test("search retains article results when annotation search fails", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=search&filter=all&sort=default&q=partial");
+  await expect(page.getByText("Partial search result", { exact: true })).toBeVisible();
+  await expect(page.getByText(/划线\/笔记搜索失败：/)).toBeVisible();
+});
+
+test("search retains annotations when article search fails", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=search&filter=all&sort=default&q=annotations-only");
+  await expect(page.getByText("Annotation-only result", { exact: true })).toBeVisible();
+  await expect(page.getByText(/文章搜索失败：/)).toBeVisible();
+});
+
 test("mobile module drawer traps focus, inerts the background, and restores its trigger", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await resetFixtures(page);

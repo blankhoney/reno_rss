@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   enqueueResearchJob,
   getInterestProfile,
@@ -658,6 +659,7 @@ export function UnifiedSearchPanel({
   initialArticleModule?: string;
   initialSort?: string;
 }) {
+  const router = useRouter();
   const [q, setQ] = useState(initialQuery);
   const [articleModule, setArticleModule] = useState(initialArticleModule);
   const [articleSort, setArticleSort] = useState(initialSort);
@@ -672,35 +674,111 @@ export function UnifiedSearchPanel({
     }>
   >([]);
   const [error, setError] = useState<string | null>(null);
+  const [articleError, setArticleError] = useState<string | null>(null);
+  const [annotationError, setAnnotationError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
   const [busy, setBusy] = useState(false);
+  const searchSeqRef = useRef(0);
+  const lastSearchKeyRef = useRef<string | null>(null);
+
+  const searchHref = useCallback((query: string, module: string, sort: string) => {
+    const params = new URLSearchParams({ module: "search", filter: module, sort, lang: "zh" });
+    const normalized = query.trim();
+    if (normalized) params.set("q", normalized);
+    return `?${params.toString()}`;
+  }, []);
 
   const runSearch = useCallback(async (query: string, module: string, sort: string) => {
     const normalized = query.trim();
     if (!normalized) {
+      searchSeqRef.current += 1;
+      lastSearchKeyRef.current = null;
       setError("请输入标题、正文、划线或笔记关键词");
+      setArticleError(null);
+      setAnnotationError(null);
       return;
     }
+
+    const searchKey = `${normalized} ${module} ${sort}`;
+    const requestSeq = searchSeqRef.current + 1;
+    searchSeqRef.current = requestSeq;
+    lastSearchKeyRef.current = searchKey;
+    const isCurrent = () => requestSeq === searchSeqRef.current;
     setBusy(true);
     setError(null);
-    try {
-      const [articlePage, annotationItems] = await Promise.all([
-        listArticles({ limit: 50, module, q: normalized, sort }),
-        searchAnnotations(normalized),
-      ]);
-      setArticles(articlePage.articles);
-      setAnnotations(annotationItems);
-      setSearched(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "搜索失败");
-    } finally {
-      setBusy(false);
+    setArticleError(null);
+    setAnnotationError(null);
+    setArticles([]);
+    setAnnotations([]);
+
+    const [articleResult, annotationResult] = await Promise.allSettled([
+      listArticles({ limit: 50, module, q: normalized, sort }),
+      searchAnnotations(normalized),
+    ]);
+    if (!isCurrent()) return;
+
+    if (articleResult.status === "fulfilled") {
+      setArticles(articleResult.value.articles);
+    } else {
+      setArticleError(articleResult.reason instanceof Error ? articleResult.reason.message : "文章搜索失败");
     }
+    if (annotationResult.status === "fulfilled") {
+      setAnnotations(annotationResult.value);
+    } else {
+      setAnnotationError(
+        annotationResult.reason instanceof Error ? annotationResult.reason.message : "划线/笔记搜索失败",
+      );
+    }
+    setSearched(true);
+    setBusy(false);
   }, []);
 
   useEffect(() => {
-    if (initialQuery.trim()) void runSearch(initialQuery, initialArticleModule, initialSort);
+    setQ(initialQuery);
+    setArticleModule(initialArticleModule);
+    setArticleSort(initialSort);
+    const normalized = initialQuery.trim();
+    if (!normalized) {
+      searchSeqRef.current += 1;
+      lastSearchKeyRef.current = null;
+      setArticles([]);
+      setAnnotations([]);
+      setArticleError(null);
+      setAnnotationError(null);
+      setSearched(false);
+      setBusy(false);
+      return;
+    }
+    const searchKey = `${normalized} ${initialArticleModule} ${initialSort}`;
+    if (lastSearchKeyRef.current !== searchKey) {
+      void runSearch(initialQuery, initialArticleModule, initialSort);
+    }
   }, [initialArticleModule, initialQuery, initialSort, runSearch]);
+
+  function submitSearch() {
+    const normalized = q.trim();
+    if (!normalized) {
+      void runSearch(q, articleModule, articleSort);
+      return;
+    }
+    const href = searchHref(normalized, articleModule, articleSort);
+    if (window.location.search === href) {
+      void runSearch(normalized, articleModule, articleSort);
+      return;
+    }
+    router.push(href);
+  }
+
+  function readerHref(articleId: number) {
+    const params = new URLSearchParams({
+      module: "search",
+      filter: articleModule,
+      sort: articleSort,
+      lang: "zh",
+      q: q.trim(),
+    });
+    return `/read/${articleId}?${params.toString()}`;
+  }
 
   return (
     <PanelShell title="统一搜索" hint="一次检索标题、正文、私人划线与笔记；中英文子串均可命中。">
@@ -709,7 +787,7 @@ export function UnifiedSearchPanel({
         <label>
           关键词
           <input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => {
-            if (event.key === "Enter") void runSearch(q, articleModule, articleSort);
+            if (event.key === "Enter") submitSearch();
           }} />
         </label>
         <label>
@@ -734,14 +812,16 @@ export function UnifiedSearchPanel({
             <option value="trend">趋势</option>
           </select>
         </label>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={busy} onClick={() => void runSearch(q, articleModule, articleSort)}>
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={busy} onClick={submitSearch}>
           {busy ? "搜索中…" : "搜索"}
         </button>
       </div>
       {searched ? (
         <p className="workbenchRibbonMuted">文章 {articles.length} · 划线/笔记 {annotations.length}</p>
       ) : null}
-      {searched && articles.length === 0 && annotations.length === 0 ? (
+      {articleError ? <p className="adminConsoleError" role="alert">文章搜索失败：{articleError}</p> : null}
+      {annotationError ? <p className="adminConsoleError" role="alert">划线/笔记搜索失败：{annotationError}</p> : null}
+      {searched && articles.length === 0 && annotations.length === 0 && !articleError && !annotationError ? (
         <div className="articleListEmpty">
           <p className="articleListEmptyTitle">没有匹配结果</p>
           <p className="articleListEmptyHint">尝试缩短关键词，或先同步正文再搜索。</p>
@@ -751,7 +831,7 @@ export function UnifiedSearchPanel({
       <ul className="productModuleList">
         {articles.map((article) => (
           <li key={article.id} className="productModuleCard">
-            <Link href={`/read/${article.id}?module=search&sort=default&lang=zh`} prefetch={false}>
+            <Link href={readerHref(article.id)} prefetch={false}>
               <strong>{article.title}</strong>
             </Link>
             <p className="workbenchRibbonMuted">
@@ -764,7 +844,7 @@ export function UnifiedSearchPanel({
       <ul className="productModuleList">
         {annotations.map((item) => (
           <li key={item.id} className="productModuleCard">
-            <Link href={`/read/${item.articleId}?module=search&sort=default&lang=zh`} prefetch={false}>
+            <Link href={readerHref(item.articleId)} prefetch={false}>
               <strong>{item.articleTitle || `文章 #${item.articleId}`}</strong>
             </Link>
             <p>{item.selectedText || item.content}</p>
