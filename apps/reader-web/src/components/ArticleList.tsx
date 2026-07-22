@@ -23,6 +23,7 @@ type ArticleListProps = {
   hasNext?: boolean;
   isPaging?: boolean;
   isLoading?: boolean;
+  loadError?: string | null;
   onPrev?: () => void;
   onNext?: () => void;
   onSortChange?: (nextSort: ArticleSortId) => void;
@@ -86,6 +87,7 @@ export function ArticleList({
   hasNext = false,
   isPaging = false,
   isLoading = false,
+  loadError = null,
   onPrev,
   onNext,
   onSortChange,
@@ -203,7 +205,7 @@ export function ArticleList({
         </div>
       ) : null}
       {isLoading ? <ArticleListSkeleton count={12} /> : null}
-      {!isLoading && isEmpty ? (
+      {!isLoading && loadError == null && isEmpty ? (
         <div className="articleListEmpty">
           <p className="articleListEmptyTitle">暂无文章</p>
           <p className="articleListEmptyHint">当前模块没有可显示的文章。</p>

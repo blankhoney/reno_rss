@@ -130,6 +130,10 @@ const proxy = createServer((request, response) => {
   }
   if (url.pathname === "/api/articles" && request.method === "GET") {
     const searchQuery = url.searchParams.get("q");
+    if (searchQuery === "workbench-error") {
+      sendJson(response, 500, { error: { message: "workbench fixture failure" } });
+      return;
+    }
     if (searchQuery === "annotations-only") {
       sendJson(response, 500, { error: { message: "article fixture failure" } });
       return;

@@ -117,8 +117,13 @@ export function FocusedArticleScreen({
           返回工作台
         </Link>
         <div className="readerEmpty">
-          <p className="readerEmptyTitle">文章不存在</p>
+          <p className="readerEmptyTitle">{error?.includes("404") ? "文章不存在" : "文章加载失败"}</p>
           <p className="readerEmptyHint">{error ?? "API 没有返回这篇文章。"}</p>
+          {error != null ? (
+            <button type="button" className="readerToolbarBtn" onClick={() => void loadArticle("initial")}>
+              重试加载
+            </button>
+          ) : null}
         </div>
       </main>
     );

@@ -384,6 +384,7 @@ export function ReaderWorkbench({
           hasPrev={pageIndex > 0}
           hasNext={hasMore}
           isPaging={isPaging}
+          loadError={error}
           onToggleRead={(article) => {
             const nextStatus = article.status === "read" ? "unread" : "read";
             void updateArticleState(article.id, {

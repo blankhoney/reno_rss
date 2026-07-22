@@ -358,6 +358,22 @@ test("starting research writes the durable job URL", async ({ page }) => {
   await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
 });
 
+test("workbench failure does not render a contradictory empty state", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh&q=workbench-error");
+
+  await expect(page.getByText(/文章加载失败/)).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+});
+
+test("focused reader exposes retry for an article load failure", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/read/999?module=all&sort=default&lang=zh");
+
+  await expect(page.getByText("文章加载失败", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试加载" })).toBeVisible();
+});
+
 test("Daily Intelligence labels failed sources instead of false empty states", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=home&sort=default&lang=zh");
