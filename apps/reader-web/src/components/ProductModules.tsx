@@ -62,8 +62,9 @@ export function ClustersPanel() {
   const [items, setItems] = useState<ClusterItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     let active = true;
+    setError(null);
     listClusters(30)
       .then((next) => {
         if (active) setItems(next);
@@ -76,9 +77,18 @@ export function ClustersPanel() {
     };
   }, []);
 
+  useEffect(() => reload(), [reload]);
+
   return (
     <PanelShell title="故事线 Clusters" hint="同一事件多源合并；主条 + 相关源。">
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? (
+        <p className="adminConsoleError" role="alert">
+          {error}
+          <button type="button" className="readerToolbarBtn" onClick={() => reload()}>
+            重试
+          </button>
+        </p>
+      ) : null}
       {items == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
       {items && items.length === 0 ? (
         <div className="articleListEmpty">
@@ -118,8 +128,9 @@ export function ThemesPanel() {
   const [error, setError] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<CraftPreferences>(() => readCraftPreferences());
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     let active = true;
+    setError(null);
     listThemes(40)
       .then((next) => {
         if (active) setItems(next);
@@ -132,6 +143,8 @@ export function ThemesPanel() {
     };
   }, []);
 
+  useEffect(() => reload(), [reload]);
+
   function togglePin(label: string) {
     const pinned = new Set(prefs.pinnedThemes);
     if (pinned.has(label)) pinned.delete(label);
@@ -141,7 +154,14 @@ export function ThemesPanel() {
 
   return (
     <PanelShell title="主题簇 Themes" hint="来自评分标签；可钉选后从精读跳转相关源。">
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? (
+        <p className="adminConsoleError" role="alert">
+          {error}
+          <button type="button" className="readerToolbarBtn" onClick={() => reload()}>
+            重试
+          </button>
+        </p>
+      ) : null}
       {prefs.pinnedThemes.length > 0 ? (
         <p className="workbenchRibbonMuted">已钉选：{prefs.pinnedThemes.join(" · ")}</p>
       ) : null}
@@ -176,6 +196,12 @@ export function ThemesPanel() {
             );
           })}
         </ul>
+      ) : null}
+      {items != null && items.length === 0 ? (
+        <div className="articleListEmpty">
+          <p className="articleListEmptyTitle">尚无主题簇</p>
+          <p className="articleListEmptyHint">评分生成标签后会显示主题热度。</p>
+        </div>
       ) : null}
     </PanelShell>
   );
