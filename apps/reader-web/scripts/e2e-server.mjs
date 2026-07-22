@@ -85,6 +85,27 @@ const proxy = createServer((request, response) => {
     return;
   }
   if (url.pathname === "/api/articles" && request.method === "GET") {
+    if (url.searchParams.get("cursor") === "cursor-page-2") {
+      sendJson(response, 200, {
+        items: [
+          {
+            id: 9,
+            title: "Cursor article two",
+            url: "https://example.com/two",
+            feed: { id: 1, title: "Fixture feed" },
+            category: null,
+            published_at: "2026-07-19T00:00:00Z",
+            content_quality: "full",
+            summary_zh: "第二页测试文章。",
+            score: null,
+            state: { status: "unread", saved: false, project: false, read_progress: 0 },
+          },
+        ],
+        next_cursor: null,
+        has_more: false,
+      });
+      return;
+    }
     sendJson(response, 200, {
       items: [
         {
@@ -112,8 +133,8 @@ const proxy = createServer((request, response) => {
           state: { status: "unread", saved: false, project: false, read_progress: 0 },
         },
       ],
-      next_cursor: null,
-      has_more: false,
+      next_cursor: "cursor-page-2",
+      has_more: true,
     });
     return;
   }
@@ -125,8 +146,9 @@ const proxy = createServer((request, response) => {
     sendJson(response, 200, { items: [], generated_at: "2026-07-21T00:00:00Z" });
     return;
   }
-  if (url.pathname === "/api/articles/7" && request.method === "GET") {
-    sendJson(response, 200, { id: 7, owner: currentUser.id, content_html: `<p>${currentUser.id}</p>` });
+  if ((url.pathname === "/api/articles/7" || url.pathname === "/api/articles/9") && request.method === "GET") {
+    const id = url.pathname.endsWith("/9") ? 9 : 7;
+    sendJson(response, 200, { id, owner: currentUser.id, content_html: `<p>${currentUser.id}</p>` });
     return;
   }
   if (url.pathname === "/api/jobs/7" && request.method === "GET") {

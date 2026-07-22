@@ -23,6 +23,7 @@ import {
   isModuleId,
 } from "@/lib/articles/service";
 import { isIntelligenceModule } from "@/lib/api/briefs";
+import { parseCursorTrail } from "@/lib/articles/navigation";
 
 function normalizeModule(raw: string | string[] | undefined): string {
   if (typeof raw === "string" && raw !== "") return raw;
@@ -125,6 +126,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         currentSort={currentSort}
         currentLang={currentLang}
         currentQuery={currentQuery}
+        initialCursorStack={parseCursorTrail(typeof sp.trail === "string" ? sp.trail : null)}
       />
     </AuthSessionGate>
   );

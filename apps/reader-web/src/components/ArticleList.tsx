@@ -7,6 +7,7 @@ import { ScoreRing, tierLabel } from "./ScoreRing";
 import { ArticleListSkeleton } from "./Skeleton";
 import { SortMenu, type SortOption } from "./SortMenu";
 import { FOCUS_ARTICLE_LIST_EVENT, isInteractiveKeyboardTarget } from "@/lib/commandPalette";
+import { buildFocusReadHref } from "@/lib/articles/navigation";
 import Link from "next/link";
 
 type ArticleListProps = {
@@ -14,6 +15,8 @@ type ArticleListProps = {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
+  currentQuery?: string;
+  cursorStack?: (string | null)[];
   highlightArticleId?: number | null;
   pageIndex?: number;
   hasPrev?: boolean;
@@ -45,14 +48,17 @@ function readHref(
   currentModule: string,
   currentSort: ArticleSortId,
   currentLang: SummaryLangId,
+  currentQuery: string,
+  cursorStack: (string | null)[],
   articleId: number,
 ): string {
-  const qs = new URLSearchParams({
+  return buildFocusReadHref(articleId, {
     module: currentModule,
     sort: currentSort,
     lang: currentLang,
+    query: currentQuery,
+    cursorStack,
   });
-  return `/read/${articleId}?${qs.toString()}`;
 }
 
 function articleSummary(
@@ -72,6 +78,8 @@ export function ArticleList({
   currentModule,
   currentSort,
   currentLang,
+  currentQuery = "",
+  cursorStack = [null],
   highlightArticleId = null,
   pageIndex = 0,
   hasPrev = false,
@@ -121,7 +129,7 @@ export function ArticleList({
       const article = articles[selectedIndex];
       if (!article) return;
       event.preventDefault();
-      const href = readHref(currentModule, currentSort, currentLang, article.id);
+      const href = readHref(currentModule, currentSort, currentLang, currentQuery, cursorStack, article.id);
       window.location.assign(href);
       return;
     }
@@ -212,7 +220,7 @@ export function ArticleList({
           {articles.map((article, index) => {
             const score = article.score;
             const summary = articleSummary(article, currentLang);
-            const focusHref = readHref(currentModule, currentSort, currentLang, article.id);
+            const focusHref = readHref(currentModule, currentSort, currentLang, currentQuery, cursorStack, article.id);
             const isHeadline = pageIndex === 0 && index === 0;
             const rowNumber = pageIndex === 0 ? index : index + 1;
             const isKeyboardSelected = index === selectedIndex;

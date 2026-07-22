@@ -26,6 +26,7 @@ import { WorkbenchRibbon } from "./WorkbenchRibbon";
 import { updateArticleState } from "@/lib/api/articles";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
 import { emitToast } from "./Toast";
+import { buildWorkbenchHref, normalizeCursorTrail } from "@/lib/articles/navigation";
 
 const ARTICLE_LIST_PAGE_SIZE = 12;
 const RETURN_HIGHLIGHT_MS = 1800;
@@ -98,12 +99,15 @@ export function ReaderWorkbench({
   currentSort,
   currentLang,
   currentQuery = "",
+  initialCursorStack = [null],
 }: {
   currentModule: string;
   currentSort: ArticleSortId;
   currentLang: SummaryLangId;
   currentQuery?: string;
+  initialCursorStack?: (string | null)[];
 }) {
+  const initialTrail = normalizeCursorTrail(initialCursorStack);
   const [rawArticles, setRawArticles] = useState<Article[]>([]);
   const [recommendationPage, setRecommendationPage] = useState<RecommendationPage | null>(null);
   const [articleStats, setArticleStats] = useState<ArticleStats | null>(null);
@@ -116,13 +120,15 @@ export function ReaderWorkbench({
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [pageIndex, setPageIndex] = useState(0);
-  const [cursorStack, setCursorStack] = useState<(string | null)[]>([null]);
+  const [pageIndex, setPageIndex] = useState(() => initialTrail.length - 1);
+  const [cursorStack, setCursorStack] = useState<(string | null)[]>(initialTrail);
   const [isPaging, setIsPaging] = useState(false);
   const [activeSort, setActiveSort] = useState<ArticleSortId>(currentSort);
   const [returnArticleId, setReturnArticleId] = useState<number | null>(null);
   const [highlightArticleId, setHighlightArticleId] = useState<number | null>(null);
   const lastReturnScrollKeyRef = useRef<string | null>(null);
+  const initialTrailRef = useRef(initialTrail);
+  const hasLoadedInitialContextRef = useRef(false);
   const pageSeqRef = useRef(0);
   const railSeqRef = useRef(0);
 
@@ -220,20 +226,39 @@ export function ReaderWorkbench({
     }
   }, []);
 
+  const pushPaginationLocation = useCallback((trail: (string | null)[]) => {
+    window.history.pushState(
+      null,
+      "",
+      buildWorkbenchHref({
+        module: currentModule,
+        sort: activeSort,
+        lang: currentLang,
+        query: currentQuery,
+        cursorStack: trail,
+      }),
+    );
+  }, [activeSort, currentLang, currentModule, currentQuery]);
+
   const goNext = useCallback(() => {
     if (!hasMore || isPaging || nextCursor == null) return;
     const cursor = nextCursor;
-    setCursorStack((previous) => appendCursorForNextPage(previous, pageIndex, cursor));
-    setPageIndex((current) => current + 1);
+    const trail = appendCursorForNextPage(cursorStack, pageIndex, cursor);
+    setCursorStack(trail);
+    setPageIndex(pageIndex + 1);
+    pushPaginationLocation(trail);
     void loadPage(cursor);
-  }, [hasMore, isPaging, loadPage, nextCursor, pageIndex]);
+  }, [cursorStack, hasMore, isPaging, loadPage, nextCursor, pageIndex, pushPaginationLocation]);
 
   const goPrev = useCallback(() => {
     if (pageIndex <= 0 || isPaging) return;
     const previousPageIndex = pageIndex - 1;
+    const trail = cursorStack.slice(0, previousPageIndex + 1);
+    setCursorStack(trail);
     setPageIndex(previousPageIndex);
-    void loadPage(cursorForPage(cursorStack, previousPageIndex));
-  }, [cursorStack, isPaging, loadPage, pageIndex]);
+    pushPaginationLocation(trail);
+    void loadPage(cursorForPage(trail, previousPageIndex));
+  }, [cursorStack, isPaging, loadPage, pageIndex, pushPaginationLocation]);
 
   const retryArticleList = useCallback(() => {
     void loadPage(cursorForPage(cursorStack, pageIndex), rawArticles.length === 0);
@@ -258,9 +283,12 @@ export function ReaderWorkbench({
       return;
     }
 
-    setPageIndex(0);
-    setCursorStack([null]);
-    void loadPage(null, true);
+    const trail = hasLoadedInitialContextRef.current ? [null] : initialTrailRef.current;
+    const nextPageIndex = trail.length - 1;
+    hasLoadedInitialContextRef.current = true;
+    setPageIndex(nextPageIndex);
+    setCursorStack(trail);
+    void loadPage(cursorForPage(trail, nextPageIndex), true);
     void loadRail();
   }, [currentModule, currentQuery, loadPage, loadRail]);
 
@@ -281,12 +309,17 @@ export function ReaderWorkbench({
 
   const updateSort = useCallback((nextSort: ArticleSortId) => {
     setActiveSort(nextSort);
-    const qs = new URLSearchParams(window.location.search);
-    qs.set("module", currentModule);
-    qs.set("sort", nextSort);
-    qs.set("lang", currentLang);
-    window.history.pushState(null, "", `?${qs.toString()}`);
-  }, [currentLang, currentModule]);
+    window.history.pushState(
+      null,
+      "",
+      buildWorkbenchHref({
+        module: currentModule,
+        sort: nextSort,
+        lang: currentLang,
+        query: currentQuery,
+      }),
+    );
+  }, [currentLang, currentModule, currentQuery]);
 
   useEffect(() => {
     const nextReturnArticleId =
@@ -344,6 +377,8 @@ export function ReaderWorkbench({
           currentModule={currentModule}
           currentSort={activeSort}
           currentLang={currentLang}
+          currentQuery={currentQuery}
+          cursorStack={cursorStack}
           highlightArticleId={highlightArticleId}
           pageIndex={pageIndex}
           hasPrev={pageIndex > 0}

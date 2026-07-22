@@ -288,6 +288,25 @@ test("article links and command input retain native keyboard behavior", async ({
   await expect(question).toHaveValue("keep this editor input");
 });
 
+test("later-page article return restores cursor page and its highlighted card", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+  await expect(page.getByText("Cursor article two", { exact: true })).toBeVisible();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/trail=/);
+
+  await page.getByRole("link", { name: /Cursor article two/ }).click();
+  await expect(page).toHaveURL(/\/read\/9\?.*trail=/);
+  await page.getByRole("link", { name: "返回工作台" }).click();
+
+  await expect(page).toHaveURL(/article=9/);
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  const returnedCard = page.getByRole("link", { name: /Cursor article two/ });
+  await expect(returnedCard).toHaveClass(/articleCardReturnTarget/);
+});
+
 test("mobile module drawer traps focus, inerts the background, and restores its trigger", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await resetFixtures(page);
