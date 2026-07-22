@@ -21,10 +21,19 @@ const users = {
     created_at: "2026-07-21T00:00:00Z",
     last_seen_at: null,
   },
+  admin: {
+    id: "admin-a",
+    display_name: "Admin Ada",
+    role: "admin",
+    created_at: "2026-07-22T00:00:00Z",
+    last_seen_at: null,
+  },
 };
 
 let currentUser = users.ada;
 let jobRequestCount = 0;
+let usageFailuresRemaining = 0;
+let adminSyncCompleted = false;
 const completedResearchJob = {
   id: 88,
   job_type: "research",
@@ -56,6 +65,8 @@ function sendJsonAfter(response, status, payload, delayMs) {
 function resetFixtures() {
   currentUser = users.ada;
   jobRequestCount = 0;
+  usageFailuresRemaining = 0;
+  adminSyncCompleted = false;
 }
 
 function proxyToApp(request, response) {
@@ -90,6 +101,17 @@ const proxy = createServer((request, response) => {
 
   if (url.pathname === "/__e2e/reset" && request.method === "POST") {
     resetFixtures();
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/admin" && request.method === "POST") {
+    currentUser = users.admin;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/admin/usage-fail-once" && request.method === "POST") {
+    currentUser = users.admin;
+    usageFailuresRemaining = 1;
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -224,7 +246,40 @@ const proxy = createServer((request, response) => {
     return;
   }
   if (url.pathname === "/api/articles/stats" && request.method === "GET") {
-    sendJson(response, 200, { total: 2, scored: 0, unscored: 2 });
+    const unscored = adminSyncCompleted ? 3 : 2;
+    sendJson(response, 200, { total: unscored, scored: 0, unscored });
+    return;
+  }
+  if (url.pathname === "/api/admin/usage/today" && request.method === "GET") {
+    if (usageFailuresRemaining > 0) {
+      usageFailuresRemaining -= 1;
+      sendJson(response, 500, { error: { message: "usage fixture failure" } });
+      return;
+    }
+    sendJson(response, 200, {
+      day: "2026-07-22",
+      scores: { count_today: 0, accounting: "database" },
+      accounts: {
+        score: { used: 0, limit: 60, remaining: 60 },
+        ask: { used: 0, limit: 20, remaining: 20 },
+        agent: { used: 0, limit: 20, remaining: 20 },
+      },
+      cost_ledger: { accounting: "fixture" },
+    });
+    return;
+  }
+  if (url.pathname === "/api/admin/pipeline-health" && request.method === "GET") {
+    sendJson(response, 200, {
+      status: "healthy",
+      scheduler_enabled: true,
+      queue: { queued: adminSyncCompleted ? 0 : 1, running: 0, failed_24h: 0, stale_running: 0 },
+      jobs: [],
+    });
+    return;
+  }
+  if (url.pathname === "/api/admin/sync" && request.method === "POST") {
+    adminSyncCompleted = true;
+    sendJson(response, 200, { job_id: 89, job_type: "sync_miniflux_entries", status: "queued" });
     return;
   }
   if (url.pathname === "/api/recommendations/latest" && request.method === "GET") {
@@ -242,6 +297,20 @@ const proxy = createServer((request, response) => {
   }
   if (url.pathname === `/api/jobs/${completedResearchJob.id}` && request.method === "GET") {
     sendJson(response, 200, completedResearchJob);
+    return;
+  }
+  if (url.pathname === "/api/jobs/89" && request.method === "GET") {
+    sendJson(response, 200, {
+      id: 89,
+      job_type: "sync_miniflux_entries",
+      status: "succeeded",
+      progress: { completed: 1, total: 1 },
+      result: { synced: 1 },
+      last_error: null,
+      created_at: "2026-07-22T00:00:00Z",
+      updated_at: "2026-07-22T00:01:00Z",
+      completed_at: "2026-07-22T00:01:00Z",
+    });
     return;
   }
   if (url.pathname === "/api/jobs/7" && request.method === "GET") {

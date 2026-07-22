@@ -358,6 +358,32 @@ test("starting research writes the durable job URL", async ({ page }) => {
   await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
 });
 
+test("Admin usage failure is isolated and can retry without hiding pipeline", async ({ page }) => {
+  await resetFixtures(page);
+  await page.request.post("/__e2e/admin/usage-fail-once");
+  await page.goto("/?module=admin&sort=default&lang=zh");
+
+  const usageError = page.getByText(/费用加载失败：/);
+  await expect(usageError).toBeVisible();
+  await expect(page.getByText("调度常开 · 健康", { exact: true })).toBeVisible();
+  await expect(page.getByText("2 篇待评分", { exact: true })).toBeVisible();
+  await usageError.getByRole("button", { name: "重试" }).click();
+  await expect(page.getByText(/Score 0\/60/)).toBeVisible();
+  await expect(usageError).toHaveCount(0);
+});
+
+test("Admin terminal sync refreshes affected snapshot cards", async ({ page }) => {
+  await resetFixtures(page);
+  await page.request.post("/__e2e/admin");
+  await page.goto("/?module=admin&sort=default&lang=zh");
+  await expect(page.getByText("2 篇待评分", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "启动同步" }).click();
+  await expect(page.getByText("同步 job #89 succeeded", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 篇待评分", { exact: true })).toBeVisible();
+  await expect(page.getByText("排队 0", { exact: false })).toBeVisible();
+});
+
 test("search retains article results when annotation search fails", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=search&filter=all&sort=default&q=partial");
