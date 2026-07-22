@@ -671,8 +671,11 @@ export function ResearchPanel({ initialJobId = null }: { initialJobId?: number |
 export function InterestPanel() {
   const [profile, setProfile] = useState<InterestProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
   const reload = useCallback(() => {
+    setError(null);
     getInterestProfile()
       .then(setProfile)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "加载兴趣向量失败"));
@@ -683,10 +686,16 @@ export function InterestPanel() {
   }, [reload]);
 
   async function onReset() {
+    setIsResetting(true);
+    setError(null);
+    setMessage(null);
     try {
       setProfile(await resetInterestProfile());
+      setMessage("兴趣向量已重置");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "重置失败");
+    } finally {
+      setIsResetting(false);
     }
   }
 
@@ -707,16 +716,17 @@ export function InterestPanel() {
       hint="来自反馈、划线、立项的长期偏好；可重置、可导出。"
       actions={
         <>
-          <button type="button" className="readerToolbarBtn" onClick={onExport}>
+          <button type="button" className="readerToolbarBtn" onClick={onExport} disabled={profile == null || isResetting}>
             导出 JSON
           </button>
-          <button type="button" className="readerToolbarBtn" onClick={onReset}>
-            重置
+          <button type="button" className="readerToolbarBtn" onClick={onReset} disabled={isResetting}>
+            {isResetting ? "重置中…" : "重置"}
           </button>
         </>
       }
     >
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? <p className="adminConsoleError" role="alert">{error}<button type="button" className="readerToolbarBtn" onClick={reload}>重试</button></p> : null}
+      {message ? <p className="adminConsoleMessage">{message}</p> : null}
       {profile == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
       {profile ? (
         <>
