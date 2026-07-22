@@ -78,6 +78,7 @@ function article(
       scoredAt: null,
     },
     myFeedback: input.myFeedback ?? null,
+    readProgress: input.readProgress,
     readLater: input.readLater ?? false,
     lastReadAt: input.lastReadAt ?? null,
   };
@@ -163,26 +164,32 @@ test("explicit dimension sorting uses the selected dimension", () => {
   assert.deepEqual(sorted.map((item) => item.id), [2, 1]);
 });
 
-test("filterArticlesForModule keeps only read-later items for read-later module", () => {
+test("filterArticlesForModule keeps only unread partial-progress items for continue reading", () => {
   const filtered = filterArticlesForModule(
-    [article(1, { readLater: false }), article(2, { readLater: true })],
+    [
+      article(1, { status: "unread", readProgress: 0, starred: true }),
+      article(2, { status: "unread", readProgress: 0.4 }),
+      article(3, { status: "read", readProgress: 0.4 }),
+      article(4, { status: "unread", readProgress: 1 }),
+    ],
     "read-later",
   );
   assert.deepEqual(filtered.map((item) => item.id), [2]);
 });
 
-test("filterArticlesForModule applies v0.4 read and saved state locally", () => {
+test("filterArticlesForModule keeps candidate and continue-reading queues distinct", () => {
   const items = [
-    article(1, { status: "unread", starred: false, project: false, readLater: false }),
-    article(2, { status: "read", starred: false, project: true, readLater: false }),
-    article(3, { status: "unread", starred: true, project: false, readLater: true }),
+    article(1, { status: "unread", starred: false, project: false, readProgress: 0 }),
+    article(2, { status: "read", starred: false, project: true, readProgress: 1 }),
+    article(3, { status: "unread", starred: true, project: false, readProgress: 0 }),
+    article(4, { status: "unread", starred: false, project: false, readProgress: 0.5 }),
   ];
 
-  assert.deepEqual(filterArticlesForModule(items, "unread").map((item) => item.id), [1, 3]);
+  assert.deepEqual(filterArticlesForModule(items, "unread").map((item) => item.id), [1, 3, 4]);
   assert.deepEqual(filterArticlesForModule(items, "read").map((item) => item.id), [2]);
   assert.deepEqual(filterArticlesForModule(items, "starred").map((item) => item.id), [3]);
   assert.deepEqual(filterArticlesForModule(items, "project").map((item) => item.id), [2]);
-  assert.deepEqual(filterArticlesForModule(items, "read-later").map((item) => item.id), [3]);
+  assert.deepEqual(filterArticlesForModule(items, "read-later").map((item) => item.id), [4]);
 });
 
 test("filterHiddenFeedsForModule hides feeds only in default modules", () => {

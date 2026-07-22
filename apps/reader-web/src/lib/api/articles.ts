@@ -239,9 +239,16 @@ export function feedbackFromApi(raw: ApiArticleFeedback | null | undefined): Art
   };
 }
 
+function normalizedReadProgress(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
 function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article {
   const state = item.state ?? {};
   const saved = state.saved === true;
+  const readProgress = normalizedReadProgress(state.read_progress);
+  const status = articleStatusFromApi(state.status);
   const score = scoreFromApi(item.score);
   return {
     id: item.id,
@@ -262,14 +269,15 @@ function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article 
     summaryZh: score?.summaryZh || (item.summary_zh ?? ""),
     summaryOriginal: score?.summaryOriginal ?? "",
     sourceLanguage: score?.sourceLanguage ?? "unknown",
-    status: articleStatusFromApi(state.status),
+    status,
     starred: saved,
     project: state.project === true,
     publishedAt: item.published_at ?? null,
     score,
     myFeedback: feedbackFromApi(item.my_feedback),
-    readLater: saved,
-    lastReadAt: state.status === "read" ? new Date().toISOString() : null,
+    readProgress,
+    readLater: status === "unread" && readProgress > 0 && readProgress < 1,
+    lastReadAt: null,
     feedHidden: item.feed_hidden === true,
     feedQualityScore:
       typeof item.feed_quality_score === "number" && Number.isFinite(item.feed_quality_score)

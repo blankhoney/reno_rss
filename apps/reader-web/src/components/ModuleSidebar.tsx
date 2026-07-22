@@ -31,7 +31,7 @@ const MODULE_GROUPS: ModuleNavGroup[] = [
       { id: "all", label: "最新" },
       { id: "unread", label: "新到" },
       { id: "read", label: "已读" },
-      { id: "read-later", label: "稍后读" },
+      { id: "read-later", label: "继续阅读" },
     ],
   },
   {

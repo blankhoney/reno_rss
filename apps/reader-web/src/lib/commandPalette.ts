@@ -86,7 +86,7 @@ export function buildWorkbenchCommands(options?: {
     nav("all", "最新文章", ["feed", "信息流", "rss"]),
     nav("unread", "新到未读", ["inbox", "unread"]),
     nav("read", "已读", ["archive"]),
-    nav("read-later", "稍后读", ["later", "queue", "继续阅读"]),
+    nav("read-later", "继续阅读", ["later", "queue", "阅读进度"]),
     nav("starred", "候选线索", ["candidate", "saved", "star"]),
     nav("project", "已立项", ["project", "立项"]),
     nav("technical", "技术维度", ["score", "tech"]),

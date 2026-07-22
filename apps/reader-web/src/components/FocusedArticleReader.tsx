@@ -189,8 +189,8 @@ export function FocusedArticleReader({
     },
     {
       key: "project",
-      label: articleActions.isProjecting ? "立项中" : "立项",
-      disabled: articleActions.isProjecting,
+      label: article.project ? "已立项" : articleActions.isProjecting ? "立项中" : "立项",
+      disabled: article.project || articleActions.isProjecting,
       run: () => void articleActions.enqueueProject(),
     },
     {

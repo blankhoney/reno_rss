@@ -15,7 +15,7 @@ function read(rel: string): string {
 test("DailyIntelligenceDashboard has three persistent entries + radar + source quality", () => {
   const src = read("components/DailyIntelligenceDashboard.tsx");
   assert.match(src, /继续阅读/);
-  assert.match(src, /未完成项目/);
+  assert.match(src, /立项队列/);
   assert.match(src, /待复习划线/);
   assert.match(src, /异常与机会雷达/);
   assert.match(src, /源可信度/);

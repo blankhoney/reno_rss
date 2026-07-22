@@ -117,7 +117,11 @@ export function filterArticlesForModule(articles: Article[], moduleId: ModuleId)
   if (moduleId === "read") return articles.filter((article) => article.status === "read");
   if (moduleId === "starred") return articles.filter((article) => article.starred);
   if (moduleId === "project") return articles.filter((article) => article.project === true);
-  if (moduleId === "read-later") return articles.filter((article) => article.readLater);
+  if (moduleId === "read-later") {
+    return articles.filter(
+      (article) => article.status === "unread" && (article.readProgress ?? 0) > 0 && (article.readProgress ?? 0) < 1,
+    );
+  }
   return articles;
 }
 

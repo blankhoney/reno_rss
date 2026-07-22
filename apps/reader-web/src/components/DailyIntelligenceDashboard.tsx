@@ -113,15 +113,15 @@ export function DailyIntelligenceDashboard() {
           {
             id: "continue",
             title: "继续阅读",
-            hint: "稍后读 / 进度未完成",
+            hint: "已开始，尚未读完",
             href: "?module=read-later&sort=default&lang=zh",
             count: continueItems.length,
             preview: continueItems.slice(0, 3).map((item) => item.title),
           },
           {
             id: "project",
-            title: "未完成项目",
-            hint: "已立项队列",
+            title: "立项队列",
+            hint: "已立项的文章",
             href: "?module=project&sort=default&lang=zh",
             count: projectItems.length,
             preview: projectItems.slice(0, 3).map((item) => item.title),

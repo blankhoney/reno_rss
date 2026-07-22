@@ -172,6 +172,25 @@ const proxy = createServer((request, response) => {
       });
       return;
     }
+    if (url.searchParams.get("module") === "read-later") {
+      sendJson(response, 200, {
+        items: [{
+          id: 10,
+          title: "Unsaved in-progress article",
+          url: "https://example.com/in-progress",
+          feed: { id: 1, title: "Fixture feed" },
+          category: null,
+          published_at: "2026-07-22T00:00:00Z",
+          content_quality: "full",
+          summary_zh: "真实进度测试文章。",
+          score: null,
+          state: { status: "unread", saved: false, project: false, read_progress: 0.4 },
+        }],
+        next_cursor: null,
+        has_more: false,
+      });
+      return;
+    }
     if (url.searchParams.get("cursor") === "cursor-page-2") {
       sendJson(response, 200, {
         items: [

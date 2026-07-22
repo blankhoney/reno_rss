@@ -60,6 +60,7 @@ test("articleFromApiItem maps FastAPI list payloads to the Article view model", 
   assert.equal(article.contentIssue, "rss_fragment");
   assert.equal(article.starred, true);
   assert.equal(article.project, true);
+  assert.equal(article.readProgress, 0.25);
   assert.equal(article.readLater, true);
   assert.equal(article.status, "unread");
   assert.equal(article.score, null);

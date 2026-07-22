@@ -358,6 +358,14 @@ test("starting research writes the durable job URL", async ({ page }) => {
   await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
 });
 
+test("continue-reading route uses actual partial progress rather than candidate state", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=read-later&sort=default&lang=zh");
+
+  await expect(page.getByText("Unsaved in-progress article", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "继续阅读" }).first()).toBeVisible();
+});
+
 test("Admin usage failure is isolated and can retry without hiding pipeline", async ({ page }) => {
   await resetFixtures(page);
   await page.request.post("/__e2e/admin/usage-fail-once");

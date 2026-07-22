@@ -386,7 +386,10 @@ export function ReaderWorkbench({
           isPaging={isPaging}
           onToggleRead={(article) => {
             const nextStatus = article.status === "read" ? "unread" : "read";
-            void updateArticleState(article.id, { status: nextStatus })
+            void updateArticleState(article.id, {
+              status: nextStatus,
+              readProgress: nextStatus === "read" ? 1 : 0,
+            })
               .then(() => {
                 emitToast({
                   title: nextStatus === "read" ? "已标为已读" : "已标为未读",

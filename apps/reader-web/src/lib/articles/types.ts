@@ -80,6 +80,9 @@ export type Article = {
   publishedAt: string | null;
   score: ArticleScore | null;
   myFeedback: ArticleFeedback | null;
+  /** The persisted 0–1 reading position from FastAPI, when the response includes article state. */
+  readProgress?: number;
+  /** Compatibility flag derived from an unread article with partial persisted progress. */
   readLater: boolean;
   lastReadAt: string | null;
 };

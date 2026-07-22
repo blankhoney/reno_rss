@@ -83,7 +83,7 @@ export function FocusedArticleScreen({
   // Dwell / reading progress signal for personalization (GOAL §4.A).
   useEffect(() => {
     const started = Date.now();
-    let lastProgress = 0;
+    let lastProgress = article?.readProgress ?? 0;
     function measureProgress(): number {
       const doc = document.documentElement;
       const max = Math.max(1, doc.scrollHeight - window.innerHeight);
@@ -104,7 +104,7 @@ export function FocusedArticleScreen({
         void updateArticleState(articleId, { readProgress: progress }).catch(() => undefined);
       }
     };
-  }, [articleId]);
+  }, [article?.readProgress, articleId]);
 
   if (isLoading) {
     return <FocusedArticleSkeleton returnHref={returnHref} />;

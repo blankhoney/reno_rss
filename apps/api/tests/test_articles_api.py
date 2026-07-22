@@ -667,6 +667,31 @@ async def test_article_state_upserts_for_current_user(app, client):
 
 
 @pytest.mark.asyncio
+async def test_read_later_lists_only_unread_partial_progress_articles(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    sources = [
+        app.state.article_repository.upsert_from_source(
+            {
+                "feed_id": 1,
+                "miniflux_entry_id": entry_id,
+                "url": f"https://example.com/{entry_id}",
+                "title": f"Article {entry_id}",
+            }
+        )
+        for entry_id in (101, 102, 103, 104)
+    ]
+    await client.post(f"/api/articles/{sources[0].id}/state", json={"saved": True, "read_progress": 0})
+    await client.post(f"/api/articles/{sources[1].id}/state", json={"read_progress": 0.4})
+    await client.post(f"/api/articles/{sources[2].id}/state", json={"status": "read", "read_progress": 0.4})
+    await client.post(f"/api/articles/{sources[3].id}/state", json={"read_progress": 1})
+
+    response = await client.get("/api/articles?module=read-later")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [sources[1].id]
+
+
+@pytest.mark.asyncio
 async def test_article_project_state_requires_saved_candidate(app, client):
     await client.post("/api/auth/login", json={"display_name": "Blank"})
     article = app.state.article_repository.upsert_from_source(
