@@ -31,6 +31,12 @@ function normalizeModule(raw: string | string[] | undefined): string {
   return "home";
 }
 
+function parseResearchJobId(raw: string | string[] | undefined): number | null {
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) return null;
+  const jobId = Number(raw);
+  return Number.isSafeInteger(jobId) && jobId > 0 ? jobId : null;
+}
+
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -40,7 +46,6 @@ const PRODUCT_PANELS: Record<string, () => ReactElement> = {
   themes: () => <ThemesPanel />,
   rules: () => <RulesPanel />,
   "saved-searches": () => <SavedSearchesPanel />,
-  research: () => <ResearchPanel />,
   interest: () => <InterestPanel />,
   notes: () => <NotesSearchPanel />,
   craft: () => <CraftPanel />,
@@ -91,6 +96,17 @@ export default async function HomePage({ searchParams }: PageProps) {
             initialArticleModule={typeof sp.filter === "string" && isModuleId(sp.filter) ? sp.filter : "all"}
             initialSort={currentSort}
           />
+        </main>
+      </AuthSessionGate>
+    );
+  }
+
+  if (currentModule === "research") {
+    return (
+      <AuthSessionGate>
+        <main className="workbench">
+          <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
+          <ResearchPanel initialJobId={parseResearchJobId(typeof sp.job === "string" ? sp.job : undefined)} />
         </main>
       </AuthSessionGate>
     );

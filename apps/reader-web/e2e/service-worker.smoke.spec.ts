@@ -332,6 +332,32 @@ test("search URL state ignores slow results after a newer query", async ({ page 
   await expect(page.getByText("Fast search result", { exact: true }).first()).toBeVisible();
 });
 
+test("research job URL restores after reload and citation return", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=research&sort=default&lang=zh&job=88");
+  await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
+  await expect(page.getByText(/job #88 · succeeded · mock/)).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
+  const citation = page.getByRole("link", { name: /Keyboard article one/ });
+  await expect(citation).toHaveAttribute("href", /module=research.*job=88.*quote=/);
+  await citation.click();
+  await expect(page).toHaveURL(/\/read\/7\?.*module=research.*job=88/);
+  await page.getByRole("link", { name: "返回工作台" }).click();
+  await expect(page).toHaveURL(/module=research.*job=88/);
+  await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
+});
+
+test("starting research writes the durable job URL", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=research&sort=default&lang=zh");
+  await page.getByRole("button", { name: "启动研究" }).click();
+
+  await expect(page).toHaveURL(/module=research.*job=88/);
+  await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
+});
+
 test("search retains article results when annotation search fails", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=search&filter=all&sort=default&q=partial");

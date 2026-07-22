@@ -29,7 +29,7 @@ import {
   readCraftPreferences,
   type CraftPreferences,
 } from "@/lib/craft/preferences";
-import { listArticles, pollJobUntilTerminal } from "@/lib/api/articles";
+import { getJob, listArticles, pollJobUntilTerminal, terminalJobStatus, type ApiJob } from "@/lib/api/articles";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import type { Article } from "@/lib/articles/types";
 
@@ -404,25 +404,115 @@ const RESEARCH_TEMPLATES: Array<{
   },
 ];
 
-export function ResearchPanel() {
+type ResearchResult = {
+  answer?: string;
+  citations?: Array<{
+    article_id?: number;
+    title?: string;
+    quote?: string;
+    start_hint?: number;
+  }>;
+  provider?: string;
+  question?: string;
+};
+
+export function researchResultFromJob(job: ApiJob, fallbackQuestion: string): ResearchResult {
+  const raw = (job.result ?? {}) as Record<string, unknown>;
+  const brief = raw.brief && typeof raw.brief === "object" ? (raw.brief as Record<string, unknown>) : raw;
+  return {
+    answer: typeof brief.answer === "string" ? brief.answer : undefined,
+    citations: Array.isArray(brief.citations)
+      ? (brief.citations as Array<{
+          article_id?: number;
+          title?: string;
+          quote?: string;
+          start_hint?: number;
+        }>)
+      : [],
+    provider: typeof brief.provider === "string" ? brief.provider : undefined,
+    question: typeof brief.question === "string" ? brief.question : fallbackQuestion,
+  };
+}
+
+export function parseResearchJobId(raw: string | null | undefined): number | null {
+  if (raw == null || !/^\d+$/.test(raw)) return null;
+  const jobId = Number(raw);
+  return Number.isSafeInteger(jobId) && jobId > 0 ? jobId : null;
+}
+
+export function ResearchPanel({ initialJobId = null }: { initialJobId?: number | null }) {
+  const router = useRouter();
   const [scope, setScope] = useState<"topn" | "project" | "topic">("topn");
   const [topic, setTopic] = useState("");
   const [question, setQuestion] = useState("总结本周最值得跟进的信号与风险");
   const [jobId, setJobId] = useState<number | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [result, setResult] = useState<{
-    answer?: string;
-    citations?: Array<{
-      article_id?: number;
-      title?: string;
-      quote?: string;
-      start_hint?: number;
-    }>;
-    provider?: string;
-    question?: string;
-  } | null>(null);
+  const [result, setResult] = useState<ResearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const activeJobRef = useRef<number | null>(null);
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const questionRef = useRef(question);
+
+  useEffect(() => {
+    questionRef.current = question;
+  }, [question]);
+
+  const researchHref = useCallback((nextJobId: number) => {
+    const params = new URLSearchParams({ module: "research", sort: "default", lang: "zh", job: String(nextJobId) });
+    return `?${params.toString()}`;
+  }, []);
+
+  const resumeJob = useCallback(async (nextJobId: number) => {
+    if (activeJobRef.current === nextJobId) return;
+    pollAbortRef.current?.abort();
+    const controller = new AbortController();
+    pollAbortRef.current = controller;
+    activeJobRef.current = nextJobId;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    setJobId(nextJobId);
+    try {
+      const initial = await getJob(nextJobId, { signal: controller.signal });
+      if (controller.signal.aborted || activeJobRef.current !== nextJobId) return;
+      setStatus(initial.status);
+      const terminal = terminalJobStatus(initial.status)
+        ? initial
+        : await pollJobUntilTerminal(nextJobId, { signal: controller.signal });
+      if (controller.signal.aborted || activeJobRef.current !== nextJobId) return;
+      setStatus(terminal.status);
+      if (terminal.status === "failed") {
+        throw new Error(terminal.lastError || "研究任务失败，可重试");
+      }
+      if (terminal.status !== "succeeded") {
+        throw new Error("研究任务仍在运行，请稍后再次打开或重试轮询");
+      }
+      setResult(researchResultFromJob(terminal, questionRef.current));
+    } catch (caught) {
+      if (controller.signal.aborted) return;
+      setError(caught instanceof Error ? caught.message : "研究任务失败");
+    } finally {
+      if (activeJobRef.current === nextJobId) {
+        setBusy(false);
+        activeJobRef.current = null;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (initialJobId == null) return;
+    void resumeJob(initialJobId);
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, [initialJobId, resumeJob]);
+
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
 
   async function run() {
     setBusy(true);
@@ -436,36 +526,11 @@ export function ResearchPanel() {
       });
       setJobId(job.jobId);
       setStatus("queued");
-      const polled = await pollJobUntilTerminal(job.jobId);
-      setStatus(polled.status);
-      if (polled.status === "failed") {
-        throw new Error(polled.lastError || "研究任务失败，可重试");
-      }
-      if (polled.status !== "succeeded") {
-        throw new Error("研究任务仍在运行，请稍后再次打开或重试轮询");
-      }
-      const raw = (polled.result ?? {}) as Record<string, unknown>;
-      const brief =
-        raw.brief && typeof raw.brief === "object"
-          ? (raw.brief as Record<string, unknown>)
-          : raw;
-      setResult({
-        answer: typeof brief.answer === "string" ? brief.answer : undefined,
-        citations: Array.isArray(brief.citations)
-          ? (brief.citations as Array<{
-              article_id?: number;
-              title?: string;
-              quote?: string;
-              start_hint?: number;
-            }>)
-          : [],
-        provider: typeof brief.provider === "string" ? brief.provider : undefined,
-        question: typeof brief.question === "string" ? brief.question : question,
-      });
+      router.push(researchHref(job.jobId));
+      void resumeJob(job.jobId);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "研究任务失败");
-    } finally {
       setBusy(false);
+      setError(caught instanceof Error ? caught.message : "研究任务失败");
     }
   }
 
@@ -556,7 +621,7 @@ export function ResearchPanel() {
                 <li key={`${item.article_id}-${index}`} className="productModuleCard">
                   {item.article_id != null ? (
                     <Link
-                      href={researchCitationHref(item.article_id, item.quote)}
+                      href={researchCitationHref(item.article_id, item.quote, jobId ?? undefined)}
                       prefetch={false}
                     >
                       [{index + 1}] {item.title || `文章 #${item.article_id}`}

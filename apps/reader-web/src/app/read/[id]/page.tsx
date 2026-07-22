@@ -24,6 +24,12 @@ function normalizeModule(raw: string | string[] | undefined): string {
   return typeof raw === "string" && raw !== "" ? raw : "all";
 }
 
+function parseResearchJobId(raw: string | string[] | undefined): number | null {
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) return null;
+  const jobId = Number(raw);
+  return Number.isSafeInteger(jobId) && jobId > 0 ? jobId : null;
+}
+
 function workbenchHref(
   articleId: number | null,
   moduleId: string,
@@ -31,8 +37,9 @@ function workbenchHref(
   langId: SummaryLangId,
   query: string,
   cursorStack: (string | null)[],
+  researchJobId: number | null,
 ): string {
-  return `/${buildWorkbenchHref({
+  const href = `/${buildWorkbenchHref({
     module: moduleId,
     sort: sortId,
     lang: langId,
@@ -40,6 +47,7 @@ function workbenchHref(
     cursorStack,
     articleId,
   })}`;
+  return researchJobId != null ? `${href}&job=${researchJobId}` : href;
 }
 
 export default async function FocusReadPage({ params, searchParams }: PageProps) {
@@ -55,13 +63,14 @@ export default async function FocusReadPage({ params, searchParams }: PageProps)
   const currentLang = resolveSummaryLangId(typeof sp.lang === "string" ? sp.lang : null);
   const currentQuery = typeof sp.q === "string" ? sp.q : "";
   const cursorStack = parseCursorTrail(typeof sp.trail === "string" ? sp.trail : null);
+  const researchJobId = parseResearchJobId(sp.job);
   const initialCitation =
     typeof sp.quote === "string" ? sp.quote.trim().slice(0, 500) : "";
 
   if (articleId == null) {
     return (
       <main className="focusReader">
-        <a className="readerToolbarBtn" href={workbenchHref(null, currentModule, currentSort, currentLang, currentQuery, cursorStack)}>
+        <a className="readerToolbarBtn" href={workbenchHref(null, currentModule, currentSort, currentLang, currentQuery, cursorStack, researchJobId)}>
           返回工作台
         </a>
         <div className="readerEmpty">
@@ -72,7 +81,7 @@ export default async function FocusReadPage({ params, searchParams }: PageProps)
     );
   }
 
-  const returnHref = workbenchHref(articleId, currentModule, currentSort, currentLang, currentQuery, cursorStack);
+  const returnHref = workbenchHref(articleId, currentModule, currentSort, currentLang, currentQuery, cursorStack, researchJobId);
 
   return (
     <AuthSessionGate>

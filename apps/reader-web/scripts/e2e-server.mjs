@@ -25,6 +25,24 @@ const users = {
 
 let currentUser = users.ada;
 let jobRequestCount = 0;
+const completedResearchJob = {
+  id: 88,
+  job_type: "research",
+  status: "succeeded",
+  progress: { completed: 1, total: 1 },
+  result: {
+    brief: {
+      answer: "## 本周研究\n\n优先跟进检索质量。",
+      citations: [{ article_id: 7, title: "Keyboard article one", quote: "检索质量" }],
+      provider: "mock",
+      question: "本周重点是什么？",
+    },
+  },
+  last_error: null,
+  created_at: "2026-07-22T00:00:00Z",
+  updated_at: "2026-07-22T00:01:00Z",
+  completed_at: "2026-07-22T00:01:00Z",
+};
 
 function sendJson(response, status, payload) {
   response.writeHead(status, { "content-type": "application/json" });
@@ -216,6 +234,14 @@ const proxy = createServer((request, response) => {
   if ((url.pathname === "/api/articles/7" || url.pathname === "/api/articles/9") && request.method === "GET") {
     const id = url.pathname.endsWith("/9") ? 9 : 7;
     sendJson(response, 200, { id, owner: currentUser.id, content_html: `<p>${currentUser.id}</p>` });
+    return;
+  }
+  if (url.pathname === "/api/research/jobs" && request.method === "POST") {
+    sendJson(response, 200, { job_id: completedResearchJob.id, poll_url: `/api/jobs/${completedResearchJob.id}` });
+    return;
+  }
+  if (url.pathname === `/api/jobs/${completedResearchJob.id}` && request.method === "GET") {
+    sendJson(response, 200, completedResearchJob);
     return;
   }
   if (url.pathname === "/api/jobs/7" && request.method === "GET") {
