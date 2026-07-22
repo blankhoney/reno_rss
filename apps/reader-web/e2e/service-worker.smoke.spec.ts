@@ -358,6 +358,15 @@ test("starting research writes the durable job URL", async ({ page }) => {
   await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
 });
 
+test("Daily Intelligence labels failed sources instead of false empty states", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=home&sort=default&lang=zh");
+
+  await expect(page.getByRole("button", { name: "刷新情报" })).toBeVisible();
+  await expect(page.getByText(/加载失败：/).first()).toBeVisible();
+  await expect(page.getByText("暂无条目", { exact: true })).toHaveCount(0);
+});
+
 test("continue-reading route uses actual partial progress rather than candidate state", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=read-later&sort=default&lang=zh");
