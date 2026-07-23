@@ -136,8 +136,8 @@ export function DailyIntelligenceDashboard() {
           },
           {
             id: "project",
-            title: "立项队列",
-            hint: "已立项的文章",
+            title: "未完成项目",
+            hint: "已立项队列",
             href: "?module=project&sort=default&lang=zh",
             count: projectItems.length,
             preview: projectItems.slice(0, 3).map((item) => item.title),

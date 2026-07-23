@@ -208,7 +208,7 @@ export function ThemesPanel() {
 }
 
 export function RulesPanel() {
-  const [rules, setRules] = useState<RuleItem[]>([]);
+  const [rules, setRules] = useState<RuleItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draftType, setDraftType] = useState("mute");
   const [draftKeyword, setDraftKeyword] = useState("");
@@ -227,6 +227,7 @@ export function RulesPanel() {
   }, [reload]);
 
   async function addRule() {
+    if (rules == null) return;
     setSaving(true);
     setError(null);
     try {
@@ -251,6 +252,7 @@ export function RulesPanel() {
   }
 
   async function removeRule(index: number) {
+    if (rules == null) return;
     setSaving(true);
     setError(null);
     try {
@@ -268,7 +270,9 @@ export function RulesPanel() {
       title="规则引擎"
       hint="boost / mute / must_read / keyword / score_threshold —— 写入后参与 Top10 与简报排序。"
     >
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? <p className="adminConsoleError" role="alert">{error}<button type="button" className="readerToolbarBtn" onClick={reload}>重试</button></p> : null}
+      {rules == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
+      {rules != null && rules.length === 0 ? <p className="workbenchRibbonMuted">尚无规则。</p> : null}
       <div className="productModuleForm">
         <label>
           类型
@@ -292,12 +296,12 @@ export function RulesPanel() {
           weight
           <input value={draftWeight} onChange={(event) => setDraftWeight(event.target.value)} />
         </label>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={saving} onClick={addRule}>
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={saving || rules == null} onClick={addRule}>
           添加规则
         </button>
       </div>
       <ul className="productModuleList">
-        {rules.map((rule, index) => (
+        {(rules ?? []).map((rule, index) => (
           <li key={`${rule.type}-${index}`} className="productModuleCard productModuleRow">
             <code>
               {rule.type}
@@ -316,21 +320,26 @@ export function RulesPanel() {
 }
 
 export function SavedSearchesPanel() {
-  const [items, setItems] = useState<SavedSearchItem[]>([]);
+  const [items, setItems] = useState<SavedSearchItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [q, setQ] = useState("");
   const [filterModule, setFilterModule] = useState("all");
   const [sort, setSort] = useState("latest");
 
-  useEffect(() => {
+  const reload = useCallback(() => {
+    setError(null);
     listSavedSearches()
       .then(setItems)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "加载失败"));
   }, []);
 
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
   async function saveCurrent() {
-    if (!name.trim()) return;
+    if (!name.trim() || items == null) return;
     try {
       const next = await putSavedSearches([
         ...items,
@@ -346,7 +355,9 @@ export function SavedSearchesPanel() {
 
   return (
     <PanelShell title="保存的搜索" hint="过滤器可复用；点击跳回列表。">
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? <p className="adminConsoleError" role="alert">{error}<button type="button" className="readerToolbarBtn" onClick={reload}>重试</button></p> : null}
+      {items == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
+      {items != null && items.length === 0 ? <p className="workbenchRibbonMuted">尚无保存的搜索。</p> : null}
       <div className="productModuleForm">
         <label>
           名称
@@ -377,12 +388,12 @@ export function SavedSearchesPanel() {
             <option value="trend">趋势</option>
           </select>
         </label>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" onClick={saveCurrent}>
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={items == null} onClick={saveCurrent}>
           保存
         </button>
       </div>
       <ul className="productModuleList">
-        {items.map((item) => (
+        {(items ?? []).map((item) => (
           <li key={`${item.name}-${item.q}`} className="productModuleCard">
             <Link
               href={savedSearchHref(item)}
