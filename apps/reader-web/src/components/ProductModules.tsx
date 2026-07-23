@@ -1050,8 +1050,11 @@ export function CraftPanel() {
 export function ExportPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingFormat, setPendingFormat] = useState<"markdown" | "json" | "zip" | null>(null);
 
   async function download(format: "markdown" | "json" | "zip") {
+    if (pendingFormat != null) return;
+    setPendingFormat(format);
     setError(null);
     setMessage(null);
     try {
@@ -1076,6 +1079,8 @@ export function ExportPanel() {
       setMessage(`已下载 ${format}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "导出失败");
+    } finally {
+      setPendingFormat(null);
     }
   }
 
@@ -1084,14 +1089,14 @@ export function ExportPanel() {
       {error ? <p className="adminConsoleError">{error}</p> : null}
       {message ? <p className="workbenchRibbonMuted">{message}</p> : null}
       <div className="articleListActions">
-        <button type="button" className="readerToolbarBtn" onClick={() => void download("markdown")}>
-          Markdown
+        <button type="button" className="readerToolbarBtn" disabled={pendingFormat != null} onClick={() => void download("markdown")}>
+          {pendingFormat === "markdown" ? "导出中…" : "Markdown"}
         </button>
-        <button type="button" className="readerToolbarBtn" onClick={() => void download("json")}>
-          JSON
+        <button type="button" className="readerToolbarBtn" disabled={pendingFormat != null} onClick={() => void download("json")}>
+          {pendingFormat === "json" ? "导出中…" : "JSON"}
         </button>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" onClick={() => void download("zip")}>
-          ZIP
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={pendingFormat != null} onClick={() => void download("zip")}>
+          {pendingFormat === "zip" ? "导出中…" : "ZIP"}
         </button>
       </div>
     </PanelShell>
