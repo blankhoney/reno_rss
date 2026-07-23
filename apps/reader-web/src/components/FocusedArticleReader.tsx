@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/types";
 import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
 import { findCitationTarget, type SummaryLangId } from "@/lib/articles/service";
@@ -138,11 +138,13 @@ export function FocusedArticleReader({
   const [dualPaneKind, setDualPaneKind] = useState<"notes" | "article">("notes");
   const [dualArticleId, setDualArticleId] = useState<number | null>(null);
   const [dualArticle, setDualArticle] = useState<Article | null>(null);
+  const [dualArticleError, setDualArticleError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [highlightColor, setHighlightColor] = useState("yellow");
   const [highlightTags, setHighlightTags] = useState("");
   const [bilingual, setBilingual] = useState(false);
   const [annotations, setAnnotations] = useState<ArticleAnnotation[]>([]);
+  const [annotationsError, setAnnotationsError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -234,7 +236,7 @@ export function FocusedArticleReader({
     return () => window.removeEventListener("ai-reader:craft-prefs", applyPrefs);
   }, []);
 
-  useEffect(() => {
+  const reloadDualArticle = useCallback(() => {
     if (!dualPane || dualPaneKind !== "article" || dualArticleId == null) {
       setDualArticle(null);
       return;
@@ -244,31 +246,40 @@ export function FocusedArticleReader({
       return;
     }
     let active = true;
+    setDualArticleError(null);
     getArticle(dualArticleId)
       .then((next) => {
         if (active) setDualArticle(next);
       })
-      .catch(() => {
-        if (active) setDualArticle(null);
+      .catch((caught) => {
+        if (active) {
+          setDualArticle(null);
+          setDualArticleError(caught instanceof Error ? caught.message : "加载对照文章失败");
+        }
       });
     return () => {
       active = false;
     };
   }, [article.id, dualArticleId, dualPane, dualPaneKind]);
 
-  useEffect(() => {
+  useEffect(() => reloadDualArticle(), [reloadDualArticle]);
+
+  const reloadAnnotations = useCallback(() => {
     let active = true;
+    setAnnotationsError(null);
     listArticleAnnotations(article.id)
       .then((items) => {
         if (active) setAnnotations(items);
       })
-      .catch(() => {
-        if (active) setAnnotations([]);
+      .catch((caught) => {
+        if (active) setAnnotationsError(caught instanceof Error ? caught.message : "加载划线失败");
       });
     return () => {
       active = false;
     };
   }, [article.id]);
+
+  useEffect(() => reloadAnnotations(), [reloadAnnotations]);
 
   useEffect(() => {
     let active = true;
@@ -898,6 +909,7 @@ export function FocusedArticleReader({
           <aside className="focusedArticleNotes" aria-label="笔记双栏">
             <h2>笔记</h2>
             <p className="workbenchRibbonMuted">双栏模式：文章 + 笔记。选区高亮仍会保存到私有标注。</p>
+            {annotationsError ? <p className="adminConsoleError">加载已有划线失败：{annotationsError}<button type="button" className="readerToolbarBtn" onClick={reloadAnnotations}>重试</button></p> : null}
             <textarea
               className="agentQuestion"
               rows={12}
@@ -936,7 +948,9 @@ export function FocusedArticleReader({
         {dualPane && dualPaneKind === "article" ? (
           <aside className="focusedArticleNotes dualArticlePane" aria-label="对照文章">
             <h2>对照阅读</h2>
-            {dualArticle == null ? (
+            {dualArticleError ? (
+              <p className="adminConsoleError">加载对照文章失败：{dualArticleError}<button type="button" className="readerToolbarBtn" onClick={reloadDualArticle}>重试</button></p>
+            ) : dualArticle == null ? (
               <p className="workbenchRibbonMuted">在「阅读工艺」设置对照文章 ID，或 ⌘K 打开工艺面板。</p>
             ) : (
               <>
