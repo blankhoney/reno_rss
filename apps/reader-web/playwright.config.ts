@@ -2,6 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = 3010;
 const baseURL = `http://127.0.0.1:${port}`;
+const crossEngineCoreFlows =
+  /muted reading text|principal success fixtures|previous user's cached article|mobile module drawer|article shortcuts|article links and command input|scan mode remains|focus mode remains|keep mode remains/;
+const touchCoreFlows =
+  /muted reading text|principal success fixtures|previous user's cached article|mobile module drawer|article links and command input|scan mode remains|focus mode remains|keep mode remains/;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -18,6 +22,21 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+      grep: crossEngineCoreFlows,
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+      grep: crossEngineCoreFlows,
+    },
+    {
+      name: "webkit-touch",
+      use: { ...devices["iPhone 13"] },
+      grep: touchCoreFlows,
     },
   ],
   webServer: {

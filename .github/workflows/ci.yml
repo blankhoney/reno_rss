@@ -141,9 +141,9 @@ jobs:
         working-directory: apps/reader-web
         run: npm run build
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright browser matrix
         working-directory: apps/reader-web
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Test reader-web browser flows
         working-directory: apps/reader-web

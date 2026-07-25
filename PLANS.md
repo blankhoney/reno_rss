@@ -2,8 +2,8 @@
 
 > Authoritative goal: `GOAL.md`
 > Updated: 2026-07-26 (Asia/Taipei)
-> Behavior checkpoint: `a77e801005944989fe4990a6db3ec6b49e62e5a1` (based on merged `main` `32305d347586362a3496fc078a775aebb1fbe5ad`)
-> Current state: **M1 — core-loop truth and knowledge integrity, A-02/A-03/A-04/A-07/A-10 in progress**
+> Behavior checkpoint: `504c98c7125d6e589872b68c6c8c61311a5350f0` (merged `main`; M2.1 candidate is currently uncommitted)
+> Current state: **M2.1 — accessible responsive interaction, A-05/A-06 in progress; core-loop/data/release MUST gates remain open**
 
 ## Execution Contract
 
@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-integrity` based on `f8151b1c`; M1.5 is an uncommitted, focused inline-markup integrity slice. |
-| Milestone / acceptance | M1.5 inline-markup annotation recovery; A-03, A-04, and A-07 remain `IN_PROGRESS`. |
-| Hypothesis | A failed candidate write must preserve the reading context and offer an explicit retry; a success must be rendered from a server-confirmed state, not an optimistic local assumption. |
-| Initial failure | State responses were discarded at the Reader boundary and a failed candidate write only showed an error, leaving no explicit retry proof. |
-| Minimal repair | Typed state response parsing, article-scoped retry closure, visible retry control, and a resettable one-time 503 fixture that persists the retried state. |
-| Green validation | `npm test` 193/193; `npm run build`; focused Chromium 1/1; full Chromium 49/49. |
-| Durable evidence | `output/evidence/m1-candidate-state-retry-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt`. |
-| Rollback | Revert the state-response/retry/fixture slice; no production endpoint, schema, data, dependency, or stored annotation change. |
-| Next action | M2: add role-aware contrast evidence and reduced-motion/reflow assertions. |
+| Exact candidate | `goal/m1-annotation-integrity` based on merged `main` `504c98c7`; focused M2.1 browser-matrix slice is uncommitted. |
+| Milestone / acceptance | M2.1 accessibility/reflow cross-engine minimum; A-05 and A-06 remain `IN_PROGRESS`. |
+| Hypothesis | A compact core matrix gives earlier warning for browser-specific caching, overlay, focus and reflow regressions without presenting a subset as full-browser coverage. |
+| Initial failure | CI installed only Chromium; the user-switch cache test assumed every safe offline outcome was a synthetic 503, while WebKit safely rejects the offline request. |
+| Minimal repair | Add Firefox, WebKit and touch projects filtered to core routes; define cache safety as current-user data, typed offline error, or no response—not a previous-user response. |
+| Green validation | Chromium 55/55; Firefox 21/21; WebKit 21/21; iPhone WebKit 20/20; Node 193/193; production build. |
+| Durable evidence | `output/evidence/m2-cross-engine-core-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt`. |
+| Rollback | Revert CI browser install, Playwright projects and cache assertion together; no application runtime, schema, API or stored data changes. |
+| Next action | Add 1024/1280 reflow pairs and make cross-engine text selection reproducible before calling A-06 complete. |
 
 ## Completed Checkpoints
 
@@ -39,6 +39,7 @@
 | M1.3 annotation recovery | A-03, A-04 | Resolver/highlighter test-first failures; shifted-repeat restoration and ambiguity rejection with full Reader validation | Inline-markup, input, retry, and multi-user identity matrix incomplete |
 | M1.4 candidate state retry | A-02, A-04, A-10 | One deterministic state-write 503 preserves Reader context; explicit retry reloads server-confirmed candidate state | Broader state matrix, input/browser pairwise coverage, and bounded recovery budget incomplete |
 | M1.5 inline-markup annotation recovery | A-03, A-04, A-07 | Cross-markup anchor remains unresolved, and its retained note is available natively | Touch, IME, retry, and multi-user annotation matrix incomplete |
+| M2.1 cross-engine accessible core minimum | A-05, A-06 | AA muted-text/reduced-motion assertion and Chromium/Firefox/WebKit/iPhone core paths | 1024/1280, full cross-engine suite, screen-reader and cross-engine selection matrix incomplete |
 
 ## Acceptance Ledger
 
@@ -48,8 +49,8 @@
 | A-02 | IN_PROGRESS | Daily Cluster partial-failure/retry/open-return and Reader/Ask 503→retry→citation slices green; complete Daily/Scan → Reader/Ask → Keep → Review/Research/Export state matrix remains |
 | A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat restoration and ambiguity rejection are green; inline markup, retry, touch-equivalent and keyboard cases remain |
 | A-04 | IN_PROGRESS | Annotation ambiguity now keeps private data visible without misbinding; admin/public metrics/session checks exist, and two-user browser/cache matrix remains |
-| A-05 | IN_PROGRESS | Known contrast gaps; automated audit, keyboard/reflow/reduced-motion proof remain |
-| A-06 | IN_PROGRESS | Chromium subset green; six widths, Firefox/WebKit and input pairwise matrix remain |
+| A-05 | IN_PROGRESS | AA muted-text, reduced-motion and core keyboard/reflow paths now run in the minimum browser matrix; semantic audit and screen-reader evidence remain |
+| A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; 1024/1280, full suite and cross-engine selection/input pairwise matrix remain |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
 | A-08 | IN_PROGRESS | Clean Alembic upgrade and anchor contracts green; live PostgreSQL restored-snapshot and conditional tests remain |
 | A-09 | IN_PROGRESS | Harnesses exist; five-run nonzero Web/API/queue/DB baselines remain |
@@ -62,11 +63,10 @@
 
 ## Autonomous Work Queue
 
-1. **M1.4 — Keep/candidate state failure continuity (P0):** Trace state responses through list and reader controls, then prove one typed state-write failure preserves context and retries to server-confirmed state.
-2. **M1.5 — anchor integrity extension (P0):** Add inline-markup or input-equivalent recovery/rejection fixture; preserve metadata compatibility and the no-wrong-anchor rule.
-3. **M2 — accessible responsive interaction (P0):** Start with role-aware contrast tests because known normal-text values are below AA; use the existing editorial system and test reduced-motion/reflow alongside each touch.
-4. **M3 — deployment-like data/performance/resilience (P0):** Create disposable PostgreSQL and five-run Web/API/queue/DB baseline paths before tuning.
-5. **M5 — release recovery closure (P0):** Rehearse immutable staging rollback/forward and registry cleanup only after prior MUST gates are green.
+1. **M2.2 — responsive/input extension (P0):** Add 1024/1280 reflow pairs and a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
+2. **M3 — atomic article state (P0):** Establish PostgreSQL-backed concurrent writes and `project ⇒ saved` storage invariant before tuning performance.
+3. **M3.1 — deployment-like performance/resilience (P0):** Create disposable PostgreSQL and five-run Web/API/queue/DB baseline paths before tuning.
+4. **M4 — release recovery closure (P0):** Rehearse immutable staging rollback/forward and registry cleanup only after prior MUST gates are green.
 
 ## Iteration Log
 
@@ -78,6 +78,7 @@
 | 2026-07-26 | M1.2 closed one Reader/Ask transient-failure continuity slice. | Test first failed, then focused Chromium 1/1, Node 189/189, build, and Chromium 47/47 passed. Record: `output/evidence/m1-reader-ask-retry-2026-07-26.json`. |
 | 2026-07-26 | M1.3 closed one safe annotation-recovery slice. | Resolver/highlighter tests first failed, then focused Node 9/9, Reader Node 193/193, build, focused Chromium 1/1, and Chromium 48/48 passed. Record: `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json`. |
 | 2026-07-26 | M1.4 closed one candidate state-write recovery slice. | First browser run exposed incorrect control naming and a strict alert locator; after those test-only corrections, the deterministic 503 → explicit retry → server-confirmed candidate-state scenario passed. Reader Node 193/193, production build, and Chromium 49/49 passed. Record: `output/evidence/m1-candidate-state-retry-2026-07-26.json`. |
+| 2026-07-26 | M2.1 established a minimum cross-engine core matrix and corrected the user-switch offline cache invariant. | Chromium 55/55, Firefox 21/21, WebKit 21/21 and iPhone WebKit 20/20 passed; WebKit's `Load failed` is accepted only as no response, never as cached prior-user data. Record: `output/evidence/m2-cross-engine-core-2026-07-26.json`. |
 
 ## Evidence and Recovery Rules
 
