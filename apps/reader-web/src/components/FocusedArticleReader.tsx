@@ -17,7 +17,7 @@ import {
 } from "@/lib/api/articles";
 import { streamArticleAsk, type ArticleAskCitation } from "@/lib/api/client";
 import { listClusters, listThemes } from "@/lib/api/intel";
-import { applyHighlightMarks } from "@/lib/articles/highlights";
+import { applyHighlightMarksWithResolution } from "@/lib/articles/highlights";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { readCraftPreferences } from "@/lib/craft/preferences";
 import { moveCommandIndex } from "@/lib/commandPalette";
@@ -543,18 +543,20 @@ export function FocusedArticleReader({
   const contentNotice = articleContentNotice(article);
   const agentNotice = articleAgentNotice(article);
   const baseHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
-  const displayedHtml = useMemo(
+  const highlightApplication = useMemo(
     () =>
-      applyHighlightMarks(
+      applyHighlightMarksWithResolution(
         baseHtml,
         annotations.map((item) => ({
           id: item.id,
           selectedText: item.selectedText || item.content,
           color: item.color,
+          anchor: item.anchor,
         })),
       ),
     [annotations, baseHtml],
   );
+  const displayedHtml = highlightApplication.html;
   const scoreStatusStyle: TierStatusStyle | undefined = score
     ? { "--statusTierColor": `var(${tierColorVar(score.tier, score.overall)})` }
     : undefined;
@@ -870,6 +872,11 @@ export function FocusedArticleReader({
         </details>
 
         {contentNotice ? <p className="contentPartialNotice">{contentNotice}</p> : null}
+        {highlightApplication.unresolvedAnnotationIds.length > 0 ? (
+          <p className="contentPartialNotice" role="status">
+            有 {highlightApplication.unresolvedAnnotationIds.length} 条已保存划线因内容变化未安全定位；原笔记仍保留，请核对原文后重新标注。
+          </p>
+        ) : null}
 
         <div className="articleListActions" style={{ marginBottom: 8 }}>
           <button

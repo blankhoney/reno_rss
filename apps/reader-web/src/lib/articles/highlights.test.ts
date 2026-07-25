@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyHighlightMarks, colorClassFor } from "./highlights";
+import { buildTextQuoteAnchor } from "./annotationAnchor";
+import { applyHighlightMarks, applyHighlightMarksWithResolution, colorClassFor } from "./highlights";
 
 test("applyHighlightMarks wraps first matching quote with color class", () => {
   const html = "<p id=\"p-1\" data-paragraph-id=\"1\">Rust async runtime is great.</p>";
@@ -15,4 +16,42 @@ test("applyHighlightMarks wraps first matching quote with color class", () => {
 test("colorClassFor defaults to yellow", () => {
   assert.equal(colorClassFor(null), "hl-yellow");
   assert.equal(colorClassFor("pink"), "hl-pink");
+});
+
+test("anchored marks follow their context after repeated text shifts instead of marking the first quote", () => {
+  const originalText = "Opening repeated quote.Intended context: repeated quote. Closing.";
+  const targetStart = originalText.lastIndexOf("repeated quote");
+  const anchor = buildTextQuoteAnchor(originalText, targetStart, targetStart + "repeated quote".length, 32);
+
+  assert.ok(anchor);
+  const result = applyHighlightMarksWithResolution(
+    "<p>New preface. Opening repeated quote.</p><p>Intended context: repeated quote. Closing.</p>",
+    [{ id: 9, selectedText: "repeated quote", color: "blue", anchor }],
+  );
+
+  assert.match(result.html, /Opening repeated quote\.<\/p><p>Intended context: <mark[^>]*data-annotation-id="9"[^>]*>repeated quote<\/mark>/);
+  assert.deepEqual(result.unresolvedAnnotationIds, []);
+});
+
+test("anchored marks expose unresolved ids when the stored context is ambiguous", () => {
+  const result = applyHighlightMarksWithResolution(
+    "<p>same context: repeated quote. same context: repeated quote.</p>",
+    [{
+      id: 12,
+      selectedText: "repeated quote",
+      color: "yellow",
+      anchor: {
+        kind: "text-quote",
+        version: 1,
+        exact: "repeated quote",
+        prefix: "same context: ",
+        suffix: ".",
+        start: 0,
+        end: "repeated quote".length,
+      },
+    }],
+  );
+
+  assert.doesNotMatch(result.html, /data-annotation-id="12"/);
+  assert.deepEqual(result.unresolvedAnnotationIds, [12]);
 });

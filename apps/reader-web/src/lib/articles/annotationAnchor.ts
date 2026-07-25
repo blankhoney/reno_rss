@@ -8,6 +8,11 @@ export type ArticleAnnotationAnchor = {
   end: number;
 };
 
+export type TextQuoteAnchorResolution =
+  | { status: "resolved"; start: number; end: number }
+  | { status: "ambiguous" }
+  | { status: "not-found" };
+
 const MAX_EXACT_LENGTH = 4_000;
 const MAX_CONTEXT_LENGTH = 160;
 
@@ -68,4 +73,39 @@ export function parseTextQuoteAnchor(value: unknown): ArticleAnnotationAnchor | 
     start,
     end,
   };
+}
+
+/**
+ * Reattach a persisted quote only when its stored context identifies one
+ * current occurrence. Exact text alone is deliberately insufficient: feeds
+ * commonly repeat labels, quotes, and boilerplate after a refresh.
+ */
+export function resolveTextQuoteAnchor(
+  text: string,
+  anchor: ArticleAnnotationAnchor,
+): TextQuoteAnchorResolution {
+  const matches: number[] = [];
+  let fromIndex = 0;
+  while (fromIndex <= text.length - anchor.exact.length) {
+    const start = text.indexOf(anchor.exact, fromIndex);
+    if (start === -1) break;
+    matches.push(start);
+    fromIndex = start + Math.max(1, anchor.exact.length);
+  }
+
+  if (matches.length === 0) return { status: "not-found" };
+
+  const contextualMatches = matches.filter((start) => {
+    const end = start + anchor.exact.length;
+    const prefixMatches = anchor.prefix.length === 0 || text.slice(Math.max(0, start - anchor.prefix.length), start) === anchor.prefix;
+    const suffixMatches = anchor.suffix.length === 0 || text.slice(end, end + anchor.suffix.length) === anchor.suffix;
+    return prefixMatches && suffixMatches;
+  });
+
+  if (contextualMatches.length !== 1) {
+    return { status: contextualMatches.length === 0 ? "not-found" : "ambiguous" };
+  }
+
+  const start = contextualMatches[0];
+  return { status: "resolved", start, end: start + anchor.exact.length };
 }

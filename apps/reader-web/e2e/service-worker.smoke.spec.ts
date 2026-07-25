@@ -346,6 +346,22 @@ test("selection anchor survives note editor focus before save", async ({ page })
   expect(anchor.kind).toBe("text-quote");
 });
 
+test("refreshed repeated annotations restore only the context-proven quote and surface ambiguity", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-repeated");
+
+  const intendedParagraph = page.locator(".focusContent p").nth(1);
+  await expect(intendedParagraph.locator('mark[data-annotation-id="51"]')).toHaveText("Repeated evidence.");
+  await expect(page.locator(".focusContent p").first().locator('mark[data-annotation-id="51"]')).toHaveCount(0);
+  await expect(page.getByText(/未安全定位/)).toHaveCount(0);
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-ambiguous");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="52"]')).toHaveCount(0);
+  await expect(page.getByText(/有 1 条已保存划线因内容变化未安全定位/)).toBeVisible();
+  await expect(page.locator(".focusContent")).toContainText("Repeated evidence.");
+});
+
 for (const viewport of [
   { width: 390, height: 844 },
   { width: 768, height: 1024 },

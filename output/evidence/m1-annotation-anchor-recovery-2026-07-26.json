@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-26",
+  "base_revision": "32305d347586362a3496fc078a775aebb1fbe5ad",
+  "milestone": "M1.3",
+  "acceptance": ["A-03", "A-04"],
+  "scenario": "A persisted version-1 annotation anchor follows a context-proven repeated quote after synthetic refreshed content shifts its position, but never silently attaches when the current text makes the same quote ambiguous; the saved annotation remains visible as an explicit unresolved state.",
+  "failure_before_repair": [
+    {
+      "command": "node --test --import tsx src/lib/articles/annotationAnchor.test.ts",
+      "result": "failed: annotationAnchor did not export a resolver, so refreshed repeated text had no restoration contract"
+    },
+    {
+      "command": "node --test --import tsx src/lib/articles/highlights.test.ts",
+      "result": "failed: highlights did not expose an anchor-aware renderer, so the UI could only select the first matching quote"
+    }
+  ],
+  "repair": [
+    "Added a context-only resolver that returns resolved, ambiguous, or not-found without trusting the stored position by itself.",
+    "Rendered persisted anchors only when the resolved range maps to one safe plain-text HTML range; retained legacy unanchored first-match rendering for backwards compatibility.",
+    "Added a visible unresolved-annotation status while retaining the saved note and deterministic repeated/ambiguous Reader fixtures."
+  ],
+  "validation": [
+    {
+      "command": "node --test --import tsx src/lib/articles/annotationAnchor.test.ts src/lib/articles/highlights.test.ts",
+      "result": "pass: 9 focused Node tests"
+    },
+    {
+      "command": "npm test",
+      "result": "pass: 193 Reader Node tests"
+    },
+    {
+      "command": "npm run build",
+      "result": "pass: Next.js production build"
+    },
+    {
+      "command": "npx playwright test e2e/service-worker.smoke.spec.ts --grep refreshed repeated annotations",
+      "result": "pass: 1 Chromium scenario"
+    },
+    {
+      "command": "npm run test:e2e",
+      "result": "pass: 48 Chromium scenarios"
+    }
+  ],
+  "known_limit": "This covers plain-text ranges in sanitized HTML, one shifted repeated quote, and one ambiguous rejection. It does not claim inline-markup range restoration, alternate input methods, retries, or multi-user isolation; A-03 and A-04 remain IN_PROGRESS."
+}
