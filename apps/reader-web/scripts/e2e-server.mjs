@@ -487,6 +487,61 @@ const proxy = createServer((request, response) => {
   }
   if ((url.pathname === "/api/articles/7/annotations" || url.pathname === "/api/articles/9/annotations") && request.method === "GET") {
     const articleId = url.pathname.includes("/9/") ? 9 : 7;
+    const mode = fixtureMode(request);
+    if (articleId === 7 && mode === "annotation-repeated") {
+      sendJson(response, 200, {
+        items: [{
+          id: 51,
+          article_id: 7,
+          type: "annotation",
+          selected_text: "Repeated evidence.",
+          content: "Keep the intended repeated evidence.",
+          color: "blue",
+          tags: ["evidence"],
+          anchor: {
+            kind: "text-quote",
+            version: 1,
+            exact: "Repeated evidence.",
+            prefix: "First context: Repeated evidence.Intended context: ",
+            suffix: " Closing context.",
+            start: 51,
+            end: 69,
+          },
+          created_at: "2026-07-24T08:00:00Z",
+          next_review_at: null,
+          interval_days: 3,
+          review_count: 1,
+        }],
+      });
+      return;
+    }
+    if (articleId === 7 && mode === "annotation-ambiguous") {
+      sendJson(response, 200, {
+        items: [{
+          id: 52,
+          article_id: 7,
+          type: "annotation",
+          selected_text: "Repeated evidence.",
+          content: "Do not silently bind this note.",
+          color: "yellow",
+          tags: ["evidence"],
+          anchor: {
+            kind: "text-quote",
+            version: 1,
+            exact: "Repeated evidence.",
+            prefix: "same context: ",
+            suffix: ".",
+            start: 14,
+            end: 32,
+          },
+          created_at: "2026-07-24T08:00:00Z",
+          next_review_at: null,
+          interval_days: 3,
+          review_count: 1,
+        }],
+      });
+      return;
+    }
     sendJson(response, 200, {
       items: articleId === 7
         ? [{
@@ -508,6 +563,19 @@ const proxy = createServer((request, response) => {
   }
   if ((url.pathname === "/api/articles/7" || url.pathname === "/api/articles/9") && request.method === "GET") {
     const id = url.pathname.endsWith("/9") ? 9 : 7;
+    const mode = fixtureMode(request);
+    const repeatedAnnotationFixture = id === 7 && mode === "annotation-repeated";
+    const ambiguousAnnotationFixture = id === 7 && mode === "annotation-ambiguous";
+    const contentHtml = repeatedAnnotationFixture
+      ? "<p>New preface. First context: Repeated evidence.</p><p>Intended context: Repeated evidence. Closing context.</p>"
+      : ambiguousAnnotationFixture
+        ? "<p>same context: Repeated evidence. same context: Repeated evidence.</p>"
+        : "<p>Evidence persists.</p><p>Evidence should survive navigation.</p><p>A durable note returns when it matters.</p>";
+    const contentText = repeatedAnnotationFixture
+      ? "New preface. First context: Repeated evidence.Intended context: Repeated evidence. Closing context."
+      : ambiguousAnnotationFixture
+        ? "same context: Repeated evidence. same context: Repeated evidence."
+        : "Evidence persists. Evidence should survive navigation. A durable note returns when it matters.";
     sendJson(response, 200, {
       id,
       owner: currentUser.id,
@@ -517,11 +585,11 @@ const proxy = createServer((request, response) => {
       category: { id: 2, title: "Research systems" },
       published_at: "2026-07-24T08:00:00Z",
       content_quality: "full",
-      content_html: "<p>Evidence persists.</p><p>Evidence should survive navigation.</p><p>A durable note returns when it matters.</p>",
+      content_html: contentHtml,
       content_zh: null,
       content_zh_status: "none",
       translated_at: null,
-      content_text: "Evidence persists. Evidence should survive navigation. A durable note returns when it matters.",
+      content_text: contentText,
       content_source: "fixture",
       summary_zh: "让浏览、标注与研究任务在导航后保持连续。",
       summary_original: "Keep the evidence chain durable.",

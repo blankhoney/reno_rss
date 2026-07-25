@@ -2,8 +2,8 @@
 
 > Authoritative goal: `GOAL.md`
 > Updated: 2026-07-26 (Asia/Taipei)
-> Behavior checkpoint: `29799d526297114a604da2eea1402c59dfcc21b5` (based on merged `main` `49b2ecf2445f7995488e9a7c25346f4e4989ce8b`)
-> Current state: **M1 — core-loop truth and knowledge integrity, A-02/A-07 in progress**
+> Behavior checkpoint: `a77e801005944989fe4990a6db3ec6b49e62e5a1` (based on merged `main` `32305d347586362a3496fc078a775aebb1fbe5ad`)
+> Current state: **M1 — core-loop truth and knowledge integrity, A-02/A-03/A-04/A-07 in progress**
 
 ## Execution Contract
 
@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | Committed behavior checkpoint `29799d526297114a604da2eea1402c59dfcc21b5`; this ledger-only follow-up adds no runtime change |
-| Milestone / acceptance | M1.2 Reader/Ask transient-failure continuity; A-02, A-07, and A-15 remain `IN_PROGRESS` |
-| Hypothesis | A failing Ask request must not hide the active article; retrying the same action should return a grounded cited answer without requiring a real provider. |
-| Initial failure | New Playwright scenario failed because the E2E proxy had no Ask failure/SSE contract. |
-| Minimal repair | One-time typed Ask 503 fixture plus a deterministic SSE text/citation response. |
-| Green validation | Focused Chromium 1/1; `npm test` 189/189; `npm run build`; `npm run test:e2e` 47/47. |
-| Durable evidence | `output/evidence/m1-reader-ask-retry-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt` |
-| Rollback | Revert this fixture/E2E slice; no production endpoint, schema, data, dependency, provider setting, or real-provider spend. |
-| Next action | M1.3: choose the highest-value uncovered Keep/annotation or Review/Research/Export state from the A-02 matrix, beginning with deterministic fixture inventory and a failing test. |
+| Exact candidate | Behavior checkpoint `a77e801005944989fe4990a6db3ec6b49e62e5a1` based on merged `main` `32305d347586362a3496fc078a775aebb1fbe5ad` |
+| Milestone / acceptance | M1.3 safe annotation recovery; A-03 and A-04 remain `IN_PROGRESS` |
+| Hypothesis | A saved anchor must use context to find one current quote or explicitly remain unresolved; it must never silently bind to a repeated quote. |
+| Initial failure | Focused resolver and highlighter tests failed because neither anchor restoration nor anchor-aware rendering existed. |
+| Minimal repair | Context-only resolver, safe plain-text range wrapper, retained-note status, and repeated/ambiguous E2E fixtures. |
+| Green validation | Focused Node 9/9; `npm test` 193/193; `npm run build`; focused Chromium 1/1; `npm run test:e2e` 48/48. |
+| Durable evidence | `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt` |
+| Rollback | Revert resolver/highlighter/fixture slice; no production endpoint, schema, data, dependency, or stored annotation changes. |
+| Next action | M1.4: trace candidate state responses and add a smallest typed state-write failure → retry browser path. |
 
 ## Completed Checkpoints
 
@@ -36,6 +36,7 @@
 | Versioned annotation anchor | A-03, A-04, A-08 | API/OpenAPI/Reader/browser anchor tests | Refresh, repeated-quote, alternate input and session matrix incomplete |
 | M1.1 Daily partial failure | A-02, A-07 | One failing test before repair; focused and full Reader validation after repair | One deterministic state slice only; full state/browser/input matrix incomplete |
 | M1.2 Reader/Ask partial failure | A-02, A-07, A-15 | One failing test before repair; 503 → retry → SSE citation and full Reader validation | One deterministic Ask failure slice only; provider/recovery/state matrix incomplete |
+| M1.3 annotation recovery | A-03, A-04 | Resolver/highlighter test-first failures; shifted-repeat restoration and ambiguity rejection with full Reader validation | Inline-markup, input, retry, and multi-user identity matrix incomplete |
 
 ## Acceptance Ledger
 
@@ -43,8 +44,8 @@
 | --- | --- | --- |
 | A-01 | PASS | Exact revision, evidence manifest, reproducible focused gates |
 | A-02 | IN_PROGRESS | Daily Cluster partial-failure/retry/open-return and Reader/Ask 503→retry→citation slices green; complete Daily/Scan → Reader/Ask → Keep → Review/Research/Export state matrix remains |
-| A-03 | IN_PROGRESS | Initial versioned anchor green; ambiguity, refresh, retry, touch-equivalent, keyboard and identity cases remain |
-| A-04 | IN_PROGRESS | Admin/public metrics/session checks exist; two-user browser/cache matrix remains |
+| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat restoration and ambiguity rejection are green; inline markup, retry, touch-equivalent and keyboard cases remain |
+| A-04 | IN_PROGRESS | Annotation ambiguity now keeps private data visible without misbinding; admin/public metrics/session checks exist, and two-user browser/cache matrix remains |
 | A-05 | IN_PROGRESS | Known contrast gaps; automated audit, keyboard/reflow/reduced-motion proof remain |
 | A-06 | IN_PROGRESS | Chromium subset green; six widths, Firefox/WebKit and input pairwise matrix remain |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
@@ -59,8 +60,8 @@
 
 ## Autonomous Work Queue
 
-1. **M1.3 — next core-loop state slice (P0):** Inventory deterministic fixtures for Keep/annotation and Review/Research/Export; choose the uncovered state with the highest user loss risk, write one failing scenario, implement the smallest recovery.
-2. **M1.4 — anchor integrity extension (P0):** Add repeated-quote or refreshed-content restoration/rejection fixture; preserve metadata compatibility and no-wrong-anchor rule.
+1. **M1.4 — Keep/candidate state failure continuity (P0):** Trace state responses through list and reader controls, then prove one typed state-write failure preserves context and retries to server-confirmed state.
+2. **M1.5 — anchor integrity extension (P0):** Add inline-markup or input-equivalent recovery/rejection fixture; preserve metadata compatibility and the no-wrong-anchor rule.
 3. **M2 — accessible responsive interaction (P0):** Start with role-aware contrast tests because known normal-text values are below AA; use the existing editorial system and test reduced-motion/reflow alongside each touch.
 4. **M3 — deployment-like data/performance/resilience (P0):** Create disposable PostgreSQL and five-run Web/API/queue/DB baseline paths before tuning.
 5. **M5 — release recovery closure (P0):** Rehearse immutable staging rollback/forward and registry cleanup only after prior MUST gates are green.
@@ -73,6 +74,7 @@
 | 2026-07-26 | M1.1 closed one Daily secondary-source continuity slice. | Test first failed, then focused Chromium 1/1, Node 189/189, build, and Chromium 46/46 passed. Record: `output/evidence/m1-daily-partial-failure-2026-07-26.json`. |
 | 2026-07-26 | M1.1 merged to `main` as `49b2ecf2` and passed exact-SHA CI/staging. | Run `30175505204` passed test/build/Compose/Trivy, image publication, deployment and route/boundary smoke. |
 | 2026-07-26 | M1.2 closed one Reader/Ask transient-failure continuity slice. | Test first failed, then focused Chromium 1/1, Node 189/189, build, and Chromium 47/47 passed. Record: `output/evidence/m1-reader-ask-retry-2026-07-26.json`. |
+| 2026-07-26 | M1.3 closed one safe annotation-recovery slice. | Resolver/highlighter tests first failed, then focused Node 9/9, Reader Node 193/193, build, focused Chromium 1/1, and Chromium 48/48 passed. Record: `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json`. |
 
 ## Evidence and Recovery Rules
 
