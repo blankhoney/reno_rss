@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   articleFromApiDetail,
   articleFromApiItem,
+  createArticleAnnotation,
   enqueueFetchContentJob,
   feedbackFromApi,
   getArticle,
@@ -466,6 +467,54 @@ test("requestArticleTranslation posts to FastAPI and sanitizes cached content", 
     assert.equal(result.status, "succeeded");
     assert.equal(result.contentZh, '<p id="p-1" data-paragraph-id="1">译文</p>');
     assert.equal(result.jobId, null);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("createArticleAnnotation sends and maps a typed text quote anchor", async () => {
+  let capturedInit: RequestInit | undefined;
+  const anchor = {
+    kind: "text-quote" as const,
+    version: 1 as const,
+    exact: "second quote",
+    prefix: "before ",
+    suffix: " after",
+    start: 14,
+    end: 26,
+  };
+  const restoreFetch = withMockFetch((_input, init) => {
+    capturedInit = init;
+    return new Response(
+      JSON.stringify({
+        annotation: {
+          id: 7,
+          article_id: 42,
+          type: "annotation",
+          selected_text: "second quote",
+          content: "second quote",
+          color: "yellow",
+          tags: [],
+          anchor,
+          created_at: "2026-07-26T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+      { status: 201, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  try {
+    const created = await createArticleAnnotation(42, {
+      content: "second quote",
+      selectedText: "second quote",
+      anchor,
+    });
+
+    assert.deepEqual(JSON.parse(String(capturedInit?.body)).anchor, anchor);
+    assert.deepEqual(created.anchor, anchor);
   } finally {
     restoreFetch();
   }

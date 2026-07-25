@@ -879,6 +879,29 @@ export interface components {
             /** Remembered */
             remembered: boolean;
         };
+        /** ArticleAnnotationAnchor */
+        ArticleAnnotationAnchor: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "text-quote";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+            /** Exact */
+            exact: string;
+            /** Prefix */
+            prefix: string;
+            /** Suffix */
+            suffix: string;
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+        };
         /** ArticleAnnotationRequest */
         ArticleAnnotationRequest: {
             /** Content */
@@ -894,6 +917,7 @@ export interface components {
             color?: string | null;
             /** Tags */
             tags?: string[] | null;
+            anchor?: components["schemas"]["ArticleAnnotationAnchor"] | null;
         };
         /** ArticleFeedbackRequest */
         ArticleFeedbackRequest: {

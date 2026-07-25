@@ -1,5 +1,9 @@
 import { apiGet, apiPost, apiPut, type ApiRequestInit } from "./client";
 import type { components } from "./generated/schema";
+import {
+  parseTextQuoteAnchor,
+  type ArticleAnnotationAnchor,
+} from "@/lib/articles/annotationAnchor";
 import { sanitizeArticleHtml } from "@/lib/articles/service";
 import type {
   Article,
@@ -391,6 +395,7 @@ export type ArticleAnnotation = {
   content: string;
   color: string | null;
   tags: string[];
+  anchor: ArticleAnnotationAnchor | null;
   createdAt: string | null;
   nextReviewAt: string | null;
   intervalDays: number;
@@ -410,6 +415,7 @@ type AnnotationApiItem = {
   content?: string;
   color?: string | null;
   tags?: string[] | null;
+  anchor?: unknown;
   created_at?: string | null;
   next_review_at?: string | null;
   interval_days?: number;
@@ -430,6 +436,7 @@ function annotationFromApi(item: AnnotationApiItem, fallbackArticleId = 0): Arti
     content: item.content,
     color: typeof item.color === "string" ? item.color : null,
     tags: Array.isArray(item.tags) ? item.tags.map(String) : [],
+    anchor: parseTextQuoteAnchor(item.anchor),
     createdAt: item.created_at ?? null,
     nextReviewAt: item.next_review_at ?? null,
     intervalDays: typeof item.interval_days === "number" ? item.interval_days : 1,
@@ -482,6 +489,7 @@ export async function createArticleAnnotation(
     type?: string;
     color?: string | null;
     tags?: string[];
+    anchor?: ArticleAnnotationAnchor;
   },
 ): Promise<ArticleAnnotation> {
   const payload = await apiPost<
@@ -494,6 +502,7 @@ export async function createArticleAnnotation(
       type?: string;
       color?: string | null;
       tags?: string[];
+      anchor?: ArticleAnnotationAnchor;
     }
   >(`/api/articles/${articleId}/annotations`, {
     content: patch.content,
@@ -501,6 +510,7 @@ export async function createArticleAnnotation(
     type: patch.type ?? "annotation",
     color: patch.color ?? null,
     tags: patch.tags ?? [],
+    anchor: patch.anchor,
   });
   const annotation = annotationFromApi(payload.annotation ?? {}, articleId);
   if (annotation == null) {

@@ -14,11 +14,31 @@ def test_encode_decode_roundtrip_color_and_tags():
     assert meta.tags == ("ai", "rust")
 
 
+def test_encode_decode_roundtrip_anchor_without_color_or_tags():
+    anchor = {
+        "kind": "text-quote",
+        "version": 1,
+        "exact": "重要洞见",
+        "prefix": "前文",
+        "suffix": "后文",
+        "start": 4,
+        "end": 8,
+    }
+
+    stored = encode_annotation_content("重要洞见", anchor=anchor)
+    meta = decode_annotation_content(stored)
+
+    assert stored.startswith("⟦meta:")
+    assert meta.body == "重要洞见"
+    assert meta.anchor == anchor
+
+
 def test_plain_content_has_no_meta():
     meta = decode_annotation_content("just a note")
     assert meta.body == "just a note"
     assert meta.color is None
     assert meta.tags == ()
+    assert meta.anchor is None
 
 
 def test_normalize_color_rejects_unknown():

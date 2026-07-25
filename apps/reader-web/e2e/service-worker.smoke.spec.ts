@@ -254,6 +254,98 @@ for (const viewport of [
   });
 }
 
+test("saved selection carries a versioned text quote anchor", async ({ page }) => {
+  await resetFixtures(page);
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 42,
+          article_id: 7,
+          type: "annotation",
+          selected_text: submitted.selected_text,
+          content: submitted.content,
+          color: submitted.color,
+          tags: submitted.tags,
+          anchor: submitted.anchor,
+          created_at: "2026-07-26T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+
+  expect(submitted).not.toBeNull();
+  const anchor = submitted?.anchor as Record<string, unknown>;
+  expect(anchor.kind).toBe("text-quote");
+  expect(anchor.version).toBe(1);
+  expect(anchor.exact).toBe("Evidence persists.");
+  expect(typeof anchor.prefix).toBe("string");
+  expect(typeof anchor.suffix).toBe("string");
+  expect(anchor.end).toBe((anchor.start as number) + "Evidence persists.".length);
+});
+
+test("selection anchor survives note editor focus before save", async ({ page }) => {
+  await resetFixtures(page);
+  await enableNotesDualPane(page);
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 43,
+          article_id: 7,
+          type: "annotation",
+          selected_text: submitted.selected_text,
+          content: submitted.content,
+          color: submitted.color,
+          tags: [],
+          anchor: submitted.anchor,
+          created_at: "2026-07-26T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  await page.getByPlaceholder("边读边记…").fill("Selection-backed note");
+  await page.getByRole("button", { name: "保存笔记" }).click();
+  await expect(page.getByText("笔记已保存", { exact: true })).toBeVisible();
+
+  expect(submitted?.selected_text).toBe("Evidence persists.");
+  const anchor = submitted?.anchor as Record<string, unknown>;
+  expect(anchor.exact).toBe("Evidence persists.");
+  expect(anchor.kind).toBe("text-quote");
+});
+
 for (const viewport of [
   { width: 390, height: 844 },
   { width: 768, height: 1024 },

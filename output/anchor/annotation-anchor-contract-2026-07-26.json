@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-26",
+  "contract": {
+    "kind": "text-quote",
+    "version": 1,
+    "fields": [
+      "exact",
+      "prefix",
+      "suffix",
+      "start",
+      "end"
+    ],
+    "storage": "existing annotation content metadata envelope",
+    "migration_required": false
+  },
+  "verified_behaviors": [
+    "an anchor-only metadata envelope is persisted and decoded",
+    "invalid or unknown anchor shapes are rejected or mapped to null",
+    "repeated text receives bounded prefix and suffix context",
+    "selection whitespace is trimmed with corrected offsets",
+    "the browser submits the captured anchor when saving a highlight",
+    "the captured anchor survives focus moving into the note editor",
+    "OpenAPI and generated TypeScript schema are synchronized"
+  ],
+  "verification": {
+    "api_tests": {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "exit_code": 0,
+      "passed": 219
+    },
+    "api_ruff": {
+      "command": "uv run --isolated --with-editable . --extra dev ruff check .",
+      "exit_code": 0
+    },
+    "reader_tests": {
+      "command": "npm test",
+      "exit_code": 0,
+      "passed": 189
+    },
+    "reader_build": {
+      "command": "npm run build",
+      "exit_code": 0,
+      "next": "16.2.11"
+    },
+    "reader_e2e": {
+      "command": "npm run test:e2e",
+      "exit_code": 0,
+      "passed": 45,
+      "anchor_scenarios": 2
+    },
+    "openapi_drift": {
+      "exported_json_matches": true,
+      "generated_typescript_matches": true,
+      "generator": "openapi-typescript@7.13.0"
+    }
+  },
+  "non_gate_observation": {
+    "command": "npx tsc --noEmit",
+    "exit_code": 2,
+    "reason": "three pre-existing test-only type errors outside the anchor slice; the project-defined Next production build type gate passes"
+  },
+  "remaining_scope": [
+    "anchor-aware highlight restoration after article content changes belongs to the later A-06 integrity milestone",
+    "live PostgreSQL coverage remains NEEDS_BASELINE"
+  ]
+}

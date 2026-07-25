@@ -171,7 +171,7 @@ export function FocusedArticleReader({
   const showTranslationWhenReadyRef = useRef(false);
   const articleActions = useArticleActions(article, currentLang);
   const typewriter = useTypewriterStream();
-  const { selectedText, hasSelection, selectionRect, clearSelection } = useArticleSelection(articleRef);
+  const { selectedText, hasSelection, selectionRect, settledAnchor, clearSelection } = useArticleSelection(articleRef);
   const revealedAnswer = typewriter.revealed;
   const answerVisible = revealedAnswer.trim().length > 0 || typewriter.isRevealing;
   const answerPending = isAsking && !answerVisible && agentError == null;
@@ -926,6 +926,7 @@ export function FocusedArticleReader({
                   content: noteDraft.trim(),
                   selectedText: selectedText || null,
                   color: highlightColor,
+                  anchor: settledAnchor ?? undefined,
                 })
                   .then((created) => {
                     setAnnotations((current) => [created, ...current]);
@@ -1027,6 +1028,7 @@ export function FocusedArticleReader({
                 type: "annotation",
                 color: highlightColor,
                 tags,
+                anchor: settledAnchor ?? undefined,
               })
                 .then((created) => {
                   setAnnotations((current) => [created, ...current]);

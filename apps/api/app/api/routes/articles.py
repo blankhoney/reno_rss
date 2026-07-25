@@ -1,6 +1,8 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.api.deps import (
     ApiError,
@@ -56,12 +58,29 @@ class ArticleFeedbackRequest(BaseModel):
         return value
 
 
+class ArticleAnnotationAnchor(BaseModel):
+    kind: Literal["text-quote"]
+    version: Literal[1]
+    exact: str = Field(min_length=1, max_length=4000)
+    prefix: str = Field(max_length=160)
+    suffix: str = Field(max_length=160)
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_offsets(self) -> "ArticleAnnotationAnchor":
+        if self.end <= self.start:
+            raise ValueError("anchor end must be greater than start")
+        return self
+
+
 class ArticleAnnotationRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     selected_text: str | None = Field(default=None, max_length=4000)
     type: str = Field(default="annotation", pattern="^(annotation|comment|review)$")
     color: str | None = Field(default=None, max_length=20)
     tags: list[str] | None = Field(default=None, max_length=12)
+    anchor: ArticleAnnotationAnchor | None = None
 
 
 class AnnotationReviewRequest(BaseModel):
@@ -99,6 +118,7 @@ def annotation_public(annotation: AnnotationRecord) -> dict[str, object]:
         "content": meta.body,
         "color": meta.color,
         "tags": list(meta.tags),
+        "anchor": meta.anchor,
         "created_at": annotation.created_at.isoformat() if annotation.created_at else None,
         "updated_at": annotation.updated_at.isoformat() if annotation.updated_at else None,
         "next_review_at": (
@@ -544,6 +564,7 @@ def create_article_annotation(
             content,
             color=payload.color,
             tags=payload.tags,
+            anchor=payload.anchor.model_dump(mode="json") if payload.anchor else None,
         )
         annotation = article_repository.create_annotation(
             current_user.id,
