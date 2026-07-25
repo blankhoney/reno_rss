@@ -40,7 +40,7 @@ AI Reader 在 Miniflux 之上增加产品层。Miniflux 继续作为 RSS 抓取�
 - Staging 应用：[https://staging-ai-reader.blankhoney.xyz/](https://staging-ai-reader.blankhoney.xyz/)
 - 源码：[github.com/blankhoney/reno_rss](https://github.com/blankhoney/reno_rss)
 
-打开 staging URL，输入显示名称，并保存登录后显示的恢复码。公开根路径只渲染 AI Reader 会话入口；文章数据和管理员操作由 FastAPI session 与 role 检查保护，Caddy/Authelia 仍可作为页面路由边界。
+staging 是完整公开的功能 demo：打开 URL 后，匿名访客会由 FastAPI 映射到共享的 demo 普通用户，不经 Authelia 即可使用工作台与阅读页；管理员 API 仍受 role 保护，并对该 demo 用户返回 `403`。访客若需要独立 session，仍可使用显示名称登录与恢复码；production 保留 Caddy/Authelia 页面边界，且不启用共享 demo 用户。
 
 ## 亮点
 
@@ -82,7 +82,7 @@ flowchart LR
 | `caddy` | 公网 HTTPS 反向代理和路由边界。 |
 | `authelia` | 受保护页面路由的可选外层 forward-auth。 |
 
-关键边界：Caddy 把 `/api/*` 直接路由到 FastAPI。业务 API 必须由 FastAPI 内部的 `require_user` 和 `require_admin` fail closed；页面仍可由 Authelia 做 defense in depth。
+关键边界：Caddy 把 `/api/*` 直接路由到 FastAPI。业务 API 必须在 FastAPI 内执行 `require_user` 和 `require_admin`。staging 有意把匿名请求映射为一个 role=`user` 的 demo 身份，并公开页面路由；production 关闭匿名 demo，页面继续由 Authelia 保护。
 
 ## 仓库地图
 
@@ -136,9 +136,10 @@ uv run --isolated --with-editable . --extra dev python -m pytest tests -q
 
 ```bash
 cp .env.example .env
+chmod 600 .env
 ```
 
-不要提交生成的 `.env`。
+不要提交生成的 `.env`，并只允许文件 owner 读取。
 
 ## 配置
 
@@ -220,7 +221,7 @@ bash infra/scripts/smoke-test.sh prod
 
 GitHub Actions 提供：
 
-- `ci.yml`：API 测试/lint、worker 测试/lint、OpenAPI 导出和 typed-client drift 检查、Alembic upgrade、reader-web 测试/构建、Compose 校验、部署脚本检查、Docker build、Trivy 扫描、GHCR 镜像发布，以及同仓库 PR 和 `main` push 的 staging 部署。
+- `ci.yml`：API 测试/lint、worker 测试/lint、OpenAPI 导出和 typed-client drift 检查、Alembic upgrade、reader-web 测试/构建、Compose 校验、部署脚本检查、Docker build、显式 Trivy 漏洞/secret 扫描、GHCR 镜像发布，以及同仓库 PR 和 `main` push 的 staging 部署。
 - `deploy-staging.yml`：按镜像 tag 手动部署 staging。
 - `deploy-prod.yml`：通过 `production` environment 手动部署 production。
 - `rollback.yml`：按旧 GHCR image tag 回滚 staging/prod。

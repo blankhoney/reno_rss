@@ -40,7 +40,7 @@ The current v0.4 stack is one FastAPI API, one queue-driven Python worker, and o
 - Staging app: [https://staging-ai-reader.blankhoney.xyz/](https://staging-ai-reader.blankhoney.xyz/)
 - Source: [github.com/blankhoney/reno_rss](https://github.com/blankhoney/reno_rss)
 
-Open the staging URL, enter a display name, and save the recovery code shown after login. The public root renders an AI Reader session shell; article data and admin operations are protected by FastAPI session and role checks, with Caddy/Authelia still available as the page-route boundary.
+Staging is a fully public functional demo: opening the URL gives anonymous visitors a shared FastAPI demo-user session, so workbench and reader routes are directly usable without Authelia. Admin APIs remain role-protected and return `403` for that demo user. Display-name login and recovery remain available when a visitor wants a separate session; production retains the Caddy/Authelia page boundary and does not enable the shared demo user.
 
 ## Highlights
 
@@ -82,7 +82,7 @@ flowchart LR
 | `caddy` | Public HTTPS reverse proxy and routing boundary. |
 | `authelia` | Optional outer forward-auth layer for protected page routes. |
 
-Important boundary: Caddy routes `/api/*` directly to FastAPI. Business APIs must fail closed inside FastAPI through `require_user` and `require_admin`; web pages may still sit behind Authelia as defense in depth.
+Important boundary: Caddy routes `/api/*` directly to FastAPI. Business APIs must enforce `require_user` and `require_admin` inside FastAPI. Staging intentionally maps anonymous requests to one role=`user` demo identity and serves page routes publicly; production keeps anonymous-demo mode off and page routes behind Authelia.
 
 ## Repository Map
 
@@ -136,9 +136,10 @@ Create a local runtime configuration from the tracked template:
 
 ```bash
 cp .env.example .env
+chmod 600 .env
 ```
 
-Do not commit the generated `.env`.
+Do not commit the generated `.env`; keep it readable only by its owner.
 
 ## Configuration
 
@@ -220,7 +221,7 @@ bash infra/scripts/smoke-test.sh prod
 
 GitHub Actions provide:
 
-- `ci.yml`: API tests/lint, worker tests/lint, OpenAPI export and typed-client drift check, Alembic upgrade, reader-web tests/build, Compose validation, deploy-script checks, Docker builds, Trivy scan, GHCR image publish, and staging deploy for same-repository PRs and `main` pushes.
+- `ci.yml`: API tests/lint, worker tests/lint, OpenAPI export and typed-client drift check, Alembic upgrade, reader-web tests/build, Compose validation, deploy-script checks, Docker builds, explicit Trivy vulnerability/secret scanning, GHCR image publish, and staging deploy for same-repository PRs and `main` pushes.
 - `deploy-staging.yml`: manual staging deploy by image tag.
 - `deploy-prod.yml`: manual production deploy through the `production` environment.
 - `rollback.yml`: staging/prod rollback to a previous GHCR image tag.

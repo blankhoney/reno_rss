@@ -4,9 +4,9 @@
 
 ## Background
 
-Reno RSS / AI Reader already has GitHub Actions checks, GHCR image publishing, remote VPS deployment scripts, and smoke tests. The remaining delivery gap is that a successful `main` push currently builds images but does not automatically deploy staging. A manual staging deploy can also be blocked when the VPS repository has tracked local changes.
+Reno RSS / AI Reader has GitHub Actions checks, GHCR image publishing, remote VPS deployment scripts, and smoke tests. The current `ci.yml` tests, builds, publishes, deploys staging, and runs smoke checks for same-repository pull requests and `main` pushes. The remote path stops when the VPS repository has tracked local changes.
 
-This specification defines the target delivery behavior for normal project development: pushing to `main` should test, build, publish images, deploy staging, and run smoke tests without manual VPS operations.
+This specification records that current delivery contract and the evidence required to keep it working.
 
 ## Goals
 
@@ -27,12 +27,12 @@ This specification defines the target delivery behavior for normal project devel
 
 - As the maintainer, when I push to `main`, staging should update automatically after checks pass.
 - As the maintainer, I should not SSH into the VPS for normal staging deploys.
-- As a visitor, the staging app URL should continue to show the public AI Reader session shell without exposing protected reader data.
+- As a visitor, the staging app should continue to provide the shared-user functional demo while keeping admin operations role-protected.
 - As the maintainer, production should only change after a manual GitHub deployment approval.
 
 ## Functional Requirements
 
-- `ci.yml` must run Python tests/lint, reader-web tests/build, Compose validation, and Trivy high/critical scanning.
+- `ci.yml` must run Python tests/lint, reader-web tests/build, Compose validation, and explicit Trivy high/critical vulnerability plus secret scanning.
 - `ci.yml` must build and push `ai-reader-web`, `ai-reader-api`, and `ai-reader-worker` images to GHCR with `sha-<short_sha>` tags.
 - Same-repository PRs and `main` pushes must deploy staging after images are published.
 - Fork PRs must not deploy and must not read deployment secrets.
@@ -40,7 +40,7 @@ This specification defines the target delivery behavior for normal project devel
 - `deploy-prod.yml` remains manual and must use the `production` environment.
 - `rollback.yml` continues to deploy a previous image tag through the same remote deploy path.
 - Remote deploy must stop if the VPS tracked worktree is dirty.
-- Staging smoke tests must verify containers, health endpoints, the public AI Reader auth shell, and protected business route boundaries with GET-only/non-mutating checks. They must not open reader pages or APIs that can mark articles read, fetch content, sync, score, ask an agent, or mutate business data.
+- Staging smoke tests must verify containers, health endpoints, the public AI Reader workbench, anonymous articles `200`, and anonymous Admin `403` with non-mutating checks. They must not invoke actions that mark articles read, fetch content, sync, score, ask an agent, or mutate business data.
 
 ## Non-Functional Requirements
 
@@ -63,8 +63,8 @@ This specification defines the target delivery behavior for normal project devel
 - A `main` push produces a `ci` workflow where `deploy staging` runs instead of being skipped.
 - The workflow publishes all three GHCR images with the expected `sha-<short_sha>` tag.
 - The staging deploy job completes remote deploy and smoke test successfully.
-- `https://staging-ai-reader.blankhoney.xyz/` renders the public AI Reader auth/session shell.
-- `https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh` does not expose the business UI to an unauthenticated request.
+- `https://staging-ai-reader.blankhoney.xyz/` and `/?module=all&sort=default&lang=zh` render the public functional demo.
+- An anonymous `GET /api/articles` returns `200`, while an anonymous Admin request returns `403`.
 - Production remains unchanged unless `deploy-prod.yml` is manually run and approved.
 
 ## Operational Blocker Handling

@@ -9,7 +9,7 @@
 AI Reader 是一个自托管 RSS 研究系统，运行时由七类服务组成：
 
 - **Caddy**：公网 HTTPS 入口，负责反向代理和路由边界。
-- **Authelia**：负责登录、2FA、forward-auth，以及 staging 受保护页面的 demo 账号访问策略。
+- **Authelia**：负责登录、2FA，以及 production/Miniflux 的 forward-auth 边界；staging AI Reader demo 不以它作为页面 gate。
 - **Miniflux**：存储订阅源、文章条目和 RSS 上游状态。
 - **reader-web**：Next.js 应用，渲染 AI Reader UI，并通过同源 `/api/*` 调用 FastAPI 后端。
 - **ai-reader-api**：FastAPI 服务，负责 session、文章状态、推荐、job、管理员 API 和文章问答 SSE。
@@ -30,19 +30,16 @@ sequenceDiagram
   participant Miniflux
   participant LLM as MiniMax
 
-  Browser->>Caddy: GET /
-  Caddy->>Reader: 公开 session shell
-  Reader-->>Browser: 登录/恢复 UI
-
-  Browser->>Caddy: POST /api/auth/login
-  Caddy->>API: 直连 /api/* 路由
-  API->>DB: 创建或刷新 app session
-  API-->>Browser: session cookie + recovery code
-
   Browser->>Caddy: GET /?module=all
-  Caddy->>Authelia: forward-auth
-  Authelia-->>Caddy: 授权用户 headers
-  Caddy->>Reader: reverse proxy
+  alt staging 公开 demo
+    Caddy->>Reader: 公开 app route
+    Reader->>API: 匿名同源 API 请求
+    API->>DB: 解析共享 role=user demo 身份
+  else production
+    Caddy->>Authelia: forward-auth
+    Authelia-->>Caddy: 授权用户 headers
+    Caddy->>Reader: 受保护 app route
+  end
   Reader->>API: GET /api/recommendations/latest 和 /api/articles
   API->>DB: 读取文章投影、状态、评分和推荐
   Reader-->>Browser: AI Reader 页面
@@ -97,20 +94,19 @@ LLM 输出会被解析为 v0.4 八维评分（`topic_relevance`、`information_d
 
 ## 公开 Demo 边界
 
-staging demo 的公开面保持最小：
+staging AI Reader 有意作为完整公开的功能 demo：
 
-- 空 query 的 `GET /` 展示公开 AI Reader session shell。
-- `/_next/static/*` 和 `/favicon.ico` 对该 shell 公开。
-- `/?module=all`、`/read/*` 等业务页面路径仍通过 Authelia forward-auth。
-- `/api/*` 直接转到 FastAPI。匿名文章/管理员请求必须在 FastAPI 内 fail closed；登录和恢复由 `/api/auth/login`、`/api/auth/recover` 处理。
-
-公开 shell 要求输入显示名称，并由 FastAPI 返回一次性恢复码。它不再使用已退役的 reader-web 一键 demo route。
+- Caddy 直接把 `/`、工作台 query route、`/read/*` 和静态资源交给 `reader-web`；staging AI Reader 页面不经过 Authelia。
+- `AI_READER_ANONYMOUS_DEMO=true` 会把没有 app session 的请求映射到一个共享 FastAPI role=`user` demo 身份，因此匿名文章读取返回 `200`。
+- FastAPI 仍是业务授权边界。管理员 endpoint 对共享 demo 用户返回 `403`，role/write 检查继续生效。
+- 访客若需要独立的显示名称 session，仍可使用 `/api/auth/login` 和 `/api/auth/recover`。
+- production 不启用匿名 demo，AI Reader 页面继续由 Authelia 保护。
 
 ## CI/CD 与部署
 
 交付链路：
 
-1. GitHub Actions 执行 API test/lint、worker test/lint、OpenAPI drift 检查、reader-web test/build、Compose 校验、部署脚本检查和 Trivy 扫描。
+1. GitHub Actions 执行 API test/lint、worker test/lint、OpenAPI drift 检查、reader-web test/build、Compose 校验、部署脚本检查和显式 Trivy 漏洞/secret 扫描。
 2. 构建 `ai-reader-web`、`ai-reader-api` 和 `ai-reader-worker` GHCR 镜像。
 3. staging 在同仓库 PR 和 `main` push 后自动部署。
 4. production 只支持手动部署，建议通过 GitHub `production` environment 审批。
@@ -124,9 +120,9 @@ VPS 上的 `.env` 和 secret 文件由服务器本地保存。GitHub Actions 只
 
 - 真实 `.env`、Authelia 用户库、API key、SSH key 不进入 Git。
 - Git 中的 Authelia 用户库只是占位模板。
-- staging demo 的 Authelia 标签是公开 staging 辅助信息，不是生产 secret。
+- staging Authelia 标签属于独立的 auth/Miniflux surface，不是 AI Reader 页面 gate，也不是 production secret。
 - FastAPI 是 `/api/*` 授权责任边界；Caddy 会把这些请求直接转给 API 服务。
-- Caddy 和 Authelia 仍是受保护页面路由的访问控制边界。
+- Caddy 和 Authelia 仍是 production 页面路由的访问控制边界；staging AI Reader 页面有意公开。
 - CI 应对 high/critical 依赖漏洞失败；除非有明确 review 结论，否则不保留漏洞忽略项。
 
 ## 验证命令
@@ -144,7 +140,7 @@ uv run --isolated --with-editable . --extra dev python -m pytest tests -q
 
 ```bash
 cd apps/worker
-python -m pytest tests -q
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
 ```
 
 ```bash

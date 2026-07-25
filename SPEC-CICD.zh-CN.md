@@ -4,9 +4,9 @@
 
 ## 背景
 
-Reno RSS / AI Reader 已经具备 GitHub Actions 检查、GHCR 镜像发布、VPS 远程部署脚本和 smoke test。当前剩余交付缺口是：`main` push 成功后只构建镜像，不会自动部署 staging；手动 staging 部署还可能因为 VPS 仓库存在 tracked 本地改动而被阻塞。
+Reno RSS / AI Reader 已具备 GitHub Actions 检查、GHCR 镜像发布、VPS 远程部署脚本和 smoke test。当前 `ci.yml` 会对同仓库 PR 与 `main` push 执行测试、构建、发布、部署 staging 和 smoke；VPS 仓库存在 tracked 本地改动时，远程路径会停止。
 
-本规格定义正常开发交付的目标行为：推送到 `main` 后，应自动完成测试、构建、发布镜像、部署 staging 和 smoke test，不再需要手动登录 VPS 操作。
+本规格记录这套现行交付契约，以及维持它所需的证据。
 
 ## 目标
 
@@ -27,12 +27,12 @@ Reno RSS / AI Reader 已经具备 GitHub Actions 检查、GHCR 镜像发布、VP
 
 - 作为维护者，我 push 到 `main` 后，staging 应在检查通过后自动更新。
 - 作为维护者，常规 staging 部署不应再 SSH 登录 VPS。
-- 作为访客，staging app URL 应持续展示公开的 AI Reader 会话入口，但不能暴露受保护的阅读数据。
+- 作为访客，staging app 应持续提供共享用户的功能 demo，同时保持管理员操作的 role 保护。
 - 作为维护者，production 必须经过 GitHub 手动审批后才改变。
 
 ## 功能需求
 
-- `ci.yml` 必须执行 Python test/lint、reader-web test/build、Compose 校验和 Trivy high/critical 扫描。
+- `ci.yml` 必须执行 Python test/lint、reader-web test/build、Compose 校验，以及显式 Trivy high/critical 漏洞与 secret 扫描。
 - `ci.yml` 必须将 `ai-reader-web`、`ai-reader-api` 和 `ai-reader-worker` 镜像发布到 GHCR，并使用 `sha-<short_sha>` tag。
 - 同仓库 PR 和 `main` push 必须在镜像发布后部署 staging。
 - 外部 fork PR 不部署，也不能读取部署 secret。
@@ -40,7 +40,7 @@ Reno RSS / AI Reader 已经具备 GitHub Actions 检查、GHCR 镜像发布、VP
 - `deploy-prod.yml` 保持手动触发，并使用 `production` environment。
 - `rollback.yml` 继续通过同一套远程部署路径回滚到旧镜像 tag。
 - VPS tracked 工作树不干净时，远程部署必须停止。
-- staging smoke test 必须通过只读 GET / 不改业务数据的检查验证容器、health endpoint、公开 AI Reader 认证入口和业务路径保护边界；不得打开会标记已读、补全文、同步、评分、调用 Agent 或写业务数据的 reader 页面/API。
+- staging smoke test 必须通过不改业务数据的检查验证容器、health endpoint、公开 AI Reader 工作台、匿名文章 `200` 和匿名 Admin `403`；不得调用会标记已读、补全文、同步、评分、调用 Agent 或写业务数据的动作。
 
 ## 非功能需求
 
@@ -63,8 +63,8 @@ Reno RSS / AI Reader 已经具备 GitHub Actions 检查、GHCR 镜像发布、VP
 - `main` push 触发的 `ci` workflow 中，`deploy staging` 运行而不是 skipped。
 - workflow 发布三个带 `sha-<short_sha>` tag 的 GHCR 镜像。
 - staging deploy job 成功完成远程部署和 smoke test。
-- `https://staging-ai-reader.blankhoney.xyz/` 展示公开的 AI Reader 认证/会话入口。
-- 未登录请求 `https://staging-ai-reader.blankhoney.xyz/?module=all&sort=default&lang=zh` 不直接暴露业务 UI。
+- `https://staging-ai-reader.blankhoney.xyz/` 和 `/?module=all&sort=default&lang=zh` 展示公开的功能 demo。
+- 匿名 `GET /api/articles` 返回 `200`，匿名 Admin 请求返回 `403`。
 - production 只有在手动运行并审批 `deploy-prod.yml` 后才改变。
 
 ## 运维阻塞处理
