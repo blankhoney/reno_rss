@@ -3,7 +3,7 @@
 > Authoritative goal: `GOAL.md`
 > Updated: 2026-07-26 (Asia/Taipei)
 > Behavior checkpoint: `a77e801005944989fe4990a6db3ec6b49e62e5a1` (based on merged `main` `32305d347586362a3496fc078a775aebb1fbe5ad`)
-> Current state: **M1 — core-loop truth and knowledge integrity, A-02/A-03/A-04/A-07 in progress**
+> Current state: **M1 — core-loop truth and knowledge integrity, A-02/A-03/A-04/A-07/A-10 in progress**
 
 ## Execution Contract
 
@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | Behavior checkpoint `a77e801005944989fe4990a6db3ec6b49e62e5a1` based on merged `main` `32305d347586362a3496fc078a775aebb1fbe5ad` |
-| Milestone / acceptance | M1.3 safe annotation recovery; A-03 and A-04 remain `IN_PROGRESS` |
-| Hypothesis | A saved anchor must use context to find one current quote or explicitly remain unresolved; it must never silently bind to a repeated quote. |
-| Initial failure | Focused resolver and highlighter tests failed because neither anchor restoration nor anchor-aware rendering existed. |
-| Minimal repair | Context-only resolver, safe plain-text range wrapper, retained-note status, and repeated/ambiguous E2E fixtures. |
-| Green validation | Focused Node 9/9; `npm test` 193/193; `npm run build`; focused Chromium 1/1; `npm run test:e2e` 48/48. |
-| Durable evidence | `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt` |
-| Rollback | Revert resolver/highlighter/fixture slice; no production endpoint, schema, data, dependency, or stored annotation changes. |
-| Next action | M1.4: trace candidate state responses and add a smallest typed state-write failure → retry browser path. |
+| Exact candidate | `goal/m1-annotation-integrity` based on `ff29cd70`; M1.4 is an uncommitted, focused candidate-write recovery slice. |
+| Milestone / acceptance | M1.4 candidate state-write retry; A-02, A-04, and A-10 remain `IN_PROGRESS`. |
+| Hypothesis | A failed candidate write must preserve the reading context and offer an explicit retry; a success must be rendered from a server-confirmed state, not an optimistic local assumption. |
+| Initial failure | State responses were discarded at the Reader boundary and a failed candidate write only showed an error, leaving no explicit retry proof. |
+| Minimal repair | Typed state response parsing, article-scoped retry closure, visible retry control, and a resettable one-time 503 fixture that persists the retried state. |
+| Green validation | `npm test` 193/193; `npm run build`; focused Chromium 1/1; full Chromium 49/49. |
+| Durable evidence | `output/evidence/m1-candidate-state-retry-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt`. |
+| Rollback | Revert the state-response/retry/fixture slice; no production endpoint, schema, data, dependency, or stored annotation change. |
+| Next action | M1.5: add an inline-markup or input-equivalent annotation recovery/rejection fixture, then move to role-aware contrast/reduced-motion gates. |
 
 ## Completed Checkpoints
 
@@ -37,6 +37,7 @@
 | M1.1 Daily partial failure | A-02, A-07 | One failing test before repair; focused and full Reader validation after repair | One deterministic state slice only; full state/browser/input matrix incomplete |
 | M1.2 Reader/Ask partial failure | A-02, A-07, A-15 | One failing test before repair; 503 → retry → SSE citation and full Reader validation | One deterministic Ask failure slice only; provider/recovery/state matrix incomplete |
 | M1.3 annotation recovery | A-03, A-04 | Resolver/highlighter test-first failures; shifted-repeat restoration and ambiguity rejection with full Reader validation | Inline-markup, input, retry, and multi-user identity matrix incomplete |
+| M1.4 candidate state retry | A-02, A-04, A-10 | One deterministic state-write 503 preserves Reader context; explicit retry reloads server-confirmed candidate state | Broader state matrix, input/browser pairwise coverage, and bounded recovery budget incomplete |
 
 ## Acceptance Ledger
 
@@ -75,6 +76,7 @@
 | 2026-07-26 | M1.1 merged to `main` as `49b2ecf2` and passed exact-SHA CI/staging. | Run `30175505204` passed test/build/Compose/Trivy, image publication, deployment and route/boundary smoke. |
 | 2026-07-26 | M1.2 closed one Reader/Ask transient-failure continuity slice. | Test first failed, then focused Chromium 1/1, Node 189/189, build, and Chromium 47/47 passed. Record: `output/evidence/m1-reader-ask-retry-2026-07-26.json`. |
 | 2026-07-26 | M1.3 closed one safe annotation-recovery slice. | Resolver/highlighter tests first failed, then focused Node 9/9, Reader Node 193/193, build, focused Chromium 1/1, and Chromium 48/48 passed. Record: `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json`. |
+| 2026-07-26 | M1.4 closed one candidate state-write recovery slice. | First browser run exposed incorrect control naming and a strict alert locator; after those test-only corrections, the deterministic 503 → explicit retry → server-confirmed candidate-state scenario passed. Reader Node 193/193, production build, and Chromium 49/49 passed. Record: `output/evidence/m1-candidate-state-retry-2026-07-26.json`. |
 
 ## Evidence and Recovery Rules
 
