@@ -520,6 +520,34 @@ test("Daily Intelligence labels failed sources instead of false empty states", a
   await expect(page.getByText("暂无条目", { exact: true })).toHaveCount(0);
 });
 
+test("Daily Intelligence preserves usable research context through a secondary-source retry", async ({ page }) => {
+  const errors = captureUnexpectedBrowserErrors(page);
+  await resetFixtures(page);
+  await page.request.post("/__e2e/daily/clusters-fail-once");
+  await page.goto("/?module=home&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "今日研究简报" })).toBeVisible();
+  const article = page.getByRole("link", { name: "Durable research workflows" });
+  await expect(article).toBeVisible();
+  await expect(page.getByText(/主题簇加载失败：/)).toBeVisible();
+
+  await page.getByRole("button", { name: "刷新情报" }).click();
+  await expect(page.getByText(/主题簇加载失败：/)).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /可恢复研究工作流/ })).toBeVisible();
+  await expect(article).toBeVisible();
+
+  await article.click();
+  await expect(page).toHaveURL(/\/read\/7\?.*module=home/);
+  await page.getByRole("link", { name: "返回工作台" }).click();
+  await expect(page).toHaveURL(/module=home/);
+  await expect(page.getByRole("heading", { name: "今日研究简报" })).toBeVisible();
+  // Chromium reports the intentionally injected one-time 500 as a console error.
+  // Keeping this exact allowlist proves that no second unexpected console/page error leaked.
+  expect(errors).toEqual([
+    "console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+  ]);
+});
+
 test("continue-reading route uses actual partial progress rather than candidate state", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=read-later&sort=default&lang=zh");
