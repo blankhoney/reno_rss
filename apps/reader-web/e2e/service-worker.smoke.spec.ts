@@ -79,14 +79,17 @@ test("muted reading text meets AA contrast and reduced motion disables nonessent
   await page.goto("/?module=all&sort=default&lang=zh");
 
   const tokens = await page.evaluate(() => {
-    const styles = getComputedStyle(document.documentElement);
-    return {
-      muted: styles.getPropertyValue("--muted").trim(),
-      background: styles.getPropertyValue("--bg").trim(),
-      transitionDuration: getComputedStyle(document.body).transitionDuration,
+    const values = () => {
+      const styles = getComputedStyle(document.documentElement);
+      return { muted: styles.getPropertyValue("--muted").trim(), background: styles.getPropertyValue("--bg").trim() };
     };
+    const light = values();
+    document.documentElement.dataset.theme = "dark";
+    const dark = values();
+    return { light, dark, transitionDuration: getComputedStyle(document.body).transitionDuration };
   });
-  expect(contrastRatio(tokens.muted, tokens.background)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(tokens.light.muted, tokens.light.background)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(tokens.dark.muted, tokens.dark.background)).toBeGreaterThanOrEqual(4.5);
   expect(tokens.transitionDuration).toBe("0.001s");
 });
 
