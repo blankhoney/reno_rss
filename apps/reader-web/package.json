@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "motion": "^12.38.0",
-    "next": "^16.2.7",
+    "next": "16.2.11",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "sanitize-html": "^2.17.4"
@@ -27,5 +27,9 @@
     "@types/sanitize-html": "^2.16.1",
     "tsx": "4.21.0",
     "typescript": "6.0.3"
+  },
+  "overrides": {
+    "postcss": "8.5.18",
+    "sharp": "0.35.0"
   }
 }

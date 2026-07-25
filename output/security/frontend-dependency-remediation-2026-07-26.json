@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-26",
+  "candidate_revision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+  "scope": "isolated detached worktree with current goal-owned Reader changes and without the five pre-approval annotation-anchor files",
+  "runtime": {
+    "node": "v22.23.0",
+    "npm": "10.9.8"
+  },
+  "resolution": {
+    "next": "16.2.11",
+    "postcss": "8.5.18",
+    "sharp": "0.35.0",
+    "mechanism": {
+      "next": "exact direct dependency",
+      "postcss": "npm override",
+      "sharp": "npm override"
+    }
+  },
+  "verification": {
+    "npm_ci": {
+      "exit_code": 0
+    },
+    "npm_audit_production": {
+      "exit_code": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "npm_audit_full": {
+      "exit_code": 1,
+      "high": 0,
+      "critical": 0,
+      "low": 1,
+      "finding": "development-only esbuild advisory"
+    },
+    "node_tests": {
+      "exit_code": 0,
+      "passed": 185
+    },
+    "next_build": {
+      "exit_code": 0
+    },
+    "playwright_chromium": {
+      "exit_code": 0,
+      "passed": 43
+    },
+    "git_diff_check": {
+      "exit_code": 0
+    }
+  },
+  "lockfile_review": {
+    "unexpected_direct_dependencies": 0,
+    "reviewed_change_families": [
+      "Next and platform SWC packages",
+      "PostCSS and its nanoid dependency",
+      "Sharp and platform libvips packages",
+      "transitive semver and emnapi runtime"
+    ]
+  },
+  "remaining_evidence": [
+    "repeat the full Reader gate after the approved annotation-anchor slice is complete",
+    "run the exact candidate in same-repository CI",
+    "review the remaining development-only low advisory separately"
+  ]
+}
