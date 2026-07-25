@@ -532,6 +532,33 @@ const proxy = createServer(async (request, response) => {
   if ((url.pathname === "/api/articles/7/annotations" || url.pathname === "/api/articles/9/annotations") && request.method === "GET") {
     const articleId = url.pathname.includes("/9/") ? 9 : 7;
     const mode = fixtureMode(request);
+    if (articleId === 7 && mode === "annotation-inline-markup") {
+      sendJson(response, 200, {
+        items: [{
+          id: 53,
+          article_id: 7,
+          type: "annotation",
+          selected_text: "Structured evidence",
+          content: "Keep the structured evidence note.",
+          color: "green",
+          tags: ["evidence"],
+          anchor: {
+            kind: "text-quote",
+            version: 1,
+            exact: "Structured evidence",
+            prefix: "Intro: ",
+            suffix: " survives refresh.",
+            start: 7,
+            end: 26,
+          },
+          created_at: "2026-07-24T08:00:00Z",
+          next_review_at: null,
+          interval_days: 3,
+          review_count: 1,
+        }],
+      });
+      return;
+    }
     if (articleId === 7 && mode === "annotation-repeated") {
       sendJson(response, 200, {
         items: [{
@@ -610,16 +637,21 @@ const proxy = createServer(async (request, response) => {
     const mode = fixtureMode(request);
     const repeatedAnnotationFixture = id === 7 && mode === "annotation-repeated";
     const ambiguousAnnotationFixture = id === 7 && mode === "annotation-ambiguous";
+    const inlineMarkupAnnotationFixture = id === 7 && mode === "annotation-inline-markup";
     const contentHtml = repeatedAnnotationFixture
       ? "<p>New preface. First context: Repeated evidence.</p><p>Intended context: Repeated evidence. Closing context.</p>"
       : ambiguousAnnotationFixture
         ? "<p>same context: Repeated evidence. same context: Repeated evidence.</p>"
-        : "<p>Evidence persists.</p><p>Evidence should survive navigation.</p><p>A durable note returns when it matters.</p>";
+        : inlineMarkupAnnotationFixture
+          ? "<p>Intro: Structured <em>evidence</em> survives refresh.</p>"
+          : "<p>Evidence persists.</p><p>Evidence should survive navigation.</p><p>A durable note returns when it matters.</p>";
     const contentText = repeatedAnnotationFixture
       ? "New preface. First context: Repeated evidence.Intended context: Repeated evidence. Closing context."
       : ambiguousAnnotationFixture
         ? "same context: Repeated evidence. same context: Repeated evidence."
-        : "Evidence persists. Evidence should survive navigation. A durable note returns when it matters.";
+        : inlineMarkupAnnotationFixture
+          ? "Intro: Structured evidence survives refresh."
+          : "Evidence persists. Evidence should survive navigation. A durable note returns when it matters.";
     sendJson(response, 200, {
       id,
       owner: currentUser.id,

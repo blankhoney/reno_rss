@@ -1553,6 +1553,29 @@ body:has(.focusReader) .toastHost {
   font-size: 0.85rem;
 }
 
+.unresolvedAnnotations {
+  margin: 8px 0 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
+}
+
+.unresolvedAnnotations summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.unresolvedAnnotations ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.unresolvedAnnotations p {
+  margin: 3px 0;
+}
+
 .readerSummary {
   margin-top: 10px;
   border: 1px solid var(--border);

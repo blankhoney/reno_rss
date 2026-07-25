@@ -281,18 +281,18 @@
 `PLANS.md` 当前建议字段（与该合同一致）：
 
 - **Current candidate**：`goal/m1-annotation-integrity @ ff29cd70`（含本地工作区改动）
-- **Current milestone**：`M1.4（候选状态写入恢复）`已完成最小闭环，后续推进 `M1.5`
+- **Current milestone**：`M1.5（inline-markup 标注恢复）`已完成最小闭环；M1.4 已回退为更小的 reload-only 同步路径。
 - **Last green checkpoint**：`193 Reader Node`、`219 API tests`、`121 Worker tests`、`48 e2e`、`npm run build`（同一会话中复现）
 - **Current validation**：A-02、A-03、A-11、脚本与 Compose 基本通过；A-05/A-06/A-08/A-09/A-10/A-12 持续进行中
 - **Before/after metrics**：
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
-  - e2e：49/49
+  - e2e：50/50
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
 - **Current experiment**：统一状态矩阵与恢复预算定义为当前最大收益实验
 - **Recovery point**：上一个稳定提交 `a77e801005944989fe4990a6db3ec6b49e62e5a1`（含已提交 anchor 恢复）与最近一组可验证工件哈希
 - **Missing external evidence**：Firefox/WebKit 全量、DB 恢复/并发、真实 PostgreSQL route 性能、staging 全链路 rollback-forward
 - **Known risks**：未闭环的状态矩阵与回滚演练；缺少跨浏览器可重复证据
-- **Next action**：扩展 M1.5 的 inline-markup 或输入等效标注恢复场景，再进入 A-05/A-06 的角色化对比度与 reduced-motion 门禁
+- **Next action**：进入 A-05/A-06 的角色化对比度与 reduced-motion/reflow 门禁。
 
 ## 12. Decision and Change Log
 

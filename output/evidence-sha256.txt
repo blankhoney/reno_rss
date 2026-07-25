@@ -23,3 +23,4 @@ c821135c35634186f7560a2345ad73ece76d07b9eb379b38503769cf3b4c9e24  output/securit
 e50fd518f858e771500fa5e30d014a4ce39d50e72aac7e6ce9c6067d1edd88f2  output/evidence/m1-reader-ask-retry-2026-07-26.json
 a24f756f6f368f99f96fd91ac76910211bdcbb538e1caa40ae7a31cb68190acb  output/evidence/m1-annotation-anchor-recovery-2026-07-26.json
 a8a23069e3bbf9e00bb658b492bb023f20f80bfe8a9121428b87436d410f5d6a  output/evidence/m1-candidate-state-retry-2026-07-26.json
+ec5b9e1cf5114664d836f739905bffef2e09f449825baf6708136b76659a24a7  output/evidence/m1-inline-markup-annotation-recovery-2026-07-26.json

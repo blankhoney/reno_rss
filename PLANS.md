@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-integrity` based on `ff29cd70`; M1.4 is an uncommitted, focused candidate-write recovery slice. |
-| Milestone / acceptance | M1.4 candidate state-write retry; A-02, A-04, and A-10 remain `IN_PROGRESS`. |
+| Exact candidate | `goal/m1-annotation-integrity` based on `f8151b1c`; M1.5 is an uncommitted, focused inline-markup integrity slice. |
+| Milestone / acceptance | M1.5 inline-markup annotation recovery; A-03, A-04, and A-07 remain `IN_PROGRESS`. |
 | Hypothesis | A failed candidate write must preserve the reading context and offer an explicit retry; a success must be rendered from a server-confirmed state, not an optimistic local assumption. |
 | Initial failure | State responses were discarded at the Reader boundary and a failed candidate write only showed an error, leaving no explicit retry proof. |
 | Minimal repair | Typed state response parsing, article-scoped retry closure, visible retry control, and a resettable one-time 503 fixture that persists the retried state. |
 | Green validation | `npm test` 193/193; `npm run build`; focused Chromium 1/1; full Chromium 49/49. |
 | Durable evidence | `output/evidence/m1-candidate-state-retry-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt`. |
 | Rollback | Revert the state-response/retry/fixture slice; no production endpoint, schema, data, dependency, or stored annotation change. |
-| Next action | M1.5: add an inline-markup or input-equivalent annotation recovery/rejection fixture, then move to role-aware contrast/reduced-motion gates. |
+| Next action | M2: add role-aware contrast evidence and reduced-motion/reflow assertions. |
 
 ## Completed Checkpoints
 
@@ -38,6 +38,7 @@
 | M1.2 Reader/Ask partial failure | A-02, A-07, A-15 | One failing test before repair; 503 → retry → SSE citation and full Reader validation | One deterministic Ask failure slice only; provider/recovery/state matrix incomplete |
 | M1.3 annotation recovery | A-03, A-04 | Resolver/highlighter test-first failures; shifted-repeat restoration and ambiguity rejection with full Reader validation | Inline-markup, input, retry, and multi-user identity matrix incomplete |
 | M1.4 candidate state retry | A-02, A-04, A-10 | One deterministic state-write 503 preserves Reader context; explicit retry reloads server-confirmed candidate state | Broader state matrix, input/browser pairwise coverage, and bounded recovery budget incomplete |
+| M1.5 inline-markup annotation recovery | A-03, A-04, A-07 | Cross-markup anchor remains unresolved, and its retained note is available natively | Touch, IME, retry, and multi-user annotation matrix incomplete |
 
 ## Acceptance Ledger
 

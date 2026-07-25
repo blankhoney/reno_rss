@@ -362,6 +362,18 @@ test("refreshed repeated annotations restore only the context-proven quote and s
   await expect(page.locator(".focusContent")).toContainText("Repeated evidence.");
 });
 
+test("inline-markup annotation anchors remain visible but unresolved rather than wrapping partial markup", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-inline-markup");
+
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.locator(".focusContent")).toContainText("Structured evidence survives refresh.");
+  await expect(page.locator('mark[data-annotation-id="53"]')).toHaveCount(0);
+  await expect(page.getByText(/有 1 条已保存划线因内容变化未安全定位/)).toBeVisible();
+  await page.getByText("查看保留的未定位标注（1）", { exact: true }).click();
+  await expect(page.getByText("Keep the structured evidence note.", { exact: true })).toBeVisible();
+});
+
 for (const viewport of [
   { width: 390, height: 844 },
   { width: 768, height: 1024 },
