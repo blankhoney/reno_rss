@@ -65,3 +65,20 @@ test("fetchSessionUser clears cached users when the API returns unauthenticated"
   assert.equal(result, null);
   assert.equal(readCachedSessionUser(), null);
 });
+
+test("clearing the cache prevents an older in-flight request from restoring a user", async () => {
+  clearSessionCache();
+  let resolveRequest: ((value: AuthSession | null) => void) | null = null;
+  const pending = fetchSessionUser(
+    () =>
+      new Promise<AuthSession | null>((resolve) => {
+        resolveRequest = resolve;
+      }),
+  );
+
+  clearSessionCache();
+  resolveRequest?.({ user, recoveryCode: null });
+
+  assert.equal(await pending, null);
+  assert.equal(readCachedSessionUser(), null);
+});

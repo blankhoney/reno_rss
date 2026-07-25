@@ -5,6 +5,7 @@ import {
   filterCommands,
   isCommandPaletteToggle,
   isEditableKeyboardTarget,
+  isInteractiveKeyboardTarget,
   moveCommandIndex,
   moduleHref,
   normalizeCommandQuery,
@@ -60,6 +61,15 @@ test("isEditableKeyboardTarget detects form fields", () => {
   assert.equal(isEditableKeyboardTarget(input), true);
   assert.equal(isEditableKeyboardTarget(div), false);
   assert.equal(isEditableKeyboardTarget(null), false);
+});
+
+test("isInteractiveKeyboardTarget protects controls beyond text fields", () => {
+  const button = { isContentEditable: false, tagName: "BUTTON" } as unknown as HTMLElement;
+  const link = { isContentEditable: false, tagName: "A" } as unknown as HTMLElement;
+  const list = { isContentEditable: false, tagName: "UL" } as unknown as HTMLElement;
+  assert.equal(isInteractiveKeyboardTarget(button), true);
+  assert.equal(isInteractiveKeyboardTarget(link), true);
+  assert.equal(isInteractiveKeyboardTarget(list), false);
 });
 
 test("filterCommands prepends free-text article search jump", () => {

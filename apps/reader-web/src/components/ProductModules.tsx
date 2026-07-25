@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   enqueueResearchJob,
   getInterestProfile,
@@ -28,7 +29,7 @@ import {
   readCraftPreferences,
   type CraftPreferences,
 } from "@/lib/craft/preferences";
-import { listArticles, pollJobUntilTerminal } from "@/lib/api/articles";
+import { getJob, listArticles, pollJobUntilTerminal, terminalJobStatus, type ApiJob } from "@/lib/api/articles";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import type { Article } from "@/lib/articles/types";
 
@@ -61,8 +62,9 @@ export function ClustersPanel() {
   const [items, setItems] = useState<ClusterItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     let active = true;
+    setError(null);
     listClusters(30)
       .then((next) => {
         if (active) setItems(next);
@@ -75,9 +77,18 @@ export function ClustersPanel() {
     };
   }, []);
 
+  useEffect(() => reload(), [reload]);
+
   return (
     <PanelShell title="故事线 Clusters" hint="同一事件多源合并；主条 + 相关源。">
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? (
+        <p className="adminConsoleError" role="alert">
+          {error}
+          <button type="button" className="readerToolbarBtn" onClick={() => reload()}>
+            重试
+          </button>
+        </p>
+      ) : null}
       {items == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
       {items && items.length === 0 ? (
         <div className="articleListEmpty">
@@ -117,8 +128,9 @@ export function ThemesPanel() {
   const [error, setError] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<CraftPreferences>(() => readCraftPreferences());
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     let active = true;
+    setError(null);
     listThemes(40)
       .then((next) => {
         if (active) setItems(next);
@@ -131,6 +143,8 @@ export function ThemesPanel() {
     };
   }, []);
 
+  useEffect(() => reload(), [reload]);
+
   function togglePin(label: string) {
     const pinned = new Set(prefs.pinnedThemes);
     if (pinned.has(label)) pinned.delete(label);
@@ -140,7 +154,14 @@ export function ThemesPanel() {
 
   return (
     <PanelShell title="主题簇 Themes" hint="来自评分标签；可钉选后从精读跳转相关源。">
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? (
+        <p className="adminConsoleError" role="alert">
+          {error}
+          <button type="button" className="readerToolbarBtn" onClick={() => reload()}>
+            重试
+          </button>
+        </p>
+      ) : null}
       {prefs.pinnedThemes.length > 0 ? (
         <p className="workbenchRibbonMuted">已钉选：{prefs.pinnedThemes.join(" · ")}</p>
       ) : null}
@@ -176,12 +197,18 @@ export function ThemesPanel() {
           })}
         </ul>
       ) : null}
+      {items != null && items.length === 0 ? (
+        <div className="articleListEmpty">
+          <p className="articleListEmptyTitle">尚无主题簇</p>
+          <p className="articleListEmptyHint">评分生成标签后会显示主题热度。</p>
+        </div>
+      ) : null}
     </PanelShell>
   );
 }
 
 export function RulesPanel() {
-  const [rules, setRules] = useState<RuleItem[]>([]);
+  const [rules, setRules] = useState<RuleItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draftType, setDraftType] = useState("mute");
   const [draftKeyword, setDraftKeyword] = useState("");
@@ -200,6 +227,7 @@ export function RulesPanel() {
   }, [reload]);
 
   async function addRule() {
+    if (rules == null) return;
     setSaving(true);
     setError(null);
     try {
@@ -224,6 +252,7 @@ export function RulesPanel() {
   }
 
   async function removeRule(index: number) {
+    if (rules == null) return;
     setSaving(true);
     setError(null);
     try {
@@ -241,7 +270,9 @@ export function RulesPanel() {
       title="规则引擎"
       hint="boost / mute / must_read / keyword / score_threshold —— 写入后参与 Top10 与简报排序。"
     >
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? <p className="adminConsoleError" role="alert">{error}<button type="button" className="readerToolbarBtn" onClick={reload}>重试</button></p> : null}
+      {rules == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
+      {rules != null && rules.length === 0 ? <p className="workbenchRibbonMuted">尚无规则。</p> : null}
       <div className="productModuleForm">
         <label>
           类型
@@ -265,12 +296,12 @@ export function RulesPanel() {
           weight
           <input value={draftWeight} onChange={(event) => setDraftWeight(event.target.value)} />
         </label>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={saving} onClick={addRule}>
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={saving || rules == null} onClick={addRule}>
           添加规则
         </button>
       </div>
       <ul className="productModuleList">
-        {rules.map((rule, index) => (
+        {(rules ?? []).map((rule, index) => (
           <li key={`${rule.type}-${index}`} className="productModuleCard productModuleRow">
             <code>
               {rule.type}
@@ -289,21 +320,26 @@ export function RulesPanel() {
 }
 
 export function SavedSearchesPanel() {
-  const [items, setItems] = useState<SavedSearchItem[]>([]);
+  const [items, setItems] = useState<SavedSearchItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [q, setQ] = useState("");
   const [filterModule, setFilterModule] = useState("all");
   const [sort, setSort] = useState("latest");
 
-  useEffect(() => {
+  const reload = useCallback(() => {
+    setError(null);
     listSavedSearches()
       .then(setItems)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "加载失败"));
   }, []);
 
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
   async function saveCurrent() {
-    if (!name.trim()) return;
+    if (!name.trim() || items == null) return;
     try {
       const next = await putSavedSearches([
         ...items,
@@ -319,7 +355,9 @@ export function SavedSearchesPanel() {
 
   return (
     <PanelShell title="保存的搜索" hint="过滤器可复用；点击跳回列表。">
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? <p className="adminConsoleError" role="alert">{error}<button type="button" className="readerToolbarBtn" onClick={reload}>重试</button></p> : null}
+      {items == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
+      {items != null && items.length === 0 ? <p className="workbenchRibbonMuted">尚无保存的搜索。</p> : null}
       <div className="productModuleForm">
         <label>
           名称
@@ -350,12 +388,12 @@ export function SavedSearchesPanel() {
             <option value="trend">趋势</option>
           </select>
         </label>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" onClick={saveCurrent}>
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={items == null} onClick={saveCurrent}>
           保存
         </button>
       </div>
       <ul className="productModuleList">
-        {items.map((item) => (
+        {(items ?? []).map((item) => (
           <li key={`${item.name}-${item.q}`} className="productModuleCard">
             <Link
               href={savedSearchHref(item)}
@@ -403,25 +441,115 @@ const RESEARCH_TEMPLATES: Array<{
   },
 ];
 
-export function ResearchPanel() {
+type ResearchResult = {
+  answer?: string;
+  citations?: Array<{
+    article_id?: number;
+    title?: string;
+    quote?: string;
+    start_hint?: number;
+  }>;
+  provider?: string;
+  question?: string;
+};
+
+export function researchResultFromJob(job: ApiJob, fallbackQuestion: string): ResearchResult {
+  const raw = (job.result ?? {}) as Record<string, unknown>;
+  const brief = raw.brief && typeof raw.brief === "object" ? (raw.brief as Record<string, unknown>) : raw;
+  return {
+    answer: typeof brief.answer === "string" ? brief.answer : undefined,
+    citations: Array.isArray(brief.citations)
+      ? (brief.citations as Array<{
+          article_id?: number;
+          title?: string;
+          quote?: string;
+          start_hint?: number;
+        }>)
+      : [],
+    provider: typeof brief.provider === "string" ? brief.provider : undefined,
+    question: typeof brief.question === "string" ? brief.question : fallbackQuestion,
+  };
+}
+
+export function parseResearchJobId(raw: string | null | undefined): number | null {
+  if (raw == null || !/^\d+$/.test(raw)) return null;
+  const jobId = Number(raw);
+  return Number.isSafeInteger(jobId) && jobId > 0 ? jobId : null;
+}
+
+export function ResearchPanel({ initialJobId = null }: { initialJobId?: number | null }) {
+  const router = useRouter();
   const [scope, setScope] = useState<"topn" | "project" | "topic">("topn");
   const [topic, setTopic] = useState("");
   const [question, setQuestion] = useState("总结本周最值得跟进的信号与风险");
   const [jobId, setJobId] = useState<number | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [result, setResult] = useState<{
-    answer?: string;
-    citations?: Array<{
-      article_id?: number;
-      title?: string;
-      quote?: string;
-      start_hint?: number;
-    }>;
-    provider?: string;
-    question?: string;
-  } | null>(null);
+  const [result, setResult] = useState<ResearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const activeJobRef = useRef<number | null>(null);
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const questionRef = useRef(question);
+
+  useEffect(() => {
+    questionRef.current = question;
+  }, [question]);
+
+  const researchHref = useCallback((nextJobId: number) => {
+    const params = new URLSearchParams({ module: "research", sort: "default", lang: "zh", job: String(nextJobId) });
+    return `?${params.toString()}`;
+  }, []);
+
+  const resumeJob = useCallback(async (nextJobId: number) => {
+    if (activeJobRef.current === nextJobId) return;
+    pollAbortRef.current?.abort();
+    const controller = new AbortController();
+    pollAbortRef.current = controller;
+    activeJobRef.current = nextJobId;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    setJobId(nextJobId);
+    try {
+      const initial = await getJob(nextJobId, { signal: controller.signal });
+      if (controller.signal.aborted || activeJobRef.current !== nextJobId) return;
+      setStatus(initial.status);
+      const terminal = terminalJobStatus(initial.status)
+        ? initial
+        : await pollJobUntilTerminal(nextJobId, { signal: controller.signal });
+      if (controller.signal.aborted || activeJobRef.current !== nextJobId) return;
+      setStatus(terminal.status);
+      if (terminal.status === "failed") {
+        throw new Error(terminal.lastError || "研究任务失败，可重试");
+      }
+      if (terminal.status !== "succeeded") {
+        throw new Error("研究任务仍在运行，请稍后再次打开或重试轮询");
+      }
+      setResult(researchResultFromJob(terminal, questionRef.current));
+    } catch (caught) {
+      if (controller.signal.aborted) return;
+      setError(caught instanceof Error ? caught.message : "研究任务失败");
+    } finally {
+      if (activeJobRef.current === nextJobId) {
+        setBusy(false);
+        activeJobRef.current = null;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (initialJobId == null) return;
+    void resumeJob(initialJobId);
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, [initialJobId, resumeJob]);
+
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
 
   async function run() {
     setBusy(true);
@@ -435,36 +563,11 @@ export function ResearchPanel() {
       });
       setJobId(job.jobId);
       setStatus("queued");
-      const polled = await pollJobUntilTerminal(job.jobId);
-      setStatus(polled.status);
-      if (polled.status === "failed") {
-        throw new Error(polled.lastError || "研究任务失败，可重试");
-      }
-      if (polled.status !== "succeeded") {
-        throw new Error("研究任务仍在运行，请稍后再次打开或重试轮询");
-      }
-      const raw = (polled.result ?? {}) as Record<string, unknown>;
-      const brief =
-        raw.brief && typeof raw.brief === "object"
-          ? (raw.brief as Record<string, unknown>)
-          : raw;
-      setResult({
-        answer: typeof brief.answer === "string" ? brief.answer : undefined,
-        citations: Array.isArray(brief.citations)
-          ? (brief.citations as Array<{
-              article_id?: number;
-              title?: string;
-              quote?: string;
-              start_hint?: number;
-            }>)
-          : [],
-        provider: typeof brief.provider === "string" ? brief.provider : undefined,
-        question: typeof brief.question === "string" ? brief.question : question,
-      });
+      router.push(researchHref(job.jobId));
+      void resumeJob(job.jobId);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "研究任务失败");
-    } finally {
       setBusy(false);
+      setError(caught instanceof Error ? caught.message : "研究任务失败");
     }
   }
 
@@ -555,7 +658,7 @@ export function ResearchPanel() {
                 <li key={`${item.article_id}-${index}`} className="productModuleCard">
                   {item.article_id != null ? (
                     <Link
-                      href={researchCitationHref(item.article_id, item.quote)}
+                      href={researchCitationHref(item.article_id, item.quote, jobId ?? undefined)}
                       prefetch={false}
                     >
                       [{index + 1}] {item.title || `文章 #${item.article_id}`}
@@ -579,8 +682,11 @@ export function ResearchPanel() {
 export function InterestPanel() {
   const [profile, setProfile] = useState<InterestProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
   const reload = useCallback(() => {
+    setError(null);
     getInterestProfile()
       .then(setProfile)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "加载兴趣向量失败"));
@@ -591,10 +697,16 @@ export function InterestPanel() {
   }, [reload]);
 
   async function onReset() {
+    setIsResetting(true);
+    setError(null);
+    setMessage(null);
     try {
       setProfile(await resetInterestProfile());
+      setMessage("兴趣向量已重置");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "重置失败");
+    } finally {
+      setIsResetting(false);
     }
   }
 
@@ -615,16 +727,17 @@ export function InterestPanel() {
       hint="来自反馈、划线、立项的长期偏好；可重置、可导出。"
       actions={
         <>
-          <button type="button" className="readerToolbarBtn" onClick={onExport}>
+          <button type="button" className="readerToolbarBtn" onClick={onExport} disabled={profile == null || isResetting}>
             导出 JSON
           </button>
-          <button type="button" className="readerToolbarBtn" onClick={onReset}>
-            重置
+          <button type="button" className="readerToolbarBtn" onClick={onReset} disabled={isResetting}>
+            {isResetting ? "重置中…" : "重置"}
           </button>
         </>
       }
     >
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? <p className="adminConsoleError" role="alert">{error}<button type="button" className="readerToolbarBtn" onClick={reload}>重试</button></p> : null}
+      {message ? <p className="adminConsoleMessage">{message}</p> : null}
       {profile == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
       {profile ? (
         <>
@@ -658,6 +771,7 @@ export function UnifiedSearchPanel({
   initialArticleModule?: string;
   initialSort?: string;
 }) {
+  const router = useRouter();
   const [q, setQ] = useState(initialQuery);
   const [articleModule, setArticleModule] = useState(initialArticleModule);
   const [articleSort, setArticleSort] = useState(initialSort);
@@ -672,35 +786,111 @@ export function UnifiedSearchPanel({
     }>
   >([]);
   const [error, setError] = useState<string | null>(null);
+  const [articleError, setArticleError] = useState<string | null>(null);
+  const [annotationError, setAnnotationError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
   const [busy, setBusy] = useState(false);
+  const searchSeqRef = useRef(0);
+  const lastSearchKeyRef = useRef<string | null>(null);
+
+  const searchHref = useCallback((query: string, module: string, sort: string) => {
+    const params = new URLSearchParams({ module: "search", filter: module, sort, lang: "zh" });
+    const normalized = query.trim();
+    if (normalized) params.set("q", normalized);
+    return `?${params.toString()}`;
+  }, []);
 
   const runSearch = useCallback(async (query: string, module: string, sort: string) => {
     const normalized = query.trim();
     if (!normalized) {
+      searchSeqRef.current += 1;
+      lastSearchKeyRef.current = null;
       setError("请输入标题、正文、划线或笔记关键词");
+      setArticleError(null);
+      setAnnotationError(null);
       return;
     }
+
+    const searchKey = `${normalized} ${module} ${sort}`;
+    const requestSeq = searchSeqRef.current + 1;
+    searchSeqRef.current = requestSeq;
+    lastSearchKeyRef.current = searchKey;
+    const isCurrent = () => requestSeq === searchSeqRef.current;
     setBusy(true);
     setError(null);
-    try {
-      const [articlePage, annotationItems] = await Promise.all([
-        listArticles({ limit: 50, module, q: normalized, sort }),
-        searchAnnotations(normalized),
-      ]);
-      setArticles(articlePage.articles);
-      setAnnotations(annotationItems);
-      setSearched(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "搜索失败");
-    } finally {
-      setBusy(false);
+    setArticleError(null);
+    setAnnotationError(null);
+    setArticles([]);
+    setAnnotations([]);
+
+    const [articleResult, annotationResult] = await Promise.allSettled([
+      listArticles({ limit: 50, module, q: normalized, sort }),
+      searchAnnotations(normalized),
+    ]);
+    if (!isCurrent()) return;
+
+    if (articleResult.status === "fulfilled") {
+      setArticles(articleResult.value.articles);
+    } else {
+      setArticleError(articleResult.reason instanceof Error ? articleResult.reason.message : "文章搜索失败");
     }
+    if (annotationResult.status === "fulfilled") {
+      setAnnotations(annotationResult.value);
+    } else {
+      setAnnotationError(
+        annotationResult.reason instanceof Error ? annotationResult.reason.message : "划线/笔记搜索失败",
+      );
+    }
+    setSearched(true);
+    setBusy(false);
   }, []);
 
   useEffect(() => {
-    if (initialQuery.trim()) void runSearch(initialQuery, initialArticleModule, initialSort);
+    setQ(initialQuery);
+    setArticleModule(initialArticleModule);
+    setArticleSort(initialSort);
+    const normalized = initialQuery.trim();
+    if (!normalized) {
+      searchSeqRef.current += 1;
+      lastSearchKeyRef.current = null;
+      setArticles([]);
+      setAnnotations([]);
+      setArticleError(null);
+      setAnnotationError(null);
+      setSearched(false);
+      setBusy(false);
+      return;
+    }
+    const searchKey = `${normalized} ${initialArticleModule} ${initialSort}`;
+    if (lastSearchKeyRef.current !== searchKey) {
+      void runSearch(initialQuery, initialArticleModule, initialSort);
+    }
   }, [initialArticleModule, initialQuery, initialSort, runSearch]);
+
+  function submitSearch() {
+    const normalized = q.trim();
+    if (!normalized) {
+      void runSearch(q, articleModule, articleSort);
+      return;
+    }
+    const href = searchHref(normalized, articleModule, articleSort);
+    if (window.location.search === href) {
+      void runSearch(normalized, articleModule, articleSort);
+      return;
+    }
+    router.push(href);
+  }
+
+  function readerHref(articleId: number) {
+    const params = new URLSearchParams({
+      module: "search",
+      filter: articleModule,
+      sort: articleSort,
+      lang: "zh",
+      q: q.trim(),
+    });
+    return `/read/${articleId}?${params.toString()}`;
+  }
 
   return (
     <PanelShell title="统一搜索" hint="一次检索标题、正文、私人划线与笔记；中英文子串均可命中。">
@@ -709,7 +899,7 @@ export function UnifiedSearchPanel({
         <label>
           关键词
           <input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => {
-            if (event.key === "Enter") void runSearch(q, articleModule, articleSort);
+            if (event.key === "Enter") submitSearch();
           }} />
         </label>
         <label>
@@ -734,14 +924,16 @@ export function UnifiedSearchPanel({
             <option value="trend">趋势</option>
           </select>
         </label>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={busy} onClick={() => void runSearch(q, articleModule, articleSort)}>
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={busy} onClick={submitSearch}>
           {busy ? "搜索中…" : "搜索"}
         </button>
       </div>
       {searched ? (
         <p className="workbenchRibbonMuted">文章 {articles.length} · 划线/笔记 {annotations.length}</p>
       ) : null}
-      {searched && articles.length === 0 && annotations.length === 0 ? (
+      {articleError ? <p className="adminConsoleError" role="alert">文章搜索失败：{articleError}</p> : null}
+      {annotationError ? <p className="adminConsoleError" role="alert">划线/笔记搜索失败：{annotationError}</p> : null}
+      {searched && articles.length === 0 && annotations.length === 0 && !articleError && !annotationError ? (
         <div className="articleListEmpty">
           <p className="articleListEmptyTitle">没有匹配结果</p>
           <p className="articleListEmptyHint">尝试缩短关键词，或先同步正文再搜索。</p>
@@ -751,7 +943,7 @@ export function UnifiedSearchPanel({
       <ul className="productModuleList">
         {articles.map((article) => (
           <li key={article.id} className="productModuleCard">
-            <Link href={`/read/${article.id}?module=search&sort=default&lang=zh`} prefetch={false}>
+            <Link href={readerHref(article.id)} prefetch={false}>
               <strong>{article.title}</strong>
             </Link>
             <p className="workbenchRibbonMuted">
@@ -764,7 +956,7 @@ export function UnifiedSearchPanel({
       <ul className="productModuleList">
         {annotations.map((item) => (
           <li key={item.id} className="productModuleCard">
-            <Link href={`/read/${item.articleId}?module=search&sort=default&lang=zh`} prefetch={false}>
+            <Link href={readerHref(item.articleId)} prefetch={false}>
               <strong>{item.articleTitle || `文章 #${item.articleId}`}</strong>
             </Link>
             <p>{item.selectedText || item.content}</p>
@@ -858,8 +1050,11 @@ export function CraftPanel() {
 export function ExportPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingFormat, setPendingFormat] = useState<"markdown" | "json" | "zip" | null>(null);
 
   async function download(format: "markdown" | "json" | "zip") {
+    if (pendingFormat != null) return;
+    setPendingFormat(format);
     setError(null);
     setMessage(null);
     try {
@@ -884,6 +1079,8 @@ export function ExportPanel() {
       setMessage(`已下载 ${format}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "导出失败");
+    } finally {
+      setPendingFormat(null);
     }
   }
 
@@ -892,14 +1089,14 @@ export function ExportPanel() {
       {error ? <p className="adminConsoleError">{error}</p> : null}
       {message ? <p className="workbenchRibbonMuted">{message}</p> : null}
       <div className="articleListActions">
-        <button type="button" className="readerToolbarBtn" onClick={() => void download("markdown")}>
-          Markdown
+        <button type="button" className="readerToolbarBtn" disabled={pendingFormat != null} onClick={() => void download("markdown")}>
+          {pendingFormat === "markdown" ? "导出中…" : "Markdown"}
         </button>
-        <button type="button" className="readerToolbarBtn" onClick={() => void download("json")}>
-          JSON
+        <button type="button" className="readerToolbarBtn" disabled={pendingFormat != null} onClick={() => void download("json")}>
+          {pendingFormat === "json" ? "导出中…" : "JSON"}
         </button>
-        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" onClick={() => void download("zip")}>
-          ZIP
+        <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={pendingFormat != null} onClick={() => void download("zip")}>
+          {pendingFormat === "zip" ? "导出中…" : "ZIP"}
         </button>
       </div>
     </PanelShell>

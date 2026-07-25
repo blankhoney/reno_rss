@@ -1,3 +1,5 @@
+import { clearPrivateArticleCache, synchronizePrivateArticleCacheOwner } from "@/lib/pwa/cacheKey";
+
 import { ApiError, apiGet, apiPost } from "./client";
 
 export type AuthUser = {
@@ -46,9 +48,12 @@ function normalizeSession(payload: SessionPayload): AuthSession {
 export async function getCurrentSession(): Promise<AuthSession | null> {
   try {
     const payload = await apiGet<{ user: UserPayload }>("/api/auth/me");
-    return normalizeSession({ user: payload.user });
+    const session = normalizeSession({ user: payload.user });
+    await synchronizePrivateArticleCacheOwner(session.user.id);
+    return session;
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
+      await clearPrivateArticleCache();
       return null;
     }
     throw error;
@@ -63,7 +68,9 @@ export async function loginWithDisplayName(displayName: string): Promise<AuthSes
   const payload = await apiPost<SessionPayload, { display_name: string }>("/api/auth/login", {
     display_name: normalized,
   });
-  return normalizeSession(payload);
+  const session = normalizeSession(payload);
+  await synchronizePrivateArticleCacheOwner(session.user.id);
+  return session;
 }
 
 export async function recoverSession(recoveryCode: string): Promise<AuthSession> {
@@ -74,9 +81,12 @@ export async function recoverSession(recoveryCode: string): Promise<AuthSession>
   const payload = await apiPost<SessionPayload, { recovery_code: string }>("/api/auth/recover", {
     recovery_code: normalized,
   });
-  return normalizeSession(payload);
+  const session = normalizeSession(payload);
+  await synchronizePrivateArticleCacheOwner(session.user.id);
+  return session;
 }
 
 export async function logoutSession(): Promise<void> {
   await apiPost<void, undefined>("/api/auth/logout");
+  await clearPrivateArticleCache();
 }

@@ -37,6 +37,7 @@ type EntryCard = {
   href: string;
   count: number;
   preview: string[];
+  error?: string;
 };
 
 const TIERS: Array<{ key: keyof Brief; label: string; hint: string }> = [
@@ -49,7 +50,11 @@ export function DailyIntelligenceDashboard() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshToken, setRefreshToken] = useState(0);
   const [entries, setEntries] = useState<EntryCard[]>([]);
+  const [clustersError, setClustersError] = useState<string | null>(null);
+  const [themesError, setThemesError] = useState<string | null>(null);
+  const [sourceQualityError, setSourceQualityError] = useState<string | null>(null);
   const [clusters, setClusters] = useState<
     Array<{ id: string; label: string; size: number; mainArticleId: number }>
   >([]);
@@ -69,6 +74,10 @@ export function DailyIntelligenceDashboard() {
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setError(null);
+    setClustersError(null);
+    setThemesError(null);
+    setSourceQualityError(null);
 
     Promise.allSettled([
       apiGet<{ brief?: Brief | null }>("/api/briefs/latest"),
@@ -108,15 +117,22 @@ export function DailyIntelligenceDashboard() {
           projectResult.status === "fulfilled" ? projectResult.value.articles : [];
         const reviewItems =
           reviewResult.status === "fulfilled" ? reviewResult.value : [];
+        const resultError = (result: PromiseSettledResult<unknown>, fallback: string) =>
+          result.status === "rejected"
+            ? result.reason instanceof Error
+              ? result.reason.message
+              : fallback
+            : undefined;
 
         setEntries([
           {
             id: "continue",
             title: "继续阅读",
-            hint: "稍后读 / 进度未完成",
+            hint: "已开始，尚未读完",
             href: "?module=read-later&sort=default&lang=zh",
             count: continueItems.length,
             preview: continueItems.slice(0, 3).map((item) => item.title),
+            error: resultError(continueResult, "继续阅读加载失败"),
           },
           {
             id: "project",
@@ -125,6 +141,7 @@ export function DailyIntelligenceDashboard() {
             href: "?module=project&sort=default&lang=zh",
             count: projectItems.length,
             preview: projectItems.slice(0, 3).map((item) => item.title),
+            error: resultError(projectResult, "立项队列加载失败"),
           },
           {
             id: "review",
@@ -136,6 +153,7 @@ export function DailyIntelligenceDashboard() {
               .slice(0, 3)
               .map((item) => item.selectedText?.trim() || item.content)
               .filter(Boolean),
+            error: resultError(reviewResult, "复习队列加载失败"),
           },
         ]);
 
@@ -148,6 +166,8 @@ export function DailyIntelligenceDashboard() {
               mainArticleId: item.mainArticleId,
             })),
           );
+        } else {
+          setClustersError(resultError(clusterResult, "主题簇加载失败") ?? "主题簇加载失败");
         }
         if (themeResult.status === "fulfilled") {
           setThemes(
@@ -156,6 +176,8 @@ export function DailyIntelligenceDashboard() {
               weight: item.weight,
             })),
           );
+        } else {
+          setThemesError(resultError(themeResult, "主题热度加载失败") ?? "主题热度加载失败");
         }
         if (feedResult.status === "fulfilled") {
           const feeds = feedResult.value;
@@ -188,6 +210,8 @@ export function DailyIntelligenceDashboard() {
             needsAttention,
             active: feeds.filter((feed) => !feed.hidden).length,
           });
+        } else {
+          setSourceQualityError(resultError(feedResult, "源可信度加载失败") ?? "源可信度加载失败");
         }
       })
       .finally(() => {
@@ -197,7 +221,7 @@ export function DailyIntelligenceDashboard() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshToken]);
 
   return (
     <section className="dailyIntelPane" aria-label="今日情报台">
@@ -211,6 +235,9 @@ export function DailyIntelligenceDashboard() {
           </p>
         </div>
         <div className="articleListActions">
+          <button type="button" className="readerToolbarBtn" disabled={loading} onClick={() => setRefreshToken((value) => value + 1)}>
+            {loading ? "加载中" : "刷新情报"}
+          </button>
           <Link className="readerToolbarBtn" href="?module=clusters&sort=default&lang=zh" prefetch={false}>
             故事线
           </Link>
@@ -238,7 +265,11 @@ export function DailyIntelligenceDashboard() {
               <span className="dailyIntelEntryCount">{entry.count}</span>
             </div>
             <p className="workbenchRibbonMuted">{entry.hint}</p>
-            {entry.preview.length > 0 ? (
+            {loading ? (
+              <p className="workbenchRibbonMuted">加载中…</p>
+            ) : entry.error ? (
+              <p className="adminConsoleError">加载失败：{entry.error}</p>
+            ) : entry.preview.length > 0 ? (
               <ul className="dailyIntelEntryPreview">
                 {entry.preview.map((line) => (
                   <li key={`${entry.id}-${line.slice(0, 24)}`}>{line}</li>
@@ -259,7 +290,11 @@ export function DailyIntelligenceDashboard() {
         <div className="dailyIntelRadarGrid">
           <div className="dailyIntelRadarPane">
             <h3>突发主题簇</h3>
-            {clusters.length === 0 ? (
+            {loading ? (
+              <p className="workbenchRibbonMuted">加载中…</p>
+            ) : clustersError ? (
+              <p className="adminConsoleError">加载失败：{clustersError}</p>
+            ) : clusters.length === 0 ? (
               <p className="workbenchRibbonMuted">暂无聚类；评分后会出现多源故事线。</p>
             ) : (
               <ul className="dailyIntelRadarList">
@@ -279,7 +314,11 @@ export function DailyIntelligenceDashboard() {
           </div>
           <div className="dailyIntelRadarPane">
             <h3>主题热度</h3>
-            {themes.length === 0 ? (
+            {loading ? (
+              <p className="workbenchRibbonMuted">加载中…</p>
+            ) : themesError ? (
+              <p className="adminConsoleError">加载失败：{themesError}</p>
+            ) : themes.length === 0 ? (
               <p className="workbenchRibbonMuted">尚无标签主题。</p>
             ) : (
               <ul className="dailyIntelRadarList">
@@ -311,7 +350,11 @@ export function DailyIntelligenceDashboard() {
         <div className="dailyIntelRadarGrid">
           <div className="dailyIntelRadarPane">
             <h3>已 demote / 隐藏</h3>
-            {sourceQuality.hidden.length === 0 ? (
+            {loading ? (
+              <p className="workbenchRibbonMuted">加载中…</p>
+            ) : sourceQualityError ? (
+              <p className="adminConsoleError">加载失败：{sourceQualityError}</p>
+            ) : sourceQuality.hidden.length === 0 ? (
               <p className="workbenchRibbonMuted">没有隐藏源。</p>
             ) : (
               <ul className="dailyIntelRadarList">
@@ -323,7 +366,11 @@ export function DailyIntelligenceDashboard() {
           </div>
           <div className="dailyIntelRadarPane">
             <h3>高质量源机会</h3>
-            {sourceQuality.highQuality.length === 0 ? (
+            {loading ? (
+              <p className="workbenchRibbonMuted">加载中…</p>
+            ) : sourceQualityError ? (
+              <p className="adminConsoleError">加载失败：{sourceQualityError}</p>
+            ) : sourceQuality.highQuality.length === 0 ? (
               <p className="workbenchRibbonMuted">尚无质量分 ≥80 的源。</p>
             ) : (
               <ul className="dailyIntelRadarList">
@@ -338,7 +385,11 @@ export function DailyIntelligenceDashboard() {
           </div>
           <div className="dailyIntelRadarPane">
             <h3>需关注源</h3>
-            {sourceQuality.needsAttention.length === 0 ? (
+            {loading ? (
+              <p className="workbenchRibbonMuted">加载中…</p>
+            ) : sourceQualityError ? (
+              <p className="adminConsoleError">加载失败：{sourceQualityError}</p>
+            ) : sourceQuality.needsAttention.length === 0 ? (
               <p className="workbenchRibbonMuted">没有低质量或负优先级源。</p>
             ) : (
               <ul className="dailyIntelRadarList">

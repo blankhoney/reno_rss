@@ -1,0 +1,158 @@
+# Frontend Excellence evidence ledger
+
+| Field | Value |
+|---|---|
+| Status | In progress — Wave 0 browser foundation |
+| Goal package prepared | 2026-07-21 |
+| Execution branch | `feat/frontend-excellence` |
+| Verified HEAD | Started at `dec47f67d9aaa0c7c87c5c3536e0a86feb15662c`; latest verified reader-web behavior is `591a8294` (`fix(reader-web): trap focus in modal layers`). |
+| Runtime/environment | macOS arm64; Node 22; Playwright Chromium 149.0.7827.55 installed locally |
+| Commit/push permission | Yes — user explicitly authorized multiple focused commits and pushes on 2026-07-21 |
+
+Do not pre-mark rows as passed. Replace `Pending` only with an observed result or an explicit blocker.
+
+## Baseline
+
+| Check | Result | Evidence |
+|---|---|---|
+| Git status and HEAD | Observed | Started at `main@dec47f67`; execution moved to `feat/frontend-excellence`. `next dev` temporarily changed `next-env.d.ts`; stopping it and rerunning `npm run build` restored the file, so it is excluded from implementation scope. |
+| Reader-web tests | Passed | `npm --prefix apps/reader-web test`: 171 passed, 0 failed, 0 skipped (2026-07-21). |
+| Reader-web production build | Passed | `npm --prefix apps/reader-web run build`: compiled, TypeScript, and 4 routes succeeded (2026-07-21). |
+| Browser runtime start | Passed | Playwright Chromium launched production standalone Reader Web through `npm run start:e2e`. |
+| Service worker controlling page | Baseline passed | `e2e/service-worker.smoke.spec.ts`: `/sw.js` active after registration and `navigator.serviceWorker.controller` true on second local load. This does not yet prove cache/session policy. |
+| Console errors | Pending | Smoke did not assert console output yet. |
+| Horizontal overflow | Pending | Viewport matrix not yet implemented. |
+
+## Audit hypotheses
+
+| Context ID | Reproduced / refuted / blocked | Evidence and current paths |
+|---|---|---|
+| C-01 broad service-worker caching | Reproduced (source) | `public/sw.js` routes only `/api/articles*` network-first and all other same-origin GET to generic cache-first; `/api/auth/me` and `/api/jobs/{id}` are therefore unsafe. Real browser policy regression test is Wave 1. |
+| C-02 mobile stacking conflict | Reproduced and mitigated | At 375×812, Chromium confirms `.mobileNavOverlay` has a higher computed layer than `.mobileBottomNav`; shared safe-area and semantic layer tokens shipped in `4f1d24a`. Drawer modal test also confirms the app and bottom nav are inert while open. Agent/selection/Toast coexistence remains Wave 2 work. |
+| C-03 responsive mode collision | Reproduced and mitigated | Chromium at 899×900 confirms Focus mode no longer yields a `0px` workbench column after desktop-only Focus CSS in `4f1d24a`. 901px and dual-pane coverage remain pending. |
+| C-04 keyboard scope | Reproduced and mitigated | `7445261` moves article shortcuts from `window` to a focusable article-list scope. Chromium confirms Enter on Sort opens its listbox without navigation, while focus on the list allows `j` to move the current article. |
+| C-05 fragmented async truth | Pending | |
+| C-06 return-context loss | Pending | |
+| C-07 search races/partial failure | Pending | |
+| C-08 job continuity | Pending | |
+| C-09 annotation integrity | Pending | |
+| C-10 continue-reading semantics | Pending | |
+| C-11 contrast/token drift | Pending | |
+| C-12 browser regression gap | Pending | |
+
+## Acceptance ledger
+
+| ID | Status | Implementation evidence | Verification evidence |
+|---|---|---|---|
+| FEX-01 | Passed | `sw.js` allowlists exact article-detail JSON and explicit shell/static assets; auth/jobs/annotations/export/Admin/search/list routes are not intercepted. | Node VM policy test plus Chromium job route sees two network responses. |
+| FEX-02 | Passed | v2 owned cache names; activation removes obsolete `ai-reader-*` caches only; cache writes require successful JSON and use named cache matches. | Node VM tests cover failed/non-JSON exclusion and old-owned-cache deletion while preserving unrelated cache. |
+| FEX-03 | Passed | `auth.ts` synchronizes the article-cache owner on session establishment and clears private cache on 401/logout; `sessionCache.ts` invalidates stale in-flight requests. | Chromium drives A article cache → real logout/login UI → offline B request; B receives 503 offline, never A payload. |
+| FEX-04 | Passed | `/api/jobs/{id}` is outside the worker fetch allowlist. | Chromium worker-controlled second load receives queued then succeeded from two network job requests. |
+| FEX-05 | Passed | Cached JSON remains on `getArticle()` → `articleFromApiDetail()` → `sanitizeArticleHtml()` path. | Node adapter test feeds script/`javascript:` JSON and asserts dangerous content is absent. |
+| FEX-06 | Passed | `globals.css` defines documented semantic tokens for sticky UI, bottom navigation, popovers, Agent drawer, modal overlay, command palette, and toast. Opening Agent suppresses the selection toolbar while retaining its selection chip; mobile Toast reserves space above selection or an expanded Agent. | Chromium at 375×812 proves selection toolbar is above nav, Toast is above selection, then Agent hides selection while Toast moves above Agent. At 390×844 and 768×1024, drawer is fully entered/inert-isolated, Toast is above Agent, and Agent is above nav. |
+| FEX-07 | Passed | Shared `--mobile-bottom-nav-offset` governs body, Focus reader, Agent and Toast; selection toolbar uses the same offset at ≤900px; module drawer inerts app/background and locks scroll. | Chromium at all required viewports—375×812, 390×844, 768×1024—proves drawer dialog bounds/inert navigation, real mouse selection toolbar bounds, selection-to-Agent handoff, Toast separation, and no horizontal overflow. |
+| FEX-08 | Passed | Focus no longer hides desktop ModuleSidebar at ≥901px; narrow Focus keeps the mobile module trigger. Dual-pane explicitly stacks secondary content at ≤900px. | At 899×900, Chromium verifies a nonzero workbench, article load, visible mobile module trigger/dialog, and no overflow. At 901×900, it verifies visible desktop module link (`新到`), no mobile-nav duplicate, and no overflow. |
+| FEX-09 | Passed | `focusReaderLayout` explicitly contains primary article content and a notes/comparison secondary pane; desktop dual-pane uses readable primary/secondary columns while narrow layouts preserve the secondary pane after content. Scan / Focus / Keep remain persisted modes without introducing mode-specific navigation blockers. | Chromium at 1440×1000 confirms grid primary wider than secondary and no overlap; at 899×900 confirms block stacking after primary and no horizontal overflow. A 3-mode × 3-viewport matrix (375×812, 768×1024, 1440×1000) restores each mode, confirms article-list visibility/no overflow, enters focus reader, and finds article actions: 9/9 passed. |
+| FEX-10 | Passed | Article triage keys are handled only by the focusable article-list root; interactive controls are excluded. | Chromium proves Sort button retains Enter behavior, article link Enter opens its reader route, Command Palette input and Agent textarea accept ordinary text, focused article list accepts `j`, and menus/dialogs retain their dedicated keyboard models. |
+| FEX-11 | Passed | Module drawer and Command Palette use `useDismissableLayer` with initial focus, Tab containment, topmost Escape/outside arbitration, focus restoration, and inert background. Palette options expose active descendant IDs. Sort listbox and reader overflow use roving `tabIndex`, Arrow/Home/End, Enter/Space execution, `aria-controls`, and trigger restoration. | Chromium proves drawer focus stays inside, Escape restores hamburger; palette inerts workbench, focuses input, and Escape restores Sort. Sort proves Arrow/Home/End, Enter and Space selection and Escape restoration; reader overflow proves Arrow/Home/End and Escape restoration. |
+| FEX-12 | Passed | `navigation.ts` serializes a validated keyset cursor trail; ReaderWorkbench initializes from its final cursor, writes/shortens the trail on pagination, and ArticleList/read route preserve `module/sort/lang/q/trail/article` context. | Chromium fixture has two keyset pages: page 2 → article 9 → return reloads `cursor-page-2`, displays page 2, and applies the return-card highlight. |
+| FEX-13 | Passed | UnifiedSearchPanel submits `module=search/filter/sort/lang/q` to the URL, rehydrates controlled fields from props, applies a latest-request sequence guard, and preserves the context in reader result links. | Chromium begins on slow URL query, submits fast, proves slow cannot overwrite fast, then proves browser Back restores slow URL/input/results and Forward restores fast. |
+| FEX-14 | Passed | Search uses `Promise.allSettled` and stores article/annotation errors independently, preserving the successful source. | Chromium proves partial article result remains visible on annotation 500, and annotation result remains visible on article 500, with the failed source identified by its own alert. |
+| FEX-15 | Passed | Research URL accepts only a positive safe `job` ID; `ResearchPanel` resumes an existing job through `getJob()`/abortable polling, clears prior result on replacement, and writes the ID immediately for a newly enqueued job. Research citations and focus-reader return links preserve that ID. | Node tests validate ID parsing plus enveloped/legacy result decoding. Chromium fixture proves direct `job=88` recovery, reload recovery, citation → reader → return recovery, and new job URL creation. |
+| FEX-16 | Passed | Admin stats, usage, and pipeline each own value/loading/error state and retry callback; sync and scoring own separate busy/error state. Terminal sync/scoring operations refresh all affected snapshots, and a batch retains its own creation/start message or error rather than turning unrelated cards into loading. | Static component test proves a usage error leaves stats/pipeline visible with retry. Chromium fixture proves usage 500 → retry recovery while stats/pipeline stay visible, then sync queued → succeeded refreshes stats and queue snapshots. |
+| FEX-17 | Pending — Daily/workbench/reader slices passed; other primary views remain | Daily Intelligence distinguishes per-entry/radar/source loading, empty and error states with reload. Workbench suppresses its empty state when list loading failed; focused reader labels non-404 failures accurately and exposes retry. | Chromium proves Daily failed entries render `加载失败`, workbench 500 has no contradictory `暂无文章`, and `/read/999` exposes retry; 42-test suite passed. Remaining: reader secondary data, Export and other smaller product panels. Rules/Saved Searches now distinguish unloaded/empty/error states, disable writes until loaded, and expose retry; Interest has retry/reset pending feedback. |
+| FEX-18 | Passed | FastAPI `read-later` filtering and Reader Web local filtering use `status=unread` plus `0 < read_progress < 1`; the adapter maps bounded real progress and derives its compatibility flag from it, never from `saved`. Saved remains candidate-only. Routine reader progress starts from persisted progress; read/unread toggles write 1/0. User-facing copy says `继续阅读` and `立项队列`/`已立项`; candidate removal discloses its project-cascade side effect. | API pytest includes an unsaved 0.4-progress article, a saved 0-progress candidate, read 0.4, and progress 1, proving only the first is returned. Node tests cover adapter and local separation. Chromium fixture displays an unsaved partial-progress article in `module=read-later`. API lint and generated OpenAPI drift gate passed. |
+| FEX-19 | Pending | | |
+| FEX-20 | Pending | | |
+| FEX-21 | Pending | | |
+| FEX-22 | Pending | | |
+| FEX-23 | Pending | | |
+| FEX-24 | Pending | | |
+| FEX-25 | Pending | | |
+| FEX-26 | Pending | | |
+| FEX-27 | Pending | | |
+| FEX-28 | Pending | | |
+| FEX-29 | Pending | | |
+| FEX-30 | Pending | | |
+| FEX-31 | Pending | | |
+| FEX-32 | Pending | | |
+
+## Browser matrix
+
+| Viewport | Theme | Motion | Flow/state | Result | Screenshot/log reference |
+|---|---|---|---|---|---|
+| 375×812 | light | normal | mobile navigation + Agent + Toast | Pending | |
+| 390×844 | dark | reduced | Focus/Keep + selection | Pending | |
+| 768×1024 | light | normal | search + article return | Pending | |
+| 899×900 | dark | normal | responsive boundary | Pending | |
+| 901×900 | light | reduced | responsive boundary | Pending | |
+| 1440×1000 | light/dark | normal/reduced | dual pane + Admin/research | Pending | |
+
+Add rows as needed for loading, empty, partial failure, full error, offline, queued, running, succeeded, failed, long content, and keyboard-only observations.
+
+## Command results
+
+Record the date, cwd, exact command, exit code, and meaningful output. Do not write “passed” without the result.
+
+| Date | Command | Exit/result | Notes |
+|---|---|---|---|
+| 2026-07-21 | `npm --prefix apps/reader-web test` | 0 — 171 passed | First invocation from repository root was an `ENOENT` command-path error and did not run tests; corrected command is recorded here. |
+| 2026-07-21 | `npm --prefix apps/reader-web run build` | 0 — compiled, TypeScript, 4 routes | Also restored the dev-generated `next-env.d.ts` reference. |
+| 2026-07-21 | `npm --prefix apps/reader-web run test:e2e` | 0 — 1 Chromium test passed | Initial smoke verifies standalone public/static copy and second-load Service Worker control. |
+| 2026-07-21 | `npm test && npm run build && npm run test:e2e && git diff --check` (cwd `apps/reader-web`) | 0 — 176 Node tests, build passed, 3 Chromium tests passed | Wave 1 full gate: allowlist/lifecycle, job freshness, A→B offline isolation, sanitizer path. |
+| 2026-07-21 | `npm test && npm run build && npm run test:e2e && git diff --check` (cwd `apps/reader-web`) | 0 — 178 Node tests, production build passed, 8 Chromium tests passed | Wave 2 modal slice: drawer/palette focus trap, inert background, Escape top-layer dismissal and trigger restoration; prior PWA/layer/keyboard tests also passed. Verified before commit `591a829`. |
+| 2026-07-21 | `npm test && npm run build && npm run test:e2e && git diff --check` (cwd `apps/reader-web`) | 0 — 178 Node tests, production build passed, 10 Chromium tests passed | Wave 2 menu slice: Sort listbox and reader overflow roving keyboard operation, Enter/Space selection, Escape and trigger restoration. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 178 Node tests, production build passed, 12 Chromium tests passed | Wave 2 dual-pane slice: explicit primary/secondary structure; 1440px desktop columns and 899px stack/no-overflow proof. The harness truncated the combined TAP stream and reported a nonzero wrapper result twice; captured raw `npm test` exit code was 0, so commands are recorded independently. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 178 Node tests, production build passed, 13 Chromium tests passed | Wave 2 mobile selection slice: real mouse selection at 375px, toolbar width/safe-area geometry, and Agent handoff retaining the selected-text chip. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 178 Node tests, production build passed, 16 Chromium tests passed | Wave 2 responsive layer slice: 390/768 Agent+Toast+bottom-nav geometry and no overflow; 901px Focus desktop transition after real list load. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 178 Node tests, production build passed, 25 Chromium tests passed | Wave 2 mode matrix: Scan/Focus/Keep restored and navigated at 375/768/1440; dual-pane proof retained at 899/1440. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 178 Node tests, production build passed, 26 Chromium tests passed | Wave 2 native keyboard slice: links, button/listbox/menu, modal drawer, palette input, and Agent textarea preserve their expected keyboard behavior. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 178 Node tests, production build passed, 26 Chromium tests passed | Wave 2 selection/Toast handoff: 375px selection toolbar, Toast, and Agent transition retain a non-overlapping vertical order. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 178 Node tests, production build passed, 30 Chromium tests passed | Wave 2 closure: module drawer, selection/Toast/Agent at 375/390/768; 899/901 Focus navigation continuity; discovered and fixed missing desktop Focus module navigation. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 180 Node tests, production build passed, 31 Chromium tests passed | Wave 3a: validated cursor-trail URL context; later-page article return restores page 2 and return highlight. |
+| 2026-07-21 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 180 Node tests, production build passed, 34 Chromium tests passed | Wave 3b: URL-authoritative search, slow→fast race/history restore, and two-way partial-source failure proof. |
+| 2026-07-22 | `npm test` (captured exit), `npm run build`, `npm run test:e2e`, `git diff --check` (cwd `apps/reader-web`) | all 0 — 184 Node tests, production build passed, 36 Chromium tests passed, whitespace check passed | Wave 3c: durable Research job recovery for direct URL, reload, citation return, and newly created jobs. The first E2E attempt exposed an invalid server call into a Client Component export; parser was moved server-local and the final full suite passed. |
+| 2026-07-22 | `npm test` (captured exit), `npm run build`, `npm run test:e2e` (cwd `apps/reader-web`) | all 0 — 185 Node tests, production build passed, 38 Chromium tests passed | Wave 3d: Admin independent resource error/retry contracts and terminal snapshot refresh. Local fixture only; no API/schema change or LLM call. |
+| 2026-07-22 | `uv run --isolated --with-editable . --extra dev python -m pytest tests -q`, `ruff check .` (cwd `apps/api`); `npm test`, `npm run build`, `npm run test:e2e` (cwd `apps/reader-web`); OpenAPI export/generation drift gate | all 0 — API 217 pytest passed, API Ruff passed, 185 Node tests passed, production build passed, 39 Chromium tests passed, OpenAPI/type drift clean | Wave 3e: real read-progress semantics. Export logged the expected local warning that CSRF origins are empty; no live request, DB write, or schema drift occurred. |
+| 2026-07-22 | `npm test`, `npm run build`, `npm run test:e2e` (cwd `apps/reader-web`) | all 0 — 185 Node tests, production build passed, 40 Chromium tests passed | FEX-17 Daily Intelligence slice: per-source failure is not rendered as a false empty state; FEX-17 remains incomplete. |
+| 2026-07-22 | `npm test`, `npm run build`, `npm run test:e2e` (cwd `apps/reader-web`) | all 0 — 185 Node tests, production build passed, 42 Chromium tests passed | FEX-17 workbench/reader slice: list failure no longer renders as empty, and reader failure supplies retry; FEX-17 remains incomplete. |
+
+## API/OpenAPI gate
+
+Only fill this section if API behavior or shape changed.
+
+| Check | Result |
+|---|---|
+| API pytest | Not applicable / Pending |
+| API Ruff | Not applicable / Pending |
+| OpenAPI regenerated | Not applicable / Pending |
+| Generated TypeScript regenerated | Not applicable / Pending |
+| Regeneration drift check | Not applicable / Pending |
+
+## Decisions and deviations
+
+| Decision | Reason | Approval/evidence |
+|---|---|---|
+| Indigo is the primary action accent unless root `GOAL.md` is explicitly changed | Subordinate goal must comply with parent Goal | Root `GOAL.md` §5 |
+| Add Playwright as a development dependency | User explicitly selected Playwright after the local machine lacked a browser driver; Node tests cannot prove Service Worker control, focus, or fixed-layer geometry | User selection during approved Goal plan, 2026-07-21; official Playwright `webServer`/Chromium guidance consulted |
+| Use standalone E2E server with copied `public` and `.next/static` | Matches the existing Dockerfile; direct `.next/standalone/server.js` did not serve `/sw.js`, so `navigator.serviceWorker.ready` timed out | Reproduced then fixed by `e2e/service-worker.smoke.spec.ts` |
+
+Record any acceptance interpretation, scope reduction, dependency addition, or root-Goal conflict here. A scope reduction does not silently waive a MUST criterion.
+
+## Environment limits and blockers
+
+- None recorded yet.
+
+## Final review
+
+- [ ] Every FEX row has observed evidence.
+- [ ] Every applicable command passed on the verified HEAD.
+- [ ] Browser console is clean for the tested critical flows.
+- [ ] No required observation is represented by an unverified assumption.
+- [ ] `docs/learning-notes.md` is current.
+- [ ] Final diff contains no unrelated edits or secrets.
+- [ ] Commit/push/deploy actions match explicit user permission.
+
+## Handoff if incomplete
+
+State the first incomplete acceptance ID, exact blocker, files/commands already tried, current dirty files, and the smallest next action. Never convert a blocker into a completion claim.

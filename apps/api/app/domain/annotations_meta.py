@@ -20,6 +20,7 @@ class AnnotationMeta:
     body: str
     color: str | None = None
     tags: tuple[str, ...] = ()
+    anchor: dict[str, object] | None = None
 
 
 def normalize_color(value: object) -> str | None:
@@ -62,17 +63,20 @@ def encode_annotation_content(
     *,
     color: str | None = None,
     tags: list[str] | None = None,
+    anchor: dict[str, object] | None = None,
 ) -> str:
     body = (content or "").strip()
     color_norm = normalize_color(color)
     tags_norm = normalize_tags(tags)
-    if not color_norm and not tags_norm:
+    if not color_norm and not tags_norm and not anchor:
         return body
     payload: dict[str, object] = {}
     if color_norm:
         payload["color"] = color_norm
     if tags_norm:
         payload["tags"] = tags_norm
+    if anchor:
+        payload["anchor"] = anchor
     return f"⟦meta:{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}⟧\n{body}"
 
 
@@ -96,5 +100,6 @@ def decode_annotation_content(content: str) -> AnnotationMeta:
         tags = tuple(normalize_tags(payload.get("tags")))
     except ValueError:
         tags = ()
+    anchor = payload.get("anchor") if isinstance(payload.get("anchor"), dict) else None
     body = text[match.end() :]
-    return AnnotationMeta(body=body, color=color, tags=tags)
+    return AnnotationMeta(body=body, color=color, tags=tags, anchor=anchor)

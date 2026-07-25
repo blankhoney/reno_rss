@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-25T18:22:28.424628+00:00",
+  "candidate": {
+    "localGitRevision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+    "runtime": "read-only PostgreSQL"
+  },
+  "environment": {
+    "databaseDialect": "postgresql",
+    "iterations": 20,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.12",
+    "warmups": 3
+  },
+  "status": "NEEDS_BASELINE",
+  "missingEvidence": "DB_PERF_DATABASE_URL is not available",
+  "queries": []
+}

@@ -8,7 +8,7 @@ const ITEMS = [
   { id: "all", label: "最新", href: "/?module=all&sort=default&lang=zh" },
   { id: "starred", label: "候选", href: "/?module=starred&sort=default&lang=zh" },
   { id: "review", label: "复习", href: "/?module=review&sort=default&lang=zh" },
-  { id: "project", label: "立项", href: "/?module=project&sort=default&lang=zh" },
+  { id: "project", label: "已立项", href: "/?module=project&sort=default&lang=zh" },
 ] as const;
 
 export function MobileBottomNav() {

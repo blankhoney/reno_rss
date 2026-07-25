@@ -9,7 +9,7 @@ This document describes the public, repository-tracked architecture of Reno RSS 
 AI Reader is a self-hosted RSS research system with seven runtime services:
 
 - **Caddy** terminates public HTTPS traffic and applies route-level routing boundaries.
-- **Authelia** provides login, 2FA, forward-auth, and the staging demo account policy for protected web pages.
+- **Authelia** provides login, 2FA, and the production/Miniflux forward-auth boundary; the staging AI Reader demo does not use it as a page gate.
 - **Miniflux** stores feeds, entries, and upstream RSS state.
 - **reader-web** is a Next.js app that renders the AI Reader UI and talks to the FastAPI backend through same-origin `/api/*`.
 - **ai-reader-api** is a FastAPI service for sessions, article state, recommendations, jobs, admin APIs, and article ask SSE.
@@ -30,19 +30,16 @@ sequenceDiagram
   participant Miniflux
   participant LLM as MiniMax
 
-  Browser->>Caddy: GET /
-  Caddy->>Reader: public session shell
-  Reader-->>Browser: login/recovery UI
-
-  Browser->>Caddy: POST /api/auth/login
-  Caddy->>API: direct /api/* route
-  API->>DB: create or refresh app session
-  API-->>Browser: session cookie + recovery code
-
   Browser->>Caddy: GET /?module=all
-  Caddy->>Authelia: forward-auth
-  Authelia-->>Caddy: authorized user headers
-  Caddy->>Reader: reverse proxy
+  alt staging public demo
+    Caddy->>Reader: public app route
+    Reader->>API: anonymous same-origin API request
+    API->>DB: resolve shared role=user demo identity
+  else production
+    Caddy->>Authelia: forward-auth
+    Authelia-->>Caddy: authorized user headers
+    Caddy->>Reader: protected app route
+  end
   Reader->>API: GET /api/recommendations/latest and /api/articles
   API->>DB: read article projection, state, scores, recommendations
   Reader-->>Browser: AI Reader UI
@@ -97,20 +94,19 @@ The LLM response is parsed into the v0.4 eight-dimension rubric (`topic_relevanc
 
 ## Public Demo Boundary
 
-The staging demo is intentionally narrow:
+The staging AI Reader is intentionally a fully public functional demo:
 
-- `GET /` with an empty query renders the public AI Reader session shell.
-- `/_next/static/*` and `/favicon.ico` are public for that shell.
-- Business page routes such as `/?module=all` and `/read/*` still pass through Authelia forward-auth.
-- `/api/*` routes go directly to FastAPI. Anonymous article/admin calls must fail closed there; login and recovery are handled by `/api/auth/login` and `/api/auth/recover`.
-
-The public shell asks for a display name and returns a one-time recovery code from FastAPI. It no longer uses the retired one-click reader-web demo route.
+- Caddy serves `/`, workbench query routes, `/read/*`, and static assets directly from `reader-web`; staging AI Reader page routes do not pass through Authelia.
+- `AI_READER_ANONYMOUS_DEMO=true` maps requests without an app session to one shared FastAPI role=`user` demo identity. Anonymous article reads therefore return `200`.
+- FastAPI remains the business authorization boundary. Admin endpoints return `403` for the shared demo user, and role/write checks still apply.
+- `/api/auth/login` and `/api/auth/recover` remain available for a visitor who wants a separate display-name session.
+- Production does not enable anonymous-demo mode and keeps AI Reader page routes behind Authelia.
 
 ## CI/CD and Deployment
 
 The delivery path is:
 
-1. GitHub Actions run API tests/lint, worker tests/lint, OpenAPI drift checks, reader-web tests/build, Compose validation, deploy-script checks, and Trivy scanning.
+1. GitHub Actions run API tests/lint, worker tests/lint, OpenAPI drift checks, reader-web tests/build, Compose validation, deploy-script checks, and explicit Trivy vulnerability/secret scanning.
 2. GHCR images are built for `ai-reader-web`, `ai-reader-api`, and `ai-reader-worker`.
 3. Staging is deployed automatically from same-repository PRs and `main` pushes.
 4. Production deploy is manual and should be protected by the GitHub `production` environment.
@@ -124,9 +120,9 @@ The VPS keeps runtime `.env` and secret files locally. GitHub Actions only pass 
 
 - Real `.env`, Authelia users, API keys, and SSH keys must stay out of Git.
 - The tracked Authelia user database is only a placeholder.
-- Staging demo Authelia labels are public staging affordances, not production secrets.
+- Staging Authelia labels belong to the separate auth/Miniflux surface; they are not the AI Reader page gate or production secrets.
 - FastAPI is the authority for `/api/*` authorization; Caddy routes those requests directly to the API service.
-- Caddy and Authelia remain the page-route access-control boundary for protected web pages.
+- Caddy and Authelia remain the production page-route access-control boundary; staging AI Reader pages are intentionally public.
 - High/critical dependency advisories should fail CI; vulnerability ignores must stay empty unless there is an explicit reviewed reason.
 
 ## Verification Commands
@@ -144,7 +140,7 @@ uv run --isolated --with-editable . --extra dev python -m pytest tests -q
 
 ```bash
 cd apps/worker
-python -m pytest tests -q
+uv run --isolated --with-editable . --extra dev python -m pytest tests -q
 ```
 
 ```bash

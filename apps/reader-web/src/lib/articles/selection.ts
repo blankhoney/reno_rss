@@ -1,4 +1,8 @@
 import { useEffect, useState, type RefObject } from "react";
+import {
+  buildTextQuoteAnchor,
+  type ArticleAnnotationAnchor,
+} from "./annotationAnchor";
 
 export function selectionTextWithinContainer(
   container: Pick<HTMLElement, "contains"> | null,
@@ -33,9 +37,29 @@ export function isSelectionDismissKey(key: string): boolean {
   return key === "Escape";
 }
 
+export function selectionAnchorWithinContainer(
+  container: HTMLElement | null,
+  range: Range | null,
+): ArticleAnnotationAnchor | null {
+  if (container == null || range == null) return null;
+  if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) {
+    return null;
+  }
+  const precedingRange = range.cloneRange();
+  precedingRange.selectNodeContents(container);
+  precedingRange.setEnd(range.startContainer, range.startOffset);
+  const start = precedingRange.toString().length;
+  return buildTextQuoteAnchor(
+    container.textContent ?? "",
+    start,
+    start + range.toString().length,
+  );
+}
+
 export function useArticleSelection(containerRef: RefObject<HTMLElement | null>) {
   const [selectedText, setSelectedText] = useState("");
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
+  const [settledAnchor, setSettledAnchor] = useState<ArticleAnnotationAnchor | null>(null);
 
   useEffect(() => {
     // While dragging, keep the captured text current but never show or reposition
@@ -54,9 +78,12 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
     // Reveal/position the popover only once the selection has settled (pointer released).
     function revealPopoverOnSettle() {
       const selection = window.getSelection();
+      if (selection == null) return;
       const text = selectionTextWithinContainer(containerRef.current, selection);
       if (text == null) return;
+      const range = selection.getRangeAt(0).cloneRange();
       setSelectedText(text);
+      setSettledAnchor(selectionAnchorWithinContainer(containerRef.current, range));
       setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
     }
 
@@ -67,6 +94,7 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
     function dismissSelection(event: KeyboardEvent) {
       if (!isSelectionDismissKey(event.key)) return;
       setSelectedText("");
+      setSettledAnchor(null);
       setSelectionRect(null);
       window.getSelection()?.removeAllRanges();
     }
@@ -93,8 +121,10 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
     selectedText,
     hasSelection: selectedText.trim().length > 0,
     selectionRect,
+    settledAnchor,
     clearSelection: () => {
       setSelectedText("");
+      setSettledAnchor(null);
       setSelectionRect(null);
       window.getSelection()?.removeAllRanges();
     },

@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-25T18:11:08.455Z",
+  "candidate": {
+    "localGitRevision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+    "measuredBaseURL": "http://127.0.0.1:3999",
+    "remoteRevision": "UNKNOWN"
+  },
+  "environment": {
+    "architecture": "arm64",
+    "browser": "chromium 149.0.7827.55",
+    "iterations": 2,
+    "node": "v22.23.0",
+    "platform": "darwin",
+    "serviceWorkers": "blocked",
+    "settleMs": 250,
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "warmups": 1
+  },
+  "routes": [
+    {
+      "route": "/",
+      "samples": [
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 3.599999997764826,
+            "firstContentfulPaintMs": 28,
+            "firstPaintMs": 28,
+            "lcpMs": 28,
+            "loadEventMs": 3.599999997764826,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 452,
+            "resourceCount": 0,
+            "resourceTransferBytes": 0,
+            "responseEndMs": 1
+          },
+          "phase": "measured",
+          "route": "/",
+          "sampleIndex": 1
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 3.399999998509884,
+            "firstContentfulPaintMs": 32,
+            "firstPaintMs": 32,
+            "lcpMs": 32,
+            "loadEventMs": 3.600000001490116,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 452,
+            "resourceCount": 0,
+            "resourceTransferBytes": 0,
+            "responseEndMs": 0.8999999985098839
+          },
+          "phase": "measured",
+          "route": "/",
+          "sampleIndex": 2
+        }
+      ],
+      "summary": {
+        "cls": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "domContentLoadedMs": {
+          "median": 3.399999998509884,
+          "p95": 3.599999997764826,
+          "min": 3.399999998509884,
+          "max": 3.599999997764826
+        },
+        "firstContentfulPaintMs": {
+          "median": 28,
+          "p95": 32,
+          "min": 28,
+          "max": 32
+        },
+        "firstPaintMs": {
+          "median": 28,
+          "p95": 32,
+          "min": 28,
+          "max": 32
+        },
+        "lcpMs": {
+          "median": 28,
+          "p95": 32,
+          "min": 28,
+          "max": 32
+        },
+        "loadEventMs": {
+          "median": 3.599999997764826,
+          "p95": 3.600000001490116,
+          "min": 3.599999997764826,
+          "max": 3.600000001490116
+        },
+        "longTaskCount": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "longTaskTotalMs": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "navigationTransferBytes": {
+          "median": 452,
+          "p95": 452,
+          "min": 452,
+          "max": 452
+        },
+        "resourceCount": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "resourceTransferBytes": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "responseEndMs": {
+          "median": 0.8999999985098839,
+          "p95": 1,
+          "min": 0.8999999985098839,
+          "max": 1
+        }
+      }
+    }
+  ]
+}

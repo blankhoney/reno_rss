@@ -343,9 +343,23 @@ async def test_article_annotations_are_private_to_current_user(app, client):
         }
     )
 
+    anchor = {
+        "kind": "text-quote",
+        "version": 1,
+        "exact": "Body",
+        "prefix": "",
+        "suffix": "",
+        "start": 0,
+        "end": 4,
+    }
     created = await client.post(
         f"/api/articles/{article.id}/annotations",
-        json={"content": "关键判断", "selected_text": "Body", "type": "annotation"},
+        json={
+            "content": "关键判断",
+            "selected_text": "Body",
+            "type": "annotation",
+            "anchor": anchor,
+        },
     )
     listed = await client.get(f"/api/articles/{article.id}/annotations")
     missing = await client.post(
@@ -356,10 +370,43 @@ async def test_article_annotations_are_private_to_current_user(app, client):
     assert created.status_code == 201
     assert created.json()["annotation"]["content"] == "关键判断"
     assert created.json()["annotation"]["selected_text"] == "Body"
+    assert created.json()["annotation"]["anchor"] == anchor
     assert listed.status_code == 200
     assert len(listed.json()["items"]) == 1
     assert listed.json()["items"][0]["id"] == created.json()["annotation"]["id"]
+    assert listed.json()["items"][0]["anchor"] == anchor
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_article_annotation_rejects_invalid_text_quote_anchor(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Annotator"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 302,
+            "url": "https://example.com/invalid-anchor",
+            "title": "Invalid anchor",
+        }
+    )
+
+    response = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        json={
+            "content": "note",
+            "anchor": {
+                "kind": "text-quote",
+                "version": 1,
+                "exact": "Body",
+                "prefix": "",
+                "suffix": "",
+                "start": 4,
+                "end": 4,
+            },
+        },
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -664,6 +711,31 @@ async def test_article_state_upserts_for_current_user(app, client):
         "project": False,
         "read_progress": 0.75,
     }
+
+
+@pytest.mark.asyncio
+async def test_read_later_lists_only_unread_partial_progress_articles(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    sources = [
+        app.state.article_repository.upsert_from_source(
+            {
+                "feed_id": 1,
+                "miniflux_entry_id": entry_id,
+                "url": f"https://example.com/{entry_id}",
+                "title": f"Article {entry_id}",
+            }
+        )
+        for entry_id in (101, 102, 103, 104)
+    ]
+    await client.post(f"/api/articles/{sources[0].id}/state", json={"saved": True, "read_progress": 0})
+    await client.post(f"/api/articles/{sources[1].id}/state", json={"read_progress": 0.4})
+    await client.post(f"/api/articles/{sources[2].id}/state", json={"status": "read", "read_progress": 0.4})
+    await client.post(f"/api/articles/{sources[3].id}/state", json={"read_progress": 1})
+
+    response = await client.get("/api/articles?module=read-later")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [sources[1].id]
 
 
 @pytest.mark.asyncio

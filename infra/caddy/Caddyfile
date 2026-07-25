@@ -54,6 +54,12 @@ ai-reader.{$DOMAIN} {
         reverse_proxy {$AI_READER_API_UPSTREAM}
     }
 
+    # Metrics stay scrapeable on the internal app network, but never through
+    # the public AI Reader hostname.
+    handle /api/metrics {
+        respond 404
+    }
+
     handle @api {
         reverse_proxy {$AI_READER_API_UPSTREAM}
     }
@@ -103,6 +109,9 @@ staging-ai-reader.{$DOMAIN} {
     @api path /api/*
     handle /healthz {
         reverse_proxy {$AI_READER_STAGING_API_UPSTREAM}
+    }
+    handle /api/metrics {
+        respond 404
     }
     handle @api {
         reverse_proxy {$AI_READER_STAGING_API_UPSTREAM}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-26T04:12:34+08:00",
+  "repository": "blankhoney/reno_rss",
+  "pull_request": {
+    "number": 15,
+    "url": "https://github.com/blankhoney/reno_rss/pull/15",
+    "base_sha": "dec47f67d9aaa0c7c87c5c3536e0a86feb15662c",
+    "head_sha": "73792c63aa5a1ab0b7b8212a6c34b3b27d1a9e56",
+    "mergeable": true
+  },
+  "workflow": {
+    "run_id": 30172544347,
+    "url": "https://github.com/blankhoney/reno_rss/actions/runs/30172544347",
+    "event": "pull_request",
+    "head_sha": "73792c63aa5a1ab0b7b8212a6c34b3b27d1a9e56",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "lint / test / compose-validate / trivy",
+        "conclusion": "success"
+      },
+      {
+        "name": "build / push GHCR images",
+        "conclusion": "success"
+      },
+      {
+        "name": "deploy staging",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "images": {
+    "tag": "sha-73792c6",
+    "revision_label": "73792c63aa5a1ab0b7b8212a6c34b3b27d1a9e56",
+    "web_digest": "sha256:839fe63cda00c6504eac74777f077ccb0e25188f78d65d99e7e24e1b9da96e60",
+    "api_digest": "sha256:deb2506a51b4c7af2f6f84329956a27f849a4d867ab4505399e4b214eaed7e37",
+    "worker_digest": "sha256:f0136c5dc359b193b9d95b113660852446856f9953b5b4ede1b71225a7493e92"
+  },
+  "staging_smoke": {
+    "internal_metrics_scrape": "pass",
+    "root": 200,
+    "healthz": 200,
+    "api_healthz": 200,
+    "api_articles": 200,
+    "api_admin_users": 403,
+    "api_metrics": 404,
+    "security_headers": "pass",
+    "logged_in_non_admin_admin_boundary": 403,
+    "public_app_shell": "pass"
+  },
+  "independent_public_probe": {
+    "client": "Node.js fetch",
+    "root": 200,
+    "healthz": 200,
+    "api_healthz": 200,
+    "api_articles": 200,
+    "api_admin_users": 403,
+    "api_metrics": 404
+  },
+  "limits": [
+    "The runtime-proof script intentionally skipped real LLM inference because both deployed providers were minimax; exercising them could spend real credits.",
+    "This is PR-candidate staging evidence, not post-merge main evidence.",
+    "Production was not changed or promoted.",
+    "GitHub Actions emitted non-blocking Node.js 20 deprecation warnings for third-party actions forced onto Node.js 24."
+  ]
+}

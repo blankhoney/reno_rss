@@ -86,7 +86,7 @@ export function buildWorkbenchCommands(options?: {
     nav("all", "最新文章", ["feed", "信息流", "rss"]),
     nav("unread", "新到未读", ["inbox", "unread"]),
     nav("read", "已读", ["archive"]),
-    nav("read-later", "稍后读", ["later", "queue", "继续阅读"]),
+    nav("read-later", "继续阅读", ["later", "queue", "阅读进度"]),
     nav("starred", "候选线索", ["candidate", "saved", "star"]),
     nav("project", "已立项", ["project", "立项"]),
     nav("technical", "技术维度", ["score", "tech"]),
@@ -216,6 +216,17 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   if (el.isContentEditable) return true;
   const tag = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+export function isInteractiveKeyboardTarget(target: EventTarget | null): boolean {
+  if (isEditableKeyboardTarget(target)) return true;
+  if (target == null || typeof target !== "object") return false;
+  const el = target as { closest?: (selector: string) => unknown; tagName?: string };
+  if (typeof el.closest === "function") {
+    return Boolean(el.closest("a, button, [role='button'], [role='dialog'], [role='listbox'], [role='menuitem'], [role='option']"));
+  }
+  const tag = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+  return tag === "A" || tag === "BUTTON";
 }
 
 export function isCommandPaletteToggle(event: {

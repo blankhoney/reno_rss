@@ -217,14 +217,15 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
       run("candidate", async () => {
         if (article == null) return "";
         await updateArticleState(article.id, { saved: !article.starred });
+        if (article.starred && article.project) return "已移出候选并取消立项";
         return article.starred ? "已移出候选" : "已加入候选";
       }),
     enqueueProject: () =>
       run("project", async () => {
         if (article == null) return "";
-        await updateArticleState(article.id, { project: true });
+        await updateArticleState(article.id, { project: true, saved: article.starred ? undefined : true });
         return {
-          message: "已立项",
+          message: article.starred ? "已立项" : "已加入候选并立项",
           action: { href: projectHref(article.id, currentLang), label: "查看立项" },
         };
       }),

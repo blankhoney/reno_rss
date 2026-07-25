@@ -30,3 +30,5 @@ __pycache__/
 # Node / Next.js generated files
 node_modules/
 .next/
+playwright-report/
+test-results/

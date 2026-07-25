@@ -2201,6 +2201,57 @@
         ],
         "title": "AnnotationReviewRequest"
       },
+      "ArticleAnnotationAnchor": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "text-quote",
+            "title": "Kind"
+          },
+          "version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Version"
+          },
+          "exact": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Exact"
+          },
+          "prefix": {
+            "type": "string",
+            "maxLength": 160,
+            "title": "Prefix"
+          },
+          "suffix": {
+            "type": "string",
+            "maxLength": 160,
+            "title": "Suffix"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "version",
+          "exact",
+          "prefix",
+          "suffix",
+          "start",
+          "end"
+        ],
+        "title": "ArticleAnnotationAnchor"
+      },
       "ArticleAnnotationRequest": {
         "properties": {
           "content": {
@@ -2253,6 +2304,16 @@
               }
             ],
             "title": "Tags"
+          },
+          "anchor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArticleAnnotationAnchor"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

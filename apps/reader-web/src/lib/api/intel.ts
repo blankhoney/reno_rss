@@ -56,12 +56,13 @@ export type AnnotationSearchItem = {
   articleTitle: string | null;
 };
 
-export function researchCitationHref(articleId: number, quote?: string): string {
+export function researchCitationHref(articleId: number, quote?: string, jobId?: number): string {
   const params = new URLSearchParams({
     module: "research",
     sort: "default",
     lang: "zh",
   });
+  if (jobId != null && Number.isSafeInteger(jobId) && jobId > 0) params.set("job", String(jobId));
   if (quote?.trim()) params.set("quote", quote.trim());
   return `/read/${articleId}?${params.toString()}`;
 }

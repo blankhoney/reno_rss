@@ -9,13 +9,21 @@ test("AdminConsoleView hides admin controls from non-admin users", () => {
     React.createElement(AdminConsoleView, {
       role: "user",
       syncMessage: null,
+      syncError: null,
       scoringMessage: null,
-      error: null,
-      isBusy: false,
+      scoringError: null,
+      isSyncBusy: false,
+      isScoringBusy: false,
       batch: null,
       stats: null,
+      statsError: null,
       usage: null,
+      usageError: null,
       pipelineHealth: null,
+      pipelineError: null,
+      onRetryStats: () => {},
+      onRetryUsage: () => {},
+      onRetryPipeline: () => {},
       onSync: () => {},
       onCreateBatch: () => {},
       onStartBatch: () => {},
@@ -32,14 +40,18 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
     React.createElement(AdminConsoleView, {
       role: "admin",
       syncMessage: "同步 job #7 queued",
+      syncError: null,
       scoringMessage: "评分批次已创建",
-      error: null,
-      isBusy: false,
+      scoringError: null,
+      isSyncBusy: false,
+      isScoringBusy: false,
       stats: {
         total: 30,
         scored: 22,
         unscored: 8,
       },
+      statsError: null,
+      isStatsLoading: false,
       usage: {
         day: "2026-07-18",
         scoresCountToday: 12,
@@ -55,6 +67,8 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
         },
         accounting: "database",
       },
+      usageError: null,
+      isUsageLoading: false,
       pipelineHealth: {
         status: "degraded",
         schedulerEnabled: true,
@@ -74,6 +88,8 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
           },
         ],
       },
+      pipelineError: null,
+      isPipelineLoading: false,
       batch: {
         id: 3,
         name: "Today",
@@ -90,6 +106,9 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
           { id: 2, batchId: 3, articleId: 11, status: "queued", baseScoreId: null, error: null },
         ],
       },
+      onRetryStats: () => {},
+      onRetryUsage: () => {},
+      onRetryPipeline: () => {},
       onSync: () => {},
       onCreateBatch: () => {},
       onStartBatch: () => {},
@@ -112,4 +131,42 @@ test("AdminConsoleView renders admin sync and scoring controls", () => {
   assert.match(html, /同步 job #7 queued/);
   assert.match(html, /#10/);
   assert.match(html, /#11/);
+});
+
+test("AdminConsoleView keeps successful cards visible when usage fails and exposes retry", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(AdminConsoleView, {
+      role: "admin",
+      syncMessage: null,
+      syncError: null,
+      scoringMessage: null,
+      scoringError: null,
+      isSyncBusy: false,
+      isScoringBusy: false,
+      batch: null,
+      stats: { total: 10, scored: 7, unscored: 3 },
+      statsError: null,
+      usage: null,
+      usageError: "usage fixture failure",
+      pipelineHealth: {
+        status: "healthy",
+        schedulerEnabled: true,
+        queue: { queued: 0, running: 0, failed24h: 0, staleRunning: 0, oldestQueuedAt: null },
+        jobs: [],
+      },
+      pipelineError: null,
+      onRetryStats: () => {},
+      onRetryUsage: () => {},
+      onRetryPipeline: () => {},
+      onSync: () => {},
+      onCreateBatch: () => {},
+      onStartBatch: () => {},
+    }),
+  );
+
+  assert.match(html, /3 篇待评分/);
+  assert.match(html, /调度常开 · 健康/);
+  assert.match(html, /费用加载失败：usage fixture failure/);
+  assert.match(html, />重试</);
+  assert.doesNotMatch(html, /队列状态加载中/);
 });

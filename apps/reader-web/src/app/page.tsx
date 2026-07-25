@@ -23,11 +23,18 @@ import {
   isModuleId,
 } from "@/lib/articles/service";
 import { isIntelligenceModule } from "@/lib/api/briefs";
+import { parseCursorTrail } from "@/lib/articles/navigation";
 
 function normalizeModule(raw: string | string[] | undefined): string {
   if (typeof raw === "string" && raw !== "") return raw;
   // Default home is the Daily Intelligence dashboard, not the full RSS list.
   return "home";
+}
+
+function parseResearchJobId(raw: string | string[] | undefined): number | null {
+  if (typeof raw !== "string" || !/^\d+$/.test(raw)) return null;
+  const jobId = Number(raw);
+  return Number.isSafeInteger(jobId) && jobId > 0 ? jobId : null;
 }
 
 type PageProps = {
@@ -39,7 +46,6 @@ const PRODUCT_PANELS: Record<string, () => ReactElement> = {
   themes: () => <ThemesPanel />,
   rules: () => <RulesPanel />,
   "saved-searches": () => <SavedSearchesPanel />,
-  research: () => <ResearchPanel />,
   interest: () => <InterestPanel />,
   notes: () => <NotesSearchPanel />,
   craft: () => <CraftPanel />,
@@ -95,6 +101,17 @@ export default async function HomePage({ searchParams }: PageProps) {
     );
   }
 
+  if (currentModule === "research") {
+    return (
+      <AuthSessionGate>
+        <main className="workbench">
+          <ModuleSidebar currentModule={currentModule} currentSort={currentSort} currentLang={currentLang} />
+          <ResearchPanel initialJobId={parseResearchJobId(typeof sp.job === "string" ? sp.job : undefined)} />
+        </main>
+      </AuthSessionGate>
+    );
+  }
+
   const productPanel = PRODUCT_PANELS[currentModule];
   if (productPanel) {
     return (
@@ -125,6 +142,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         currentSort={currentSort}
         currentLang={currentLang}
         currentQuery={currentQuery}
+        initialCursorStack={parseCursorTrail(typeof sp.trail === "string" ? sp.trail : null)}
       />
     </AuthSessionGate>
   );

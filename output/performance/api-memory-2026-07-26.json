@@ -1,0 +1,577 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-25T18:18:01.547187+00:00",
+  "candidate": {
+    "localGitRevision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+    "runtime": "in-process ASGI with memory repositories"
+  },
+  "environment": {
+    "articleFixtures": 500,
+    "iterations": 20,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.12",
+    "warmups": 3
+  },
+  "routes": [
+    {
+      "label": "health",
+      "path": "/api/healthz",
+      "samples": [
+        {
+          "durationMs": 0.493666,
+          "responseBytes": 71,
+          "sampleIndex": 1,
+          "status": 200
+        },
+        {
+          "durationMs": 0.488041,
+          "responseBytes": 71,
+          "sampleIndex": 2,
+          "status": 200
+        },
+        {
+          "durationMs": 0.504042,
+          "responseBytes": 71,
+          "sampleIndex": 3,
+          "status": 200
+        },
+        {
+          "durationMs": 0.617667,
+          "responseBytes": 71,
+          "sampleIndex": 4,
+          "status": 200
+        },
+        {
+          "durationMs": 0.614583,
+          "responseBytes": 71,
+          "sampleIndex": 5,
+          "status": 200
+        },
+        {
+          "durationMs": 0.537084,
+          "responseBytes": 71,
+          "sampleIndex": 6,
+          "status": 200
+        },
+        {
+          "durationMs": 0.515833,
+          "responseBytes": 71,
+          "sampleIndex": 7,
+          "status": 200
+        },
+        {
+          "durationMs": 0.504208,
+          "responseBytes": 71,
+          "sampleIndex": 8,
+          "status": 200
+        },
+        {
+          "durationMs": 0.499125,
+          "responseBytes": 71,
+          "sampleIndex": 9,
+          "status": 200
+        },
+        {
+          "durationMs": 0.504334,
+          "responseBytes": 71,
+          "sampleIndex": 10,
+          "status": 200
+        },
+        {
+          "durationMs": 0.490125,
+          "responseBytes": 71,
+          "sampleIndex": 11,
+          "status": 200
+        },
+        {
+          "durationMs": 0.477125,
+          "responseBytes": 71,
+          "sampleIndex": 12,
+          "status": 200
+        },
+        {
+          "durationMs": 0.475916,
+          "responseBytes": 71,
+          "sampleIndex": 13,
+          "status": 200
+        },
+        {
+          "durationMs": 0.476416,
+          "responseBytes": 71,
+          "sampleIndex": 14,
+          "status": 200
+        },
+        {
+          "durationMs": 0.471917,
+          "responseBytes": 71,
+          "sampleIndex": 15,
+          "status": 200
+        },
+        {
+          "durationMs": 0.469167,
+          "responseBytes": 71,
+          "sampleIndex": 16,
+          "status": 200
+        },
+        {
+          "durationMs": 0.469042,
+          "responseBytes": 71,
+          "sampleIndex": 17,
+          "status": 200
+        },
+        {
+          "durationMs": 0.478583,
+          "responseBytes": 71,
+          "sampleIndex": 18,
+          "status": 200
+        },
+        {
+          "durationMs": 0.529959,
+          "responseBytes": 71,
+          "sampleIndex": 19,
+          "status": 200
+        },
+        {
+          "durationMs": 0.521,
+          "responseBytes": 71,
+          "sampleIndex": 20,
+          "status": 200
+        }
+      ],
+      "summary": {
+        "durationMs": {
+          "median": 0.493666,
+          "p95": 0.614583,
+          "min": 0.469042,
+          "max": 0.617667
+        },
+        "responseBytes": {
+          "median": 71.0,
+          "p95": 71.0,
+          "min": 71.0,
+          "max": 71.0
+        }
+      }
+    },
+    {
+      "label": "article-list",
+      "path": "/api/articles",
+      "samples": [
+        {
+          "durationMs": 5.191125,
+          "responseBytes": 19851,
+          "sampleIndex": 1,
+          "status": 200
+        },
+        {
+          "durationMs": 5.335084,
+          "responseBytes": 19851,
+          "sampleIndex": 2,
+          "status": 200
+        },
+        {
+          "durationMs": 5.260625,
+          "responseBytes": 19851,
+          "sampleIndex": 3,
+          "status": 200
+        },
+        {
+          "durationMs": 5.199334,
+          "responseBytes": 19851,
+          "sampleIndex": 4,
+          "status": 200
+        },
+        {
+          "durationMs": 5.3535,
+          "responseBytes": 19851,
+          "sampleIndex": 5,
+          "status": 200
+        },
+        {
+          "durationMs": 5.272583,
+          "responseBytes": 19851,
+          "sampleIndex": 6,
+          "status": 200
+        },
+        {
+          "durationMs": 5.228917,
+          "responseBytes": 19851,
+          "sampleIndex": 7,
+          "status": 200
+        },
+        {
+          "durationMs": 5.279791,
+          "responseBytes": 19851,
+          "sampleIndex": 8,
+          "status": 200
+        },
+        {
+          "durationMs": 5.259375,
+          "responseBytes": 19851,
+          "sampleIndex": 9,
+          "status": 200
+        },
+        {
+          "durationMs": 5.245583,
+          "responseBytes": 19851,
+          "sampleIndex": 10,
+          "status": 200
+        },
+        {
+          "durationMs": 5.266542,
+          "responseBytes": 19851,
+          "sampleIndex": 11,
+          "status": 200
+        },
+        {
+          "durationMs": 5.208083,
+          "responseBytes": 19851,
+          "sampleIndex": 12,
+          "status": 200
+        },
+        {
+          "durationMs": 5.280542,
+          "responseBytes": 19851,
+          "sampleIndex": 13,
+          "status": 200
+        },
+        {
+          "durationMs": 5.270958,
+          "responseBytes": 19851,
+          "sampleIndex": 14,
+          "status": 200
+        },
+        {
+          "durationMs": 5.296292,
+          "responseBytes": 19851,
+          "sampleIndex": 15,
+          "status": 200
+        },
+        {
+          "durationMs": 5.297166,
+          "responseBytes": 19851,
+          "sampleIndex": 16,
+          "status": 200
+        },
+        {
+          "durationMs": 5.174542,
+          "responseBytes": 19851,
+          "sampleIndex": 17,
+          "status": 200
+        },
+        {
+          "durationMs": 5.244459,
+          "responseBytes": 19851,
+          "sampleIndex": 18,
+          "status": 200
+        },
+        {
+          "durationMs": 5.243084,
+          "responseBytes": 19851,
+          "sampleIndex": 19,
+          "status": 200
+        },
+        {
+          "durationMs": 5.19775,
+          "responseBytes": 19851,
+          "sampleIndex": 20,
+          "status": 200
+        }
+      ],
+      "summary": {
+        "durationMs": {
+          "median": 5.259375,
+          "p95": 5.335084,
+          "min": 5.174542,
+          "max": 5.3535
+        },
+        "responseBytes": {
+          "median": 19851.0,
+          "p95": 19851.0,
+          "min": 19851.0,
+          "max": 19851.0
+        }
+      }
+    },
+    {
+      "label": "article-search",
+      "path": "/api/articles",
+      "samples": [
+        {
+          "durationMs": 5.449541,
+          "responseBytes": 11951,
+          "sampleIndex": 1,
+          "status": 200
+        },
+        {
+          "durationMs": 5.28325,
+          "responseBytes": 11951,
+          "sampleIndex": 2,
+          "status": 200
+        },
+        {
+          "durationMs": 5.276667,
+          "responseBytes": 11951,
+          "sampleIndex": 3,
+          "status": 200
+        },
+        {
+          "durationMs": 5.280291,
+          "responseBytes": 11951,
+          "sampleIndex": 4,
+          "status": 200
+        },
+        {
+          "durationMs": 5.1955,
+          "responseBytes": 11951,
+          "sampleIndex": 5,
+          "status": 200
+        },
+        {
+          "durationMs": 5.326792,
+          "responseBytes": 11951,
+          "sampleIndex": 6,
+          "status": 200
+        },
+        {
+          "durationMs": 5.280166,
+          "responseBytes": 11951,
+          "sampleIndex": 7,
+          "status": 200
+        },
+        {
+          "durationMs": 5.243875,
+          "responseBytes": 11951,
+          "sampleIndex": 8,
+          "status": 200
+        },
+        {
+          "durationMs": 5.233709,
+          "responseBytes": 11951,
+          "sampleIndex": 9,
+          "status": 200
+        },
+        {
+          "durationMs": 5.226417,
+          "responseBytes": 11951,
+          "sampleIndex": 10,
+          "status": 200
+        },
+        {
+          "durationMs": 5.267167,
+          "responseBytes": 11951,
+          "sampleIndex": 11,
+          "status": 200
+        },
+        {
+          "durationMs": 5.294083,
+          "responseBytes": 11951,
+          "sampleIndex": 12,
+          "status": 200
+        },
+        {
+          "durationMs": 5.30975,
+          "responseBytes": 11951,
+          "sampleIndex": 13,
+          "status": 200
+        },
+        {
+          "durationMs": 5.266792,
+          "responseBytes": 11951,
+          "sampleIndex": 14,
+          "status": 200
+        },
+        {
+          "durationMs": 5.240042,
+          "responseBytes": 11951,
+          "sampleIndex": 15,
+          "status": 200
+        },
+        {
+          "durationMs": 5.247708,
+          "responseBytes": 11951,
+          "sampleIndex": 16,
+          "status": 200
+        },
+        {
+          "durationMs": 5.325709,
+          "responseBytes": 11951,
+          "sampleIndex": 17,
+          "status": 200
+        },
+        {
+          "durationMs": 5.178334,
+          "responseBytes": 11951,
+          "sampleIndex": 18,
+          "status": 200
+        },
+        {
+          "durationMs": 5.265584,
+          "responseBytes": 11951,
+          "sampleIndex": 19,
+          "status": 200
+        },
+        {
+          "durationMs": 5.270834,
+          "responseBytes": 11951,
+          "sampleIndex": 20,
+          "status": 200
+        }
+      ],
+      "summary": {
+        "durationMs": {
+          "median": 5.267167,
+          "p95": 5.326792,
+          "min": 5.178334,
+          "max": 5.449541
+        },
+        "responseBytes": {
+          "median": 11951.0,
+          "p95": 11951.0,
+          "min": 11951.0,
+          "max": 11951.0
+        }
+      }
+    },
+    {
+      "label": "article-detail",
+      "path": "/api/articles/1",
+      "samples": [
+        {
+          "durationMs": 0.825917,
+          "responseBytes": 787,
+          "sampleIndex": 1,
+          "status": 200
+        },
+        {
+          "durationMs": 0.827333,
+          "responseBytes": 787,
+          "sampleIndex": 2,
+          "status": 200
+        },
+        {
+          "durationMs": 0.826792,
+          "responseBytes": 787,
+          "sampleIndex": 3,
+          "status": 200
+        },
+        {
+          "durationMs": 0.829542,
+          "responseBytes": 787,
+          "sampleIndex": 4,
+          "status": 200
+        },
+        {
+          "durationMs": 0.83125,
+          "responseBytes": 787,
+          "sampleIndex": 5,
+          "status": 200
+        },
+        {
+          "durationMs": 0.825083,
+          "responseBytes": 787,
+          "sampleIndex": 6,
+          "status": 200
+        },
+        {
+          "durationMs": 0.844666,
+          "responseBytes": 787,
+          "sampleIndex": 7,
+          "status": 200
+        },
+        {
+          "durationMs": 0.821125,
+          "responseBytes": 787,
+          "sampleIndex": 8,
+          "status": 200
+        },
+        {
+          "durationMs": 0.821417,
+          "responseBytes": 787,
+          "sampleIndex": 9,
+          "status": 200
+        },
+        {
+          "durationMs": 0.809125,
+          "responseBytes": 787,
+          "sampleIndex": 10,
+          "status": 200
+        },
+        {
+          "durationMs": 0.813083,
+          "responseBytes": 787,
+          "sampleIndex": 11,
+          "status": 200
+        },
+        {
+          "durationMs": 0.814375,
+          "responseBytes": 787,
+          "sampleIndex": 12,
+          "status": 200
+        },
+        {
+          "durationMs": 0.832583,
+          "responseBytes": 787,
+          "sampleIndex": 13,
+          "status": 200
+        },
+        {
+          "durationMs": 1.026209,
+          "responseBytes": 787,
+          "sampleIndex": 14,
+          "status": 200
+        },
+        {
+          "durationMs": 0.844416,
+          "responseBytes": 787,
+          "sampleIndex": 15,
+          "status": 200
+        },
+        {
+          "durationMs": 0.833292,
+          "responseBytes": 787,
+          "sampleIndex": 16,
+          "status": 200
+        },
+        {
+          "durationMs": 0.809458,
+          "responseBytes": 787,
+          "sampleIndex": 17,
+          "status": 200
+        },
+        {
+          "durationMs": 0.828208,
+          "responseBytes": 787,
+          "sampleIndex": 18,
+          "status": 200
+        },
+        {
+          "durationMs": 0.828792,
+          "responseBytes": 787,
+          "sampleIndex": 19,
+          "status": 200
+        },
+        {
+          "durationMs": 0.815542,
+          "responseBytes": 787,
+          "sampleIndex": 20,
+          "status": 200
+        }
+      ],
+      "summary": {
+        "durationMs": {
+          "median": 0.826792,
+          "p95": 0.844666,
+          "min": 0.809125,
+          "max": 1.026209
+        },
+        "responseBytes": {
+          "median": 787.0,
+          "p95": 787.0,
+          "min": 787.0,
+          "max": 787.0
+        }
+      }
+    }
+  ]
+}

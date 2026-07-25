@@ -13,6 +13,7 @@ export const SESSION_CACHE_TTL_MS = 5 * 60_000;
 
 let cachedSession: CachedSession | null = null;
 let inFlightSession: Promise<AuthUser | null> | null = null;
+let sessionGeneration = 0;
 
 export function isSessionFresh(
   entry: CachedSession | null | undefined,
@@ -29,11 +30,14 @@ export function readCachedSessionUser(now = Date.now()): AuthUser | null {
 }
 
 export function primeSessionCache(user: AuthUser, fetchedAt = Date.now()) {
+  sessionGeneration += 1;
   cachedSession = { user, fetchedAt };
 }
 
 export function clearSessionCache() {
+  sessionGeneration += 1;
   cachedSession = null;
+  inFlightSession = null;
 }
 
 export function fetchSessionUser(
@@ -41,18 +45,25 @@ export function fetchSessionUser(
 ): Promise<AuthUser | null> {
   if (inFlightSession != null) return inFlightSession;
 
-  inFlightSession = fetcher()
+  const requestGeneration = sessionGeneration;
+  const request = fetcher()
     .then((session) => {
+      if (requestGeneration !== sessionGeneration) {
+        return readCachedSessionUser();
+      }
       if (session == null) {
-        clearSessionCache();
+        cachedSession = null;
         return null;
       }
-      primeSessionCache(session.user);
+      cachedSession = { user: session.user, fetchedAt: Date.now() };
       return session.user;
     })
     .finally(() => {
-      inFlightSession = null;
+      if (inFlightSession === request) {
+        inFlightSession = null;
+      }
     });
 
-  return inFlightSession;
+  inFlightSession = request;
+  return request;
 }

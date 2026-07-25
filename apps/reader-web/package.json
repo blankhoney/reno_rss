@@ -7,21 +7,30 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node .next/standalone/server.js",
-    "test": "node --test --import tsx 'src/**/*.test.ts'"
+    "prepare:e2e": "npm run build && rm -rf .next/standalone/public .next/standalone/.next/static && cp -R public .next/standalone/public && mkdir -p .next/standalone/.next && cp -R .next/static .next/standalone/.next/static",
+    "start:e2e": "npm run prepare:e2e && node scripts/e2e-server.mjs",
+    "baseline:web": "node scripts/web-performance-baseline.mjs",
+    "test": "node --test --import tsx 'src/**/*.test.ts'",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "motion": "^12.38.0",
-    "next": "^16.2.7",
+    "next": "16.2.11",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "sanitize-html": "^2.17.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "25.7.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@types/sanitize-html": "^2.16.1",
     "tsx": "4.21.0",
     "typescript": "6.0.3"
+  },
+  "overrides": {
+    "postcss": "8.5.18",
+    "sharp": "0.35.0"
   }
 }

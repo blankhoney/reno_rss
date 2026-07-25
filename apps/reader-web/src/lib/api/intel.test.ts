@@ -11,6 +11,13 @@ test("researchCitationHref carries the source quote into focus reading", () => {
   assert.equal(url.searchParams.get("quote"), "Chunking improves retrieval quality.");
 });
 
+test("researchCitationHref preserves a valid research job for return navigation", () => {
+  const href = researchCitationHref(42, "Chunking improves retrieval quality.", 88);
+  const url = new URL(href, "https://reader.test");
+
+  assert.equal(url.searchParams.get("job"), "88");
+});
+
 test("savedSearchHref keeps the search route separate from article filters", () => {
   const href = savedSearchHref({
     name: "Unread agents",

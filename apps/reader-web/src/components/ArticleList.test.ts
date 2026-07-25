@@ -223,6 +223,17 @@ test("ArticleList uses low-noise summary text for unscored articles", () => {
   assert.doesNotMatch(html, /未生成摘要/);
 });
 
+test("ArticleList exposes a focusable keyboard scope instead of a global shortcut target", () => {
+  const html = renderArticleList({
+    articles: [],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+  });
+
+  assert.match(html, /class="articleList"[^>]*tabindex="0"/);
+});
+
 test("ArticleList renders row numbers after the first-page headline", () => {
   const baseArticle: Article = {
     id: 50,

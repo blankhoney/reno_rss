@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Article, ArticleFeedbackType, DimensionKey } from "@/lib/articles/types";
 import { ARTICLE_FEEDBACK_TYPES } from "@/lib/articles/types";
 import { findCitationTarget, type SummaryLangId } from "@/lib/articles/service";
@@ -20,6 +20,7 @@ import { listClusters, listThemes } from "@/lib/api/intel";
 import { applyHighlightMarks } from "@/lib/articles/highlights";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { readCraftPreferences } from "@/lib/craft/preferences";
+import { moveCommandIndex } from "@/lib/commandPalette";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AnimatedPanel } from "./AnimatedPanel";
 import { ScoreRing, tierColorVar, tierLabel } from "./ScoreRing";
@@ -137,11 +138,13 @@ export function FocusedArticleReader({
   const [dualPaneKind, setDualPaneKind] = useState<"notes" | "article">("notes");
   const [dualArticleId, setDualArticleId] = useState<number | null>(null);
   const [dualArticle, setDualArticle] = useState<Article | null>(null);
+  const [dualArticleError, setDualArticleError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [highlightColor, setHighlightColor] = useState("yellow");
   const [highlightTags, setHighlightTags] = useState("");
   const [bilingual, setBilingual] = useState(false);
   const [annotations, setAnnotations] = useState<ArticleAnnotation[]>([]);
+  const [annotationsError, setAnnotationsError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -153,10 +156,12 @@ export function FocusedArticleReader({
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [isSavingFeedback, setIsSavingFeedback] = useState(false);
   const [secondaryActionsOpen, setSecondaryActionsOpen] = useState(false);
+  const [activeSecondaryActionIndex, setActiveSecondaryActionIndex] = useState(0);
   const router = useRouter();
   const drawerRef = useRef<HTMLElement | null>(null);
   const secondaryMenuRef = useRef<HTMLDivElement | null>(null);
   const secondaryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const secondaryActionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const articleRef = useRef<HTMLElement | null>(null);
   const scoreDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const feedbackPanelRef = useRef<HTMLDivElement | null>(null);
@@ -166,7 +171,7 @@ export function FocusedArticleReader({
   const showTranslationWhenReadyRef = useRef(false);
   const articleActions = useArticleActions(article, currentLang);
   const typewriter = useTypewriterStream();
-  const { selectedText, hasSelection, selectionRect, clearSelection } = useArticleSelection(articleRef);
+  const { selectedText, hasSelection, selectionRect, settledAnchor, clearSelection } = useArticleSelection(articleRef);
   const revealedAnswer = typewriter.revealed;
   const answerVisible = revealedAnswer.trim().length > 0 || typewriter.isRevealing;
   const answerPending = isAsking && !answerVisible && agentError == null;
@@ -186,8 +191,8 @@ export function FocusedArticleReader({
     },
     {
       key: "project",
-      label: articleActions.isProjecting ? "立项中" : "立项",
-      disabled: articleActions.isProjecting,
+      label: article.project ? "已立项" : articleActions.isProjecting ? "立项中" : "立项",
+      disabled: article.project || articleActions.isProjecting,
       run: () => void articleActions.enqueueProject(),
     },
     {
@@ -197,6 +202,27 @@ export function FocusedArticleReader({
       run: () => void articleActions.markRead(),
     },
   ];
+
+  function focusSecondaryAction(index: number) {
+    window.requestAnimationFrame(() => secondaryActionRefs.current[index]?.focus());
+  }
+
+  function openSecondaryActions(index = 0) {
+    setActiveSecondaryActionIndex(index);
+    setSecondaryActionsOpen(true);
+    focusSecondaryAction(index);
+  }
+
+  function closeSecondaryActions() {
+    setSecondaryActionsOpen(false);
+  }
+
+  function runSecondaryAction(index: number) {
+    const action = secondaryActions[index];
+    if (!action || action.disabled) return;
+    closeSecondaryActions();
+    action.run();
+  }
 
   useEffect(() => {
     function applyPrefs() {
@@ -210,7 +236,7 @@ export function FocusedArticleReader({
     return () => window.removeEventListener("ai-reader:craft-prefs", applyPrefs);
   }, []);
 
-  useEffect(() => {
+  const reloadDualArticle = useCallback(() => {
     if (!dualPane || dualPaneKind !== "article" || dualArticleId == null) {
       setDualArticle(null);
       return;
@@ -220,31 +246,40 @@ export function FocusedArticleReader({
       return;
     }
     let active = true;
+    setDualArticleError(null);
     getArticle(dualArticleId)
       .then((next) => {
         if (active) setDualArticle(next);
       })
-      .catch(() => {
-        if (active) setDualArticle(null);
+      .catch((caught) => {
+        if (active) {
+          setDualArticle(null);
+          setDualArticleError(caught instanceof Error ? caught.message : "加载对照文章失败");
+        }
       });
     return () => {
       active = false;
     };
   }, [article.id, dualArticleId, dualPane, dualPaneKind]);
 
-  useEffect(() => {
+  useEffect(() => reloadDualArticle(), [reloadDualArticle]);
+
+  const reloadAnnotations = useCallback(() => {
     let active = true;
+    setAnnotationsError(null);
     listArticleAnnotations(article.id)
       .then((items) => {
         if (active) setAnnotations(items);
       })
-      .catch(() => {
-        if (active) setAnnotations([]);
+      .catch((caught) => {
+        if (active) setAnnotationsError(caught instanceof Error ? caught.message : "加载划线失败");
       });
     return () => {
       active = false;
     };
   }, [article.id]);
+
+  useEffect(() => reloadAnnotations(), [reloadAnnotations]);
 
   useEffect(() => {
     let active = true;
@@ -338,7 +373,8 @@ export function FocusedArticleReader({
     enabled: secondaryActionsOpen,
     layerRef: secondaryMenuRef,
     ignoreRefs: [secondaryMenuButtonRef],
-    onDismiss: () => setSecondaryActionsOpen(false),
+    onDismiss: closeSecondaryActions,
+    restoreFocusRef: secondaryMenuButtonRef,
   });
 
   async function askAgent(nextQuestion = question) {
@@ -525,12 +561,14 @@ export function FocusedArticleReader({
 
   return (
     <motion.main
-      className="focusReader"
+      className={dualPane ? "focusReader focusReaderDualPane" : "focusReader"}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.19, ease: "easeOut" }}
     >
-      <header className="focusTopbar">
+      <div className="focusReaderLayout">
+        <div className="focusReaderPrimary">
+          <header className="focusTopbar">
         <Link className="readerToolbarBtn" href={returnHref} prefetch={false}>
           返回工作台
         </Link>
@@ -553,8 +591,21 @@ export function FocusedArticleReader({
               className="readerToolbarBtn focusOverflowMenuButton"
               aria-haspopup="menu"
               aria-expanded={secondaryActionsOpen}
+              aria-controls="focus-overflow-menu"
               aria-label="更多文章操作"
-              onClick={() => setSecondaryActionsOpen((value) => !value)}
+              onClick={() => {
+                if (secondaryActionsOpen) closeSecondaryActions();
+                else openSecondaryActions();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" || event.key === "Home") {
+                  event.preventDefault();
+                  openSecondaryActions(0);
+                } else if (event.key === "ArrowUp" || event.key === "End") {
+                  event.preventDefault();
+                  openSecondaryActions(Math.max(secondaryActions.length - 1, 0));
+                }
+              }}
             >
               ⋯
             </button>
@@ -562,22 +613,54 @@ export function FocusedArticleReader({
               {secondaryActionsOpen ? (
                 <AnimatedPanel
                   key="focus-overflow-menu"
+                  id="focus-overflow-menu"
                   variant="popover"
                   className="focusOverflowPopover"
                   role="menu"
                   aria-label="更多文章操作"
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      setActiveSecondaryActionIndex((index) => {
+                        const next = moveCommandIndex(index, 1, secondaryActions.length);
+                        focusSecondaryAction(next);
+                        return next;
+                      });
+                    } else if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setActiveSecondaryActionIndex((index) => {
+                        const next = moveCommandIndex(index, -1, secondaryActions.length);
+                        focusSecondaryAction(next);
+                        return next;
+                      });
+                    } else if (event.key === "Home") {
+                      event.preventDefault();
+                      setActiveSecondaryActionIndex(0);
+                      focusSecondaryAction(0);
+                    } else if (event.key === "End") {
+                      event.preventDefault();
+                      const lastIndex = Math.max(secondaryActions.length - 1, 0);
+                      setActiveSecondaryActionIndex(lastIndex);
+                      focusSecondaryAction(lastIndex);
+                    } else if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      runSecondaryAction(activeSecondaryActionIndex);
+                    }
+                  }}
                 >
-                  {secondaryActions.map((action) => (
+                  {secondaryActions.map((action, index) => (
                     <button
+                      ref={(element) => {
+                        secondaryActionRefs.current[index] = element;
+                      }}
                       key={action.key}
                       type="button"
                       className="focusOverflowOption"
                       role="menuitem"
                       disabled={action.disabled}
-                      onClick={() => {
-                        setSecondaryActionsOpen(false);
-                        action.run();
-                      }}
+                      tabIndex={index === activeSecondaryActionIndex ? 0 : -1}
+                      onFocus={() => setActiveSecondaryActionIndex(index)}
+                      onClick={() => runSecondaryAction(index)}
                     >
                       {action.label}
                     </button>
@@ -820,8 +903,76 @@ export function FocusedArticleReader({
           <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
         )}
       </article>
+        </div>
 
-      {selectionRect && hasSelection ? (
+        {dualPane && dualPaneKind === "notes" ? (
+          <aside className="focusedArticleNotes" aria-label="笔记双栏">
+            <h2>笔记</h2>
+            <p className="workbenchRibbonMuted">双栏模式：文章 + 笔记。选区高亮仍会保存到私有标注。</p>
+            {annotationsError ? <p className="adminConsoleError">加载已有划线失败：{annotationsError}<button type="button" className="readerToolbarBtn" onClick={reloadAnnotations}>重试</button></p> : null}
+            <textarea
+              className="agentQuestion"
+              rows={12}
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              placeholder="边读边记…"
+            />
+            <button
+              type="button"
+              className="readerToolbarBtn readerToolbarBtnPrimary"
+              disabled={noteDraft.trim().length === 0}
+              onClick={() => {
+                void createArticleAnnotation(article.id, {
+                  content: noteDraft.trim(),
+                  selectedText: selectedText || null,
+                  color: highlightColor,
+                  anchor: settledAnchor ?? undefined,
+                })
+                  .then((created) => {
+                    setAnnotations((current) => [created, ...current]);
+                    setNoteDraft("");
+                    emitToast({ title: "笔记已保存", variant: "success" });
+                  })
+                  .catch((error) => {
+                    emitToast({
+                      title: error instanceof Error ? error.message : "笔记保存失败",
+                      variant: "error",
+                    });
+                  });
+              }}
+            >
+              保存笔记
+            </button>
+          </aside>
+        ) : null}
+
+        {dualPane && dualPaneKind === "article" ? (
+          <aside className="focusedArticleNotes dualArticlePane" aria-label="对照文章">
+            <h2>对照阅读</h2>
+            {dualArticleError ? (
+              <p className="adminConsoleError">加载对照文章失败：{dualArticleError}<button type="button" className="readerToolbarBtn" onClick={reloadDualArticle}>重试</button></p>
+            ) : dualArticle == null ? (
+              <p className="workbenchRibbonMuted">在「阅读工艺」设置对照文章 ID，或 ⌘K 打开工艺面板。</p>
+            ) : (
+              <>
+                <p className="workbenchRibbonMuted">
+                  #{dualArticle.id} ·{" "}
+                  <Link href={`/read/${dualArticle.id}?module=all&sort=default&lang=zh`} prefetch={false}>
+                    单独打开
+                  </Link>
+                </p>
+                <h3 className="dailyIntelCardTitle">{dualArticle.title}</h3>
+                <div
+                  className="articleContent content focusContent dualArticleBody"
+                  dangerouslySetInnerHTML={{ __html: dualArticle.contentHtml }}
+                />
+              </>
+            )}
+          </aside>
+        ) : null}
+      </div>
+
+      {selectionRect && hasSelection && !drawerOpen ? (
         <div
           className="selectionPopover"
           role="toolbar"
@@ -877,6 +1028,7 @@ export function FocusedArticleReader({
                 type: "annotation",
                 color: highlightColor,
                 tags,
+                anchor: settledAnchor ?? undefined,
               })
                 .then((created) => {
                   setAnnotations((current) => [created, ...current]);
@@ -1014,70 +1166,6 @@ export function FocusedArticleReader({
               </li>
             ))}
           </ul>
-        </aside>
-      ) : null}
-
-      {dualPane && dualPaneKind === "notes" ? (
-        <aside className="focusedArticleNotes" aria-label="笔记双栏">
-          <h2>笔记</h2>
-          <p className="workbenchRibbonMuted">双栏模式：文章 + 笔记。选区高亮仍会保存到私有标注。</p>
-          <textarea
-            className="agentQuestion"
-            rows={12}
-            value={noteDraft}
-            onChange={(event) => setNoteDraft(event.target.value)}
-            placeholder="边读边记…"
-          />
-          <button
-            type="button"
-            className="readerToolbarBtn readerToolbarBtnPrimary"
-            disabled={noteDraft.trim().length === 0}
-            onClick={() => {
-              void createArticleAnnotation(article.id, {
-                content: noteDraft.trim(),
-                selectedText: selectedText || null,
-                color: highlightColor,
-              })
-                .then((created) => {
-                  setAnnotations((current) => [created, ...current]);
-                  setNoteDraft("");
-                  emitToast({ title: "笔记已保存", variant: "success" });
-                })
-                .catch((error) => {
-                  emitToast({
-                    title: error instanceof Error ? error.message : "笔记保存失败",
-                    variant: "error",
-                  });
-                });
-            }}
-          >
-            保存笔记
-          </button>
-        </aside>
-      ) : null}
-
-      {dualPane && dualPaneKind === "article" ? (
-        <aside className="focusedArticleNotes dualArticlePane" aria-label="对照文章">
-          <h2>对照阅读</h2>
-          {dualArticle == null ? (
-            <p className="workbenchRibbonMuted">
-              在「阅读工艺」设置对照文章 ID，或 ⌘K 打开工艺面板。
-            </p>
-          ) : (
-            <>
-              <p className="workbenchRibbonMuted">
-                #{dualArticle.id} ·{" "}
-                <Link href={`/read/${dualArticle.id}?module=all&sort=default&lang=zh`} prefetch={false}>
-                  单独打开
-                </Link>
-              </p>
-              <h3 className="dailyIntelCardTitle">{dualArticle.title}</h3>
-              <div
-                className="articleContent content focusContent dualArticleBody"
-                dangerouslySetInnerHTML={{ __html: dualArticle.contentHtml }}
-              />
-            </>
-          )}
         </aside>
       ) : null}
     </motion.main>

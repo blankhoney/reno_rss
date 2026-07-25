@@ -1,5 +1,9 @@
 import { apiGet, apiPost, apiPut, type ApiRequestInit } from "./client";
 import type { components } from "./generated/schema";
+import {
+  parseTextQuoteAnchor,
+  type ArticleAnnotationAnchor,
+} from "@/lib/articles/annotationAnchor";
 import { sanitizeArticleHtml } from "@/lib/articles/service";
 import type {
   Article,
@@ -239,9 +243,16 @@ export function feedbackFromApi(raw: ApiArticleFeedback | null | undefined): Art
   };
 }
 
+function normalizedReadProgress(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
 function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article {
   const state = item.state ?? {};
   const saved = state.saved === true;
+  const readProgress = normalizedReadProgress(state.read_progress);
+  const status = articleStatusFromApi(state.status);
   const score = scoreFromApi(item.score);
   return {
     id: item.id,
@@ -262,14 +273,15 @@ function articleBaseFromApi(item: ApiArticleItem, contentHtml: string): Article 
     summaryZh: score?.summaryZh || (item.summary_zh ?? ""),
     summaryOriginal: score?.summaryOriginal ?? "",
     sourceLanguage: score?.sourceLanguage ?? "unknown",
-    status: articleStatusFromApi(state.status),
+    status,
     starred: saved,
     project: state.project === true,
     publishedAt: item.published_at ?? null,
     score,
     myFeedback: feedbackFromApi(item.my_feedback),
-    readLater: saved,
-    lastReadAt: state.status === "read" ? new Date().toISOString() : null,
+    readProgress,
+    readLater: status === "unread" && readProgress > 0 && readProgress < 1,
+    lastReadAt: null,
     feedHidden: item.feed_hidden === true,
     feedQualityScore:
       typeof item.feed_quality_score === "number" && Number.isFinite(item.feed_quality_score)
@@ -383,6 +395,7 @@ export type ArticleAnnotation = {
   content: string;
   color: string | null;
   tags: string[];
+  anchor: ArticleAnnotationAnchor | null;
   createdAt: string | null;
   nextReviewAt: string | null;
   intervalDays: number;
@@ -402,6 +415,7 @@ type AnnotationApiItem = {
   content?: string;
   color?: string | null;
   tags?: string[] | null;
+  anchor?: unknown;
   created_at?: string | null;
   next_review_at?: string | null;
   interval_days?: number;
@@ -422,6 +436,7 @@ function annotationFromApi(item: AnnotationApiItem, fallbackArticleId = 0): Arti
     content: item.content,
     color: typeof item.color === "string" ? item.color : null,
     tags: Array.isArray(item.tags) ? item.tags.map(String) : [],
+    anchor: parseTextQuoteAnchor(item.anchor),
     createdAt: item.created_at ?? null,
     nextReviewAt: item.next_review_at ?? null,
     intervalDays: typeof item.interval_days === "number" ? item.interval_days : 1,
@@ -474,6 +489,7 @@ export async function createArticleAnnotation(
     type?: string;
     color?: string | null;
     tags?: string[];
+    anchor?: ArticleAnnotationAnchor;
   },
 ): Promise<ArticleAnnotation> {
   const payload = await apiPost<
@@ -486,6 +502,7 @@ export async function createArticleAnnotation(
       type?: string;
       color?: string | null;
       tags?: string[];
+      anchor?: ArticleAnnotationAnchor;
     }
   >(`/api/articles/${articleId}/annotations`, {
     content: patch.content,
@@ -493,6 +510,7 @@ export async function createArticleAnnotation(
     type: patch.type ?? "annotation",
     color: patch.color ?? null,
     tags: patch.tags ?? [],
+    anchor: patch.anchor,
   });
   const annotation = annotationFromApi(payload.annotation ?? {}, articleId);
   if (annotation == null) {

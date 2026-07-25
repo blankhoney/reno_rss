@@ -31,7 +31,7 @@ const MODULE_GROUPS: ModuleNavGroup[] = [
       { id: "all", label: "最新" },
       { id: "unread", label: "新到" },
       { id: "read", label: "已读" },
-      { id: "read-later", label: "稍后读" },
+      { id: "read-later", label: "继续阅读" },
     ],
   },
   {
@@ -144,7 +144,6 @@ export function ModuleSidebar({
 
   function closeDrawer() {
     setDrawerOpen(false);
-    window.requestAnimationFrame(() => hamburgerRef.current?.focus());
   }
 
   useDismissableLayer({
@@ -152,15 +151,33 @@ export function ModuleSidebar({
     layerRef: drawerRef,
     ignoreRefs: [hamburgerRef],
     onDismiss: closeDrawer,
+    trapFocus: true,
+    initialFocusRef: drawerRef,
+    restoreFocusRef: hamburgerRef,
   });
 
   useEffect(() => {
     if (!drawerOpen) return;
-    drawerRef.current?.focus();
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+
+    const overlay = drawerRef.current?.closest<HTMLElement>(".mobileNavOverlay") ?? null;
+    const workbench = drawerRef.current?.closest<HTMLElement>(".workbench") ?? null;
+    const background = Array.from(workbench?.children ?? []).filter(
+      (element): element is HTMLElement => element instanceof HTMLElement && element !== overlay,
+    );
+    const bottomNav = document.querySelector<HTMLElement>(".mobileBottomNav");
+    if (bottomNav) background.push(bottomNav);
+    const previousInert = background.map((element) => [element, element.inert] as const);
+    background.forEach((element) => {
+      element.inert = true;
+    });
+
     return () => {
       document.body.style.overflow = previousOverflow;
+      previousInert.forEach(([element, inert]) => {
+        element.inert = inert;
+      });
     };
   }, [drawerOpen]);
 

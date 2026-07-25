@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   articleFromApiDetail,
   articleFromApiItem,
+  createArticleAnnotation,
   enqueueFetchContentJob,
   feedbackFromApi,
+  getArticle,
   getArticleStats,
   getJob,
   listArticles,
@@ -59,6 +61,7 @@ test("articleFromApiItem maps FastAPI list payloads to the Article view model", 
   assert.equal(article.contentIssue, "rss_fragment");
   assert.equal(article.starred, true);
   assert.equal(article.project, true);
+  assert.equal(article.readProgress, 0.25);
   assert.equal(article.readLater, true);
   assert.equal(article.status, "unread");
   assert.equal(article.score, null);
@@ -210,6 +213,41 @@ test("articleFromApiDetail sanitizes detail HTML and maps full content", () => {
   assert.equal(article.categoryTitle, "AI");
   assert.equal(article.summaryOriginal, "Original summary");
   assert.equal(article.sourceLanguage, "en");
+});
+
+test("getArticle sanitizes article-detail JSON regardless of where fetch obtained it", async () => {
+  const restoreFetch = withMockFetch(() =>
+    new Response(
+      JSON.stringify({
+        id: 77,
+        title: "Cached-style article",
+        url: "https://example.com/cached",
+        feed: null,
+        category: null,
+        published_at: null,
+        content_quality: "full",
+        content_html: '<p>Safe text</p><img src="javascript:alert(1)"><script>alert(1)</script>',
+        content_zh: null,
+        content_zh_status: "none",
+        translated_at: null,
+        content_text: "Safe text",
+        content_source: "rss",
+        score: null,
+        state: { status: "unread", saved: false, read_progress: 0 },
+        sources: [],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ),
+  );
+
+  try {
+    const article = await getArticle(77);
+    assert.match(article.contentHtml, /Safe text/);
+    assert.doesNotMatch(article.contentHtml, /<script/i);
+    assert.doesNotMatch(article.contentHtml, /javascript:/i);
+  } finally {
+    restoreFetch();
+  }
 });
 
 test("articleFromApiDetail tolerates missing content fields", () => {
@@ -429,6 +467,54 @@ test("requestArticleTranslation posts to FastAPI and sanitizes cached content", 
     assert.equal(result.status, "succeeded");
     assert.equal(result.contentZh, '<p id="p-1" data-paragraph-id="1">译文</p>');
     assert.equal(result.jobId, null);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("createArticleAnnotation sends and maps a typed text quote anchor", async () => {
+  let capturedInit: RequestInit | undefined;
+  const anchor = {
+    kind: "text-quote" as const,
+    version: 1 as const,
+    exact: "second quote",
+    prefix: "before ",
+    suffix: " after",
+    start: 14,
+    end: 26,
+  };
+  const restoreFetch = withMockFetch((_input, init) => {
+    capturedInit = init;
+    return new Response(
+      JSON.stringify({
+        annotation: {
+          id: 7,
+          article_id: 42,
+          type: "annotation",
+          selected_text: "second quote",
+          content: "second quote",
+          color: "yellow",
+          tags: [],
+          anchor,
+          created_at: "2026-07-26T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+      { status: 201, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  try {
+    const created = await createArticleAnnotation(42, {
+      content: "second quote",
+      selectedText: "second quote",
+      anchor,
+    });
+
+    assert.deepEqual(JSON.parse(String(capturedInit?.body)).anchor, anchor);
+    assert.deepEqual(created.anchor, anchor);
   } finally {
     restoreFetch();
   }

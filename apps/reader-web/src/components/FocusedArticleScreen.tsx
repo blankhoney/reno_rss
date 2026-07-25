@@ -83,7 +83,7 @@ export function FocusedArticleScreen({
   // Dwell / reading progress signal for personalization (GOAL §4.A).
   useEffect(() => {
     const started = Date.now();
-    let lastProgress = 0;
+    let lastProgress = article?.readProgress ?? 0;
     function measureProgress(): number {
       const doc = document.documentElement;
       const max = Math.max(1, doc.scrollHeight - window.innerHeight);
@@ -104,7 +104,7 @@ export function FocusedArticleScreen({
         void updateArticleState(articleId, { readProgress: progress }).catch(() => undefined);
       }
     };
-  }, [articleId]);
+  }, [article?.readProgress, articleId]);
 
   if (isLoading) {
     return <FocusedArticleSkeleton returnHref={returnHref} />;
@@ -117,8 +117,13 @@ export function FocusedArticleScreen({
           返回工作台
         </Link>
         <div className="readerEmpty">
-          <p className="readerEmptyTitle">文章不存在</p>
+          <p className="readerEmptyTitle">{error?.includes("404") ? "文章不存在" : "文章加载失败"}</p>
           <p className="readerEmptyHint">{error ?? "API 没有返回这篇文章。"}</p>
+          {error != null ? (
+            <button type="button" className="readerToolbarBtn" onClick={() => void loadArticle("initial")}>
+              重试加载
+            </button>
+          ) : null}
         </div>
       </main>
     );

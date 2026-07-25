@@ -35,7 +35,7 @@
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --serif:
     var(--font-newsreader, "Newsreader"), "Iowan Old Style", "Palatino Linotype",
-    Palatino, Georgia, Cambria, var(--font-noto-serif-sc, "Noto Serif SC"),
+    Palatino, Georgia, Cambria, "Noto Serif SC",
     "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif", serif;
 
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -57,13 +57,16 @@
   --space-7: 28px;
   --space-8: 32px;
 
+  /* Layer order: sticky UI < bottom navigation < popover < Agent drawer < modal overlay < command < toast. */
   --z-topbar: 8;
+  --z-bottom-nav: 16;
   --z-popover: 30;
-  --z-drawer: 20;
+  --z-drawer: 35;
   --z-overlay: 40;
   --z-command: 45;
   --z-toast: 50;
   --topbar-h: 59px;
+  --mobile-bottom-nav-offset: calc(64px + env(safe-area-inset-bottom));
 }
 
 :root[data-theme="dark"] {
@@ -2628,7 +2631,7 @@ body:has(.focusReader) .toastHost {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: 18px 16px;
+    padding: calc(18px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom));
     overflow-y: auto;
     overscroll-behavior: contain;
     background: var(--panel);
@@ -2649,7 +2652,7 @@ body:has(.focusReader) .toastHost {
   }
 
   .focusReader {
-    padding: 12px 12px 92px;
+    padding: 12px 12px calc(var(--mobile-bottom-nav-offset) + 28px);
   }
 
   .focusTopbar,
@@ -2681,7 +2684,7 @@ body:has(.focusReader) .toastHost {
   .agentDrawer {
     left: 10px;
     right: 10px;
-    bottom: 10px;
+    bottom: calc(var(--mobile-bottom-nav-offset) + 10px);
   }
 
   .agentDrawerAskRow {
@@ -2690,8 +2693,36 @@ body:has(.focusReader) .toastHost {
 
   .toastHost {
     right: var(--space-3);
-    bottom: var(--space-3);
+    bottom: calc(var(--mobile-bottom-nav-offset) + var(--space-3));
     width: calc(100vw - 24px);
+  }
+}
+
+@media (max-width: 900px) {
+  .selectionPopover {
+    top: auto !important;
+    right: 12px;
+    bottom: calc(var(--mobile-bottom-nav-offset) + var(--space-2));
+    left: 12px !important;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    transform: none;
+  }
+
+  .selectionTagInput {
+    flex: 1 1 108px;
+    width: auto;
+  }
+
+  body:has(.selectionPopover) .toastHost {
+    bottom: calc(var(--mobile-bottom-nav-offset) + 116px);
+  }
+
+  body:has(.agentDrawerOpen) .toastHost {
+    bottom: calc(50vh + var(--mobile-bottom-nav-offset) + var(--space-4));
   }
 }
 
@@ -3218,30 +3249,20 @@ html[data-density="compact"] .dailyIntelCardLink {
   padding-bottom: 8px;
 }
 
-html[data-reader-mode="focus"] .workbench {
-  grid-template-columns: 0 minmax(0, 1fr);
+.focusReaderLayout {
+  min-width: 0;
 }
 
-html[data-reader-mode="focus"] .moduleSidebar {
-  display: none;
-}
-
-html[data-dual-pane="true"] .focusReader {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.75fr);
-  gap: 0;
-  align-items: start;
+.focusReaderPrimary {
+  min-width: 0;
 }
 
 .focusedArticleNotes {
-  border-left: 1px solid var(--border);
-  min-height: 100%;
+  border-top: 1px solid var(--border);
   background: var(--panel);
   padding: 16px 18px;
   display: grid;
   gap: 10px;
-  position: sticky;
-  top: var(--topbar-h);
 }
 
 .focusedArticleNotes h2,
@@ -3251,10 +3272,34 @@ html[data-dual-pane="true"] .focusReader {
 }
 
 .focusRelatedRail {
-  grid-column: 1 / -1;
   border-top: 1px solid var(--border);
   padding: 14px 18px 20px;
   background: var(--panel2, var(--panel));
+}
+
+@media (min-width: 901px) {
+  .focusReaderDualPane {
+    width: min(100%, 1180px);
+  }
+
+  .focusReaderDualPane .focusReaderLayout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.48fr);
+    align-items: start;
+  }
+
+  .focusReaderDualPane .focusedArticleNotes {
+    position: sticky;
+    top: var(--topbar-h);
+    min-height: 100%;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+
+  .focusReaderDualPane .agentDrawer {
+    left: max(20px, calc((100vw - 1180px) / 2));
+    right: max(20px, calc((100vw - 1180px) / 2));
+  }
 }
 
 .focusRelatedRail ul {
@@ -3350,7 +3395,7 @@ html[data-dual-pane="true"] .focusReader {
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 40;
+    z-index: var(--z-bottom-nav);
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 2px;
@@ -3376,7 +3421,7 @@ html[data-dual-pane="true"] .focusReader {
   }
 
   body {
-    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+    padding-bottom: var(--mobile-bottom-nav-offset);
   }
 }
 

@@ -103,8 +103,10 @@ def state_matches_module(state: ArticleStateRecord, module: str) -> bool:
         return state.status == "unread"
     if module == "read":
         return state.status == "read"
-    if module in {"starred", "read-later"}:
+    if module == "starred":
         return state.saved is True
+    if module == "read-later":
+        return state.status == "unread" and 0 < state.read_progress < 1
     if module == "project":
         return state.project is True
     return True
@@ -923,8 +925,14 @@ class DatabaseArticleRepository:
                 )
             elif list_module == "read":
                 statement = statement.where(user_article_states.c.status == "read")
-            elif list_module in {"starred", "read-later"}:
+            elif list_module == "starred":
                 statement = statement.where(user_article_states.c.saved.is_(True))
+            elif list_module == "read-later":
+                statement = statement.where(
+                    user_article_states.c.status == "unread",
+                    user_article_states.c.read_progress > 0,
+                    user_article_states.c.read_progress < 1,
+                )
             elif list_module == "project":
                 statement = statement.where(user_article_states.c.project.is_(True))
         rank_expression = None

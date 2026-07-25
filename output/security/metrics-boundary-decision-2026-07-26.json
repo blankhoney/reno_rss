@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-26T02:57:07+08:00",
+  "source_revision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+  "verified_current_state": {
+    "fastapi_route": "/api/metrics has no user or admin dependency",
+    "edge_route": "Caddy forwards all /api/* paths to FastAPI",
+    "staging_public_probe": 200,
+    "compose_network": "ai-reader-api, ai-reader-worker, and Caddy share the external app network; environment aliases are api-staging and api-prod",
+    "prometheus_service": "not present in current Compose"
+  },
+  "decision_required": {
+    "id": "D-04",
+    "recommended_design": {
+      "name": "edge deny plus existing internal app-network scrape",
+      "public_contract": "An exact Caddy /api/metrics handler precedes the general /api/* handler and returns 404 in staging and production.",
+      "internal_contract": "The environment's worker or an approved monitoring container reads http://api-staging:8000/api/metrics or http://api-prod:8000/api/metrics over the existing app network.",
+      "secrets": "No new secret.",
+      "verification": [
+        "Caddy config adapts and both Compose overlays render",
+        "internal worker-container GET returns 200 text/plain with expected metric families",
+        "public staging/prod GET returns 404 without capturing a response body",
+        "existing health, article, Admin, session, and smoke boundaries remain unchanged"
+      ],
+      "rollback": "Remove the exact Caddy handler and matching smoke assertions."
+    },
+    "alternatives": [
+      {
+        "name": "FastAPI bearer token",
+        "tradeoff": "Supports remote Prometheus but introduces a new secret, rotation, configuration, and log-redaction surface."
+      },
+      {
+        "name": "dedicated per-environment monitoring network and Prometheus",
+        "tradeoff": "Strongest isolation but adds an unrequested runtime service and operational scope before a monitoring requirement exists."
+      }
+    ],
+    "known_residual_risk": "The recommended existing-network design allows any container already attached to the shared app network to reach metrics; approval must confirm that this is an acceptable internal trust boundary."
+  },
+  "limits": [
+    "No Caddy, Compose, FastAPI, secret, or live environment was changed.",
+    "The internal scrape procedure cannot run locally because the Docker daemon is unavailable.",
+    "Production remains outside mutation scope."
+  ]
+}

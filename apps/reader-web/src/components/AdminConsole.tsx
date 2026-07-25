@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   createScoringBatch,
   enqueueAdminSync,
@@ -24,14 +24,24 @@ import {
 type AdminConsoleViewProps = {
   role: string | null;
   syncMessage: string | null;
+  syncError: string | null;
   scoringMessage: string | null;
-  error: string | null;
-  isBusy: boolean;
+  scoringError: string | null;
+  isSyncBusy: boolean;
+  isScoringBusy: boolean;
   batch: ScoringBatch | null;
   stats: ArticleStats | null;
+  statsError: string | null;
   usage: AdminUsageToday | null;
+  usageError: string | null;
   pipelineHealth: PipelineHealth | null;
+  pipelineError: string | null;
   isStatsLoading?: boolean;
+  isUsageLoading?: boolean;
+  isPipelineLoading?: boolean;
+  onRetryStats: () => void;
+  onRetryUsage: () => void;
+  onRetryPipeline: () => void;
   onSync: (event: FormEvent<HTMLFormElement>) => void;
   onCreateBatch: (event: FormEvent<HTMLFormElement>) => void;
   onStartBatch: () => void;
@@ -73,14 +83,24 @@ function candidateWindowLabel(value: CandidateWindow): string {
 export function AdminConsoleView({
   role,
   syncMessage,
+  syncError,
   scoringMessage,
-  error,
-  isBusy,
+  scoringError,
+  isSyncBusy,
+  isScoringBusy,
   batch,
   stats,
+  statsError,
   usage,
+  usageError,
   pipelineHealth,
+  pipelineError,
   isStatsLoading = false,
+  isUsageLoading = false,
+  isPipelineLoading = false,
+  onRetryStats,
+  onRetryUsage,
+  onRetryPipeline,
   onSync,
   onCreateBatch,
   onStartBatch,
@@ -120,8 +140,6 @@ export function AdminConsoleView({
         </div>
       </header>
 
-      {error ? <p className="adminConsoleError">{error}</p> : null}
-
       <div className="adminConsoleGrid">
         <section className="adminConsoleCard" aria-label="今日费用">
           <header className="adminConsoleCardHeader">
@@ -130,9 +148,11 @@ export function AdminConsoleView({
               <p className="adminConsoleStat">
                 {usage
                   ? `${usage.day} · Score ${usage.accounts.score.used}/${usage.accounts.score.limit || "∞"} · Ask ${usage.accounts.ask.used}/${usage.accounts.ask.limit || "∞"} · Agent ${usage.accounts.agent.used}/${usage.accounts.agent.limit || "∞"}`
-                  : isStatsLoading
+                  : isUsageLoading
                     ? "费用加载中"
-                    : "费用暂不可用"}
+                    : usageError
+                      ? "费用加载失败"
+                      : "费用暂不可用"}
               </p>
             </div>
           </header>
@@ -155,6 +175,13 @@ export function AdminConsoleView({
               </li>
               <li className="adminConsoleStat">云控制台账户上限仍是最后一道硬闸。</li>
             </ul>
+          ) : usageError ? (
+            <p className="adminConsoleError" role="alert">
+              费用加载失败：{usageError}
+              <button type="button" className="readerToolbarBtn" onClick={onRetryUsage} disabled={isUsageLoading}>
+                重试
+              </button>
+            </p>
           ) : (
             <p className="adminConsoleEmpty">无法读取 /api/admin/usage/today。</p>
           )}
@@ -169,10 +196,20 @@ export function AdminConsoleView({
                   ? "统计加载中"
                   : stats
                     ? `${stats.unscored} 篇待评分`
-                    : "统计暂不可用"}
+                    : statsError
+                      ? "统计加载失败"
+                      : "统计暂不可用"}
               </p>
             </div>
           </header>
+          {statsError ? (
+            <p className="adminConsoleError" role="alert">
+              统计加载失败：{statsError}
+              <button type="button" className="readerToolbarBtn" onClick={onRetryStats} disabled={isStatsLoading}>
+                重试
+              </button>
+            </p>
+          ) : null}
           <form className="adminConsoleForm" onSubmit={onCreateBatch}>
             <label className="authField">
               <span>名称</span>
@@ -191,13 +228,13 @@ export function AdminConsoleView({
               <textarea className="authTextInput adminArticleIds" name="articleIds" placeholder="10, 11, 12" />
             </label>
             <div className="adminConsoleActions">
-              <button type="submit" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={isBusy}>
-                {isBusy ? "处理中" : "创建评分批次"}
+              <button type="submit" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={isScoringBusy}>
+                {isScoringBusy ? "处理中" : "创建评分批次"}
               </button>
               <button
                 type="button"
                 className="readerToolbarBtn"
-                disabled={isBusy || batch == null}
+                disabled={isScoringBusy || batch == null}
                 onClick={onStartBatch}
               >
                 启动评分
@@ -213,7 +250,11 @@ export function AdminConsoleView({
               <p className="adminQueuePlaceholder">
                 {pipelineHealth
                   ? `${pipelineHealth.schedulerEnabled ? "调度常开" : "调度暂停"} · ${PIPELINE_STATUS_LABELS[pipelineHealth.status]}`
-                  : "队列状态加载中"}
+                  : isPipelineLoading
+                    ? "队列状态加载中"
+                    : pipelineError
+                      ? "队列状态加载失败"
+                      : "队列状态暂不可用"}
               </p>
             </div>
           </header>
@@ -234,18 +275,27 @@ export function AdminConsoleView({
                 ))}
               </ul>
             </div>
+          ) : pipelineError ? (
+            <p className="adminConsoleError" role="alert">
+              队列状态加载失败：{pipelineError}
+              <button type="button" className="readerToolbarBtn" onClick={onRetryPipeline} disabled={isPipelineLoading}>
+                重试
+              </button>
+            </p>
           ) : null}
           <form className="adminConsoleForm adminSyncForm" onSubmit={onSync}>
             <label className="authField">
               <span>同步上限</span>
               <input className="authTextInput" name="limit" type="number" min="1" max="500" defaultValue="100" />
             </label>
-            <button type="submit" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={isBusy}>
-              {isBusy ? "处理中" : "启动同步"}
+            <button type="submit" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={isSyncBusy}>
+              {isSyncBusy ? "处理中" : "启动同步"}
             </button>
           </form>
           {syncMessage ? <p className="adminConsoleMessage">{syncMessage}</p> : null}
+          {syncError ? <p className="adminConsoleError" role="alert">同步失败：{syncError}</p> : null}
           {scoringMessage ? <p className="adminConsoleMessage">{scoringMessage}</p> : null}
+          {scoringError ? <p className="adminConsoleError" role="alert">评分失败：{scoringError}</p> : null}
           {batch ? (
             <section className="adminConsoleBatch" aria-label="当前评分批次">
               <h3>批次 #{batch.id}</h3>
@@ -274,14 +324,64 @@ export function AdminConsoleView({
 export function AdminConsole() {
   const [role, setRole] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [scoringMessage, setScoringMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
+  const [scoringError, setScoringError] = useState<string | null>(null);
+  const [isSyncBusy, setIsSyncBusy] = useState(false);
+  const [isScoringBusy, setIsScoringBusy] = useState(false);
   const [batch, setBatch] = useState<ScoringBatch | null>(null);
   const [stats, setStats] = useState<ArticleStats | null>(null);
-  const [usage, setUsage] = useState<AdminUsageToday | null>(null);
-  const [pipelineHealth, setPipelineHealth] = useState<PipelineHealth | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [isStatsLoading, setIsStatsLoading] = useState(false);
+  const [usage, setUsage] = useState<AdminUsageToday | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
+  const [isUsageLoading, setIsUsageLoading] = useState(false);
+  const [pipelineHealth, setPipelineHealth] = useState<PipelineHealth | null>(null);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [isPipelineLoading, setIsPipelineLoading] = useState(false);
+
+  const refreshStats = useCallback(async () => {
+    setIsStatsLoading(true);
+    setStatsError(null);
+    try {
+      setStats(await getArticleStats());
+    } catch (caught) {
+      setStats(null);
+      setStatsError(caught instanceof Error ? caught.message : "统计加载失败");
+    } finally {
+      setIsStatsLoading(false);
+    }
+  }, []);
+
+  const refreshUsage = useCallback(async () => {
+    setIsUsageLoading(true);
+    setUsageError(null);
+    try {
+      setUsage(await getAdminUsageToday());
+    } catch (caught) {
+      setUsage(null);
+      setUsageError(caught instanceof Error ? caught.message : "费用加载失败");
+    } finally {
+      setIsUsageLoading(false);
+    }
+  }, []);
+
+  const refreshPipeline = useCallback(async () => {
+    setIsPipelineLoading(true);
+    setPipelineError(null);
+    try {
+      setPipelineHealth(await getPipelineHealth());
+    } catch (caught) {
+      setPipelineHealth(null);
+      setPipelineError(caught instanceof Error ? caught.message : "队列状态加载失败");
+    } finally {
+      setIsPipelineLoading(false);
+    }
+  }, []);
+
+  const refreshAdminSnapshots = useCallback(async () => {
+    await Promise.all([refreshStats(), refreshUsage(), refreshPipeline()]);
+  }, [refreshPipeline, refreshStats, refreshUsage]);
 
   useEffect(() => {
     let active = true;
@@ -302,52 +402,35 @@ export function AdminConsole() {
       setStats(null);
       setUsage(null);
       setPipelineHealth(null);
-      setIsStatsLoading(false);
       return;
     }
-
-    let active = true;
-    setIsStatsLoading(true);
-    Promise.allSettled([getArticleStats(), getAdminUsageToday(), getPipelineHealth()])
-      .then(([statsResult, usageResult, pipelineResult]) => {
-        if (!active) return;
-        setStats(statsResult.status === "fulfilled" ? statsResult.value : null);
-        setUsage(usageResult.status === "fulfilled" ? usageResult.value : null);
-        setPipelineHealth(
-          pipelineResult.status === "fulfilled" ? pipelineResult.value : null,
-        );
-      })
-      .finally(() => {
-        if (active) setIsStatsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [role]);
+    void refreshAdminSnapshots();
+  }, [refreshAdminSnapshots, role]);
 
   async function handleSync(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const limit = clampInt(form.get("limit"), 1, 500, 100);
-    setIsBusy(true);
-    setError(null);
+    setIsSyncBusy(true);
+    setSyncError(null);
     try {
       const created = await enqueueAdminSync({ limit });
       setSyncMessage(`同步 job #${created.jobId} ${created.status}`);
       const job = await pollJobUntilTerminal(created.jobId);
       setSyncMessage(`同步 job #${job.id} ${job.status}`);
+      await refreshAdminSnapshots();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "同步启动失败");
+      setSyncError(caught instanceof Error ? caught.message : "同步启动失败");
     } finally {
-      setIsBusy(false);
+      setIsSyncBusy(false);
     }
   }
 
   async function handleCreateBatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    setIsBusy(true);
-    setError(null);
+    setIsScoringBusy(true);
+    setScoringError(null);
     try {
       const nextBatch = await createScoringBatch({
         name: String(form.get("name") ?? "").trim() || null,
@@ -356,27 +439,29 @@ export function AdminConsole() {
       });
       setBatch(nextBatch);
       setScoringMessage(`评分批次 #${nextBatch.id} 已创建`);
+      await refreshAdminSnapshots();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "评分批次创建失败");
+      setScoringError(caught instanceof Error ? caught.message : "评分批次创建失败");
     } finally {
-      setIsBusy(false);
+      setIsScoringBusy(false);
     }
   }
 
   async function handleStartBatch() {
     if (batch == null) return;
-    setIsBusy(true);
-    setError(null);
+    setIsScoringBusy(true);
+    setScoringError(null);
     try {
       const started = await startScoringBatch(batch.id);
       setScoringMessage(`评分 job #${started.jobId} ${started.status}`);
       const job = await pollJobUntilTerminal(started.jobId);
       setScoringMessage(`评分 job #${job.id} ${job.status}`);
       setBatch(await getScoringBatch(batch.id));
+      await refreshAdminSnapshots();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "评分启动失败");
+      setScoringError(caught instanceof Error ? caught.message : "评分启动失败");
     } finally {
-      setIsBusy(false);
+      setIsScoringBusy(false);
     }
   }
 
@@ -384,14 +469,24 @@ export function AdminConsole() {
     <AdminConsoleView
       role={role}
       syncMessage={syncMessage}
+      syncError={syncError}
       scoringMessage={scoringMessage}
-      error={error}
-      isBusy={isBusy}
+      scoringError={scoringError}
+      isSyncBusy={isSyncBusy}
+      isScoringBusy={isScoringBusy}
       batch={batch}
       stats={stats}
+      statsError={statsError}
       usage={usage}
+      usageError={usageError}
       pipelineHealth={pipelineHealth}
+      pipelineError={pipelineError}
       isStatsLoading={isStatsLoading}
+      isUsageLoading={isUsageLoading}
+      isPipelineLoading={isPipelineLoading}
+      onRetryStats={() => void refreshStats()}
+      onRetryUsage={() => void refreshUsage()}
+      onRetryPipeline={() => void refreshPipeline()}
       onSync={(event) => void handleSync(event)}
       onCreateBatch={(event) => void handleCreateBatch(event)}
       onStartBatch={() => void handleStartBatch()}

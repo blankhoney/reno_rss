@@ -15,6 +15,7 @@ export function ReviewQueue() {
 
   const reload = useCallback(() => {
     let active = true;
+    setError(null);
     listAnnotationReviewQueue(30)
       .then((next) => {
         if (active) setItems(next);
@@ -50,7 +51,14 @@ export function ReviewQueue() {
           只显示到期项（SM-2 lite：1→3→7→14→30 天）。记得 / 忘了 会推进间隔。
         </p>
       </header>
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? (
+        <p className="adminConsoleError" role="alert">
+          {error}
+          <button type="button" className="readerToolbarBtn" onClick={() => reload()}>
+            重试
+          </button>
+        </p>
+      ) : null}
       {items == null && !error ? <p className="workbenchRibbonMuted">加载中…</p> : null}
       {items && items.length === 0 ? (
         <div className="articleListEmpty">
