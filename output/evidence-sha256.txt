@@ -20,3 +20,4 @@ b3ca1a9ed1f5664de001c578a61dd74a62746c8c1ca71e21074f278be5711328  output/securit
 c821135c35634186f7560a2345ad73ece76d07b9eb379b38503769cf3b4c9e24  output/security/metrics-boundary-implementation-2026-07-26.json
 24806fd147daaae90f0dd69a52932ca1a1d3c4133b8e3357da315a9fed4c507e  output/security/trivy-secret-scan-2026-07-26.json
 0d36cfd712c6814e4e94db3b50ac98eec7445ec44def2ef27886467d3e7317d8  output/evidence/m1-daily-partial-failure-2026-07-26.json
+e50fd518f858e771500fa5e30d014a4ce39d50e72aac7e6ce9c6067d1edd88f2  output/evidence/m1-reader-ask-retry-2026-07-26.json

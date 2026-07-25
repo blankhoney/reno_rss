@@ -548,6 +548,27 @@ test("Daily Intelligence preserves usable research context through a secondary-s
   ]);
 });
 
+test("Reader keeps article context when Ask fails once and then retries", async ({ page }) => {
+  const errors = captureUnexpectedBrowserErrors(page);
+  await resetFixtures(page);
+  await page.request.post("/__e2e/article-ask/fail-once");
+  await page.goto("/read/7?module=home&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.getByText("Evidence should survive navigation.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /文章助手/ }).click();
+  await page.getByRole("button", { name: "总结", exact: true }).click();
+  await expect(page.getByText("文章助手暂不可用，请重试。", { exact: true })).toBeVisible();
+  await expect(page.getByText("Evidence should survive navigation.", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "总结", exact: true }).click();
+  await expect(page.getByText("E2E grounded answer.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Evidence should survive navigation/ })).toBeVisible();
+  expect(errors).toEqual([
+    "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+  ]);
+});
+
 test("continue-reading route uses actual partial progress rather than candidate state", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=read-later&sort=default&lang=zh");
