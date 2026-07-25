@@ -124,9 +124,19 @@
 | 数据可靠性门：PostgreSQL 条件测试、migration replay、恢复脚本。 | High | High | High | Medium | CI postgres 服务 + 本地脚本 | API/worker 不能只依赖 memory 变体。 |
 | Staging 回滚/恢复链条与证据固定。 | High | Medium | Medium | Medium | deploy/rollback/workflow | 发布成功不等于可恢复成功。 |
 
-### P0 后继任务（M1.4 验证后）— 原子文章状态与候选不变量
+### 当前最高优先级 — M2.1：320px 可达性、muted-text AA 与 reduced-motion 最小门
 
-- **优先级与关系**：P0；仅在 M1.4 的 client failure/retry 证据闭合后开始。它将 M1.4 的“服务端确认状态”延伸到 A-08/A-10 的数据层真实并发语义，保护 A-02 的 Keep/candidate 主循环。
+- **优先级与关系**：P0；承接已通过 50 Chromium 的 M1.5 inline-markup 安全恢复，不重开其已验证行为。它为 A-05/A-06 建立第一个可重复门，并在闭环后移交给原子文章状态 P0。
+- **优化目的**：在最窄 320px 视口中证明阅读核心控制、错误/恢复信息和内容不发生水平溢出、不可达或层叠遮挡；同时确保实际阅读使用的 muted text 在 light/dark 下达到 AA，并且 reduced-motion 不隐藏状态或动作。
+- **执行范围**：扩展既有 Chromium viewport loop 至 320px，复用现有 CSS token、geometry assertion 和 `prefers-reduced-motion` 合同；仅调整被失败测试证明的 token 或布局规则。保留 warm editorial 方向、现有导航/toolbar/Agent/Toast 层级及 375px 以上行为；不得借机重做视觉系统、改用新 CSS 框架或把桌面提示强塞入窄屏。
+- **验收标准**：角色化 muted reading text 在 light/dark 对应背景的对比至少为 4.5:1；在 normal 与 reduced-motion 两种模式下，当前测试覆盖的关键 reader/workbench 路径在 320px 无 `scrollWidth > clientWidth`、无被 fixed layer 遮挡的必要操作、无减少动效后丢失的 loading/error/retry 信息；现有 375/768/1440 行为继续通过。
+- **验证方法**：先让新增 320px 或 token 断言在旧候选上失败；运行 focused contrast/motion/reflow 浏览器场景、Reader Node suite、production build 与完整 Chromium suite。记录 viewport、theme、motion、命令 exit、截图或几何结果；Firefox/WebKit 与屏幕阅读器仍明确为后续缺口，不得以 Chromium 代替。
+- **方案取舍**：优先收紧单个 token 或单个 responsive rule；若一个修复会影响多个角色，拆为 token 与布局两个可回滚 slice。通过静态色值测试不足以宣称 reflow 已通过，必须保留浏览器几何断言。
+- **风险与回滚**：低到中等 CSS/fixture 风险；每个 token/geometry slice 独立回退，不能因修复对比度而降低既有控件可见性或点击面积。
+
+### P0 后继任务（M2.1 验证后）— 原子文章状态与候选不变量
+
+- **优先级与关系**：P0；在 M2.1 的窄屏/可达性门收口后开始。它将 M1.4 已验证的“服务端确认状态”延伸到 A-08/A-10 的数据层真实并发语义，保护 A-02 的 Keep/candidate 主循环。
 - **优化目的**：消除 PATCH 风格 article-state 写入的 read-modify-write 丢更新，并让 `project ⇒ saved` 成为所有写入者都无法绕过的存储层不变量。
 - **执行范围**：将 repository 写入变为单一原子操作，只更新请求明确携带的字段；在同一操作内处理 `saved=false → project=false` 与 `project=true` 的合法性。增加可回退 migration，先检测历史无效行并可见失败，绝不静默修复或删除数据；添加等价于 `NOT project OR saved` 的数据库约束。保留既有 request/response/OpenAPI 形状与 Miniflux 边界。
 - **方案取舍**：允许使用行锁加局部更新，或使用经测试的条件式 PostgreSQL upsert；选择更小、可审计且能证明无丢更新的方案。不得用前端重试、乐观更新或仅 memory 测试替代原子性。
@@ -281,7 +291,7 @@
 `PLANS.md` 当前建议字段（与该合同一致）：
 
 - **Current candidate**：`goal/m1-annotation-integrity @ ff29cd70`（含本地工作区改动）
-- **Current milestone**：`M1.5（inline-markup 标注恢复）`已完成最小闭环；M1.4 已回退为更小的 reload-only 同步路径。
+- **Current milestone**：`M1.5（inline-markup 标注恢复）`已完成最小闭环；M1.4 的用户可见 503/retry→reload 行为已验证，但事件携带的 typed state detail 尚无订阅者消费，须在下次触及该 action seam 时删除，不能错误宣称已完成 payload 回退。
 - **Last green checkpoint**：`193 Reader Node`、`219 API tests`、`121 Worker tests`、`48 e2e`、`npm run build`（同一会话中复现）
 - **Current validation**：A-02、A-03、A-11、脚本与 Compose 基本通过；A-05/A-06/A-08/A-09/A-10/A-12 持续进行中
 - **Before/after metrics**：
