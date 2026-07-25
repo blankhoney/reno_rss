@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-26",
+  "base_revision": "a23dcaeb00698f7973e95a52a56dab8d69e1e592",
+  "milestone": "M1.1",
+  "acceptance": ["A-02", "A-07"],
+  "scenario": "Daily Intelligence keeps a successful brief and article route usable when /api/clusters/latest fails once; the UI identifies the failed source, refreshes only the failed fixture successfully, and preserves the home return URL.",
+  "failure_before_repair": {
+    "command": "npm exec playwright test -- --grep Daily Intelligence preserves usable research context",
+    "result": "failed: no source-specific cluster error or one-time failure fixture existed"
+  },
+  "repair": [
+    "Added an isolated one-time cluster failure fixture reset by the existing E2E reset endpoint.",
+    "Made the visible cluster error source-specific.",
+    "Completed the existing E2E article-state mock so the tested article-open path does not emit an unrelated 404."
+  ],
+  "validation": [
+    {
+      "command": "npm exec playwright test -- --grep Daily Intelligence preserves usable research context",
+      "result": "pass: 1 Chromium scenario"
+    },
+    {
+      "command": "npm test",
+      "result": "pass: 189 Node tests"
+    },
+    {
+      "command": "npm run build",
+      "result": "pass: Next.js production build"
+    },
+    {
+      "command": "npm run test:e2e",
+      "result": "pass: 46 Chromium scenarios"
+    }
+  ],
+  "known_limit": "This closes one deterministic Daily secondary-source failure slice only. A-02 remains IN_PROGRESS until the full core-loop state matrix is evidenced."
+}

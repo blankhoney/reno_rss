@@ -293,7 +293,7 @@ export function DailyIntelligenceDashboard() {
             {loading ? (
               <p className="workbenchRibbonMuted">加载中…</p>
             ) : clustersError ? (
-              <p className="adminConsoleError">加载失败：{clustersError}</p>
+              <p className="adminConsoleError">主题簇加载失败：{clustersError}</p>
             ) : clusters.length === 0 ? (
               <p className="workbenchRibbonMuted">暂无聚类；评分后会出现多源故事线。</p>
             ) : (

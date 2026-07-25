@@ -33,6 +33,7 @@ const users = {
 let currentUser = users.ada;
 let jobRequestCount = 0;
 let usageFailuresRemaining = 0;
+let dailyClusterFailuresRemaining = 0;
 let adminSyncCompleted = false;
 const completedResearchJob = {
   id: 88,
@@ -76,6 +77,7 @@ function resetFixtures() {
   currentUser = users.ada;
   jobRequestCount = 0;
   usageFailuresRemaining = 0;
+  dailyClusterFailuresRemaining = 0;
   adminSyncCompleted = false;
 }
 
@@ -122,6 +124,11 @@ const proxy = createServer((request, response) => {
   if (url.pathname === "/__e2e/admin/usage-fail-once" && request.method === "POST") {
     currentUser = users.admin;
     usageFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/daily/clusters-fail-once" && request.method === "POST") {
+    dailyClusterFailuresRemaining = 1;
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -338,6 +345,11 @@ const proxy = createServer((request, response) => {
     return;
   }
   if (url.pathname === "/api/clusters/latest" && request.method === "GET") {
+    if (dailyClusterFailuresRemaining > 0) {
+      dailyClusterFailuresRemaining -= 1;
+      sendJson(response, 500, { error: { message: "cluster fixture failure" } });
+      return;
+    }
     if (fixtureMode(request) === "daily-error") {
       sendJson(response, 500, { error: { message: "cluster fixture failure" } });
       return;
@@ -435,6 +447,12 @@ const proxy = createServer((request, response) => {
   }
   if (url.pathname === "/api/recommendations/latest" && request.method === "GET") {
     sendJson(response, 200, { items: [], generated_at: "2026-07-21T00:00:00Z" });
+    return;
+  }
+  if ((url.pathname === "/api/articles/7/state" || url.pathname === "/api/articles/9/state") && request.method === "POST") {
+    sendJson(response, 200, {
+      state: { status: "read", saved: false, project: false, read_progress: 0.25 },
+    });
     return;
   }
   if ((url.pathname === "/api/articles/7/annotations" || url.pathname === "/api/articles/9/annotations") && request.method === "GET") {

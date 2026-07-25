@@ -136,6 +136,8 @@ Priority is recalculated after every milestone using `Value = Impact × Confiden
 - **Verification method:** demonstrate the new test fails before the implementation; run the focused test after the minimal repair, then the affected Reader Node suite, production build, and the relevant Chromium scenario. Record exact candidate SHA, fixture/state, command exits, and any unavailable external engine as evidence; do not mark A-02 `PASS` until the complete matrix in §7 is covered.
 - **Relationship to existing goals:** this advances the first P0 row in §6 and M1 in §9, supplies a deterministic state example for A-02/A-07, and establishes the safe reader-context baseline that later M1 annotation integrity work (A-03) must preserve.
 - **Reversibility:** keep the change as one fixture/state-handling slice that can be reverted independently; reject rather than silently reinterpret any ambiguous or stale response.
+- **Current execution observation (behavior checkpoint `aa670d71219d24e9380bf5e48da12cdbf27766b0`):** the focused M1.1 slice now changes the Daily Cluster error label, adds a resettable one-time cluster-failure fixture, completes the article-state fixture required by the open/return path, and adds the retry → article → return browser scenario. The scenario first failed on the unimplemented failure/source-label condition; final focused Chromium, full Reader Node suite, production build, and Chromium suite all pass. This is accepted evidence for one A-02/A-07 state slice, not completion of either row.
+- **Immediate execution handoff:** inventory the remaining Daily/Scan/Reader/Ask/Keep/Review/Research/Export state matrix and select the highest user-loss risk not yet covered. Begin with a smallest failing scenario; preserve this slice and revert only the next focused candidate on failure.
 
 ### P1 — strong quality increase with controlled risk
 
@@ -339,6 +341,8 @@ Milestones are finite. Each closes a coherent user outcome and leaves a reversib
 | Known risks | Severity, evidence, containment, owning acceptance |
 | Next action | Single highest-value executable step |
 
+Current checkpoint (2026-07-26): behavior revision `aa670d71219d24e9380bf5e48da12cdbf27766b0` is based on `a23dcaeb00698f7973e95a52a56dab8d69e1e592`; M1.1 recorded a test-first failure and final passes for 189 Reader Node tests, production build, and 46 Chromium scenarios. The scenario proves one Daily secondary-source failure is source-specific, recoverable by refresh, and does not remove the successful brief/article return path. It is evidence for A-02/A-07, not completion of either row. Durable record: `output/evidence/m1-daily-partial-failure-2026-07-26.json`.
+
 Evidence rules:
 
 - Store only synthetic, redacted, non-secret content.
@@ -357,6 +361,7 @@ Evidence rules:
 | 2026-07-26 | Keep metrics internal through the existing environment alias and deny the public exact path. | PR staging smoke proves internal scrape success and public 404 without a new secret/service. |
 | 2026-07-26 | Keep versioned anchors in existing metadata until evidence requires a migration. | Typed validation and editor-focus persistence pass without data-shape disruption; restoration gaps are testable at the domain/UI layer. |
 | 2026-07-26 | Replace human-gated blocker semantics with automatic containment and substitution. | The goal can progress unattended while preserving safety, evidence integrity, and the core value ceiling. |
+| 2026-07-26 | Exercise a one-time Daily secondary-source failure before extending the state matrix. | The added Cluster fixture initially exposed no source-specific copy and an unrelated article-state mock 404. The smallest repair names the failed source and completes the existing E2E navigation contract; focused plus full Reader validation pass. A-02/A-07 remain in progress. |
 
 Future log entries record the timestamp, evidence, affected acceptance IDs, chosen/rejected alternatives, rollback, and any target tightening. They never record a silent MUST reduction.
 
