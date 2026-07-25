@@ -35,7 +35,7 @@
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --serif:
     var(--font-newsreader, "Newsreader"), "Iowan Old Style", "Palatino Linotype",
-    Palatino, Georgia, Cambria, var(--font-noto-serif-sc, "Noto Serif SC"),
+    Palatino, Georgia, Cambria, "Noto Serif SC",
     "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif", serif;
 
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
