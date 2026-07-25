@@ -62,6 +62,16 @@ function sendJsonAfter(response, status, payload, delayMs) {
   setTimeout(() => sendJson(response, status, payload), delayMs);
 }
 
+function fixtureMode(request) {
+  const referer = request.headers.referer;
+  if (typeof referer !== "string") return null;
+  try {
+    return new URL(referer).searchParams.get("fixture");
+  } catch {
+    return null;
+  }
+}
+
 function resetFixtures() {
   currentUser = users.ada;
   jobRequestCount = 0;
@@ -268,6 +278,124 @@ const proxy = createServer((request, response) => {
     }
     return;
   }
+  if (url.pathname === "/api/briefs/latest" && request.method === "GET") {
+    if (fixtureMode(request) === "daily-error") {
+      sendJson(response, 500, { error: { message: "brief fixture failure" } });
+      return;
+    }
+    sendJson(response, 200, {
+      brief: {
+        generated_at: "2026-07-26T08:00:00Z",
+        title: "今日研究简报",
+        source: "fixture",
+        must_read: [{
+          article_id: 7,
+          title: "Durable research workflows",
+          rank: 1,
+          tier: "must_read",
+          rank_score: 91,
+          reason: "可恢复证据链直接影响研究可信度。",
+          summary_zh: "让浏览、标注与研究任务在导航后保持连续。",
+          overall_score: 91,
+        }],
+        worth_scan: [{
+          article_id: 8,
+          title: "Keyboard article two",
+          rank: 2,
+          tier: "worth_scan",
+          rank_score: 76,
+          reason: "补充键盘工作流证据。",
+          summary_zh: "验证原生控件与快捷键边界。",
+          overall_score: 76,
+        }],
+        can_skip: [],
+      },
+    });
+    return;
+  }
+  if (url.pathname === "/api/annotations/review" && request.method === "GET") {
+    if (fixtureMode(request) === "daily-error") {
+      sendJson(response, 500, { error: { message: "review fixture failure" } });
+      return;
+    }
+    sendJson(response, 200, {
+      items: [{
+        id: 41,
+        article_id: 7,
+        type: "annotation",
+        selected_text: "A durable note returns when it matters.",
+        content: "A durable note returns when it matters.",
+        color: "yellow",
+        tags: ["evidence"],
+        created_at: "2026-07-24T08:00:00Z",
+        next_review_at: "2026-07-26T08:00:00Z",
+        interval_days: 3,
+        review_count: 1,
+        article_title: "Durable research workflows",
+        article_url: "https://example.com/durable-research",
+      }],
+    });
+    return;
+  }
+  if (url.pathname === "/api/clusters/latest" && request.method === "GET") {
+    if (fixtureMode(request) === "daily-error") {
+      sendJson(response, 500, { error: { message: "cluster fixture failure" } });
+      return;
+    }
+    sendJson(response, 200, {
+      clusters: [{
+        id: "durable-research",
+        label: "可恢复研究工作流",
+        main_article_id: 7,
+        related_article_ids: [8],
+        size: 2,
+      }],
+    });
+    return;
+  }
+  if (url.pathname === "/api/themes/latest" && request.method === "GET") {
+    if (fixtureMode(request) === "daily-error") {
+      sendJson(response, 500, { error: { message: "theme fixture failure" } });
+      return;
+    }
+    sendJson(response, 200, {
+      themes: [{
+        label: "Evidence continuity",
+        weight: 8.7,
+        article_ids: [7, 8],
+      }],
+    });
+    return;
+  }
+  if (url.pathname === "/api/feeds" && request.method === "GET") {
+    if (fixtureMode(request) === "daily-error") {
+      sendJson(response, 500, { error: { message: "feed fixture failure" } });
+      return;
+    }
+    sendJson(response, 200, {
+      items: [
+        {
+          id: 1,
+          title: "Fixture Research",
+          status: "active",
+          hidden: false,
+          quality_score: 92,
+          user_priority: 1,
+          article_count: 12,
+        },
+        {
+          id: 2,
+          title: "Low-signal Fixture",
+          status: "active",
+          hidden: false,
+          quality_score: 42,
+          user_priority: -1,
+          article_count: 3,
+        },
+      ],
+    });
+    return;
+  }
   if (url.pathname === "/api/articles/stats" && request.method === "GET") {
     const unscored = adminSyncCompleted ? 3 : 2;
     sendJson(response, 200, { total: unscored, scored: 0, unscored });
@@ -309,9 +437,51 @@ const proxy = createServer((request, response) => {
     sendJson(response, 200, { items: [], generated_at: "2026-07-21T00:00:00Z" });
     return;
   }
+  if ((url.pathname === "/api/articles/7/annotations" || url.pathname === "/api/articles/9/annotations") && request.method === "GET") {
+    const articleId = url.pathname.includes("/9/") ? 9 : 7;
+    sendJson(response, 200, {
+      items: articleId === 7
+        ? [{
+            id: 41,
+            article_id: 7,
+            type: "annotation",
+            selected_text: "A durable note returns when it matters.",
+            content: "Keep evidence attached to its source.",
+            color: "yellow",
+            tags: ["evidence"],
+            created_at: "2026-07-24T08:00:00Z",
+            next_review_at: "2026-07-26T08:00:00Z",
+            interval_days: 3,
+            review_count: 1,
+          }]
+        : [],
+    });
+    return;
+  }
   if ((url.pathname === "/api/articles/7" || url.pathname === "/api/articles/9") && request.method === "GET") {
     const id = url.pathname.endsWith("/9") ? 9 : 7;
-    sendJson(response, 200, { id, owner: currentUser.id, content_html: `<p>${currentUser.id}</p>` });
+    sendJson(response, 200, {
+      id,
+      owner: currentUser.id,
+      title: id === 7 ? "Durable research workflows" : "Fast search result",
+      url: id === 7 ? "https://example.com/durable-research" : "https://example.com/search",
+      feed: { id: 1, title: "Fixture Research" },
+      category: { id: 2, title: "Research systems" },
+      published_at: "2026-07-24T08:00:00Z",
+      content_quality: "full",
+      content_html: "<p>Evidence persists.</p><p>Evidence should survive navigation.</p><p>A durable note returns when it matters.</p>",
+      content_zh: null,
+      content_zh_status: "none",
+      translated_at: null,
+      content_text: "Evidence persists. Evidence should survive navigation. A durable note returns when it matters.",
+      content_source: "fixture",
+      summary_zh: "让浏览、标注与研究任务在导航后保持连续。",
+      summary_original: "Keep the evidence chain durable.",
+      source_language: "en",
+      score: null,
+      state: { status: "unread", saved: false, project: false, read_progress: 0.25 },
+      sources: [],
+    });
     return;
   }
   if (url.pathname === "/api/research/jobs" && request.method === "POST") {

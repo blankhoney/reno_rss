@@ -4,6 +4,17 @@ async function resetFixtures(page: import("@playwright/test").Page) {
   await page.request.post("/__e2e/reset");
 }
 
+function captureUnexpectedBrowserErrors(page: import("@playwright/test").Page) {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(`console: ${message.text()}`);
+  });
+  page.on("pageerror", (error) => {
+    errors.push(`pageerror: ${error.message}`);
+  });
+  return errors;
+}
+
 async function setCraftPreferences(
   page: import("@playwright/test").Page,
   preferences: {
@@ -34,7 +45,7 @@ async function enableNotesDualPane(page: import("@playwright/test").Page) {
 }
 
 async function selectReaderText(page: import("@playwright/test").Page) {
-  const paragraph = page.locator(".focusContent p");
+  const paragraph = page.locator(".focusContent p").first();
   await paragraph.scrollIntoViewIfNeeded();
   const box = await paragraph.boundingBox();
   if (box == null) throw new Error("E2E article fixture has no selectable text");
@@ -58,6 +69,40 @@ test("registers and controls the second local page load", async ({ page }) => {
 
   await page.reload();
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller != null)).toBe(true);
+});
+
+test("principal success fixtures render without unexpected browser errors", async ({ page }) => {
+  const errors = captureUnexpectedBrowserErrors(page);
+  await resetFixtures(page);
+
+  await page.goto("/?module=home&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "今日研究简报" })).toBeVisible();
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.getByText("Evidence should survive navigation.", { exact: true })).toBeVisible();
+
+  await page.goto("/?module=review&sort=default&lang=zh");
+  await expect(page.getByText("A durable note returns when it matters.", { exact: true })).toBeVisible();
+
+  await page.goto("/?module=search&filter=all&sort=default&lang=zh&q=fast");
+  await expect(page.getByText("Fast search result", { exact: true }).first()).toBeVisible();
+
+  await page.goto("/?module=research&sort=default&lang=zh&job=88");
+  await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
+
+  await page.goto("/?module=export&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "立项导出" })).toBeVisible();
+
+  await page.request.post("/__e2e/admin");
+  await page.goto("/?module=admin&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "管理控制台" })).toBeVisible();
+  await expect(page.getByText(/Score 0\/60/)).toBeVisible();
+
+  expect(errors).toEqual([]);
 });
 
 test("keeps job polling on the network after service worker control", async ({ page }) => {
@@ -199,7 +244,7 @@ for (const viewport of [
 
   await page.getByRole("button", { name: /文章助手/ }).click();
   await expect(toolbar).toBeHidden();
-  await expect(page.getByText(/已选中：user-a/)).toBeVisible();
+  await expect(page.getByText(/已选中：Evidence persists\./)).toBeVisible();
   const agentGeometry = await page.evaluate(() => {
     const toast = document.querySelector<HTMLElement>(".toastCard")!.getBoundingClientRect();
     const agent = document.querySelector<HTMLElement>(".agentDrawer")!.getBoundingClientRect();
@@ -376,7 +421,7 @@ test("focused reader exposes retry for an article load failure", async ({ page }
 
 test("Daily Intelligence labels failed sources instead of false empty states", async ({ page }) => {
   await resetFixtures(page);
-  await page.goto("/?module=home&sort=default&lang=zh");
+  await page.goto("/?module=home&sort=default&lang=zh&fixture=daily-error");
 
   await expect(page.getByRole("button", { name: "刷新情报" })).toBeVisible();
   await expect(page.getByText(/加载失败：/).first()).toBeVisible();
