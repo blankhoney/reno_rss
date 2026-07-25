@@ -127,6 +127,16 @@ Priority is recalculated after every milestone using `Value = Impact × Confiden
 | Close exact-main staging, rollback, and registry maintenance evidence | A-11, A-12 | Delivery is incomplete without reproducibility and recovery. | Existing workflow/GHCR |
 | Preserve security, privacy, and current-truth documentation throughout | A-04, A-13, A-15 | These are cross-cutting trust controls. | Every milestone |
 
+### Current Highest-Priority Task — M1.1: Daily/Scan partial-failure continuity
+
+- **Priority:** P0 — this is the first executable slice of A-02 and takes precedence over visual polish, performance tuning, or optional browser expansion.
+- **Optimization purpose:** prove that a Daily Intelligence or Scan request with one secondary data source failing still leaves the successful article list usable, identifies the failed source truthfully, and provides recovery without losing reading context.
+- **Execution scope:** first inventory the existing deterministic fixtures and request adapters; add the smallest initially failing unit or Playwright scenario for one concrete partial-failure path; then implement only the fixture, state handling, and retry boundary necessary for that scenario. Preserve successful data, current URL/list context, existing public API shapes, and the unexpected-console/page-error gate. Do not combine this slice with annotation restoration, palette changes, dependency work, or broad state-system refactoring.
+- **Acceptance standard:** the scenario must observe (1) visible successful article content, (2) a source-specific error rather than a false empty state, (3) an actionable retry that does not discard successful content, (4) an article opening path that retains its return context, and (5) no unexpected browser `console.error` or `pageerror`. A passing test for only an all-success or all-failure fixture is insufficient.
+- **Verification method:** demonstrate the new test fails before the implementation; run the focused test after the minimal repair, then the affected Reader Node suite, production build, and the relevant Chromium scenario. Record exact candidate SHA, fixture/state, command exits, and any unavailable external engine as evidence; do not mark A-02 `PASS` until the complete matrix in §7 is covered.
+- **Relationship to existing goals:** this advances the first P0 row in §6 and M1 in §9, supplies a deterministic state example for A-02/A-07, and establishes the safe reader-context baseline that later M1 annotation integrity work (A-03) must preserve.
+- **Reversibility:** keep the change as one fixture/state-handling slice that can be reverted independently; reject rather than silently reinterpret any ambiguous or stale response.
+
 ### P1 — strong quality increase with controlled risk
 
 | Work | Acceptance | Why now | Dependencies |
