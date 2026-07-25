@@ -25,7 +25,7 @@
 | Green validation | Chromium 55/55; Firefox 21/21; WebKit 21/21; iPhone WebKit 20/20; Node 193/193; production build. |
 | Durable evidence | `output/evidence/m2-cross-engine-core-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt`. |
 | Rollback | Revert CI browser install, Playwright projects and cache assertion together; no application runtime, schema, API or stored data changes. |
-| Next action | Add 1024/1280 reflow pairs and make cross-engine text selection reproducible before calling A-06 complete. |
+| Next action | Make cross-engine text selection reproducible before calling A-06 complete. |
 
 ## Completed Checkpoints
 
@@ -39,7 +39,7 @@
 | M1.3 annotation recovery | A-03, A-04 | Resolver/highlighter test-first failures; shifted-repeat restoration and ambiguity rejection with full Reader validation | Inline-markup, input, retry, and multi-user identity matrix incomplete |
 | M1.4 candidate state retry | A-02, A-04, A-10 | One deterministic state-write 503 preserves Reader context; explicit retry reloads server-confirmed candidate state | Broader state matrix, input/browser pairwise coverage, and bounded recovery budget incomplete |
 | M1.5 inline-markup annotation recovery | A-03, A-04, A-07 | Cross-markup anchor remains unresolved, and its retained note is available natively | Touch, IME, retry, and multi-user annotation matrix incomplete |
-| M2.1 cross-engine accessible core minimum | A-05, A-06 | AA muted-text/reduced-motion assertion and Chromium/Firefox/WebKit/iPhone core paths | 1024/1280, full cross-engine suite, screen-reader and cross-engine selection matrix incomplete |
+| M2.1 cross-engine accessible core minimum | A-05, A-06 | AA muted-text/reduced-motion assertion and Chromium/Firefox/WebKit/iPhone core paths | Full cross-engine suite, screen-reader and cross-engine selection matrix incomplete |
 
 ## Acceptance Ledger
 
@@ -50,7 +50,7 @@
 | A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat restoration and ambiguity rejection are green; inline markup, retry, touch-equivalent and keyboard cases remain |
 | A-04 | IN_PROGRESS | Annotation ambiguity now keeps private data visible without misbinding; admin/public metrics/session checks exist, and two-user browser/cache matrix remains |
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion and core keyboard/reflow paths now run in the minimum browser matrix; semantic audit and screen-reader evidence remain |
-| A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; 1024/1280, full suite and cross-engine selection/input pairwise matrix remain |
+| A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; Scan/Focus/Keep 320/375/390/768/1024/1280/1440 reflow is green in Chromium/Firefox/WebKit; full suite and cross-engine selection/input pairwise matrix remain |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
 | A-08 | IN_PROGRESS | Clean Alembic upgrade and anchor contracts green; live PostgreSQL restored-snapshot and conditional tests remain |
 | A-09 | IN_PROGRESS | Harnesses exist; five-run nonzero Web/API/queue/DB baselines remain |
@@ -63,7 +63,7 @@
 
 ## Autonomous Work Queue
 
-1. **M2.2 — responsive/input extension (P0):** Add 1024/1280 reflow pairs and a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
+1. **M2.2 — responsive/input extension (P0):** Add a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
 2. **M3 — atomic article state (P0):** Establish PostgreSQL-backed concurrent writes and `project ⇒ saved` storage invariant before tuning performance.
 3. **M3.1 — deployment-like performance/resilience (P0):** Create disposable PostgreSQL and five-run Web/API/queue/DB baseline paths before tuning.
 4. **M4 — release recovery closure (P0):** Rehearse immutable staging rollback/forward and registry cleanup only after prior MUST gates are green.
@@ -79,6 +79,7 @@
 | 2026-07-26 | M1.3 closed one safe annotation-recovery slice. | Resolver/highlighter tests first failed, then focused Node 9/9, Reader Node 193/193, build, focused Chromium 1/1, and Chromium 48/48 passed. Record: `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json`. |
 | 2026-07-26 | M1.4 closed one candidate state-write recovery slice. | First browser run exposed incorrect control naming and a strict alert locator; after those test-only corrections, the deterministic 503 → explicit retry → server-confirmed candidate-state scenario passed. Reader Node 193/193, production build, and Chromium 49/49 passed. Record: `output/evidence/m1-candidate-state-retry-2026-07-26.json`. |
 | 2026-07-26 | M2.1 established a minimum cross-engine core matrix and corrected the user-switch offline cache invariant. | Chromium 55/55, Firefox 21/21, WebKit 21/21 and iPhone WebKit 20/20 passed; WebKit's `Load failed` is accepted only as no response, never as cached prior-user data. Record: `output/evidence/m2-cross-engine-core-2026-07-26.json`. |
+| 2026-07-26 | M2.2 added 390/1024/1280px to the reader-mode reflow contract. | Chromium, Firefox and WebKit each passed 21 mode×viewport checks. Record: `output/evidence/m2-responsive-widths-2026-07-26.json`. |
 
 ## Evidence and Recovery Rules
 
