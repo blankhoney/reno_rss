@@ -41,7 +41,7 @@
 
 ## 3. Verified Baseline
 
-快照：`2026-07-26`，工作区分支 `goal/m1-annotation-integrity`，`HEAD=ff29cd70`。
+快照：`2026-07-26`，工作区分支 `goal/m1-annotation-integrity`，基线主线 `HEAD=504c98c7`；以下 M2.1 证据对应其上的未提交候选。
 当前工作区有未提交文件，但本次基线以当前仓库行为为准。
 
 | Dimension | Current state | Evidence | Confidence | Missing evidence |
@@ -50,7 +50,7 @@
 | 前后端栈 | `reader-web`(Next.js 16.2.11)、`api`(FastAPI)、`worker`(Python 3.13, uv)、`PostgreSQL + Compose + Caddy + Authelia`，匿名 demo 与生产边界已分离。 | `README.md`、`TECHNICAL.md`、`SPEC-CICD.md`、`infra/caddy/Caddyfile`、Compose 渲染 | High | 运行时容器外链路的当前小时级健康曲线 |
 | API 正确性 | `uv ... pytest`（API）通过；`ruff check` 通过。 | 本次命令：`uv ... python -m pytest tests -q`（219 pass）；`ruff check .`（pass） | High | 真实 Postgres 条件下数据库一致性和迁移回退演练 |
 | Worker 正确性 | `uv ... pytest`（worker）通过，含 4 个 PostgreSQL 条件跳过；`ruff check` 通过。 | 本次命令：`uv ... python -m pytest tests -q`（121 pass, 4 skipped）；`ruff check .`（pass） | High | 并发/恢复场景下长链路与重试边界 |
-| Reader 回归 | `npm test`（193 pass）；`npm run build` 成功；`npm run test:e2e` 成功（48/48）。 | 本次命令：`npm test`, `npm run build`, `npm run test:e2e`（48） | High | Firefox/WebKit 全量矩阵、重试边界与多输入法行为 |
+| Reader 回归 | `npm test`（193 pass）与 `npm run build` 成功；核心浏览器矩阵为 Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20。 | `output/evidence/m2-cross-engine-core-2026-07-26.json`；本次命令记录 | High | Firefox/WebKit 全量矩阵、1024/1280 重排、跨引擎文本选区与更多输入法行为 |
 | 前端测试/构建基线 | 构建与测试为绿色；未引入 lint 脚本。 | `apps/reader-web/package.json`（scripts）、`npm run build`、`npm run test` | High | 是否需要新增 `npm run lint` 为约束条件 |
 | CI/CD 可验证性 | `ci.yml` 在主链路覆盖 API/worker/test/build/compose/deploy/checks 与 Trivy；当前分支最近有成功与失败运行。 | `.github/workflows/ci.yml`、`gh run list --limit 20`（最近成功与失败记录） | Medium | 最近成功运行中发布/回滚脚本是否与本版本完全一致 |
 | 部署配置 | Compose base/staging/prod/edge 可渲染；`api-staging` 与 `web-staging`、`api-prod` 与 `web-prod` 可识别；`bash -n` 脚本与 deploy/迁移脚本语法通过。 | 本地命令：`docker compose ... config`（base/staging/prod/edge）、脚本语法检查 | High | 真正容器内 Metrics scrape 与回滚演练 |
@@ -126,11 +126,11 @@
 
 ### 当前最高优先级 — M2.1：320px 可达性、muted-text AA 与 reduced-motion 最小门
 
-- **优先级与关系**：P0；承接已通过 50 Chromium 的 M1.5 inline-markup 安全恢复，不重开其已验证行为。它为 A-05/A-06 建立第一个可重复门，并在闭环后移交给原子文章状态 P0。
+- **优先级与关系**：P0；承接已通过 Chromium 的 M1.5 inline-markup 安全恢复，不重开其已验证行为。它为 A-05/A-06 建立第一个可重复门，并在闭环后移交给原子文章状态 P0。
 - **优化目的**：在最窄 320px 视口中证明阅读核心控制、错误/恢复信息和内容不发生水平溢出、不可达或层叠遮挡；同时确保实际阅读使用的 muted text 在 light/dark 下达到 AA，并且 reduced-motion 不隐藏状态或动作。
 - **执行范围**：扩展既有 Chromium viewport loop 至 320px，复用现有 CSS token、geometry assertion 和 `prefers-reduced-motion` 合同；仅调整被失败测试证明的 token 或布局规则。保留 warm editorial 方向、现有导航/toolbar/Agent/Toast 层级及 375px 以上行为；不得借机重做视觉系统、改用新 CSS 框架或把桌面提示强塞入窄屏。
 - **验收标准**：角色化 muted reading text 在 light/dark 对应背景的对比至少为 4.5:1；在 normal 与 reduced-motion 两种模式下，当前测试覆盖的关键 reader/workbench 路径在 320px 无 `scrollWidth > clientWidth`、无被 fixed layer 遮挡的必要操作、无减少动效后丢失的 loading/error/retry 信息；现有 375/768/1440 行为继续通过。
-- **验证方法**：先让新增 320px 或 token 断言在旧候选上失败；运行 focused contrast/motion/reflow 浏览器场景、Reader Node suite、production build 与完整 Chromium suite。记录 viewport、theme、motion、命令 exit、截图或几何结果；Firefox/WebKit 与屏幕阅读器仍明确为后续缺口，不得以 Chromium 代替。
+- **验证方法**：先让新增 320px 或 token 断言在旧候选上失败；运行 focused contrast/motion/reflow 浏览器场景、Reader Node suite、production build 与完整 Chromium suite。当前已将最小核心路径扩至 Firefox、WebKit 与 iPhone WebKit；记录 viewport、theme、motion、命令 exit、截图或几何结果。全量跨引擎、1024/1280 与屏幕阅读器仍明确为后续缺口，不得以当前子集替代。
 - **方案取舍**：优先收紧单个 token 或单个 responsive rule；若一个修复会影响多个角色，拆为 token 与布局两个可回滚 slice。通过静态色值测试不足以宣称 reflow 已通过，必须保留浏览器几何断言。
 - **风险与回滚**：低到中等 CSS/fixture 风险；每个 token/geometry slice 独立回退，不能因修复对比度而降低既有控件可见性或点击面积。
 
@@ -290,19 +290,19 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`goal/m1-annotation-integrity @ ff29cd70`（含本地工作区改动）
-- **Current milestone**：`M1.5（inline-markup 标注恢复）`已完成最小闭环；M1.4 的用户可见 503/retry→reload 行为已验证，但事件携带的 typed state detail 尚无订阅者消费，须在下次触及该 action seam 时删除，不能错误宣称已完成 payload 回退。
-- **Last green checkpoint**：`193 Reader Node`、`219 API tests`、`121 Worker tests`、`48 e2e`、`npm run build`（同一会话中复现）
-- **Current validation**：A-02、A-03、A-11、脚本与 Compose 基本通过；A-05/A-06/A-08/A-09/A-10/A-12 持续进行中
+- **Current candidate**：`goal/m1-annotation-integrity @ 504c98c7` 之上的 M2.1 候选（未提交）。
+- **Current milestone**：`M2.1（320px、AA muted text、reduced-motion 与最小跨引擎核心路径）`已形成可重复门；A-05/A-06 仍未完成，不能将其等同为全量无障碍或跨浏览器验收。
+- **Last green checkpoint**：`193 Reader Node`、Chromium `55/55`、Firefox `21/21`、WebKit `21/21`、iPhone WebKit `20/20`、`npm run build`（同一候选会话中复现）。
+- **Current validation**：A-02、A-03、A-11、脚本与 Compose 基本通过；A-05/A-06/A-08/A-09/A-10/A-12 持续进行中。
 - **Before/after metrics**：
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
-  - e2e：50/50
+  - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
 - **Current experiment**：统一状态矩阵与恢复预算定义为当前最大收益实验
 - **Recovery point**：上一个稳定提交 `a77e801005944989fe4990a6db3ec6b49e62e5a1`（含已提交 anchor 恢复）与最近一组可验证工件哈希
-- **Missing external evidence**：Firefox/WebKit 全量、DB 恢复/并发、真实 PostgreSQL route 性能、staging 全链路 rollback-forward
-- **Known risks**：未闭环的状态矩阵与回滚演练；缺少跨浏览器可重复证据
-- **Next action**：进入 A-05/A-06 的角色化对比度与 reduced-motion/reflow 门禁。
+- **Missing external evidence**：Firefox/WebKit 全量、1024/1280 重排、跨引擎文本选区、DB 恢复/并发、真实 PostgreSQL route 性能、staging 全链路 rollback-forward。
+- **Known risks**：未闭环的状态矩阵与回滚演练；跨引擎选区自动化尚不稳定。
+- **Next action**：扩展 A-06 的 1024/1280 重排与跨引擎选区可复现路径，再进入原子文章状态并发不变量。
 
 ## 12. Decision and Change Log
 
@@ -314,6 +314,7 @@
 | 2026-07-26 | 维持生产只读边界，staging 作为主发布与验证面。 | 保障核心目标不引入不可控生产风险。 |
 | 2026-07-26 | 重新编制 GOAL 并以证据优先格式输出。 | 本次提交：清晰主目标、门禁、基线、自动决策与停机条件。 |
 | 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
+| 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
 
 ## 13. Stop and Escalation Conditions
 

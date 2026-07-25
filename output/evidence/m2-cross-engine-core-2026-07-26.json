@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-07-26",
+  "base_commit": "504c98c7125d6e589872b68c6c8c61311a5350f0",
+  "scope": "M2.1 minimum cross-engine reader core matrix",
+  "change_contract": {
+    "ci_browser_install": ["chromium", "firefox", "webkit"],
+    "desktop_core_projects": ["chromium", "firefox", "webkit"],
+    "touch_core_project": "webkit-touch (iPhone 13 emulation)",
+    "cache_isolation_invariant": "An offline request after user switch may return only current-user data, a typed offline response, or no response; it must never return prior-user data."
+  },
+  "commands": [
+    {"command": "npm run test:e2e -- --project=chromium", "result": "pass", "tests": 55},
+    {"command": "npm run test:e2e -- --project=firefox", "result": "pass", "tests": 21},
+    {"command": "npm run test:e2e -- --project=webkit", "result": "pass", "tests": 21},
+    {"command": "npm run test:e2e -- --project=webkit-touch", "result": "pass", "tests": 20},
+    {"command": "npm test", "result": "pass", "tests": 193},
+    {"command": "npm run build", "result": "pass"},
+    {"command": "git diff --check", "result": "pass"}
+  ],
+  "deliberate_limits": [
+    "This is a filtered core matrix, not a full Firefox/WebKit suite.",
+    "Cross-engine synthetic text-drag selection has no stable automated proof yet.",
+    "The matrix does not yet cover the 1024px and 1280px reflow targets."
+  ],
+  "rollback": "Revert the CI browser install, Playwright projects, and cache assertion as one test-only slice."
+}

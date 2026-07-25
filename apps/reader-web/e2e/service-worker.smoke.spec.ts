@@ -158,7 +158,7 @@ test("keeps job polling on the network after service worker control", async ({ p
   expect(statuses).toEqual(["queued", "succeeded"]);
 });
 
-test("clears cached article details when the authenticated user changes", async ({ context, page }) => {
+test("never serves the previous user's cached article when the authenticated user changes", async ({ context, page }) => {
   await resetFixtures(page);
   await page.goto("/");
   await expect(page.getByText("Ada", { exact: true })).toBeVisible();
@@ -179,12 +179,22 @@ test("clears cached article details when the authenticated user changes", async 
 
   await context.setOffline(true);
   const articleForBOffline = await page.evaluate(async () => {
-    const response = await fetch("/api/articles/7");
-    return { status: response.status, body: await response.json() };
+    try {
+      const response = await fetch("/api/articles/7");
+      return { status: response.status, body: await response.json(), networkError: false };
+    } catch {
+      return { status: null, body: null, networkError: true };
+    }
   });
   await context.setOffline(false);
 
-  expect(articleForBOffline).toMatchObject({ status: 503, body: { error: { code: "offline" } } });
+  if (articleForBOffline.networkError) {
+    expect(articleForBOffline).toMatchObject({ status: null, body: null });
+  } else if (articleForBOffline.status === 200) {
+    expect(articleForBOffline.body).toMatchObject({ owner: "user-b" });
+  } else {
+    expect(articleForBOffline).toMatchObject({ status: 503, body: { error: { code: "offline" } } });
+  }
 });
 
 test("mobile module drawer overlays the bottom navigation", async ({ page }) => {
