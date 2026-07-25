@@ -34,6 +34,7 @@ let currentUser = users.ada;
 let jobRequestCount = 0;
 let usageFailuresRemaining = 0;
 let dailyClusterFailuresRemaining = 0;
+let articleAskFailuresRemaining = 0;
 let adminSyncCompleted = false;
 const completedResearchJob = {
   id: 88,
@@ -63,6 +64,14 @@ function sendJsonAfter(response, status, payload, delayMs) {
   setTimeout(() => sendJson(response, status, payload), delayMs);
 }
 
+function sendSse(response, frames) {
+  response.writeHead(200, {
+    "cache-control": "no-cache, no-transform",
+    "content-type": "text/event-stream",
+  });
+  response.end(frames.join(""));
+}
+
 function fixtureMode(request) {
   const referer = request.headers.referer;
   if (typeof referer !== "string") return null;
@@ -78,6 +87,7 @@ function resetFixtures() {
   jobRequestCount = 0;
   usageFailuresRemaining = 0;
   dailyClusterFailuresRemaining = 0;
+  articleAskFailuresRemaining = 0;
   adminSyncCompleted = false;
 }
 
@@ -129,6 +139,11 @@ const proxy = createServer((request, response) => {
   }
   if (url.pathname === "/__e2e/daily/clusters-fail-once" && request.method === "POST") {
     dailyClusterFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/article-ask/fail-once" && request.method === "POST") {
+    articleAskFailuresRemaining = 1;
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -447,6 +462,21 @@ const proxy = createServer((request, response) => {
   }
   if (url.pathname === "/api/recommendations/latest" && request.method === "GET") {
     sendJson(response, 200, { items: [], generated_at: "2026-07-21T00:00:00Z" });
+    return;
+  }
+  if (url.pathname === "/api/articles/7/ask" && request.method === "POST") {
+    if (articleAskFailuresRemaining > 0) {
+      articleAskFailuresRemaining -= 1;
+      sendJson(response, 503, {
+        error: { code: "ask_unavailable", message: "文章助手暂不可用，请重试。" },
+      });
+      return;
+    }
+    sendSse(response, [
+      "data: E2E grounded answer.\n\n",
+      "event: citations\ndata: {\"citations\":[{\"quote\":\"Evidence should survive navigation.\",\"start_hint\":0}]}\n\n",
+      "event: done\ndata: {}\n\n",
+    ]);
     return;
   }
   if ((url.pathname === "/api/articles/7/state" || url.pathname === "/api/articles/9/state") && request.method === "POST") {

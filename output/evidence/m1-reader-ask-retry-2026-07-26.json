@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-26",
+  "base_revision": "49b2ecf2445f7995488e9a7c25346f4e4989ce8b",
+  "milestone": "M1.2",
+  "acceptance": ["A-02", "A-07", "A-15"],
+  "scenario": "A focused Reader keeps its article visible when the deterministic Ask provider returns one 503, surfaces a specific recovery message, and produces a grounded SSE answer with a citation when the user retries the same quick action.",
+  "failure_before_repair": {
+    "command": "npm exec playwright test -- --grep Reader keeps article context when Ask fails once",
+    "result": "failed: the E2E proxy had no Ask fixture contract, so it could not prove source-specific failure and retry behavior"
+  },
+  "repair": [
+    "Added a resettable one-time Ask 503 fixture with a typed API error envelope.",
+    "Added a deterministic SSE response with one citation for the retry path.",
+    "Added a browser contract that allows exactly the intentionally injected 503 and rejects other console/page errors."
+  ],
+  "validation": [
+    {
+      "command": "npm exec playwright test -- --grep Reader keeps article context when Ask fails once",
+      "result": "pass: 1 Chromium scenario"
+    },
+    {
+      "command": "npm test",
+      "result": "pass: 189 Node tests"
+    },
+    {
+      "command": "npm run build",
+      "result": "pass: Next.js production build"
+    },
+    {
+      "command": "npm run test:e2e",
+      "result": "pass: 47 Chromium scenarios"
+    }
+  ],
+  "known_limit": "This proves the deterministic provider adapter and one transient failure path. It does not claim real MiniMax quality, cost, or availability. A-02 remains IN_PROGRESS until the full core-loop matrix is complete."
+}
