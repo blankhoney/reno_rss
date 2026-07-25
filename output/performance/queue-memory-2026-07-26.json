@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-25T18:20:36.587709+00:00",
+  "generatedAt": "2026-07-25T22:41:35.770850+00:00",
   "candidate": {
-    "localGitRevision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+    "localGitRevision": "545845f30f4d9525bd415071813ac445f36e3d13",
     "runtime": "synthetic InMemoryJobQueue"
   },
   "environment": {
@@ -14,16 +14,16 @@
   },
   "summary": {
     "enqueueThroughputPerSecond": {
-      "median": 88361.33636624785,
-      "p95": 95922.87493901704,
-      "min": 82372.88607492128,
-      "max": 95922.87493901704
+      "median": 85183.7152928535,
+      "p95": 87411.63230296872,
+      "min": 75454.37492765811,
+      "max": 87411.63230296872
     },
     "claimAndCompleteThroughputPerSecond": {
-      "median": 18931.86422066981,
-      "p95": 19355.166373913322,
-      "min": 18862.45263756033,
-      "max": 19355.166373913322
+      "median": 17124.509258657046,
+      "p95": 17337.107043633165,
+      "min": 16336.96626620678,
+      "max": 17337.107043633165
     }
   },
   "samples": [
@@ -31,125 +31,125 @@
       "sampleIndex": 1,
       "enqueue": {
         "operationDurationMs": {
-          "median": 0.011125,
-          "p95": 0.020917,
-          "min": 0.001292,
-          "max": 0.155542
+          "median": 0.011208,
+          "p95": 0.019833,
+          "min": 0.001375,
+          "max": 0.09375
         },
         "operations": 1000,
-        "throughputPerSecond": 87529.58171626079,
-        "totalMs": 11.424709
+        "throughputPerSecond": 87411.63230296872,
+        "totalMs": 11.440125
       },
       "claimAndComplete": {
         "operationDurationMs": {
-          "median": 0.05375,
-          "p95": 0.094583,
-          "min": 0.012125,
-          "max": 0.2265
+          "median": 0.059667,
+          "p95": 0.099834,
+          "min": 0.013416,
+          "max": 0.262375
         },
         "operations": 1000,
-        "throughputPerSecond": 18931.86422066981,
-        "totalMs": 52.821
+        "throughputPerSecond": 17337.107043633165,
+        "totalMs": 57.67975
       }
     },
     {
       "sampleIndex": 2,
       "enqueue": {
         "operationDurationMs": {
-          "median": 0.01,
-          "p95": 0.0195,
-          "min": 0.001166,
-          "max": 0.046625
+          "median": 0.012041,
+          "p95": 0.021125,
+          "min": 0.001417,
+          "max": 0.059458
         },
         "operations": 1000,
-        "throughputPerSecond": 95922.87493901704,
-        "totalMs": 10.425042
+        "throughputPerSecond": 85183.7152928535,
+        "totalMs": 11.739333
       },
       "claimAndComplete": {
         "operationDurationMs": {
-          "median": 0.053416,
-          "p95": 0.093625,
-          "min": 0.012041,
-          "max": 0.13125
+          "median": 0.059167,
+          "p95": 0.10425,
+          "min": 0.013583,
+          "max": 0.164375
         },
         "operations": 1000,
-        "throughputPerSecond": 19195.500451842883,
-        "totalMs": 52.095542
+        "throughputPerSecond": 17150.15821020949,
+        "totalMs": 58.3085
       }
     },
     {
       "sampleIndex": 3,
       "enqueue": {
         "operationDurationMs": {
-          "median": 0.010708,
-          "p95": 0.019666,
-          "min": 0.001291,
-          "max": 1.41825
+          "median": 0.011708,
+          "p95": 0.021292,
+          "min": 0.001459,
+          "max": 1.319583
         },
         "operations": 1000,
-        "throughputPerSecond": 82372.88607492128,
-        "totalMs": 12.139917
+        "throughputPerSecond": 75454.37492765811,
+        "totalMs": 13.253042
       },
       "claimAndComplete": {
         "operationDurationMs": {
-          "median": 0.052917,
-          "p95": 0.0965,
-          "min": 0.012042,
-          "max": 0.132625
+          "median": 0.05875,
+          "p95": 0.104459,
+          "min": 0.013167,
+          "max": 0.324208
         },
         "operations": 1000,
-        "throughputPerSecond": 18926.250590333413,
-        "totalMs": 52.836667
+        "throughputPerSecond": 16916.204077559647,
+        "totalMs": 59.114917
       }
     },
     {
       "sampleIndex": 4,
       "enqueue": {
         "operationDurationMs": {
-          "median": 0.011167,
-          "p95": 0.019792,
-          "min": 0.001292,
-          "max": 0.14825
+          "median": 0.011625,
+          "p95": 0.0205,
+          "min": 0.0015,
+          "max": 0.059542
         },
         "operations": 1000,
-        "throughputPerSecond": 88361.33636624785,
-        "totalMs": 11.317167
+        "throughputPerSecond": 86276.0066080519,
+        "totalMs": 11.590708
       },
       "claimAndComplete": {
         "operationDurationMs": {
-          "median": 0.053292,
-          "p95": 0.095541,
-          "min": 0.011917,
-          "max": 0.235375
+          "median": 0.059166,
+          "p95": 0.104792,
+          "min": 0.01325,
+          "max": 0.190959
         },
         "operations": 1000,
-        "throughputPerSecond": 18862.45263756033,
-        "totalMs": 53.015375
+        "throughputPerSecond": 17124.509258657046,
+        "totalMs": 58.395834
       }
     },
     {
       "sampleIndex": 5,
       "enqueue": {
         "operationDurationMs": {
-          "median": 0.010833,
-          "p95": 0.019417,
-          "min": 0.001291,
-          "max": 0.051167
+          "median": 0.011333,
+          "p95": 0.022709,
+          "min": 0.001417,
+          "max": 0.086333
         },
         "operations": 1000,
-        "throughputPerSecond": 93451.39359390698,
-        "totalMs": 10.70075
+        "throughputPerSecond": 83432.11695981375,
+        "totalMs": 11.985792
       },
       "claimAndComplete": {
         "operationDurationMs": {
-          "median": 0.052708,
-          "p95": 0.092666,
-          "min": 0.012209,
-          "max": 0.109
+          "median": 0.061583,
+          "p95": 0.109708,
+          "min": 0.013709,
+          "max": 0.264292
         },
         "operations": 1000,
-        "throughputPerSecond": 19355.166373913322,
-        "totalMs": 51.665792
+        "throughputPerSecond": 16336.96626620678,
+        "totalMs": 61.210875
       }
     }
   ]
