@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-25T18:18:01.547187+00:00",
+  "generatedAt": "2026-07-25T22:41:34.740666+00:00",
   "candidate": {
-    "localGitRevision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+    "localGitRevision": "545845f30f4d9525bd415071813ac445f36e3d13",
     "runtime": "in-process ASGI with memory repositories"
   },
   "environment": {
     "articleFixtures": 500,
-    "iterations": 20,
+    "iterations": 5,
     "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
     "python": "3.13.12",
-    "warmups": 3
+    "warmups": 1
   },
   "routes": [
     {
@@ -18,132 +18,42 @@
       "path": "/api/healthz",
       "samples": [
         {
-          "durationMs": 0.493666,
+          "durationMs": 0.820125,
           "responseBytes": 71,
           "sampleIndex": 1,
           "status": 200
         },
         {
-          "durationMs": 0.488041,
+          "durationMs": 0.67475,
           "responseBytes": 71,
           "sampleIndex": 2,
           "status": 200
         },
         {
-          "durationMs": 0.504042,
+          "durationMs": 0.589416,
           "responseBytes": 71,
           "sampleIndex": 3,
           "status": 200
         },
         {
-          "durationMs": 0.617667,
+          "durationMs": 0.933708,
           "responseBytes": 71,
           "sampleIndex": 4,
           "status": 200
         },
         {
-          "durationMs": 0.614583,
+          "durationMs": 0.664833,
           "responseBytes": 71,
           "sampleIndex": 5,
-          "status": 200
-        },
-        {
-          "durationMs": 0.537084,
-          "responseBytes": 71,
-          "sampleIndex": 6,
-          "status": 200
-        },
-        {
-          "durationMs": 0.515833,
-          "responseBytes": 71,
-          "sampleIndex": 7,
-          "status": 200
-        },
-        {
-          "durationMs": 0.504208,
-          "responseBytes": 71,
-          "sampleIndex": 8,
-          "status": 200
-        },
-        {
-          "durationMs": 0.499125,
-          "responseBytes": 71,
-          "sampleIndex": 9,
-          "status": 200
-        },
-        {
-          "durationMs": 0.504334,
-          "responseBytes": 71,
-          "sampleIndex": 10,
-          "status": 200
-        },
-        {
-          "durationMs": 0.490125,
-          "responseBytes": 71,
-          "sampleIndex": 11,
-          "status": 200
-        },
-        {
-          "durationMs": 0.477125,
-          "responseBytes": 71,
-          "sampleIndex": 12,
-          "status": 200
-        },
-        {
-          "durationMs": 0.475916,
-          "responseBytes": 71,
-          "sampleIndex": 13,
-          "status": 200
-        },
-        {
-          "durationMs": 0.476416,
-          "responseBytes": 71,
-          "sampleIndex": 14,
-          "status": 200
-        },
-        {
-          "durationMs": 0.471917,
-          "responseBytes": 71,
-          "sampleIndex": 15,
-          "status": 200
-        },
-        {
-          "durationMs": 0.469167,
-          "responseBytes": 71,
-          "sampleIndex": 16,
-          "status": 200
-        },
-        {
-          "durationMs": 0.469042,
-          "responseBytes": 71,
-          "sampleIndex": 17,
-          "status": 200
-        },
-        {
-          "durationMs": 0.478583,
-          "responseBytes": 71,
-          "sampleIndex": 18,
-          "status": 200
-        },
-        {
-          "durationMs": 0.529959,
-          "responseBytes": 71,
-          "sampleIndex": 19,
-          "status": 200
-        },
-        {
-          "durationMs": 0.521,
-          "responseBytes": 71,
-          "sampleIndex": 20,
           "status": 200
         }
       ],
       "summary": {
         "durationMs": {
-          "median": 0.493666,
-          "p95": 0.614583,
-          "min": 0.469042,
-          "max": 0.617667
+          "median": 0.67475,
+          "p95": 0.933708,
+          "min": 0.589416,
+          "max": 0.933708
         },
         "responseBytes": {
           "median": 71.0,
@@ -158,132 +68,42 @@
       "path": "/api/articles",
       "samples": [
         {
-          "durationMs": 5.191125,
+          "durationMs": 6.000167,
           "responseBytes": 19851,
           "sampleIndex": 1,
           "status": 200
         },
         {
-          "durationMs": 5.335084,
+          "durationMs": 5.904833,
           "responseBytes": 19851,
           "sampleIndex": 2,
           "status": 200
         },
         {
-          "durationMs": 5.260625,
+          "durationMs": 6.007458,
           "responseBytes": 19851,
           "sampleIndex": 3,
           "status": 200
         },
         {
-          "durationMs": 5.199334,
+          "durationMs": 5.807458,
           "responseBytes": 19851,
           "sampleIndex": 4,
           "status": 200
         },
         {
-          "durationMs": 5.3535,
+          "durationMs": 5.760667,
           "responseBytes": 19851,
           "sampleIndex": 5,
-          "status": 200
-        },
-        {
-          "durationMs": 5.272583,
-          "responseBytes": 19851,
-          "sampleIndex": 6,
-          "status": 200
-        },
-        {
-          "durationMs": 5.228917,
-          "responseBytes": 19851,
-          "sampleIndex": 7,
-          "status": 200
-        },
-        {
-          "durationMs": 5.279791,
-          "responseBytes": 19851,
-          "sampleIndex": 8,
-          "status": 200
-        },
-        {
-          "durationMs": 5.259375,
-          "responseBytes": 19851,
-          "sampleIndex": 9,
-          "status": 200
-        },
-        {
-          "durationMs": 5.245583,
-          "responseBytes": 19851,
-          "sampleIndex": 10,
-          "status": 200
-        },
-        {
-          "durationMs": 5.266542,
-          "responseBytes": 19851,
-          "sampleIndex": 11,
-          "status": 200
-        },
-        {
-          "durationMs": 5.208083,
-          "responseBytes": 19851,
-          "sampleIndex": 12,
-          "status": 200
-        },
-        {
-          "durationMs": 5.280542,
-          "responseBytes": 19851,
-          "sampleIndex": 13,
-          "status": 200
-        },
-        {
-          "durationMs": 5.270958,
-          "responseBytes": 19851,
-          "sampleIndex": 14,
-          "status": 200
-        },
-        {
-          "durationMs": 5.296292,
-          "responseBytes": 19851,
-          "sampleIndex": 15,
-          "status": 200
-        },
-        {
-          "durationMs": 5.297166,
-          "responseBytes": 19851,
-          "sampleIndex": 16,
-          "status": 200
-        },
-        {
-          "durationMs": 5.174542,
-          "responseBytes": 19851,
-          "sampleIndex": 17,
-          "status": 200
-        },
-        {
-          "durationMs": 5.244459,
-          "responseBytes": 19851,
-          "sampleIndex": 18,
-          "status": 200
-        },
-        {
-          "durationMs": 5.243084,
-          "responseBytes": 19851,
-          "sampleIndex": 19,
-          "status": 200
-        },
-        {
-          "durationMs": 5.19775,
-          "responseBytes": 19851,
-          "sampleIndex": 20,
           "status": 200
         }
       ],
       "summary": {
         "durationMs": {
-          "median": 5.259375,
-          "p95": 5.335084,
-          "min": 5.174542,
-          "max": 5.3535
+          "median": 5.904833,
+          "p95": 6.007458,
+          "min": 5.760667,
+          "max": 6.007458
         },
         "responseBytes": {
           "median": 19851.0,
@@ -298,132 +118,42 @@
       "path": "/api/articles",
       "samples": [
         {
-          "durationMs": 5.449541,
+          "durationMs": 5.756916,
           "responseBytes": 11951,
           "sampleIndex": 1,
           "status": 200
         },
         {
-          "durationMs": 5.28325,
+          "durationMs": 5.809208,
           "responseBytes": 11951,
           "sampleIndex": 2,
           "status": 200
         },
         {
-          "durationMs": 5.276667,
+          "durationMs": 6.487916,
           "responseBytes": 11951,
           "sampleIndex": 3,
           "status": 200
         },
         {
-          "durationMs": 5.280291,
+          "durationMs": 5.665667,
           "responseBytes": 11951,
           "sampleIndex": 4,
           "status": 200
         },
         {
-          "durationMs": 5.1955,
+          "durationMs": 5.79425,
           "responseBytes": 11951,
           "sampleIndex": 5,
-          "status": 200
-        },
-        {
-          "durationMs": 5.326792,
-          "responseBytes": 11951,
-          "sampleIndex": 6,
-          "status": 200
-        },
-        {
-          "durationMs": 5.280166,
-          "responseBytes": 11951,
-          "sampleIndex": 7,
-          "status": 200
-        },
-        {
-          "durationMs": 5.243875,
-          "responseBytes": 11951,
-          "sampleIndex": 8,
-          "status": 200
-        },
-        {
-          "durationMs": 5.233709,
-          "responseBytes": 11951,
-          "sampleIndex": 9,
-          "status": 200
-        },
-        {
-          "durationMs": 5.226417,
-          "responseBytes": 11951,
-          "sampleIndex": 10,
-          "status": 200
-        },
-        {
-          "durationMs": 5.267167,
-          "responseBytes": 11951,
-          "sampleIndex": 11,
-          "status": 200
-        },
-        {
-          "durationMs": 5.294083,
-          "responseBytes": 11951,
-          "sampleIndex": 12,
-          "status": 200
-        },
-        {
-          "durationMs": 5.30975,
-          "responseBytes": 11951,
-          "sampleIndex": 13,
-          "status": 200
-        },
-        {
-          "durationMs": 5.266792,
-          "responseBytes": 11951,
-          "sampleIndex": 14,
-          "status": 200
-        },
-        {
-          "durationMs": 5.240042,
-          "responseBytes": 11951,
-          "sampleIndex": 15,
-          "status": 200
-        },
-        {
-          "durationMs": 5.247708,
-          "responseBytes": 11951,
-          "sampleIndex": 16,
-          "status": 200
-        },
-        {
-          "durationMs": 5.325709,
-          "responseBytes": 11951,
-          "sampleIndex": 17,
-          "status": 200
-        },
-        {
-          "durationMs": 5.178334,
-          "responseBytes": 11951,
-          "sampleIndex": 18,
-          "status": 200
-        },
-        {
-          "durationMs": 5.265584,
-          "responseBytes": 11951,
-          "sampleIndex": 19,
-          "status": 200
-        },
-        {
-          "durationMs": 5.270834,
-          "responseBytes": 11951,
-          "sampleIndex": 20,
           "status": 200
         }
       ],
       "summary": {
         "durationMs": {
-          "median": 5.267167,
-          "p95": 5.326792,
-          "min": 5.178334,
-          "max": 5.449541
+          "median": 5.79425,
+          "p95": 6.487916,
+          "min": 5.665667,
+          "max": 6.487916
         },
         "responseBytes": {
           "median": 11951.0,
@@ -438,132 +168,42 @@
       "path": "/api/articles/1",
       "samples": [
         {
-          "durationMs": 0.825917,
+          "durationMs": 0.9485,
           "responseBytes": 787,
           "sampleIndex": 1,
           "status": 200
         },
         {
-          "durationMs": 0.827333,
+          "durationMs": 0.876417,
           "responseBytes": 787,
           "sampleIndex": 2,
           "status": 200
         },
         {
-          "durationMs": 0.826792,
+          "durationMs": 0.841542,
           "responseBytes": 787,
           "sampleIndex": 3,
           "status": 200
         },
         {
-          "durationMs": 0.829542,
+          "durationMs": 0.831166,
           "responseBytes": 787,
           "sampleIndex": 4,
           "status": 200
         },
         {
-          "durationMs": 0.83125,
+          "durationMs": 0.826625,
           "responseBytes": 787,
           "sampleIndex": 5,
-          "status": 200
-        },
-        {
-          "durationMs": 0.825083,
-          "responseBytes": 787,
-          "sampleIndex": 6,
-          "status": 200
-        },
-        {
-          "durationMs": 0.844666,
-          "responseBytes": 787,
-          "sampleIndex": 7,
-          "status": 200
-        },
-        {
-          "durationMs": 0.821125,
-          "responseBytes": 787,
-          "sampleIndex": 8,
-          "status": 200
-        },
-        {
-          "durationMs": 0.821417,
-          "responseBytes": 787,
-          "sampleIndex": 9,
-          "status": 200
-        },
-        {
-          "durationMs": 0.809125,
-          "responseBytes": 787,
-          "sampleIndex": 10,
-          "status": 200
-        },
-        {
-          "durationMs": 0.813083,
-          "responseBytes": 787,
-          "sampleIndex": 11,
-          "status": 200
-        },
-        {
-          "durationMs": 0.814375,
-          "responseBytes": 787,
-          "sampleIndex": 12,
-          "status": 200
-        },
-        {
-          "durationMs": 0.832583,
-          "responseBytes": 787,
-          "sampleIndex": 13,
-          "status": 200
-        },
-        {
-          "durationMs": 1.026209,
-          "responseBytes": 787,
-          "sampleIndex": 14,
-          "status": 200
-        },
-        {
-          "durationMs": 0.844416,
-          "responseBytes": 787,
-          "sampleIndex": 15,
-          "status": 200
-        },
-        {
-          "durationMs": 0.833292,
-          "responseBytes": 787,
-          "sampleIndex": 16,
-          "status": 200
-        },
-        {
-          "durationMs": 0.809458,
-          "responseBytes": 787,
-          "sampleIndex": 17,
-          "status": 200
-        },
-        {
-          "durationMs": 0.828208,
-          "responseBytes": 787,
-          "sampleIndex": 18,
-          "status": 200
-        },
-        {
-          "durationMs": 0.828792,
-          "responseBytes": 787,
-          "sampleIndex": 19,
-          "status": 200
-        },
-        {
-          "durationMs": 0.815542,
-          "responseBytes": 787,
-          "sampleIndex": 20,
           "status": 200
         }
       ],
       "summary": {
         "durationMs": {
-          "median": 0.826792,
-          "p95": 0.844666,
-          "min": 0.809125,
-          "max": 1.026209
+          "median": 0.841542,
+          "p95": 0.9485,
+          "min": 0.826625,
+          "max": 0.9485
         },
         "responseBytes": {
           "median": 787.0,

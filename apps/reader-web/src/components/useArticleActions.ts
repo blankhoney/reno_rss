@@ -25,6 +25,8 @@ type ActionResult =
       variant?: ToastVariant;
     };
 
+type ActionRequest = (signal: AbortSignal) => Promise<{ result: ActionResult }>;
+
 export const ARTICLE_DATA_CHANGED_EVENT = "ai-reader:articles-changed";
 export const TRANSLATE_REQUEST_TIMEOUT_MS = 30_000;
 export const TRANSLATE_REQUEST_TIMEOUT_MESSAGE = "全文翻译请求超时，请稍后重试";
@@ -99,12 +101,16 @@ function normalizeActionResult(result: ActionResult): {
 export function useArticleActions(article: Article | null, currentLang: SummaryLangId) {
   const [pendingAction, setPendingAction] = useState<ActionKey | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [canRetryAction, setCanRetryAction] = useState(false);
   const actionAbortRef = useRef<AbortController | null>(null);
+  const retryActionRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     actionAbortRef.current?.abort();
     setPendingAction(null);
     setActionError(null);
+    setCanRetryAction(false);
+    retryActionRef.current = null;
   }, [article?.id]);
 
   useEffect(() => {
@@ -113,26 +119,35 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     };
   }, []);
 
-  async function run(action: ActionKey, request: (signal: AbortSignal) => Promise<ActionResult>) {
+  async function run(action: ActionKey, request: ActionRequest) {
     if (article == null || pendingAction != null) return;
     const abortController = new AbortController();
     actionAbortRef.current?.abort();
     actionAbortRef.current = abortController;
     setPendingAction(action);
     setActionError(null);
+    setCanRetryAction(false);
+    retryActionRef.current = null;
     try {
-      const result = normalizeActionResult(await request(abortController.signal));
+      const {
+        result,
+      } = await request(abortController.signal);
+      const normalized = normalizeActionResult(result);
       if (abortController.signal.aborted) return;
       emitToast({
-        title: result.message,
-        variant: result.variant ?? "success",
-        action: result.action ?? null,
+        title: normalized.message,
+        variant: normalized.variant ?? "success",
+        action: normalized.action ?? null,
       });
       dispatchArticleDataChanged(article.id);
     } catch (error) {
       if (isAbortError(error)) return;
       const raw = error instanceof Error ? error.message : "操作失败";
       setActionError(articleActionErrorMessage(raw));
+      retryActionRef.current = () => {
+        void run(action, request);
+      };
+      setCanRetryAction(true);
     } finally {
       if (actionAbortRef.current === abortController) {
         actionAbortRef.current = null;
@@ -143,6 +158,8 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
 
   return {
     actionError,
+    canRetryAction,
+    retryLastAction: () => retryActionRef.current?.(),
     isFetchingContent: pendingAction === "fetchContent",
     isTranslating: pendingAction === "translate",
     isTogglingCandidate: pendingAction === "candidate",
@@ -150,10 +167,10 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     isMarkingRead: pendingAction === "read",
     refreshFullContent: () =>
       run("fetchContent", async (signal) => {
-        if (article == null) return "";
+        if (article == null) return { result: "" };
         const created = await enqueueFetchContentJob(article.id, { signal });
         const job = await pollJobUntilTerminal(created.jobId, { signal });
-        return contentFetchJobMessage(job);
+        return { result: contentFetchJobMessage(job) };
       }),
     translateFullText: async () => {
       if (article == null || pendingAction != null) return null;
@@ -215,25 +232,29 @@ export function useArticleActions(article: Article | null, currentLang: SummaryL
     },
     toggleCandidate: () =>
       run("candidate", async () => {
-        if (article == null) return "";
+        if (article == null) return { result: "" };
         await updateArticleState(article.id, { saved: !article.starred });
-        if (article.starred && article.project) return "已移出候选并取消立项";
-        return article.starred ? "已移出候选" : "已加入候选";
+        if (article.starred && article.project) {
+          return { result: "已移出候选并取消立项" };
+        }
+        return { result: article.starred ? "已移出候选" : "已加入候选" };
       }),
     enqueueProject: () =>
       run("project", async () => {
-        if (article == null) return "";
+        if (article == null) return { result: "" };
         await updateArticleState(article.id, { project: true, saved: article.starred ? undefined : true });
         return {
-          message: article.starred ? "已立项" : "已加入候选并立项",
-          action: { href: projectHref(article.id, currentLang), label: "查看立项" },
+          result: {
+            message: article.starred ? "已立项" : "已加入候选并立项",
+            action: { href: projectHref(article.id, currentLang), label: "查看立项" },
+          },
         };
       }),
     markRead: () =>
       run("read", async () => {
-        if (article == null) return "";
+        if (article == null) return { result: "" };
         await updateArticleState(article.id, { status: "read", readProgress: 1 });
-        return "已标记为已读";
+        return { result: "已标记为已读" };
       }),
   };
 }

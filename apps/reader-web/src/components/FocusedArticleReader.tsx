@@ -557,6 +557,9 @@ export function FocusedArticleReader({
     [annotations, baseHtml],
   );
   const displayedHtml = highlightApplication.html;
+  const unresolvedAnnotations = annotations.filter((item) =>
+    highlightApplication.unresolvedAnnotationIds.includes(item.id),
+  );
   const scoreStatusStyle: TierStatusStyle | undefined = score
     ? { "--statusTierColor": `var(${tierColorVar(score.tier, score.overall)})` }
     : undefined;
@@ -689,7 +692,14 @@ export function FocusedArticleReader({
       </section>
 
       {articleActions.actionError ? (
-        <p className="readerActionError">{articleActions.actionError}</p>
+        <section className="readerActionError" role="alert">
+          <p>{articleActions.actionError}</p>
+          {articleActions.canRetryAction ? (
+            <button type="button" className="readerToolbarBtn" onClick={articleActions.retryLastAction}>
+              重试操作
+            </button>
+          ) : null}
+        </section>
       ) : null}
 
       {article.contentZhStatus === "failed" ? (
@@ -873,9 +883,22 @@ export function FocusedArticleReader({
 
         {contentNotice ? <p className="contentPartialNotice">{contentNotice}</p> : null}
         {highlightApplication.unresolvedAnnotationIds.length > 0 ? (
-          <p className="contentPartialNotice" role="status">
-            有 {highlightApplication.unresolvedAnnotationIds.length} 条已保存划线因内容变化未安全定位；原笔记仍保留，请核对原文后重新标注。
-          </p>
+          <>
+            <p className="contentPartialNotice" role="status">
+              有 {highlightApplication.unresolvedAnnotationIds.length} 条已保存划线因内容变化未安全定位；原笔记仍保留，请核对原文后重新标注。
+            </p>
+            <details className="unresolvedAnnotations">
+              <summary>查看保留的未定位标注（{unresolvedAnnotations.length}）</summary>
+              <ul>
+                {unresolvedAnnotations.map((item) => (
+                  <li key={item.id}>
+                    {item.selectedText ? <p>原选区：{item.selectedText}</p> : null}
+                    <p>{item.content}</p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </>
         ) : null}
 
         <div className="articleListActions" style={{ marginBottom: 8 }}>

@@ -2,405 +2,327 @@
 
 ## 0. Document Contract
 
-This file is the authoritative, self-contained contract for the long-running evolution of AI Reader.
+该文件是 `AI Reader` 这次长期迭代的权威合同，包含：单一目标、边界、优先级、验收、决策与停机条件。
+`AGENTS.md` 规定了持续执行的工程规则；`PLANS.md` 记录执行日志与当前进度。两者冲突时优先级为：`AGENTS.md` ＞ `GOAL.md` ＞ `PLANS.md`。
+`PLANS.md` 必须只记录“当前待做项”和可执行证据，`GOAL.md` 负责“终态与标准”。
 
-- `AGENTS.md` defines durable engineering rules.
-- `GOAL.md` defines the single product outcome, boundaries, priorities, evidence, acceptance gates, autonomous decision rules, and finish condition.
-- `PLANS.md` is a replaceable execution ledger. If it conflicts with this file, this file wins and the next run repairs `PLANS.md`.
-- No run may weaken a MUST gate, expand into an unrelated product, invent evidence, expose a secret, or silently reinterpret a failure as success.
-- A run may correct stale baseline facts, tighten a target after repeatable measurement, add a newly evidenced risk, split a milestone, or change an implementation path while preserving the primary objective.
-- Missing accounts, credentials, external services, browsers, or infrastructure never become a human-response blocker. The run uses a local service, temporary database, adapter, deterministic fixture, Mock, or safe degradation; records exactly which external proof remains absent; and continues every independent item.
-- The contract has no permanent `BLOCKED` state. Unsafe or unavailable actions are contained and replaced, retried later, or excluded by an already-defined non-goal without stopping unrelated progress.
+本合同不允许：
+
+1) 将未验证的数据写成真实基线；2) 因缺少外部服务/秘钥/浏览器/生产权限将任务定义为“阻塞”；3) 引入手工审批才可继续的计划；4) 把主观优化（例如“更漂亮”）当作完成标准；5) 删除、回滚或重写用户正在使用的核心业务契约。
+
+执行规则：
+
+- 所有未通过门控的缺口必须写成 `NEEDS_BASELINE` 或 `IN_PROGRESS`，而不是 PASS。
+- 外部依赖缺失时采用替代顺序：**现有确定性事实契约 → 本地适配/Mock/回退方案 → 可重放本地服务 → CI 现场服务**，并继续独立推进其他项，不得把任务挂起等待人类确认。
+- `docs/session-handoff.md` 与 `docs/learning-notes.md` 的更新用于交接与长期可操作性；任何一次成功执行后必须留下可复验路径与证据。
 
 ## 1. Primary Objective
 
-Evolve AI Reader into a trustworthy daily research workspace for a self-hosting researcher or small team: a user can move from Daily Intelligence or Scan, through focused reading and grounded AI assistance, into private highlights, notes, review, research, and export without losing context, crossing identity boundaries, seeing false states, or being trapped by viewport, keyboard, failure, or deployment drift. The repository reaches a deliverable state when one exact revision passes every MUST gate in §7, its user-visible core loop is proven across the required state/input/browser matrix, its data and staging release are reproducible and rollback-ready, and every remaining limitation is both disclosed and outside the core outcome.
+为自托管研究者与小团队，优化 AI Reader 成为一套可无人值守持续进化的“研究主线保真系统”：
+
+- 核心流程（Daily Intelligence / Scan / Focus / Keep / Ask / Search / Research / Review / Export）在上下文、状态、权限和失败恢复上可预测；
+- 标注（高亮/笔记）在内容变化、重复文本、失效定位、会话切换场景下不发生“错误绑定”；
+- 生产边界（页面路由、API 授权、Admin、secret）保持清晰且可验证；
+- 所有关键体验变化可由自动化验证、可复用基线与可回滚发布证据支撑；
+- 目标达成条件是：一个明确 SHA 的当前仓库修订版通过全部 MUST 验收、通过完整里程碑，并在自动化记录中可无外部记忆重构后续运行。
 
 ## 2. User-Visible End State
 
-- A public demo visitor immediately understands the product and can enter the shared functional demo; a private deployment can retain the same workflow without inheriting shared-demo assumptions.
-- Daily Intelligence and Scan present truthful loading, success, partial-failure, empty, stale, and retry states. Successful content remains usable when a secondary request fails.
-- Opening an article preserves list position and navigation context. Focus mode makes the article primary without hiding essential actions.
-- Ask/Agent answers are explicitly grounded in the current article and available project data. Mock-provider tests prove behavior without claiming real-provider quality or spending external credits.
-- A selection made by mouse, touch-equivalent input, or keyboard can become a highlight or note. Editor focus does not lose it; repeated text, inline markup, refreshed content, retries, and session changes cannot silently attach knowledge to the wrong passage or user.
-- Search, Research, Review, Export, and Admin expose complete state vocabulary and role boundaries. Non-admin users cannot enter Admin data.
-- The six anchor widths from 320 to 1440 px have no horizontal overflow, fixed-layer collision, unreachable control, or inappropriate desktop-only hint. Keyboard, reduced-motion, light/dark, Chromium, Firefox, and WebKit preserve the core outcome.
-- Required text and controls meet WCAG 2.2 AA semantics and contrast. Motion is purposeful, bounded, compositor-safe where practical, and absent when reduced motion is requested.
-- The warm-paper, editorial, terracotta system remains the product identity because it is the implemented and evidenced direction. Improvement comes from hierarchy, evidence, reading rhythm, and state craft—not generic dashboard decoration.
-- Failures are explicit, recoverable, and observable. Session-private state is not retained across logout or user change.
-- An exact Git revision produces immutable images, upgrades a clean/restored PostgreSQL database safely, deploys to staging, passes smoke and browser probes, and retains a tested rollback point. Production remains fail-closed and outside this goal’s mutation boundary.
+从用户视角，项目最终可见状态为：
+
+- **入口与流程**：访客可直接进入公开 demo（或通过登录）进入 Daily Intelligence；工作流可从浏览、筛选、重点阅读到 Ask、Research、Export 无中断继续。
+- **状态与恢复**：加载、空状态、部分成功、二次请求失败、重试、缓存回源失败等都有明确提示，不会误导为“全部成功/全部失败”。
+- **阅读与标注**：文章上下文、列表位置、返回来源可保持；标注/笔记可在焦点移到编辑器后仍稳定提交；内容改动导致锚点变化时要么明确标记待确认，要么拒绝静默错绑。
+- **交互一致性**：键盘、触控/触控等效、移动端导航、底部安全区域、焦点返回、模态层/菜单层级都可复用并可回退。
+- **速度与稳定性**：关键页面在可接受阈值内可用，错误恢复不阻断任务；非关键体验故障不应拖垮主路径。
+- **无障碍与降级**：`reduced-motion` 与高对比状态下仍可识别、可操作；错误与重试信息在视觉与语义上可感知。
+- **品牌与视觉一致性**：延续 warm editorial 方向，但不以“装饰”代替任务语义。信息层级、动作层级、品牌识别与加载/错误状态应稳定一致。
+- **交付与回滚**：可在 staging 路径上完成镜像发布、验证、回滚/恢复演练与记录；生产保持只读验证边界，除用户明确要求外不参与迭代突发变更。
 
 ## 3. Verified Baseline
 
-Snapshot: 2026-07-26, repository `blankhoney/reno_rss`.
+快照：`2026-07-26`，工作区分支 `goal/m1-annotation-integrity`，`HEAD=ff29cd70`。
+当前工作区有未提交文件，但本次基线以当前仓库行为为准。
 
-| Dimension | Verified current state | Evidence | Confidence | Missing evidence |
+| Dimension | Current state | Evidence | Confidence | Missing evidence |
 | --- | --- | --- | --- | --- |
-| Git and delivery | PR #15 was merged with merge commit `969a077a`; its parent `2fc54886` preserves the focused branch history. Independent PR run `30173143405` and main push run `30173396803` both passed all three jobs. Main deployed exact tag `sha-969a077`; internal metrics scrape passed; health/articles returned 200, non-admin Admin returned 403, and public metrics returned 404. | Git history; PR #15; GitHub Actions runs `30173143405` and `30173396803` | High | Rollback/forward rehearsal and GHCR cleanup |
-| Product topology | Next.js Reader Web, FastAPI API, asynchronous Worker, PostgreSQL, Miniflux, Caddy, and Authelia form the current product. Staging is a public shared-user functional demo; Admin remains role-protected. | Compose/Caddy; README/technical docs; API dependencies | High | Private-deployment end-to-end fixture |
-| Reader correctness | 189 Node tests, production build, and 45 Chromium browser scenarios pass on the merged candidate. Representative fixtures cover eight primary surfaces and fail on unexpected console/page errors. | PR/main CI; `apps/reader-web`; Playwright report | High | Firefox/WebKit; full A-02/A-06 state and input matrix |
-| API correctness | 219 tests and Ruff 0.15.22 pass. Pydantic, OpenAPI, and generated TypeScript agree on the versioned annotation-anchor contract. | CI; `output/anchor/annotation-anchor-contract-2026-07-26.json` | High | Restored-snapshot PostgreSQL behavior |
-| Worker correctness | 121 tests pass; 4 PostgreSQL-conditional tests skip in the local baseline. Ruff 0.15.22 passes. | Local baseline; CI | High | Execute all four conditional tests on PostgreSQL |
-| Database/migrations | CI performs a clean Alembic upgrade. Local DB benchmark records zero measured queries and is correctly marked unavailable. | CI; `output/performance/db-needs-baseline-2026-07-26.json` | High | Restored snapshot, upgrade/rollback rehearsal, query plans and nonzero timings |
-| Annotation integrity | Typed version-1 text-quote anchors persist exact/prefix/suffix/start/end and survive note-editor focus. Anchor-only persistence and invalid ranges are tested. | Commit `01011e02`; API/Reader/browser tests | High | Repeated quote, inline markup, refreshed content, remaining input/retry/session cases |
-| Auth/privacy | Session/cache/Admin tests exist. Staging smoke returns Admin 403 for a non-admin. The ignored local `.env` contents were not read and its mode is 0600. | Tests; mode-only evidence; staging smoke | High locally/staging | VPS filename/mode-only inventory; full user A→B browser matrix |
-| Metrics/observability | Public exact `/api/metrics` returns 404 while Worker can scrape the environment API alias internally. Request, queue, scheduler, failure, and LLM-account metric families exist. | Run `30173143405`; Caddy/smoke contracts | High for staging | Alert semantics and request/job log correlation; tracing is not yet justified |
-| Dependency security | Next 16.2.11 plus PostCSS 8.5.18 and Sharp 0.35.0 overrides produce 0 production npm findings; full audit has one development-only low. Pinned Trivy vulnerability/secret scan passes. | `output/security/frontend-dependency-remediation-2026-07-26.json`; CI | High as of snapshot | Re-evaluate overrides after upstream range changes; action-runtime deprecation maintenance |
-| Frontend assets | Self-hosting two licensed Newsreader WOFF2 files reduced repeatable native `.next/static` output from 8,424 to 1,816 KiB; `.next/standalone` is 39,084 KiB. | `output/performance/frontend-font-build-2026-07-26.json` | High for filesystem size | Route transfer, Web Vitals, CPU, long tasks, low-end device/network: `NEEDS_BASELINE` |
-| Accessibility | Named landmarks/controls, keyboard tests, focus handling, and global reduced-motion behavior exist. Light `muted/bg`, `muted/panel`, and `accent/bg` candidates measure 3.40:1, 3.71:1, and 4.23:1, below 4.5:1 for required normal text. | Semantic snapshots; tests; token calculation | High for known gaps | Automated audit, role-aware contrast map, screen-reader, 200% zoom/reflow, cross-engine |
-| Responsive/motion | Chromium covers selected breakpoints. Mobile still risks desktop hint density. Width animation and blur/backdrop effects have no runtime performance evidence. | Screenshots; CSS/source scan | Medium-high | Six-width pairwise matrix and normal/reduced traces |
-| Visual/product identity | The implemented warm editorial system is coherent enough to recognize, but hierarchy, density, whitespace, and state polish vary. Old indigo prose is historical, not an active design direction. | Current source and baseline screenshots | High | Fixed-fixture rubric score across every core surface |
-| Performance | Repeatable in-memory API and queue harnesses exist; project-route Web and real DB values are missing. No user-task completion timing exists. | `output/performance/` | High | Nonzero repeatable Web/API/queue/DB baselines and derived budgets |
-| CI/CD/rollback | Main run `30173396803` builds and pushes three revision-labelled images and deploys exact SHA `969a077a` to staging. GHCR cleanup run `29721686230` failed package lookup/ownership. Rollback procedure exists but current-candidate rehearsal is unproven. | Workflows/logs | High | Rollback/forward rehearsal and cleanup dry-run/success |
-| Stability | Representative success and one explicit Daily failure fixture are truthful and console-gated; the complete loading/empty/partial-error/retry continuity matrix is not closed. | E2E fixtures/tests | High | A-02 full state matrix and recovery timing |
-| Documentation/maintainability | Active bilingual docs match the public demo and current CI. Retired local docs are labelled historical. `globals.css`, `FocusedArticleReader.tsx`, `ProductModules.tsx`, adapters, and the main E2E file remain large hotspots; size alone is not evidence to split them. | Source/doc review | High | Newcomer command replay; failure-linked seam evidence |
-| Production | Public production API probes returned 502. This goal does not mutate or promote production; it requires fail-closed behavior and completes against staging. | Read-only status probes | High for observed state | Root cause is operational context, not required for staging completion |
-| External AI | Staging uses MiniMax. Runtime proof intentionally skips real inference when provider is non-Mock to avoid out-of-contract spend. | Deploy logs | High | Real-provider quality/cost is optional evidence, never a claimed automated result |
-| SEO / 3D / formal compliance | N/A: the core is a session research application; no public-content SEO outcome, 3D comprehension use case, regulated jurisdiction, or certification target exists. | Product/code review | High | Reopen only when repository evidence creates a core-user need |
+| 仓库与执行入口 | 当前分支为 `goal/m1-annotation-integrity`；AGENTS 唯一位于仓库根；CI 触发器集中在 `.github/workflows/*`。 | `git log --oneline`、`rg --files AGENTS.md`、`cat .github/workflows/ci.yml` | High | 生产端完整上线证据 |
+| 前后端栈 | `reader-web`(Next.js 16.2.11)、`api`(FastAPI)、`worker`(Python 3.13, uv)、`PostgreSQL + Compose + Caddy + Authelia`，匿名 demo 与生产边界已分离。 | `README.md`、`TECHNICAL.md`、`SPEC-CICD.md`、`infra/caddy/Caddyfile`、Compose 渲染 | High | 运行时容器外链路的当前小时级健康曲线 |
+| API 正确性 | `uv ... pytest`（API）通过；`ruff check` 通过。 | 本次命令：`uv ... python -m pytest tests -q`（219 pass）；`ruff check .`（pass） | High | 真实 Postgres 条件下数据库一致性和迁移回退演练 |
+| Worker 正确性 | `uv ... pytest`（worker）通过，含 4 个 PostgreSQL 条件跳过；`ruff check` 通过。 | 本次命令：`uv ... python -m pytest tests -q`（121 pass, 4 skipped）；`ruff check .`（pass） | High | 并发/恢复场景下长链路与重试边界 |
+| Reader 回归 | `npm test`（193 pass）；`npm run build` 成功；`npm run test:e2e` 成功（48/48）。 | 本次命令：`npm test`, `npm run build`, `npm run test:e2e`（48） | High | Firefox/WebKit 全量矩阵、重试边界与多输入法行为 |
+| 前端测试/构建基线 | 构建与测试为绿色；未引入 lint 脚本。 | `apps/reader-web/package.json`（scripts）、`npm run build`、`npm run test` | High | 是否需要新增 `npm run lint` 为约束条件 |
+| CI/CD 可验证性 | `ci.yml` 在主链路覆盖 API/worker/test/build/compose/deploy/checks 与 Trivy；当前分支最近有成功与失败运行。 | `.github/workflows/ci.yml`、`gh run list --limit 20`（最近成功与失败记录） | Medium | 最近成功运行中发布/回滚脚本是否与本版本完全一致 |
+| 部署配置 | Compose base/staging/prod/edge 可渲染；`api-staging` 与 `web-staging`、`api-prod` 与 `web-prod` 可识别；`bash -n` 脚本与 deploy/迁移脚本语法通过。 | 本地命令：`docker compose ... config`（base/staging/prod/edge）、脚本语法检查 | High | 真正容器内 Metrics scrape 与回滚演练 |
+| 授权与安全 | `git diff --check` 与脚本语法检查通过；`metrics` 内外边界脚本层已校验；`.env` 本地权限已整改。 | `python infra/scripts/check-metrics-boundary.py`（ok）、`bash -n` 脚本、`stat` 与 `chmod` 记录 | High | 生产域上 `401/403/404` 的长期回归与二用户隔离场景 |
+| 依赖与供应链 | `npm audit --omit=dev` 为 0 高危/致命；Trivy secret/漏洞扫描有本地证据。 | `npm audit --omit=dev`、`output/security/frontend-dependency-remediation-2026-07-26.json`、`output/security/trivy-secret-scan-2026-07-26.json` | High（本地） | 生产镜像构建后的外部依赖漂移与锁定持续性 |
+| 性能基线 | API 与 queue 有本地记忆库/内存基线；DB 基线标记 `NEEDS_BASELINE`；Web route/Web Vitals 目前仅有部分离线样本。 | `output/performance/api-memory-2026-07-26.json`、`output/performance/queue-memory-2026-07-26.json`、`output/performance/harness-validation-2026-07-26.json`、`output/performance/db-needs-baseline-2026-07-26.json` | Medium | Web/Web Vitals、真实 Postgres、跨设备真实路径负载 |
+| 可访问性 | 已有静态可访问性快照与对比值，但仍存在低对比风险；A11Y 体系缺少完整自动化回归门。 | `output/performance/frontend-font-build-2026-07-26.json` 中的对比抽样、Playwright 现有样本 | Medium | 自动化 contrast/role/reduced-motion/reflow 全量栅格 |
+| 可测验产品完整性 | M1 的三个小节各有独立证据；核心循环仍缺少完整状态矩阵（输入×来源×故障路径×恢复路径）。 | `output/evidence/m1-daily-partial-failure-2026-07-26.json`、`output/evidence/m1-reader-ask-retry-2026-07-26.json`、`output/evidence/m1-annotation-anchor-recovery-2026-07-26.json` | Medium | 完整 `A-02/A-03/A-07` 状态矩阵 |
+| 运行时体验与交付边界 | 生产探针与回归并未作为本轮目标内动作；当前实践集中在 staging 与本地验证。 | 既有 `docs/goal-completion-evidence.md` 历史记载 + `gh run` 历史 | Medium | 生产实测与生产侧故障恢复完整证据 |
 
-Baseline artifacts:
+基线工件（建议固定期内持续更新）：
 
 - `output/evidence-sha256.txt`
 - `output/playwright/goal-baseline-2026-07-26/`
 - `output/playwright/m0-fixtures-2026-07-26/`
 - `output/playwright/m1-fonts-2026-07-26/`
+- `output/playwright/m1-fonts-2026-07-26/`
 - `output/performance/`
 - `output/security/`
 - `output/anchor/annotation-anchor-contract-2026-07-26.json`
 - `output/release/pr15-staging-proof-2026-07-26.json`
+- `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json`
+- `output/evidence/m1-daily-partial-failure-2026-07-26.json`
+- `output/evidence/m1-reader-ask-retry-2026-07-26.json`
+- `output/evidence/m1-candidate-state-retry-2026-07-26.json`
 
-## 4. Invariants, Constraints, and Non-Goals
+## 4. Constraints and Non-Goals
 
-### Invariants
+### 必须保留
 
-- Preserve Miniflux integration, existing public API shapes, database data, annotation metadata compatibility, shared-demo role behavior, Admin authorization, session invalidation, CacheStorage isolation, and export ownership.
-- Preserve the current Next.js/React/FastAPI/SQLAlchemy/Alembic/PostgreSQL/Compose architecture unless a reproduced failure proves that a smaller local fix cannot satisfy a MUST gate.
-- Keep generated OpenAPI and TypeScript artifacts synchronized.
-- Keep secrets ignored, unread in evidence, least-readable in practical scope, and absent from Git/log artifacts.
-- Keep production fail-closed. No autonomous run may mutate production, DNS, credentials, or irreversible user data.
-- Maintain reduced-motion, keyboard, light/dark, current URLs, and backward-compatible annotation parsing throughout incremental work.
-- Every behavior change updates `docs/learning-notes.md` and the evidence ledger as required by `AGENTS.md`.
+1. 维持现有架构：`reader-web + api + worker + postgres + caddy + miniflux + authelia`，不改造为新平台。
+2. 保留 API 契约、session 模型、标注元数据兼容与匿名 demo 行为边界。
+3. 保留 OpenAPI 与前端生成类型的同步机制（export + drift check）。
+4. 不改动生产域名、数据库密码、secret、真实用户数据、SSH key 与凭证。
+5. 生产发布链路为手工确认场景，当前任务默认在 staging 与本地可验证面内交付。
 
-### Non-goals
+### 不做清单（N/A 或明确否决）
 
-- No broad re-skin, Tailwind/shadcn migration, framework rewrite, speculative microservice, generalized design-system package, or file-size-only refactor.
-- No decorative 3D, particles, gradients, glow, excessive rounding, or animation added to raise perceived quality.
-- No production restoration/promotion, real-provider spend, full localization platform, SEO campaign, or invented compliance program.
-- No dependency upgrade without an acceptance-mapped security, compatibility, or reproducibility need.
-- No tracing platform unless current logs/metrics fail to diagnose a reproduced incident.
-- No destructive data repair. Use copy-on-write fixtures, temporary databases, reversible migrations, and restored snapshots.
+1. 不引入新语言栈/重写微服务边界；
+2. 不进行无证据的“视觉变得更花哨”类优化（渐变、发光、过度阴影、粒子、无目的动效）；
+3. 不进行全量依赖大升级，除非由明确 MUST 门禁要求和回归证据支持；
+4. 不把“阻塞/待审批”写入核心流程；
+5. 不把生产作为自动验证唯一边界；生产仅作为只读回归窗口。
 
-## 5. Evidence-Backed Opportunity Map
+## 5. Opportunity Map
 
-| Area | Current opportunity | User impact | Confidence | Autonomous intervention |
-| --- | --- | --- | --- | --- |
-| Core product loop | Capabilities exist, but one continuous Scan → Focus → Keep → Research rubric is incomplete. | Individually working modules may still fail as one daily workflow. | High | Build one deterministic cross-surface scenario and close its state/continuity gaps before adding features. |
-| Knowledge capture | Initial anchor contract is green; ambiguity, content refresh, remaining input modes, retry, and user switching are incomplete. | Notes may attach incorrectly or disappear. | High | Test wrong-anchor cases first; add bounded restoration/rejection behavior without a migration unless evidence requires one. |
-| State truth | Loading, empty, partial-error, retry, and stale combinations are not systematic across primary views. | Users can misread failure as absence or lose successful content. | High | Create a shared state matrix and one fixture per behavior class; preserve usable partial results. |
-| Accessibility | Known light-theme token ratios can fail normal-text AA; complete audit is absent. | Required information may be unreadable or unannounced. | High | Add role-aware contrast tests and automated semantic audit; adjust the smallest token/usage scope. |
-| Responsive/input | Six widths, touch-equivalent input, zoom/reflow, and two engines are incomplete. | Controls can collide or become unreachable. | High | Add pairwise coverage that maximizes state/width/input diversity without a full Cartesian explosion. |
-| Visual craft | Identity exists; hierarchy/density/state polish is uneven. | Product can feel inconsistent despite strong foundations. | Medium-high | Use fixed fixtures and §8 rubric; improve evidence hierarchy and reading rhythm, not decoration. |
-| Frontend performance | Static size improved; route/user timing and motion costs are unknown. | Work may optimize bytes without improving experience. | High | Measure five-run warm/cold baselines, derive budgets, then optimize only the largest repeatable bottleneck. |
-| API/data/worker | Four PostgreSQL tests, restored-snapshot migration, and DB/queue concurrency evidence are missing. | SQLite-green behavior may fail under deployment conditions. | High | Use CI PostgreSQL or disposable local containers; run conditional tests, migrations, plans, and bounded concurrency. |
-| Resilience | Recovery and degradation behavior is partly tested, not budgeted. | Transient failures may trap users or duplicate work. | High | Add timeout/retry/idempotency scenarios and measure recovery, preserving explicit failure after bounded retries. |
-| Security/privacy | Main code gate is green; VPS secret metadata and session A→B proof remain. | Private state or operational details could escape. | High | Mode-only diagnostics, two-user fixtures, cache inspection, and redacted scanner summaries. |
-| Observability | Metrics boundary is safe; alert semantics and correlation are incomplete. | Operators may see numbers without actionable diagnosis. | Medium-high | Assert metric families/labels, correlate request/job IDs, and reproduce one failure from logs before considering tracing. |
-| Release/rollback | Exact PR deploy works; main closure, rollback rehearsal, and cleanup remain. | A release can succeed yet be hard to undo or retain safely. | High | Prove main SHA, previous immutable tag rollback, redeploy current tag, and cleanup dry-run before deletion. |
-| Maintainability | Large hotspots exist without failure-linked extraction evidence. | Review cost and regression locality can degrade. | Medium | Extract only seams touched by an accepted behavior when tests show a clearer ownership boundary. |
-| Documentation/DX | Current docs improved; one retired service remains in root rules and newcomer replay is absent. | Contributors may run an obsolete check. | High | Reconcile executable commands with current services and run them from a clean clone/worktree. |
-| Cost/external services | Safe automation avoids real MiniMax spend. | Quality/cost trade-off remains unknown without risking credits. | High | Keep Mock/contract gates authoritative; optional capped evaluation never gates completion or claims unsupported quality. |
-| SEO / 3D / formal regulation | N/A under current product evidence. | Work would consume scope without advancing the objective. | High | Keep excluded and re-evaluate only from new repository/user-outcome evidence. |
+| Area | Evidence-backed problem | User impact | Root-cause hypothesis | Confidence | Candidate intervention |
+| --- | --- | --- | --- | --- | --- |
+| 核心业务循环 | `A-02` 已有 Daily/Ask 两个局部故障场景，但完整循环仍缺完整矩阵。 | 用户可在局部故障后仍陷入不完整状态。 | 验收范围未覆盖跨模块、跨来源、跨故障类型组合。 | High | 建立统一“状态矩阵测试协议”，一次只覆盖一个失败维度。 |
+| 标注锚点 | 已通过重复文本与模糊场景修复，但 inline markup、输入法变体、重试路径不完整。 | 错误归属或丢失笔记。 | 输入/渲染层对锚点恢复分支覆盖不完整。 | High | 增量增加最小失败场景 + 运行时显式提示，不进行静默回填。 |
+| 可访问性 | 有历史对比值显示低对比风险，自动化仍不完整。 | 信息可见性下降，重读流程受阻。 | 缺少可复用 contrast + role + motion 自动回归门。 | High | 建立分层 A11Y 门（normal text contrast、landmarks、keyboard、reflow、reduced-motion）。 |
+| 响应式与输入 | 现有 e2e 覆盖 Chromium 与多个断点，但 Firefox/WebKit、触控-输入矩阵未闭环。 | 长列表/导航/底部遮挡的边界风险仍可复发。 | 测试矩阵未形成覆盖率约束；优化停留在局部手工观察。 | Medium | 在可执行时间预算内补最小化 pairwise 矩阵（宽度×输入模式×关键场景）。 |
+| 稳定性与恢复 | 已有失败场景存在，但没有统一恢复预算与重试上界。 | 用户会在同一失败面反复刷新，工作流中断。 | 缺少故障预算与回放脚本。 | High | 引入统一 `failure-budget` 与恢复时间上界（含重试次数、幂等行为）证据。 |
+| 数据层与迁移 | API/worker 本地与 CI 已验证，PostgreSQL 条件测试有 skip，恢复/并发证据不足。 | 部署层面的行为可能与本地表现不一致。 | 条件性测试与真实 DB 场景未形成默认 gate。 | High | 将恢复/回退/并发场景作为 P0 门禁，保留最小可复现替代。 |
+| 性能与可观测性 | DB 与路由 Web 指标仍为 `NEEDS_BASELINE`；现有 Web harness 使用旧 revision、每个样本新建 context（warmup 不会预热测量）、屏蔽 Service Worker、固定等待，并且只在零资源合成页上验证。 | 不易识别回归，且可能用伪 warm/cold 数字选择错误优化。 | harness 最初仅证明报告结构，未建模真实冷缓存、同-context 热缓存、PWA 缓存或应用就绪条件。 | High | 在性能调优前升级为可区分 `cold`/`warm-http-cache`/`service-worker-controlled` 的 schema-v2：热样本复用 context，使用有意义的 ready marker，记录当前 SHA/工具版本/资源分组/活动请求，并以有资源 fixture 验证缓存行为后再运行五次基线与预算。 |
+| 发布与回滚 | staging 已有部署脚本，但回滚/forward 与清理演练未形成自动门禁闭环。 | 发布可验证但不可快速恢复。 | 发布链路中“证明”与“恢复动作”未统一到 GOAL 契约。 | Medium | 标准化 `deploy + proof + rollback + proof` 成一条里程碑链。 |
+| 文档与可维护性 | 核心流程已有基础文档，但历史内容与新成果仍有重叠。 | 新成员可复现性不足。 | 证据和执行日志未始终同频。 | Medium | 每次里程碑关闭时更新 `PLANS.md`、`evidence-sha256` 与交接文档。 |
+| 产品安全与隐私 | 会话与缓存边界有历史证据，但二用户/跨上下文隔离仍应持续加强。 | 上下文污染会直接影响信任。 | 运行时隔离验证未全部自动化。 | Medium | 两用户隔离脚本与 cache/fixture 比对常态化。 |
+| SEO / 3D / 合规（当前不适用） | 与当前仓库目标无直接耦合。 | 与核心价值关系弱。 | 用户价值未体现于当前主循环。 | High | 标记为 `N/A`，仅在需求变更时复活。 |
 
 ## 6. Prioritized Scope
 
-Priority is recalculated after every milestone using `Value = Impact × Confidence ÷ (Effort × Risk)`, each factor scored 1–5 from current evidence. A higher P0/P1 acceptance failure always outranks cosmetic or speculative work.
+### P0：主目标必达
 
-### P0 — necessary for the primary objective
+| Work | Impact | Confidence | Effort | Risk | Dependency | Why now |
+| --- | --- | --- | --- | --- | --- | --- |
+| 形成完整核心循环状态矩阵：Daily/Scan/Focus/Keep/Reader/Ask/Research 含加载、空、错误、重试、上下文恢复。 | Critical | High | Medium | Low | 当前 Playwright 与 Node 契约 | 先修正确性闭环再做任何外观优化。 |
+| 完善标注恢复边界：重复文本、刷新、输入法输入、重试与会话分离。 | Critical | High | Medium | Medium | `output/evidence/m1-annotation-anchor-recovery...` | 错误归属是研究信任风险主因。 |
+| 将 A-05/A-06（A11Y + 响应式/输入）升级为自动回归门。 | High | High | Medium | Low | 当前 e2e 样例 | 缺失门控会让可用性回归“看起来像样但不可靠”。 |
+| 建立 P95/P50 与噪声阈值的非空性能基线（API、queue、Web、DB）。 | High | Medium | Medium | Medium | harness 脚本与历史报告 | 优化需要可比较指标防止空优化。 |
+| 数据可靠性门：PostgreSQL 条件测试、migration replay、恢复脚本。 | High | High | High | Medium | CI postgres 服务 + 本地脚本 | API/worker 不能只依赖 memory 变体。 |
+| Staging 回滚/恢复链条与证据固定。 | High | Medium | Medium | Medium | deploy/rollback/workflow | 发布成功不等于可恢复成功。 |
 
-| Work | Acceptance | Why now | Dependencies |
-| --- | --- | --- | --- |
-| Complete the core-loop state and continuity matrix | A-02, A-07 | It is the product outcome, not a component detail. | Deterministic fixtures |
-| Close annotation restoration, ambiguity, input, retry, and identity integrity | A-03, A-04, A-08 | Keep is a core action with privacy consequences. | Existing versioned anchor |
-| Prove accessibility, responsive geometry, input, reduced motion, and cross-engine behavior | A-05, A-06 | Unreachable or unreadable UI invalidates the workflow. | Playwright engines/audit tooling |
-| Establish nonzero Web/API/queue/DB baselines and resilience budgets | A-09, A-10 | Optimization and reliability claims need repeatable measures. | Synthetic dataset; disposable PostgreSQL |
-| Execute PostgreSQL/migration/concurrency integrity | A-08, A-10 | Deployment data behavior cannot be inferred from SQLite. | CI service or local container |
-| Close exact-main staging, rollback, and registry maintenance evidence | A-11, A-12 | Delivery is incomplete without reproducibility and recovery. | Existing workflow/GHCR |
-| Preserve security, privacy, and current-truth documentation throughout | A-04, A-13, A-15 | These are cross-cutting trust controls. | Every milestone |
+### P0 后继任务（M1.4 验证后）— 原子文章状态与候选不变量
 
-### Completed M1 Checkpoint — M1.2: Reader/Ask transient-failure continuity
+- **优先级与关系**：P0；仅在 M1.4 的 client failure/retry 证据闭合后开始。它将 M1.4 的“服务端确认状态”延伸到 A-08/A-10 的数据层真实并发语义，保护 A-02 的 Keep/candidate 主循环。
+- **优化目的**：消除 PATCH 风格 article-state 写入的 read-modify-write 丢更新，并让 `project ⇒ saved` 成为所有写入者都无法绕过的存储层不变量。
+- **执行范围**：将 repository 写入变为单一原子操作，只更新请求明确携带的字段；在同一操作内处理 `saved=false → project=false` 与 `project=true` 的合法性。增加可回退 migration，先检测历史无效行并可见失败，绝不静默修复或删除数据；添加等价于 `NOT project OR saved` 的数据库约束。保留既有 request/response/OpenAPI 形状与 Miniflux 边界。
+- **方案取舍**：允许使用行锁加局部更新，或使用经测试的条件式 PostgreSQL upsert；选择更小、可审计且能证明无丢更新的方案。不得用前端重试、乐观更新或仅 memory 测试替代原子性。
+- **验收标准**：并发 `status=read` 与 `saved=true` 后两项均保留；`project=true` 与 `saved=false` 竞争后不存在 `project=true, saved=false` 行；直接无效 insert/update 被数据库拒绝；API 返回的最终状态与持久化状态一致。
+- **验证方法**：新增 memory 行为回归及两个 PostgreSQL 实例的并发集成测试，覆盖 claim/lock 交错、约束拒绝与 migration preflight；运行 API pytest、Ruff、Alembic upgrade、OpenAPI/生成客户端漂移检查和相关 Reader state 场景。记录精确 SHA、数据库摘要、并发步骤和回滚 revision；任何旧数据异常保持可见失败而非自动改写。
+- **风险与回滚**：中等迁移风险。该 slice 独立提交；若 preflight 或 PostgreSQL 行为不成立，revert migration/repository slice，保留 M1.4 的前端失败证据但不得宣称数据层完成。
 
-- **Result and evidence:** the focused slice at `29799d526297114a604da2eea1402c59dfcc21b5` first failed because the E2E proxy had no Ask fixture contract. Its one-time 503, deterministic SSE answer/citation, and browser retry scenario then passed: 1 focused Chromium scenario, 189 Reader Node tests, production build, and 47 Chromium scenarios. `output/evidence/m1-reader-ask-retry-2026-07-26.json` records the exact commands and no-spend limit.
-- **Acceptance relationship:** this is accepted evidence for one A-02/A-07/A-15 state slice only. Together with M1.1 Daily recovery (`output/evidence/m1-daily-partial-failure-2026-07-26.json`), it proves two deterministic partial-failure paths; neither result closes the complete state matrix or any MUST row.
-- **Preserved boundary:** both checkpoints use deterministic fixtures and retain the article/URL context without changing production endpoints, schemas, dependencies, data, model selection, real-provider configuration, or paid-provider behavior.
+### P1：稳定性放大（低风险）
 
-### Completed M1 Checkpoint — M1.3: Safe annotation recovery after refreshed, repeated text
+| Work | Impact | Confidence | Effort | Risk | Dependency | Why now |
+| --- | --- | --- | --- | --- | --- | --- |
+| 建立失败预算与恢复时间窗（retry timeout/fallback/冪等） | High | Medium | Low | Low | P0 状态矩阵 | 降低隐性错误成本。 |
+| 发布前文档与执行一致性收敛（PLANS、学习笔记、runbook） | Medium | High | Low | Low | 既有 runbook | 降低交接成本与误操作风险。 |
+| 分层可维护性：仅对当前已验证问题提取失败定位 seam。 | Medium | High | Medium | Medium | 变更热区 | 防止无关重构。 |
 
-- **Result and evidence:** the resolver and highlighter tests first failed because no anchor-aware restoration/rendering contract existed. The repaired slice maps a version-1 anchor only when its `exact` plus `prefix/suffix` context has one safe plain-text range; it deliberately reports ambiguous, missing, or markup-spanning ranges as unresolved. `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json` records 9 focused Node tests, 193 Reader Node tests, production build, one focused Chromium path, and 48 Chromium scenarios.
-- **User-visible result:** a refreshed article can move an intended repeated quote without moving its saved highlight to the earlier duplicate. If context no longer proves one target, the article remains readable and a status explains that the saved private note is retained but not safely located.
-- **Acceptance relationship:** this advances A-03 and A-04 with one plain-text shifted-repeat and ambiguity slice. It preserves the existing version-1 metadata and legacy unanchored rendering, but does not close inline-markup, input, retry, or multi-user identity cases.
-- **Reversibility:** reverting this slice restores historical rendering without a schema/data/dependency/provider change; no stored annotation is migrated or deleted.
+### P2：体验精修（可验证价值后）
 
-### Current Highest-Priority Task — M1.4: Keep/candidate state failure continuity
-
-- **Priority:** P0 — the core Daily/Scan → Reader → Keep loop remains incomplete until a transient state-write failure is proven not to create false confirmation, lose the active article, or block a retry.
-- **Optimization purpose:** prove that adding/removing a candidate survives one deterministic state API failure truthfully, preserves the relevant card or reader context, and retries to the server-confirmed state.
-- **Execution scope:** inventory the existing list and focused-reader candidate controls plus deterministic state fixtures. Add the smallest initially failing Chromium scenario for one typed state-write failure followed by retry, then implement only the fixture/state synchronization needed to exercise existing controls. Preserve the current `/api/articles/{id}/state` contract, saved/project invariant, URL/query state, user session boundary, and no-real-provider boundary. Do not add optimistic client state, alter database schema, or refactor unrelated list behavior.
-- **Acceptance standard:** verify failure copy is source-specific and no success confirmation or hidden state change occurs before a successful response; the active article/list context remains usable; the same retry reaches a server-confirmed candidate state; and expected injected errors are the only console/page errors. Success-only candidate tests are insufficient.
-- **Verification method:** capture the pre-repair failure, then run a focused browser path, relevant Reader Node/API tests, production build, and the complete Chromium suite. Record fixture transitions, exact SHA, command exits, final visible state, and rollback boundary. A-02/A-07 remain `IN_PROGRESS` until the complete core-loop matrix is closed.
-- **Reversibility:** keep deterministic state failure fixtures and their test with the smallest state-sync repair; revert the candidate slice as one unit if it introduces a stale or cross-user state.
-- **Immediate execution handoff:** begin by tracing the current candidate state response through list and focused-reader controls, then make a single failing 503/retry fixture before modifying behavior.
-
-### P1 — strong quality increase with controlled risk
-
-| Work | Acceptance | Why now | Dependencies |
-| --- | --- | --- | --- |
-| Unify visual/state hierarchy under the current editorial identity | A-07, A-14 | Improves comprehension after state correctness is stable. | Core fixtures; contrast fix |
-| Improve request/job metric semantics and log correlation | A-10, A-13 | Makes failure recovery auditable without speculative tracing. | Reproduced failure scenarios |
-| Extract failure-linked seams and deterministic developer commands | A-13 | Reduces review risk only where accepted work already proves a boundary. | P0 code changes |
-| Tighten measured performance budgets after a stable baseline | A-09 | Prevents regression and focuses subsequent cycles. | Repeatability threshold met |
-
-### P2 — optional excellence
-
-- Additional browser/device samples after the required pairwise matrix.
-- Optional capped real-provider quality/cost comparison through the existing adapter.
-- Tracing only after a logged incident demonstrates that metrics/log correlation is insufficient.
-- Additional visual narrative polish that scores higher under §8 without performance or accessibility loss.
+| Work | Impact | Confidence | Effort | Risk | Dependency | Why now |
+| --- | --- | --- | --- | --- | --- | --- |
+| 在验收通过后优化视觉层次与信息节奏（品牌一致、密度、动效目的性） | Medium | Medium | Medium | Medium | P0/P1 完成 | 防止影响主逻辑。 |
+| 增加受控的失败美学保护（保持动效不影响理解） | Medium | Medium | Low | Low | A05 结果 | 仅在可测的前提下优化。 |
 
 ### Deferred / N/A
 
-- Production mutation, full i18n platform, public-content SEO, decorative 3D/effects, framework rewrite, speculative service split, and formal regulatory certification.
+- 全站 3D、复杂动画体系；
+- SEO/外部公域内容分发；
+- 大规模依赖升级；
+- 合规认证类专项（当前无证据显示是当前用户核心需求）。
 
 ## 7. Acceptance Matrix
 
-Status values in `PLANS.md`: `NOT_STARTED`, `IN_PROGRESS`, `PASS`, `REGRESSED`, `DEFERRED_NON_CORE`. There is no `BLOCKED`.
-
-| ID | Outcome | Priority | Baseline | Target | Automated verification | Evidence | Pass condition |
+| ID | Outcome | Priority | Baseline | Target | Verification command or procedure | Evidence artifact | Pass condition |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| A-01 | Exact-SHA reproducibility | MUST | Evidence manifest and deterministic local/CI gates exist. | One clean exact revision reproduces all scoped commands and artifacts. | `git diff --check`; `shasum -a 256 -c output/evidence-sha256.txt`; full CI gate | SHA, versions, exits, counts, hashes | All commands exit 0; no untracked required artifact or unexplained drift. |
-| A-02 | Truthful continuous core loop | MUST | Representative success and one Daily failure pass; full matrix incomplete. | Daily/Scan → Reader/Ask → Keep → Review/Research/Export preserves context through applicable load/empty/error/retry/stale states. | Tagged Playwright scenarios with deterministic fixtures and unexpected-console/page-error gate | State matrix, traces, screenshots | Every required state observed; usable partial data remains; no silent context loss or unexpected browser error. |
-| A-03 | Dependable annotation flow | MUST | Versioned capture/editor-focus paths pass. | Mouse, touch-equivalent, and keyboard selection; repeated text; inline markup; refresh; retry; and restoration attach only to the intended passage or visibly reject/recover. | Unit/API tests plus tagged Playwright anchor scenarios | Synthetic payloads, traces | All scenarios pass; no wrong silent anchor; old metadata remains readable. |
-| A-04 | Auth, privacy, cache, and secret boundary | MUST | Admin 403, session/cache tests, local 0600, Trivy green. | User A data cannot appear for user B/logout; Admin stays role-protected; public metrics stay denied; secrets never enter artifacts. | API auth tests; two-user browser fixture; CacheStorage inspection; Trivy; mode-only script; metrics smoke | Redacted boundary matrix | Expected 200/401/403/404 matrix; no cross-user residue; zero secret or unresolved high/critical finding. |
-| A-05 | Accessibility and reduced-motion equivalence | MUST | Known contrast risks; partial keyboard/semantic coverage. | WCAG 2.2 AA for required UI; correct name/role/value/focus/error announcements; 200% reflow; reduced motion preserves information/actions. | Deterministic contrast roles; axe-compatible browser audit; keyboard/reflow/reduced Playwright scenarios | Audit JSON, semantic snapshots, screenshots | No serious/critical violation; required contrast passes; no hidden state/action in reduced mode. |
-| A-06 | Responsive, input, and cross-browser core loop | MUST | Chromium partial coverage. | Anchor widths 320/390/768/1024/1280/1440, mouse/touch-equivalent/keyboard, Chromium/Firefox/WebKit pass a pairwise core matrix. | Playwright projects and geometry assertions | Matrix with engine/width/input/theme/motion | No overflow, collision, unreachable action, or engine-specific core failure; every required factor appears. |
-| A-07 | Coherent product and visual state language | MUST | Warm editorial base; uneven hierarchy/state polish. | Core surfaces score at least 4 for task completion, hierarchy, state truth, and accessibility; no applicable §8 row below 3. | Fixed-fixture screenshot set; deterministic token/state checks; two automated rubric passes separated by a full regression run | Scorecards/contact sheet | Threshold met without decorative inflation; automated behavior gates remain green. |
-| A-08 | API, schema, PostgreSQL, migration, and worker integrity | MUST | API 219; Worker 121 with 4 PG skips; clean Alembic upgrade. | No required PG skip; clean and restored-snapshot upgrade reach head; generated schema is exact; queue/data invariants hold. | API/Worker pytest with PG URLs; Alembic upgrade; OpenAPI export/client generation diff; migration snapshot script | CI logs, revision, sanitized DB summary | Zero unexplained skip/failure; migration and schema match; recovery point identified. |
-| A-09 | Measured frontend/API/queue/DB performance | MUST | Static asset size known; route/DB values missing. | Five-run baselines are nonzero and stable; candidate has no material regression and each optimization shows a repeatable benefit. | Browser performance harness; API/queue/DB benchmarks; bundle report | Raw samples, median/p95, environment manifest | Coefficient/range repeatability ≤15% or documented noise model; candidate ≤110% of stable baseline p95 unless a larger user-visible gain is proven; optimization benefit ≥10% on its target metric. |
-| A-10 | Resilience, recovery, and observability | MUST | Partial retries/metrics; no recovery budget. | Timeouts, retries, idempotency, partial degradation, queue restart, and one correlated failure are reproducible and truthful. | Fault fixtures; bounded retry tests; queue restart test; metric/log correlation assertions | Timings, redacted logs/metrics | No duplicate/lost accepted action; bounded recovery; terminal failure explicit; one incident traceable without secret data. |
-| A-11 | Supply-chain and environment security | MUST | Production npm audit 0; Trivy green; action deprecation warning exists. | No unresolved high/critical production vulnerability or secret; deterministic versions; environment boundaries remain explicit. | `npm audit --omit=dev`; full audit; pinned Trivy; lockfile-family review; Compose/env validation | Audit summaries and CI URL | Zero production high/critical; development findings owned by an automated remediation/defer record; no secret or boundary regression. |
-| A-12 | Reproducible staging release and rollback | MUST | Exact main SHA `969a077a` passes CI, three-image publication, staging deploy, migration, and smoke; rollback/cleanup remain. | Exact main SHA images deploy to staging; migrations/smoke/browser probe pass; previous immutable tag rollback and return-forward work; cleanup dry-run and one safe run succeed. | GitHub Actions; `smoke-test.sh staging`; image labels/digests; rollback rehearsal; cleanup dry-run | Run URLs, tags/digests, smoke/rollback summaries | All jobs green; deployed SHA matches main; rollback/forward both healthy; cleanup targets only intended versions; no production action. |
-| A-13 | Maintainability, documentation, and developer experience | MUST | Current docs mostly aligned; hotspots/root rule drift remain. | A clean worktree/clone can follow current commands; changed seams have focused ownership/tests; no active contradictory instruction. | Link/command replay; `rg` retired claims; complexity/duplication only for touched seams; `git diff --check` | Replay log, doc truth matrix, focused diffs | Commands work; learning notes current; no unrelated refactor or stale active claim. |
-| A-14 | Distinctive, purposeful craft | SHOULD | Editorial identity exists. | Evidence/citation/reading context is the signature across core pages; typography, density, copy, motion, and feedback score ≥4 where applicable. | §8 rubric and fixed contact sheet after all MUST behavior gates | Scorecards/screenshots | No score depends on gradients/glow/cards/particles/excess motion; no usability/performance/a11y regression. |
-| A-15 | External-service and cost safety | MUST | Mock contracts pass; real MiniMax inference intentionally skipped. | Automation proves provider-independent behavior with Mock/contract adapters, enforces caps/timeouts/fallbacks, and never claims real quality without a real run. | Provider contract tests; Mock E2E; cap/timeout/fallback tests; redacted config-name inventory | Synthetic reports | All behavior gates pass without external credentials/spend; any optional real result is labelled, capped, redacted, and non-gating. |
+| A-01 | 基线复现与可追溯 | MUST | 未形成“一个 SHA 对应完整基线清单” | 形成完整 evidence manifest 与哈希验证 | `shasum -a 256 -c output/evidence-sha256.txt` + `git rev-parse HEAD` + `git status --short` + 关键命令复跑 | `output/evidence-sha256.txt` | 关键命令在同一工作树版本上可复现；`git diff --check` 通过；证据文件和状态可审计 |
+| A-02 | 完整核心循环状态正确性 | MUST | 已有 Daily 与 Ask 的单场景通过 | 完整覆盖核心循环的状态矩阵 | `npm run test:e2e`（含新规约场景）+ `npm test` | `output/playwright/...`、`output/evidence/*.json` | 每个状态分支都有可复现的成功/失败/重试/恢复断言；无隐藏上下文丢失 |
+| A-03 | 标注与引用可信性 | MUST | 部分修复（重复文本、内容刷新） | 覆盖 inline markup、输入法/多输入源、会话切换与重试 | `node --test --import tsx src/lib/articles/*.test.ts` + 关键 Playwright 场景 | `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json` 及新增同类证据 | 重建/错位后无静默误绑；无法确定时显式保留警告且不丢数据 |
+| A-04 | 权限与隐私边界 | MUST | 403/200 边界已见证 | 两用户隔离、Admin 分离、secret 不入证据 | API auth tests + 两用户浏览器路径 + `check-metrics-boundary` + `bash -n` | `output/security/*`、`output/playwright/*` | 非授权请求不返回越权信息；用户状态切换后无交叉残留 |
+| A-05 | 无障碍可用性 | MUST | 仅局部样本可见，自动化未闭环 | 通过 contrast/role/键盘/reflow/reduced-motion 基线 | Playwright accessibility + 自建 contrast 验证 | `output/goal-evidence.md` 后续新增条目 | 必要交互节点在 required contrast 与键盘路径下可用 |
+| A-06 | 响应式与跨输入 | MUST | 已有 Chromium 多断点覆盖 | 加入跨浏览器 + touch-equivalent + 重排边界场景 | Playwright 断点矩阵（375/390/768/1024/1280/1440，Chromium/WebKit/Firefox）+ 固定断言 | `output/playwright/*` | 无水平溢出、可操作、焦点返回正确、无关键入口丢失 |
+| A-07 | 用户可见质量（状态语言） | MUST | 部分场景通过，rubric 未闭环 | 在固定夹具上执行 rubric 达到可接受基线 | screenshot 套件 + 人工复核脚本输出 + 评分表 | `output/playwright/m1-fonts-...` 等 | 核心页面在固定场景下达到最低分阈值，无“装饰补丁式”提升 |
+| A-08 | API 与数据可靠性 | MUST | API/worker 本地通过，DB/迁移恢复路径不闭环 | migration + PG 条件测试 + 恢复回滚证明 | `uv ... pytest`（PG 条件）+ Alembic upgrade + 迁移回退脚本验证 | CI 运行日志 + 本地回放结果 | 条件测试与 migration replay 证明一致；无未解释 skip |
+| A-09 | 性能与稳定基线 | MUST | API/queue 有内存基线，DB Web 不足 | 补齐五次重复基线并固定阈值 | `python scripts/*baseline.py` 系列（或等价脚本）+ 对比报告 | `output/performance/*.json` | 基线为非空、可复现、噪声控制在阈值内 |
+| A-10 | 恢复与韧性 | MUST | 重试样本存在，恢复预算未定 | 显式设定重试上界、错误分类、降级策略证据 | 故障注入脚本 + 重试恢复路径 + 日志关联验证 | `output/performance/*` 与 e2e 失败恢复场景 | 错误可回到已知状态，不发生沉默数据损坏 |
+| A-11 | 供应链和密钥边界 | MUST | Trivy 与 npm audit 本地绿色（高危/致命） | 复核 CI 高危致命阈值、secret redaction 与锁文件治理 | CI/本地同参数扫描 | `output/security/frontend-dependency-remediation-2026-07-26.json`、`output/security/trivy-secret-scan-2026-07-26.json` | 无高危/致命，扫描命令参数透明且与 CI 一致 |
+| A-12 | staging 发布与回滚闭环 | MUST | 部署脚本通过，回滚流程证据不足 | 在单一 SHA 上完成 deploy、rollback、重放、验证 | `deploy-staging.yml`/`rollback.yml` 驱动流程 + 运行后证据清单 | `output/release/*` 或新版本目录 | staging 可重复部署、回滚、再部署且各路由状态可重放 |
+| A-13 | 文档与执行可持续性 | MUST | 目录有基础文档，日志仍需统一 | 进展、决策、失败与下一步统一保存在 GOAL/PLANS/evidence | 交接复核脚本或手动核对：`PLANS` 与 `docs/session-handoff` 关联 | `PLANS.md`、`docs/session-handoff.md`、`docs/learning-notes.md` | 任何执行者可按文件继续，不依赖口头记忆 |
+| A-14 | 设计可识别性（非装饰性） | SHOULD | 有部分统一视觉修复 | 不采用装饰性技巧，按任务语义改进状态表达 | 视觉对比矩阵+rubric审查 | 设计验收记录 | 不以渐变/发光/粒子替代信息结构提升分数 |
+| A-15 | 外部服务与成本安全 | MUST | Ask 使用 Mock/Fixture 可验证 | 保证真实接口在预算/超时/禁用场景下安全降级 | Provider contract + Mock 回放 + caps/timeout 测试 | `output/evidence/*` | 无真实密钥消费；无法复现真实成本时不改用其作为必须验收 |
 
 ## 8. Quality and Delight Rubric
 
-Each row is scored 0–5 against identical synthetic fixtures and viewport/theme inputs. Automated assertions and artifacts take precedence over prose. A score cannot override a failed MUST gate.
+每个维度为 0–5 分，需用固定夹具+可复核脚本评估。
 
 | Dimension | 0–1 failure | 3 acceptable | 4 excellent | 5 exceptional | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| Product task completion | Core loop breaks or loses work/context. | Main path completes with minor friction. | Every core state recovers clearly and context persists. | Complex partial failures still feel predictable and fast. | A-02/A-03 traces and task steps |
-| Information hierarchy | Competing panels/actions obscure the task. | Primary action/content is identifiable. | Evidence, reading, and next action are immediately legible. | Hierarchy adapts to expertise/state without added complexity. | Fixed screenshots, semantic order, step count |
-| Interaction clarity | Hidden modes, ambiguous controls, or false state. | Controls and outcomes are understandable. | Keyboard/pointer/touch feedback is consistent and truthful. | Recovery and edge cases teach themselves through concise feedback. | Input/state matrix |
-| Visual consistency | Tokens/components conflict or look templated. | Core surfaces share a usable system. | Editorial typography, spacing, density, and state language are coherent. | The product is recognizable from evidence/reading rhythm alone. | Contact sheet and token checks |
-| Brand distinctiveness | Generic dashboard decoration replaces product meaning. | Warm editorial identity is present. | Citation/evidence context forms a non-template signature. | Brand and task semantics reinforce each other at every surface. | Screenshot comparison and copy inventory |
-| Motion/feedback | Jank, distraction, or reduced-mode loss. | Short feedback works and reduced mode is safe. | Motion explains causality using measured, safe properties. | Timing feels inevitable while remaining invisible to users who reduce motion. | Normal/reduced traces |
-| 3D narrative | Decorative 3D harms reading/performance. | **N/A target:** no 3D and no missing comprehension capability. | If evidence later reopens it, a useful 2D fallback exists. | If reopened, it measurably improves a hard comprehension task. | N/A declaration or evidence-backed experiment |
-| Performance/accessibility | Slow, unreadable, inaccessible, or unbounded. | Basic budgets and AA pass. | Stable low-friction behavior across required matrix. | Strong performance and access persist under degraded device/network/input. | A-05/A-06/A-09 |
-| Error/empty/edge states | Blank, contradictory, destructive, or unrecoverable. | Major states exist. | Partial data, cause, retry, and ownership are explicit. | Recovery preserves progress and prevents repeated failure. | A-02/A-10 state matrix |
-| Code/design maintainability | Changes require broad edits with weak tests. | Current commands/tests protect common work. | Touched seams have clear ownership and focused contracts. | New behavior typically lands as one small reversible slice. | Diff topology, replay log |
+| 产品任务完成 | 关键流程经常卡住或丢上下文。 | 流程能走完，需少量手动重试。 | 失败与成功场景均可恢复，路径清晰。 | 复杂错误下也能高置信恢复。 | A-02 路径矩阵结果 |
+| 信息层级 | 信息乱序、按钮冲突、状态不清。 | 主要操作有序可见。 | 工作流入口、结果、下一步清晰。 | 层级在不同状态下自动稳定。 | Playwright 层级截图与 DOM 断言 |
+| 交互清晰度 | 键盘/手势行为被吞，焦点丢失。 | 常规交互可用。 | 键盘、触控、返回焦点一致。 | 复杂输入下仍可预测。 | `is*`/focus/快捷键断言+e2e |
+| 视觉一致性 | 全局样式风格不一致。 | 核心区域可用。 | 同一语义组件风格一致。 | 品牌识别从组件行为中可感知。 | 固定截图比对与组件快照 |
+| 品牌辨识度 | 使用通用模板视觉，无研究语义。 | 保留现有 warm 识别。 | 标题/阅读/证据链形成统一风格。 | 一眼可见是研究/证据导向产品。 | 截图与文本节奏审计 |
+| 目的性动效 | 动效与任务冲突或无价值。 | 减少无效动效。 | 动效说明状态变化且可降级。 | 动效不增加认知负担且可复用。 | 采样 trace 与手工审阅 |
+| 3D/Narrative | 与产品目标无关。 | N/A（不引入） | N/A（不引入） | 如果未来引入则需证据证明收益与无负担 | 仅当 N/A 解除时增加证据 |
+| 性能与无障碍 | 关键路径卡顿/不可见。 | 加载可进入，核心动作可达。 | 预算内稳定，关键错误可复原。 | 在低端/慢网也有可预测体验。 | `output/performance/*` + 基线回归 |
+| 错误与边界处理 | 错误被吞掉或误导。 | 基础错误可见。 | 可重试、可诊断、无数据隐患。 | 可重放恢复方案与错误归类完整。 | A-02/A-10 证据链 |
+| 代码可维护性 | 大块改动且难回退。 | 修改范围可界定。 | 失败-修复-回归路径清楚。 | 每次迭代 1–2 个失败门可回退。 | Diff 拓扑与里程碑回放日志 |
 
 ## 9. Milestones and Checkpoints
 
-Milestones are finite. Each closes a coherent user outcome and leaves a reversible checkpoint.
+### M0 — 基线与评估基础设施（首要）
 
-### M0 — Contract and reproducible baseline
+- **目标**：把当前仓库状态、验证命令与证据链固定为可复跑模板。
+- **输入**：`AGENTS.md`、`GOAL.md`（本版）、`PLANS.md`、当前证据目录。
+- **范围**：基线命令校验、证据清单更新、`README/PLANS` 一致性对齐。
+- **验证**：A-01、A-11、脚本语法、Compose 渲染。
+- **成果**：可从 `evidence-sha256` 与输出目录复现。
+- **回滚**：仅保留只读证据变更，未改业务。
+- **更新**：`PLANS.md`、`output/evidence-sha256.txt`、`docs/learning-notes.md`。
 
-- **Goal:** make the merged repository, commands, fixtures, environment limits, and evidence exact and repeatable.
-- **Inputs:** `AGENTS.md`, current `main`, this file, existing artifacts.
-- **Scope:** evidence scripts/ledger, fixture truth, environment manifest, stale-contract repair.
-- **Verify:** A-01 plus existing Reader/API/Worker/Compose gates.
-- **Observable result:** every later claim can cite an exact SHA, command, result, and artifact.
-- **Rollback:** evidence-only commit.
-- **Update:** `PLANS.md`, evidence hashes, learning notes.
+### M1 — 核心循环闭环（基础质量）
 
-### M1 — Core-loop truth and knowledge integrity
+- **目标**：核心循环在状态、标注、重试方面闭环；消除“静默错绑/静默丢上下文”。
+- **输入**：现有 M1 证据、fixture。
+- **范围**：最小失败场景修复 + 对应 Node + e2e。
+- **验证**：A-02、A-03、A-04。
+- **成果**：核心流程中任一失败场景均可明确恢复。
+- **回滚**：逐场景 revert；任何新增状态分支独立可回退。
 
-- **Goal:** close A-02/A-03 across Daily/Scan, Reader/Ask, Keep, Review/Research/Export.
-- **Inputs:** deterministic fixtures and current versioned anchor.
-- **Scope:** smallest state/continuity/anchor/retry changes and tests.
-- **Verify:** tagged unit/API/Playwright scenarios; unexpected-console gate.
-- **Observable result:** the complete daily loop works and never silently loses/misanchors knowledge.
-- **Rollback:** one behavior slice per commit; preserve backward anchor parsing.
-- **Update:** state matrix, traces, anchor examples, learning notes.
+### M2 — 可用性与韧性门禁
 
-### M2 — Accessible responsive interaction
+- **目标**：A11Y、响应式、输入、reduced-motion、恢复预算成为稳定验收门。
+- **输入**：M1 已修复的关键行为。
+- **范围**：最小新增断言与对照脚本。
+- **验证**：A-05、A-06、A-10。
+- **成果**：不同设备/输入下不再出现关键路径阻塞。
+- **回滚**：把样式/输入修复与行为修复分开提交。
 
-- **Goal:** close A-05/A-06 without changing the established product identity.
-- **Inputs:** M1 fixed fixtures; current warm editorial tokens.
-- **Scope:** contrast roles, semantics, focus/reflow, responsive geometry, input and engine projects.
-- **Verify:** contrast/audit/keyboard/reflow/reduced-motion/cross-engine matrix.
-- **Observable result:** the core loop is readable and operable across required users/devices.
-- **Rollback:** token/usage fixes and geometry fixes remain separate.
-- **Update:** audit JSON, pairwise matrix, screenshots.
+### M3 — 数据与性能稳定闭环
 
-### M3 — Data, performance, and resilience
+- **目标**：将数据库/队列/API/web 的可复测基线转为量化门禁。
+- **输入**：现有 harness 与脚本。
+- **范围**：五次重复、差异阈值、异常预算。
+- **验证**：A-08、A-09、A-10。
+- **成果**：有可比较性能与恢复预算。
+- **回滚**：未满足收益阈值则撤销优化，保留最小行为修复。
 
-- **Goal:** close A-08/A-09/A-10 with nonzero, repeatable deployment-like evidence.
-- **Inputs:** disposable PostgreSQL, synthetic dataset, M1 flow.
-- **Scope:** PG tests/migrations, benchmark harnesses, fault fixtures, only measured optimizations.
-- **Verify:** live-PG suites, migration rehearsal, five-run benchmarks, bounded fault/restart scenarios.
-- **Observable result:** data correctness, latency, recovery, and diagnosis have enforceable budgets.
-- **Rollback:** snapshot/previous migration/image; revert any complexity without ≥10% target benefit.
-- **Update:** raw samples, environment manifest, plans, learning notes.
+### M4 — 发布可恢复闭环
 
-### M4 — Product craft and maintainable seams
+- **目标**：把发布、回滚、清理演练纳入同一里程碑。
+- **输入**：M0-M3 的 `A-01`～`A-10` 结果。
+- **范围**：staging/release/rollback 证据固定。
+- **验证**：A-12、A-13。
+- **成果**：发布与恢复成为独立可审计流程。
+- **回滚**：保留上一个稳定 SHA 与镜像标签，避免破坏运行状态。
 
-- **Goal:** close A-07/A-13/A-14 after correctness/access/performance are stable.
-- **Inputs:** fixed fixtures, baseline rubric, failure-linked hotspot evidence.
-- **Scope:** hierarchy/density/copy/state polish; only justified seam extraction and executable docs.
-- **Verify:** two rubric passes separated by full regression; clean-worktree command replay.
-- **Observable result:** a distinctive research product that remains easy to change safely.
-- **Rollback:** visual and seam changes independently reversible.
-- **Update:** contact sheet, scorecards, doc truth matrix.
+### M5 — 完成闭环与手交接
 
-### M5 — Exact release, rollback, and maintenance closure
+- **目标**：输出可无人接力的交接与继续执行规则。
+- **输入**：全部通过的 MUST 门。
+- **范围**：决策日志、风险登记、下一动作。
+- **验证**：A-01 全部通过、Success 条件齐全、`docs/session-handoff.md` 更新。
+- **成果**：新执行者只需 GOAL+PLANS+evidence 即可继续。
 
-- **Goal:** close A-11/A-12/A-15 on one exact main revision.
-- **Inputs:** all prior MUST gates.
-- **Scope:** supply-chain refresh only if required, immutable images, staging deploy, rollback/forward, cleanup dry-run/run.
-- **Verify:** full CI; exact SHA/digest; staging smoke/browser probe; rollback/forward; safe cleanup.
-- **Observable result:** staging serves the proven revision and recovery is operational.
-- **Rollback:** previous immutable healthy tag and database recovery point.
-- **Update:** final evidence bundle and integrity manifest.
+## 10. Execution Protocol
 
-### M6 — Final audit and evolution handoff
+1. 每个迭代先执行 baseline（A-01），再改动一个高价值瓶颈。
+2. 任何一次失败优先缩小到最小复现；若复现通过，先修复该面，再运行相关验证。
+3. 无需等待人工批准，优先采用替代资源与 Mock；缺口标记为 `NEEDS_BASELINE`。
+4. 每个里程碑结束后产出 1) 新证据列表 2) 回滚点 3) `git diff --check` 结果。
+5. 关键决策应有“为什么不做更复杂改动”的证据。
 
-- **Goal:** prove §13 success without changing acceptance semantics.
-- **Inputs:** M0–M5.
-- **Scope:** final diff, command replay, evidence integrity, risk disclosure, stale-claim removal.
-- **Verify:** every MUST row links to exact-revision passing evidence; full gate rerun.
-- **Observable result:** a new autonomous run can reconstruct the outcome from repository files alone.
-- **Rollback:** no product change; reopen the failing milestone if any regression appears.
-- **Update:** final `PLANS.md` state and decision/change log.
+### 自动决策规则
 
-## 10. Autonomous Execution, Decision, and Recovery Protocol
+- 在满足约束且同功能收益相当时，优先选：更小 diff、边界更小、无外部依赖、性能更稳定、回滚更容易的方案。
+- 任何“为了更快而做的重构”必须能映射到一个 MUST/SHOULD 门禁。
+- 对外部不可用的场景继续推进替代项，不新增阻塞状态。
+- 不能为了“看上去好”而牺牲可验证状态。
 
-### Work-selection loop
+### 失败恢复与回滚
 
-1. Read all applicable `AGENTS.md`, `GOAL.md`, `PLANS.md`, Git status/history, and the newest evidence.
-2. Re-run the cheapest relevant baseline before mutation.
-3. Mark stale facts explicitly; never carry an old SHA’s PASS to a new candidate.
-4. Select the highest-value failing P0 item. Work on one principal bottleneck at a time.
-5. Reproduce the failure or add the smallest failing test/benchmark first.
-6. Prefer the smallest compatible change using the current architecture and existing dependency set.
-7. Verify the focused gate, then all gates affected by the change.
-8. Record before/after values, exact commands, environment, limits, and rollback.
-9. Commit a focused reversible slice and push when remote validation materially improves evidence.
-10. At each milestone, run the complete required matrix, audit the diff, update `PLANS.md`, evidence hashes, and learning notes.
+- 发现连续 2 次以上无进展失败时，撤销当前实验改动，回到最近可验证 checkpoint。
+- 出现性能回退且无收益时，撤销性能优化并回归到上一个可复验基线。
+- 发生跨服务/外部依赖缺失时，记录失败原因并切换到最小替代路径，不阻塞后续非外部门禁。
 
-### Automatic decision rules
+### 持续进化
 
-- If two implementations satisfy the same gate, choose in order: fewer changed boundaries, lower data risk, fewer dependencies, smaller diff, stronger automated proof, lower runtime cost.
-- Use the current warm editorial/terracotta direction; resolve token/accessibility defects within it instead of reopening an unevidenced palette debate.
-- Use staging as the live delivery boundary. Production remains read-only/fail-closed and is never required for completion.
-- Use Mock and provider-contract adapters as the authoritative automated AI gate. Optional real-provider evidence never replaces deterministic behavior tests.
-- Reuse the existing internal app network for metrics while public exact paths remain denied; add a new network/token only if a reproduced threat or isolation test fails.
-- Preserve metadata-backed versioned anchors until a measured query/integrity requirement justifies a reversible migration.
-- Do not split a large file merely because it is large. Extract only a seam touched by accepted work when the extraction reduces diff/test coupling.
-- Introduce no new dependency unless existing tools cannot satisfy a MUST gate after a recorded small experiment.
+- 里程碑结束后按“影响→证据→失败率”排序修订下一轮工作。
+- 对新发现问题仅当与核心目标相关时进入下一轮。
+- 不新增新技术栈，只在收益已验证且可回退时引入辅助工具。
 
-### Missing environment or external service
+## 11. Progress and Evidence
 
-1. Detect availability without exposing secrets.
-2. Substitute, in order: existing deterministic fixture → in-memory adapter → Mock provider → disposable local service/container → CI service.
-3. Run every invariant and contract that does not require the missing system.
-4. Label external-only evidence absent; do not fabricate it and do not mark its acceptance row PASS.
-5. Continue the next independent highest-value item and periodically retry the unavailable gate with bounded backoff.
+`PLANS.md` 当前建议字段（与该合同一致）：
 
-### Failure recovery
-
-- Transient network/registry/runner failures: retry at most three times with exponential backoff and jitter; preserve the first error and final outcome.
-- Deterministic test/build failure: stop expanding the diff, isolate the first failing layer, and repair or revert the current slice.
-- Failed experiment: after two evidence-backed approaches fail the same gate, revert the experiment, record both causes, and choose the next simpler intervention.
-- No measurable benefit: revert any optimization or abstraction that does not improve its target by at least the A-09 threshold without a separately proven user-visible gain.
-- Migration/data risk: use a copied snapshot or disposable DB; require upgrade and recovery proof before retaining the change. Never execute an irreversible live repair.
-- External-only dead end: contain it as `DEFERRED_NON_CORE` only when it is outside the primary objective; otherwise keep it `IN_PROGRESS`, use substitutes, and continue other gates. The whole goal does not become blocked.
-- Regression after a milestone: mark the affected acceptance `REGRESSED`, return to the smallest owning milestone, and restore the last green checkpoint before new work.
-
-### Continuous evolution
-
-- Once a milestone is green, scan tests, audit output, benchmark trends, runtime warnings, issue history, and changed hotspots for the next evidence-backed bottleneck.
-- Add work only when it maps to the primary objective, an acceptance row, or a necessary risk control.
-- Tighten budgets only after at least two comparable stable baselines; never relax a MUST target to accommodate an implementation.
-- Treat warnings such as action-runtime deprecation or transient 429s as maintenance candidates ranked by observed failure/risk, not automatic unrelated upgrades.
-- Finish the defined goal when §13 succeeds. Further product expansion requires a new contract rather than silently making this goal endless.
-
-## 11. Progress and Evidence Ledger
-
-`PLANS.md` must maintain:
-
-| Field | Required content |
-| --- | --- |
-| Exact candidate | Branch, full SHA, base SHA, clean/dirty status |
-| Current milestone | One M0–M6 milestone and active acceptance IDs |
-| Last green checkpoint | Commit/SHA and commands |
-| Current validation | Pass/fail/skip counts and tool versions |
-| Before/after metrics | Raw artifact paths and comparable environment |
-| Current experiment | Hypothesis, smallest change, success/failure threshold |
-| Recovery point | Revert commit, image tag/digest, DB snapshot/revision |
-| Missing external evidence | Exact unavailable system and local substitute used |
-| Known risks | Severity, evidence, containment, owning acceptance |
-| Next action | Single highest-value executable step |
-
-Current checkpoint (2026-07-26): behavior revision `a77e801005944989fe4990a6db3ec6b49e62e5a1` is based on merged main `32305d347586362a3496fc078a775aebb1fbe5ad`; M1.3 adds an anchor resolver and safe highlighter path that first failed by lacking both contracts, then passed 193 Reader Node tests, production build, and 48 Chromium scenarios. It proves one shifted duplicate quote restores only with matching persisted context and an ambiguous duplicate remains explicitly unresolved while its note is retained. M1.1/M1.2 remain prior green Daily and Ask recovery slices. These are evidence for A-02/A-03/A-04/A-07/A-15, not completion of any row. Durable records: `output/evidence/m1-daily-partial-failure-2026-07-26.json`, `output/evidence/m1-reader-ask-retry-2026-07-26.json`, `output/evidence/m1-annotation-anchor-recovery-2026-07-26.json`.
-
-Evidence rules:
-
-- Store only synthetic, redacted, non-secret content.
-- Hash durable artifacts in `output/evidence-sha256.txt`.
-- Keep screenshots/traces tied to exact fixtures, viewport, theme, motion, browser, and SHA.
-- Record conditional skips as missing evidence, never as passes.
-- Preserve old evidence for before/after comparison, but label historical SHA clearly.
+- **Current candidate**：`goal/m1-annotation-integrity @ ff29cd70`（含本地工作区改动）
+- **Current milestone**：`M1.5（inline-markup 标注恢复）`已完成最小闭环；M1.4 已回退为更小的 reload-only 同步路径。
+- **Last green checkpoint**：`193 Reader Node`、`219 API tests`、`121 Worker tests`、`48 e2e`、`npm run build`（同一会话中复现）
+- **Current validation**：A-02、A-03、A-11、脚本与 Compose 基本通过；A-05/A-06/A-08/A-09/A-10/A-12 持续进行中
+- **Before/after metrics**：
+  - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
+  - e2e：50/50
+  - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
+- **Current experiment**：统一状态矩阵与恢复预算定义为当前最大收益实验
+- **Recovery point**：上一个稳定提交 `a77e801005944989fe4990a6db3ec6b49e62e5a1`（含已提交 anchor 恢复）与最近一组可验证工件哈希
+- **Missing external evidence**：Firefox/WebKit 全量、DB 恢复/并发、真实 PostgreSQL route 性能、staging 全链路 rollback-forward
+- **Known risks**：未闭环的状态矩阵与回滚演练；缺少跨浏览器可重复证据
+- **Next action**：进入 A-05/A-06 的角色化对比度与 reduced-motion/reflow 门禁。
 
 ## 12. Decision and Change Log
 
-| Timestamp | Autonomous decision | Evidence and effect |
+| Timestamp | Decision | Evidence and effect |
 | --- | --- | --- |
-| 2026-07-26 | Preserve the warm editorial/terracotta identity. | It is the implemented, screenshot-tested direction; old indigo wording is historical. Accessibility changes operate within this system. |
-| 2026-07-26 | Make staging the live delivery boundary and keep production fail-closed/read-only. | Current workflow deploys staging; production probes return 502 and production mutation is outside the core research-workspace outcome. |
-| 2026-07-26 | Use Mock/provider contracts for mandatory AI verification. | Staging MiniMax proof safely skipped paid inference; deterministic behavior and fallback can be fully tested without credentials or spend. |
-| 2026-07-26 | Keep metrics internal through the existing environment alias and deny the public exact path. | PR staging smoke proves internal scrape success and public 404 without a new secret/service. |
-| 2026-07-26 | Keep versioned anchors in existing metadata until evidence requires a migration. | Typed validation and editor-focus persistence pass without data-shape disruption; restoration gaps are testable at the domain/UI layer. |
-| 2026-07-26 | Reject ambiguous or unmappable version-1 anchor recovery instead of falling back to a first textual match. | Repeated text and refreshed content can make first-match rendering silently corrupt a private note; deterministic Node and Chromium evidence now show safe reattachment or an explicit retained-note warning. |
-| 2026-07-26 | Replace human-gated blocker semantics with automatic containment and substitution. | The goal can progress unattended while preserving safety, evidence integrity, and the core value ceiling. |
-| 2026-07-26 | Exercise a one-time Daily secondary-source failure before extending the state matrix. | The added Cluster fixture initially exposed no source-specific copy and an unrelated article-state mock 404. The smallest repair names the failed source and completes the existing E2E navigation contract; focused plus full Reader validation pass. A-02/A-07 remain in progress. |
-| 2026-07-26 | Exercise a one-time Reader/Ask 503 through the provider adapter before any real-provider evaluation. | The proxy lacked an Ask contract. A single typed 503 then deterministic SSE/citation proves article-context preservation and retry without spending MiniMax credits; focused plus full Reader validation pass. A-02/A-07/A-15 remain in progress. |
+| 2026-07-26 | 用“单一核心目标”替代“全方面优化清单”。 | 约束到核心循环、标注安全、恢复、发布边界。 |
+| 2026-07-26 | 将缺失外部服务定义为 `NEEDS_BASELINE` 而非阻塞。 | 防止人工审批依赖；任务可继续在替代链下执行。 |
+| 2026-07-26 | 冻结可见度：以 Playwright/Node 事实为验收主线，禁止凭主观审美提前宣告通过。 | A-07 需 rubric 证明，不可用视觉印象替代。 |
+| 2026-07-26 | 维持生产只读边界，staging 作为主发布与验证面。 | 保障核心目标不引入不可控生产风险。 |
+| 2026-07-26 | 重新编制 GOAL 并以证据优先格式输出。 | 本次提交：清晰主目标、门禁、基线、自动决策与停机条件。 |
+| 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
 
-Future log entries record the timestamp, evidence, affected acceptance IDs, chosen/rejected alternatives, rollback, and any target tightening. They never record a silent MUST reduction.
-
-## 13. Completion and Safe-Continuation Conditions
+## 13. Stop and Escalation Conditions
 
 ### Success
 
-The goal is complete only when:
-
-- every MUST row A-01–A-13 and A-15 is `PASS` on one exact revision;
-- every required command and browser/data/release matrix passes with disclosed, non-secret evidence;
-- the complete user-visible core loop and edge-state matrix is verified;
-- PostgreSQL/migration, privacy, security, accessibility, performance, resilience, staging, rollback/forward, and registry-maintenance requirements pass;
-- evidence artifacts verify against their integrity manifest;
-- the final diff and active documentation contain no undisclosed material risk, stale instruction, unrelated refactor, or invented result;
-- any unfinished SHOULD item is explicitly outside the core outcome and has not regressed a MUST gate.
+- 所有 MUST 条目（A-01、A-02、A-03、A-04、A-05、A-06、A-08、A-09、A-10、A-11、A-12、A-13、A-15）在单一提交 SHA 上为 PASS；
+- `docs/session-handoff.md`、`PLANS.md`、`GOAL.md` 与证据清单一致；
+- 交付证明包含：命令、日志、截图、哈希、回滚点；
+- 无高危安全回归与未说明用户体验回归；
+- 该版本可在 staging 路径执行一次可复现的部署-验证-回滚脚本。
 
 ### Safe continuation
 
-Anything short of Success remains active:
+- 任一 MUST 未通过时不停止执行；改为回到当前里程碑起点并只做最小闭环修复。
+- 当外部依赖连续缺失时，切换到本地替代链并记录缺口，待外部恢复后再复跑。
+- 当某项实验两次连续失败（同证据框架下）时，撤销该实验并转向下一低风险候选。
+- 当验证出现隐性噪声而非功能回归时，先复现并固定随机种子后再判定。
 
-- a transient failure is retried under §10;
-- a deterministic failure returns to its owning milestone;
-- a missing external system uses a substitute while other work continues;
-- an unsafe production/destructive action is never attempted and does not block staging/local completion;
-- an external-only non-core enhancement may become `DEFERRED_NON_CORE`;
-- no implementation difficulty, elapsed time, warning count, or unavailable optional credential permits completion or a lower target.
+### Blocked（不作为长期常态）
 
-There is no terminal `BLOCKED` condition in this contract.
+- 出现真实数据/生产级别不可逆操作需求且未获许可时，改为完成替代验证并暂停该项，不将其判为任务完成。
+- 在 `AGENTS.md` 与仓库关键文档出现冲突时，以 AGENTS 与 GOAL 为准，更新文档以清理冲突后继续。

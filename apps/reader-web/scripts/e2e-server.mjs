@@ -35,7 +35,9 @@ let jobRequestCount = 0;
 let usageFailuresRemaining = 0;
 let dailyClusterFailuresRemaining = 0;
 let articleAskFailuresRemaining = 0;
+let articleStateFailuresRemaining = 0;
 let adminSyncCompleted = false;
+const articleStates = new Map();
 const completedResearchJob = {
   id: 88,
   job_type: "research",
@@ -88,7 +90,31 @@ function resetFixtures() {
   usageFailuresRemaining = 0;
   dailyClusterFailuresRemaining = 0;
   articleAskFailuresRemaining = 0;
+  articleStateFailuresRemaining = 0;
   adminSyncCompleted = false;
+  articleStates.clear();
+}
+
+function articleStateFor(id) {
+  return articleStates.get(id) ?? { status: "unread", saved: false, project: false, read_progress: 0.25 };
+}
+
+function readJsonBody(request) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+    request.on("error", reject);
+  });
 }
 
 function proxyToApp(request, response) {
@@ -118,7 +144,7 @@ const app = spawn(process.execPath, ["server.js"], {
   stdio: "inherit",
 });
 
-const proxy = createServer((request, response) => {
+const proxy = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${proxyPort}`);
 
   if (url.pathname === "/__e2e/reset" && request.method === "POST") {
@@ -144,6 +170,11 @@ const proxy = createServer((request, response) => {
   }
   if (url.pathname === "/__e2e/article-ask/fail-once" && request.method === "POST") {
     articleAskFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/article-state/fail-once" && request.method === "POST") {
+    articleStateFailuresRemaining = 1;
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -480,14 +511,54 @@ const proxy = createServer((request, response) => {
     return;
   }
   if ((url.pathname === "/api/articles/7/state" || url.pathname === "/api/articles/9/state") && request.method === "POST") {
+    if (articleStateFailuresRemaining > 0) {
+      articleStateFailuresRemaining -= 1;
+      sendJson(response, 503, { error: { code: "state_unavailable", message: "状态更新暂不可用，请重试。" } });
+      return;
+    }
+    const id = url.pathname.includes("/9/") ? 9 : 7;
+    const payload = await readJsonBody(request);
+    const state = { ...articleStateFor(id) };
+    if (typeof payload.status === "string") state.status = payload.status;
+    if (typeof payload.saved === "boolean") state.saved = payload.saved;
+    if (typeof payload.project === "boolean") state.project = payload.project;
+    if (typeof payload.read_progress === "number") state.read_progress = payload.read_progress;
+    articleStates.set(id, state);
     sendJson(response, 200, {
-      state: { status: "read", saved: false, project: false, read_progress: 0.25 },
+      state,
     });
     return;
   }
   if ((url.pathname === "/api/articles/7/annotations" || url.pathname === "/api/articles/9/annotations") && request.method === "GET") {
     const articleId = url.pathname.includes("/9/") ? 9 : 7;
     const mode = fixtureMode(request);
+    if (articleId === 7 && mode === "annotation-inline-markup") {
+      sendJson(response, 200, {
+        items: [{
+          id: 53,
+          article_id: 7,
+          type: "annotation",
+          selected_text: "Structured evidence",
+          content: "Keep the structured evidence note.",
+          color: "green",
+          tags: ["evidence"],
+          anchor: {
+            kind: "text-quote",
+            version: 1,
+            exact: "Structured evidence",
+            prefix: "Intro: ",
+            suffix: " survives refresh.",
+            start: 7,
+            end: 26,
+          },
+          created_at: "2026-07-24T08:00:00Z",
+          next_review_at: null,
+          interval_days: 3,
+          review_count: 1,
+        }],
+      });
+      return;
+    }
     if (articleId === 7 && mode === "annotation-repeated") {
       sendJson(response, 200, {
         items: [{
@@ -566,16 +637,21 @@ const proxy = createServer((request, response) => {
     const mode = fixtureMode(request);
     const repeatedAnnotationFixture = id === 7 && mode === "annotation-repeated";
     const ambiguousAnnotationFixture = id === 7 && mode === "annotation-ambiguous";
+    const inlineMarkupAnnotationFixture = id === 7 && mode === "annotation-inline-markup";
     const contentHtml = repeatedAnnotationFixture
       ? "<p>New preface. First context: Repeated evidence.</p><p>Intended context: Repeated evidence. Closing context.</p>"
       : ambiguousAnnotationFixture
         ? "<p>same context: Repeated evidence. same context: Repeated evidence.</p>"
-        : "<p>Evidence persists.</p><p>Evidence should survive navigation.</p><p>A durable note returns when it matters.</p>";
+        : inlineMarkupAnnotationFixture
+          ? "<p>Intro: Structured <em>evidence</em> survives refresh.</p>"
+          : "<p>Evidence persists.</p><p>Evidence should survive navigation.</p><p>A durable note returns when it matters.</p>";
     const contentText = repeatedAnnotationFixture
       ? "New preface. First context: Repeated evidence.Intended context: Repeated evidence. Closing context."
       : ambiguousAnnotationFixture
         ? "same context: Repeated evidence. same context: Repeated evidence."
-        : "Evidence persists. Evidence should survive navigation. A durable note returns when it matters.";
+        : inlineMarkupAnnotationFixture
+          ? "Intro: Structured evidence survives refresh."
+          : "Evidence persists. Evidence should survive navigation. A durable note returns when it matters.";
     sendJson(response, 200, {
       id,
       owner: currentUser.id,
@@ -595,7 +671,7 @@ const proxy = createServer((request, response) => {
       summary_original: "Keep the evidence chain durable.",
       source_language: "en",
       score: null,
-      state: { status: "unread", saved: false, project: false, read_progress: 0.25 },
+      state: articleStateFor(id),
       sources: [],
     });
     return;

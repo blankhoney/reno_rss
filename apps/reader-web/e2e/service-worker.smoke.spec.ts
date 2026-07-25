@@ -56,6 +56,43 @@ async function selectReaderText(page: import("@playwright/test").Page) {
   await page.mouse.up();
 }
 
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (color: string) => {
+    const hex = color.match(/^#([0-9a-f]{6})$/i)?.[1];
+    const channels = hex
+      ? [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map((channel) => Number.parseInt(channel, 16))
+      : color.match(/\d+/g)?.map(Number);
+    if (channels == null || channels.length < 3) throw new Error(`Expected rgb color, received ${color}`);
+    const [red, green, blue] = channels.slice(0, 3).map((channel) => {
+      const normalized = channel / 255;
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (light + 0.05) / (dark + 0.05);
+}
+
+test("muted reading text meets AA contrast and reduced motion disables nonessential transitions", async ({ page }) => {
+  await resetFixtures(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?module=all&sort=default&lang=zh");
+
+  const tokens = await page.evaluate(() => {
+    const values = () => {
+      const styles = getComputedStyle(document.documentElement);
+      return { muted: styles.getPropertyValue("--muted").trim(), background: styles.getPropertyValue("--bg").trim() };
+    };
+    const light = values();
+    document.documentElement.dataset.theme = "dark";
+    const dark = values();
+    return { light, dark, transitionDuration: getComputedStyle(document.body).transitionDuration };
+  });
+  expect(contrastRatio(tokens.light.muted, tokens.light.background)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(tokens.dark.muted, tokens.dark.background)).toBeGreaterThanOrEqual(4.5);
+  expect(tokens.transitionDuration).toBe("0.001s");
+});
+
 test("registers and controls the second local page load", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/");
@@ -200,6 +237,7 @@ for (const viewport of [
 }
 
 for (const viewport of [
+  { width: 320, height: 568 },
   { width: 375, height: 812 },
   { width: 390, height: 844 },
   { width: 768, height: 1024 },
@@ -360,6 +398,18 @@ test("refreshed repeated annotations restore only the context-proven quote and s
   await expect(page.locator('mark[data-annotation-id="52"]')).toHaveCount(0);
   await expect(page.getByText(/有 1 条已保存划线因内容变化未安全定位/)).toBeVisible();
   await expect(page.locator(".focusContent")).toContainText("Repeated evidence.");
+});
+
+test("inline-markup annotation anchors remain visible but unresolved rather than wrapping partial markup", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-inline-markup");
+
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.locator(".focusContent")).toContainText("Structured evidence survives refresh.");
+  await expect(page.locator('mark[data-annotation-id="53"]')).toHaveCount(0);
+  await expect(page.getByText(/有 1 条已保存划线因内容变化未安全定位/)).toBeVisible();
+  await page.getByText("查看保留的未定位标注（1）", { exact: true }).click();
+  await expect(page.getByText("Keep the structured evidence note.", { exact: true })).toBeVisible();
 });
 
 for (const viewport of [
@@ -585,6 +635,28 @@ test("Reader keeps article context when Ask fails once and then retries", async 
   ]);
 });
 
+test("Reader preserves article context through a failed candidate write and retries to server-confirmed state", async ({ page }) => {
+  const errors = captureUnexpectedBrowserErrors(page);
+  await resetFixtures(page);
+  await page.request.post("/__e2e/article-state/fail-once");
+  await page.goto("/read/7?module=home&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.getByText("Evidence should survive navigation.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "更多文章操作" }).click();
+  await page.getByRole("menuitem", { name: "加入候选" }).click();
+  await expect(page.getByText("状态更新暂不可用，请重试。", { exact: true })).toBeVisible();
+  await expect(page.getByText("Evidence should survive navigation.", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "重试操作" }).click();
+  await expect(page.getByText("状态更新暂不可用，请重试。", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "更多文章操作" }).click();
+  await expect(page.getByRole("menuitem", { name: "移出候选" })).toBeVisible();
+  expect(errors).toEqual([
+    "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+  ]);
+});
+
 test("continue-reading route uses actual partial progress rather than candidate state", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=read-later&sort=default&lang=zh");
@@ -781,6 +853,7 @@ test("dual-pane reader intentionally stacks notes after content at 899px", async
 });
 
 for (const viewport of [
+  { width: 320, height: 568 },
   { width: 375, height: 812 },
   { width: 768, height: 1024 },
   { width: 1440, height: 1000 },

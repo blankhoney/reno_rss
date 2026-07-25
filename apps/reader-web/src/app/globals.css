@@ -9,7 +9,7 @@
   --panel-translucent: rgba(251, 246, 238, 0.78);
   --text: #2b2620; /* warm ink */
   --text-soft: #4f473b; /* secondary ink */
-  --muted: #897e6c; /* warm muted */
+  --muted: #746755; /* AA-safe warm muted */
   --border: #e4d9c5; /* warm hairline */
   --border-strong: #d3c4a9; /* stronger divider / hover */
 
@@ -1553,6 +1553,29 @@ body:has(.focusReader) .toastHost {
   font-size: 0.85rem;
 }
 
+.unresolvedAnnotations {
+  margin: 8px 0 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
+}
+
+.unresolvedAnnotations summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.unresolvedAnnotations ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.unresolvedAnnotations p {
+  margin: 3px 0;
+}
+
 .readerSummary {
   margin-top: 10px;
   border: 1px solid var(--border);
@@ -2723,6 +2746,12 @@ body:has(.focusReader) .toastHost {
 
   body:has(.agentDrawerOpen) .toastHost {
     bottom: calc(50vh + var(--mobile-bottom-nav-offset) + var(--space-4));
+  }
+}
+
+@media (max-width: 340px) {
+  body:has(.agentDrawerOpen) .toastHost {
+    bottom: calc(50vh + var(--mobile-bottom-nav-offset) + 48px);
   }
 }
 

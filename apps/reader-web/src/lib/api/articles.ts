@@ -361,7 +361,7 @@ export async function updateArticleState(articleId: number, patch: ArticleStateP
     project: patch.project,
     read_progress: patch.readProgress,
   };
-  await apiPost(`/api/articles/${articleId}/state`, body);
+  await apiPost<{ state?: ApiArticleState }>(`/api/articles/${articleId}/state`, body);
 }
 
 export async function saveArticleFeedback(

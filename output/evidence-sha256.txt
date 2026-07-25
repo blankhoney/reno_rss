@@ -1,9 +1,9 @@
 55782c827c4edb45898a631f2a80111a134dfb4290ce24547509909883c4d91c  output/anchor/annotation-anchor-contract-2026-07-26.json
-228002188c4465f700696438985c872f0ba71c4087e0a9877eeabc2584a96d33  output/performance/api-memory-2026-07-26.json
+df62538e2a91400c260cf3e11c9c7df29b8b899d5d597ac1d66be4c06b0adad1  output/performance/api-memory-2026-07-26.json
 c53cfd24a45ab49dd73d11928ef30c06137e1e9a730cd040017a0f6874f4e11f  output/performance/db-needs-baseline-2026-07-26.json
 6ddd02e17828e0eba4e7a2bae18b7db46649f22932542f04fccf8c83a5a7a10b  output/performance/frontend-font-build-2026-07-26.json
 17adc9eb27e86538289f2b287b5ec8af7bbca7aa94853464068181a677c2fdfa  output/performance/harness-validation-2026-07-26.json
-3e8f1295b500b4f85d05d2c5d69d7fe4a587280af9dc1b9e55528f0465f9cde5  output/performance/queue-memory-2026-07-26.json
+2c8f96d0a06c1c5780d50faf30ca6cb648c155b30ea83cd8bcae91a5f7af541a  output/performance/queue-memory-2026-07-26.json
 d3b25d6339e53fb7374e951ef41911e2bbda29a4dcdaa774eb6a9c3d2f963543  output/release/pr15-staging-proof-2026-07-26.json
 9ca1ee2ece4b31ba4a030020fc7e910a1080925b7de83e3676d3287a86587451  output/playwright/goal-baseline-2026-07-26/home-1440-light.png
 108888c398d9c18f9f121fcd8a03f4f90c24bf3ed18da63ff10c2e84b9ff75e2  output/playwright/goal-baseline-2026-07-26/reader-1440-light.png
@@ -22,3 +22,5 @@ c821135c35634186f7560a2345ad73ece76d07b9eb379b38503769cf3b4c9e24  output/securit
 0d36cfd712c6814e4e94db3b50ac98eec7445ec44def2ef27886467d3e7317d8  output/evidence/m1-daily-partial-failure-2026-07-26.json
 e50fd518f858e771500fa5e30d014a4ce39d50e72aac7e6ce9c6067d1edd88f2  output/evidence/m1-reader-ask-retry-2026-07-26.json
 a24f756f6f368f99f96fd91ac76910211bdcbb538e1caa40ae7a31cb68190acb  output/evidence/m1-annotation-anchor-recovery-2026-07-26.json
+a8a23069e3bbf9e00bb658b492bb023f20f80bfe8a9121428b87436d410f5d6a  output/evidence/m1-candidate-state-retry-2026-07-26.json
+ec5b9e1cf5114664d836f739905bffef2e09f449825baf6708136b76659a24a7  output/evidence/m1-inline-markup-annotation-recovery-2026-07-26.json

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-26",
+  "base_revision": "ff29cd70",
+  "milestone": "M1.4",
+  "acceptance": ["A-02", "A-04", "A-10"],
+  "scenario": "A focused Reader keeps its article context visible when a candidate state write returns one deterministic 503, exposes an explicit retry, and refreshes to the server-confirmed candidate state after the retry succeeds.",
+  "failure_before_repair": {
+    "command": "npm run test:e2e -- --grep 'failed candidate write'",
+    "result": "failed: no deterministic state-write fault fixture or explicit retry affordance existed, so recovery and server-confirmed state could not be proven."
+  },
+  "repair": [
+    "Typed the state-write response and carry it through the Reader action boundary.",
+    "Retain the last failed action only for the current article and expose an explicit retry control; article changes clear the retry closure.",
+    "Added a resettable fixture that fails one state write, persists the retry payload, and returns that state through the normal detail reload path.",
+    "Added Chromium coverage that allows exactly the injected 503 while rejecting all other console and page errors."
+  ],
+  "validation": [
+    {
+      "command": "npm test",
+      "result": "pass: 193 Node tests"
+    },
+    {
+      "command": "npm run build",
+      "result": "pass: Next.js production build"
+    },
+    {
+      "command": "npm run test:e2e -- --grep 'failed candidate write'",
+      "result": "pass: 1 Chromium scenario"
+    },
+    {
+      "command": "npm run test:e2e",
+      "result": "pass: 49 Chromium scenarios"
+    }
+  ],
+  "known_limit": "This proves one focused candidate-write 503/retry path using a deterministic fixture. The full state/input/browser matrix and bounded cross-service recovery budget remain IN_PROGRESS."
+}
