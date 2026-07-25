@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-26T02:46:12+08:00",
+  "source_revision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+  "candidate": "detached clean source revision plus M0 frontend fixtures and M1 local-font delivery changes",
+  "environment": {
+    "os": "macOS",
+    "node": "v22.23.0",
+    "next": "16.2.7",
+    "builder": "Turbopack",
+    "browser": "project Playwright 1.61.1 Chromium"
+  },
+  "baseline": {
+    "source": "pre-change native production build artifact in the primary worktree",
+    "static_kib": 8424,
+    "woff2_files": 107,
+    "limit": "filesystem footprint only; not compressed transfer size or user timing"
+  },
+  "candidate_builds": [
+    {
+      "run": 1,
+      "command": "npm run build",
+      "exit_code": 0,
+      "static_kib": 1816,
+      "standalone_kib": 39084,
+      "static_files": 20,
+      "woff2_files": 2
+    },
+    {
+      "run": 2,
+      "command": "npm run build after moving the first .next output aside",
+      "exit_code": 0,
+      "static_kib": 1816,
+      "standalone_kib": 39084,
+      "static_files": 20,
+      "woff2_files": 2
+    }
+  ],
+  "delta": {
+    "static_kib": -6608,
+    "static_percent": -78.4,
+    "woff2_files": -105,
+    "woff2_percent": -98.1
+  },
+  "font_assets": [
+    {
+      "path": "apps/reader-web/src/app/fonts/newsreader-latin-normal.woff2",
+      "sha256": "01817351be3edfc1714fe6d60ddea6a22a169a5ebd033b50c7f9495e5d9c386a",
+      "style": "normal",
+      "weight": "200 800"
+    },
+    {
+      "path": "apps/reader-web/src/app/fonts/newsreader-latin-italic.woff2",
+      "sha256": "a99fb127682b9af538780d21420037452197b0d37dfd273eb108f8a3665d5501",
+      "style": "italic",
+      "weight": "200 800"
+    }
+  ],
+  "license": {
+    "path": "apps/reader-web/src/app/fonts/OFL.txt",
+    "name": "SIL Open Font License 1.1",
+    "copyright": "Copyright 2020 The Newsreader Project Authors"
+  },
+  "network_dependency_scan": {
+    "procedure": "search candidate source and emitted static output for next/font/google, fonts.googleapis, and fonts.gstatic",
+    "matches": 0
+  },
+  "verification": {
+    "node_tests": {
+      "command": "npm test",
+      "passed": 185,
+      "failed": 0
+    },
+    "chromium_e2e": {
+      "command": "npm run test:e2e",
+      "passed": 43,
+      "failed": 0
+    },
+    "screenshots": [
+      "output/playwright/m1-fonts-2026-07-26/home-1440.png",
+      "output/playwright/m1-fonts-2026-07-26/reader-1440.png"
+    ]
+  },
+  "limits": [
+    "The candidate excludes the five user-owned dirty annotation-anchor files.",
+    "Chinese serif rendering uses the existing system-font fallback chain rather than bundling a CJK webfont.",
+    "The footprint delta is not a Web Vitals or route-transfer result."
+  ]
+}

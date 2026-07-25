@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-25T18:20:36.587709+00:00",
+  "candidate": {
+    "localGitRevision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+    "runtime": "synthetic InMemoryJobQueue"
+  },
+  "environment": {
+    "iterations": 5,
+    "jobsPerIteration": 1000,
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.12",
+    "warmups": 1
+  },
+  "summary": {
+    "enqueueThroughputPerSecond": {
+      "median": 88361.33636624785,
+      "p95": 95922.87493901704,
+      "min": 82372.88607492128,
+      "max": 95922.87493901704
+    },
+    "claimAndCompleteThroughputPerSecond": {
+      "median": 18931.86422066981,
+      "p95": 19355.166373913322,
+      "min": 18862.45263756033,
+      "max": 19355.166373913322
+    }
+  },
+  "samples": [
+    {
+      "sampleIndex": 1,
+      "enqueue": {
+        "operationDurationMs": {
+          "median": 0.011125,
+          "p95": 0.020917,
+          "min": 0.001292,
+          "max": 0.155542
+        },
+        "operations": 1000,
+        "throughputPerSecond": 87529.58171626079,
+        "totalMs": 11.424709
+      },
+      "claimAndComplete": {
+        "operationDurationMs": {
+          "median": 0.05375,
+          "p95": 0.094583,
+          "min": 0.012125,
+          "max": 0.2265
+        },
+        "operations": 1000,
+        "throughputPerSecond": 18931.86422066981,
+        "totalMs": 52.821
+      }
+    },
+    {
+      "sampleIndex": 2,
+      "enqueue": {
+        "operationDurationMs": {
+          "median": 0.01,
+          "p95": 0.0195,
+          "min": 0.001166,
+          "max": 0.046625
+        },
+        "operations": 1000,
+        "throughputPerSecond": 95922.87493901704,
+        "totalMs": 10.425042
+      },
+      "claimAndComplete": {
+        "operationDurationMs": {
+          "median": 0.053416,
+          "p95": 0.093625,
+          "min": 0.012041,
+          "max": 0.13125
+        },
+        "operations": 1000,
+        "throughputPerSecond": 19195.500451842883,
+        "totalMs": 52.095542
+      }
+    },
+    {
+      "sampleIndex": 3,
+      "enqueue": {
+        "operationDurationMs": {
+          "median": 0.010708,
+          "p95": 0.019666,
+          "min": 0.001291,
+          "max": 1.41825
+        },
+        "operations": 1000,
+        "throughputPerSecond": 82372.88607492128,
+        "totalMs": 12.139917
+      },
+      "claimAndComplete": {
+        "operationDurationMs": {
+          "median": 0.052917,
+          "p95": 0.0965,
+          "min": 0.012042,
+          "max": 0.132625
+        },
+        "operations": 1000,
+        "throughputPerSecond": 18926.250590333413,
+        "totalMs": 52.836667
+      }
+    },
+    {
+      "sampleIndex": 4,
+      "enqueue": {
+        "operationDurationMs": {
+          "median": 0.011167,
+          "p95": 0.019792,
+          "min": 0.001292,
+          "max": 0.14825
+        },
+        "operations": 1000,
+        "throughputPerSecond": 88361.33636624785,
+        "totalMs": 11.317167
+      },
+      "claimAndComplete": {
+        "operationDurationMs": {
+          "median": 0.053292,
+          "p95": 0.095541,
+          "min": 0.011917,
+          "max": 0.235375
+        },
+        "operations": 1000,
+        "throughputPerSecond": 18862.45263756033,
+        "totalMs": 53.015375
+      }
+    },
+    {
+      "sampleIndex": 5,
+      "enqueue": {
+        "operationDurationMs": {
+          "median": 0.010833,
+          "p95": 0.019417,
+          "min": 0.001291,
+          "max": 0.051167
+        },
+        "operations": 1000,
+        "throughputPerSecond": 93451.39359390698,
+        "totalMs": 10.70075
+      },
+      "claimAndComplete": {
+        "operationDurationMs": {
+          "median": 0.052708,
+          "p95": 0.092666,
+          "min": 0.012209,
+          "max": 0.109
+        },
+        "operations": 1000,
+        "throughputPerSecond": 19355.166373913322,
+        "totalMs": 51.665792
+      }
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-26T02:57:07+08:00",
+  "source_revision": "609724d7f39182270bdeaf0c79a4b928b01054b9",
+  "environment": {
+    "node": "v22.23.0",
+    "npm": "10.9.8"
+  },
+  "commands": [
+    "npm audit --omit=dev --json",
+    "npm ls next postcss sharp --all",
+    "npm audit fix --omit=dev --dry-run",
+    "npm view next@16.2.11 ...",
+    "npm view postcss@8.5.18 ...",
+    "npm view sharp@0.35.0 ..."
+  ],
+  "current": {
+    "next": "16.2.7",
+    "postcss": "8.4.31",
+    "sharp": "0.34.5",
+    "production_audit": {
+      "high": 3,
+      "critical": 0,
+      "total": 3
+    }
+  },
+  "advisory_groups": [
+    {
+      "package": "next",
+      "aggregate_severity": "high",
+      "direct": true,
+      "direct_advisories": {
+        "high": 4,
+        "moderate": 5
+      },
+      "direct_patched_version": "16.2.11",
+      "transitive_effects": [
+        "postcss",
+        "sharp"
+      ]
+    },
+    {
+      "package": "postcss",
+      "aggregate_severity": "high",
+      "direct": false,
+      "current_version": "8.4.31",
+      "affected_range": "<=8.5.17",
+      "first_patched_version": "8.5.18"
+    },
+    {
+      "package": "sharp",
+      "aggregate_severity": "high",
+      "direct": false,
+      "current_version": "0.34.5",
+      "affected_range": "<0.35.0",
+      "first_patched_version": "0.35.0"
+    }
+  ],
+  "application_path_inventory": {
+    "server_actions": false,
+    "middleware_or_proxy": false,
+    "rewrites": false,
+    "next_image": false,
+    "user_controlled_css_processing": false,
+    "interpretation": "Several direct Next.js exploit preconditions were not found in source/config, but npm audit remains red and this inventory is not a security pass."
+  },
+  "dry_run": {
+    "lockfile_changed": false,
+    "proposed_direct_change": "next 16.2.7 -> 16.2.11",
+    "remaining_result": "3 high findings",
+    "reason": "next@16.2.11 still declares postcss 8.4.31 and optional sharp ^0.34.5"
+  },
+  "decision_required": {
+    "id": "D-02",
+    "recommended_authority": "Approve a scoped isolated remediation candidate: Next.js 16.2.11 plus the minimum compatible PostCSS/Sharp resolution needed to clear audit, with full Node/build/E2E/audit/Trivy-style regression gates and rollback on incompatibility.",
+    "fallback_if_transitive_overrides_fail": "Approve a named, owned, expiring exception only for the residual PostCSS/Sharp findings while waiting for an upstream-compatible Next.js release; the Next.js 16.2.11 direct patch should still proceed.",
+    "not_authorized_yet": [
+      "package.json override changes",
+      "package-lock.json changes",
+      "installed dependency mutation",
+      "deployment"
+    ]
+  },
+  "limits": [
+    "No dependency or lockfile was changed.",
+    "Registry/advisory results are a point-in-time observation.",
+    "Trivy and container-image proof require the approved candidate and CI or a Docker daemon."
+  ]
+}
