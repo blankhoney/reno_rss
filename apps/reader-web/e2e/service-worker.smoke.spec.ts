@@ -56,6 +56,40 @@ async function selectReaderText(page: import("@playwright/test").Page) {
   await page.mouse.up();
 }
 
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (color: string) => {
+    const hex = color.match(/^#([0-9a-f]{6})$/i)?.[1];
+    const channels = hex
+      ? [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map((channel) => Number.parseInt(channel, 16))
+      : color.match(/\d+/g)?.map(Number);
+    if (channels == null || channels.length < 3) throw new Error(`Expected rgb color, received ${color}`);
+    const [red, green, blue] = channels.slice(0, 3).map((channel) => {
+      const normalized = channel / 255;
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (light + 0.05) / (dark + 0.05);
+}
+
+test("muted reading text meets AA contrast and reduced motion disables nonessential transitions", async ({ page }) => {
+  await resetFixtures(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?module=all&sort=default&lang=zh");
+
+  const tokens = await page.evaluate(() => {
+    const styles = getComputedStyle(document.documentElement);
+    return {
+      muted: styles.getPropertyValue("--muted").trim(),
+      background: styles.getPropertyValue("--bg").trim(),
+      transitionDuration: getComputedStyle(document.body).transitionDuration,
+    };
+  });
+  expect(contrastRatio(tokens.muted, tokens.background)).toBeGreaterThanOrEqual(4.5);
+  expect(tokens.transitionDuration).toBe("0.001s");
+});
+
 test("registers and controls the second local page load", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/");
