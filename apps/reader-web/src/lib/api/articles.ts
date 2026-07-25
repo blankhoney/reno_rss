@@ -19,6 +19,9 @@ import type {
 } from "@/lib/articles/types";
 import { ARTICLE_FEEDBACK_TYPES, DIMENSION_KEYS } from "@/lib/articles/types";
 
+const ARTICLE_STATE_STATUSES = new Set(["read", "unread", "skipped", "removed"]);
+const ZERO_TO_ONE_READ_PROGRESS_RE = /^(0(?:\.[0-9]+)?|1(?:\.0+)?)$/;
+
 type ApiArticleState = {
   status?: string | null;
   saved?: boolean | null;
@@ -91,6 +94,13 @@ export type ArticleStatePatch = {
   readProgress?: number;
 };
 
+export type ArticleState = {
+  status?: "read" | "unread" | "skipped" | "removed";
+  saved?: boolean;
+  project?: boolean;
+  readProgress?: number;
+};
+
 export type ArticleFeedbackPatch = {
   userScore: number;
   feedbackType: ArticleFeedbackType;
@@ -138,6 +148,31 @@ type ApiJobResponse = {
   updated_at: string;
   completed_at: string | null;
 };
+
+function normalizeArticleStatus(value: unknown): Article["status"] | "removed" | undefined {
+  if (typeof value !== "string") return undefined;
+  if (!ARTICLE_STATE_STATUSES.has(value)) return "unread";
+  return value as Article["status"] | "removed";
+}
+
+function normalizeReadProgress(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  if (ZERO_TO_ONE_READ_PROGRESS_RE.test(String(value))) {
+    return value;
+  }
+  return undefined;
+}
+
+function parseApiArticleState(state: unknown): ArticleState {
+  if (state == null || typeof state !== "object" || Array.isArray(state)) return {};
+  const payload = state as Record<string, unknown>;
+  return {
+    status: normalizeArticleStatus(payload.status),
+    saved: typeof payload.saved === "boolean" ? payload.saved : undefined,
+    project: typeof payload.project === "boolean" ? payload.project : undefined,
+    readProgress: normalizeReadProgress(payload.read_progress),
+  };
+}
 
 type PollOptions = {
   intervalMs?: number;
@@ -354,14 +389,15 @@ export async function getArticle(articleId: number): Promise<Article> {
   return articleFromApiDetail(await apiGet<ApiArticleDetail>(`/api/articles/${articleId}`));
 }
 
-export async function updateArticleState(articleId: number, patch: ArticleStatePatch): Promise<void> {
+export async function updateArticleState(articleId: number, patch: ArticleStatePatch): Promise<ArticleState> {
   const body: components["schemas"]["ArticleStateRequest"] = {
     status: patch.status,
     saved: patch.saved,
     project: patch.project,
     read_progress: patch.readProgress,
   };
-  await apiPost(`/api/articles/${articleId}/state`, body);
+  const payload = await apiPost<{ state?: ApiArticleState }>(`/api/articles/${articleId}/state`, body);
+  return parseApiArticleState(payload.state);
 }
 
 export async function saveArticleFeedback(

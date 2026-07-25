@@ -391,12 +391,13 @@ test("updateArticleState posts status, saved, project, and read progress", async
   });
 
   try {
-    await updateArticleState(42, { status: "read", saved: true, project: true, readProgress: 1 });
+    const state = await updateArticleState(42, { status: "read", saved: true, project: true, readProgress: 1 });
 
     assert.equal(capturedInput, "/api/articles/42/state");
     assert.equal(capturedInit?.method, "POST");
     assert.equal(headerValue(capturedInit?.headers, "content-type"), "application/json");
     assert.equal(capturedInit?.body, JSON.stringify({ status: "read", saved: true, project: true, read_progress: 1 }));
+    assert.deepEqual(state, { status: "read", saved: true, project: true, readProgress: 1 });
   } finally {
     restoreFetch();
   }

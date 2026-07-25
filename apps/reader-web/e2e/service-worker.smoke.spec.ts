@@ -585,6 +585,28 @@ test("Reader keeps article context when Ask fails once and then retries", async 
   ]);
 });
 
+test("Reader preserves article context through a failed candidate write and retries to server-confirmed state", async ({ page }) => {
+  const errors = captureUnexpectedBrowserErrors(page);
+  await resetFixtures(page);
+  await page.request.post("/__e2e/article-state/fail-once");
+  await page.goto("/read/7?module=home&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.getByText("Evidence should survive navigation.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "更多文章操作" }).click();
+  await page.getByRole("menuitem", { name: "加入候选" }).click();
+  await expect(page.getByText("状态更新暂不可用，请重试。", { exact: true })).toBeVisible();
+  await expect(page.getByText("Evidence should survive navigation.", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "重试操作" }).click();
+  await expect(page.getByText("状态更新暂不可用，请重试。", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "更多文章操作" }).click();
+  await expect(page.getByRole("menuitem", { name: "移出候选" })).toBeVisible();
+  expect(errors).toEqual([
+    "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+  ]);
+});
+
 test("continue-reading route uses actual partial progress rather than candidate state", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=read-later&sort=default&lang=zh");

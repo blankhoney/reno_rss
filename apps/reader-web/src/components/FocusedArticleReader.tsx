@@ -689,7 +689,14 @@ export function FocusedArticleReader({
       </section>
 
       {articleActions.actionError ? (
-        <p className="readerActionError">{articleActions.actionError}</p>
+        <section className="readerActionError" role="alert">
+          <p>{articleActions.actionError}</p>
+          {articleActions.canRetryAction ? (
+            <button type="button" className="readerToolbarBtn" onClick={articleActions.retryLastAction}>
+              重试操作
+            </button>
+          ) : null}
+        </section>
       ) : null}
 
       {article.contentZhStatus === "failed" ? (
