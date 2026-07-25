@@ -190,6 +190,7 @@ jobs:
         run: |
           bash -n infra/scripts/deploy.sh infra/scripts/backup.sh infra/scripts/smoke-test.sh infra/scripts/staging-runtime-proof.sh infra/scripts/check-deploy-migrations.sh .github/scripts/remote-deploy.sh .github/scripts/validate-deploy-env.sh
           bash infra/scripts/check-deploy-migrations.sh
+          python infra/scripts/check-metrics-boundary.py
           python - <<'PY'
           from pathlib import Path
 

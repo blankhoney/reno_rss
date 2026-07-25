@@ -19,7 +19,8 @@
 # Exit codes:
 #   0 when containers are running, health endpoints respond, the env-specific
 #   anonymous auth boundary holds (prod 401; staging articles 200 / admin 403),
-#   and on staging the app shell is publicly served.
+#   metrics are denied publicly but scrapeable over the app network, and on
+#   staging the app shell is publicly served.
 #   Non-zero on invalid ENV, missing/risky containers, failed health checks, or
 #   broken auth boundaries.
 #
@@ -121,7 +122,7 @@ require_running "$POSTGRES_CONTAINER"
 require_running "$EDGE_CONTAINER"
 
 # Internal API probes distinguish service health from edge-routing failures.
-docker exec \
+docker exec -i \
     -e EXPECT_ANON_ARTICLES="$EXPECT_ANON_ARTICLES" \
     -e EXPECT_ANON_ADMIN="$EXPECT_ANON_ADMIN" \
     "$API_CONTAINER" python - <<'PY'
@@ -157,6 +158,37 @@ require_status("/api/admin/users", int(os.environ["EXPECT_ANON_ADMIN"]))
 print("  ✅ internal api health and anonymous auth boundaries ok")
 PY
 
+# Metrics deliberately remain unauthenticated inside the private app network so
+# an approved monitoring container can scrape them. Probe from the worker rather
+# than loopback to prove the environment-specific API alias and network path.
+docker exec -i \
+    -e INTERNAL_API_ALIAS="api-${ENV}" \
+    "$WORKER_CONTAINER" python - <<'PY'
+import os
+import urllib.request
+
+
+url = f"http://{os.environ['INTERNAL_API_ALIAS']}:8000/api/metrics"
+with urllib.request.urlopen(url, timeout=5) as response:
+    status = response.status
+    content_type = response.headers.get_content_type()
+    body = response.read().decode()
+
+if status != 200:
+    raise SystemExit(f"internal metrics returned {status}, expected 200")
+if content_type != "text/plain":
+    raise SystemExit(f"internal metrics content type was {content_type}, expected text/plain")
+for marker in (
+    "ai_reader_up 1",
+    "ai_reader_http_requests_total",
+    "ai_reader_job_queue_queued",
+):
+    if marker not in body:
+        raise SystemExit(f"internal metrics missing required family: {marker}")
+
+print("  ✅ internal metrics scrape boundary ok")
+PY
+
 # Public HTTP probes prove Caddy routes health and API paths to the expected services.
 require_http_status() {
     local path="$1"
@@ -177,6 +209,7 @@ require_http_status "/healthz" "200"
 require_http_status "/api/healthz" "200"
 require_http_status "/api/articles" "$EXPECT_ANON_ARTICLES"
 require_http_status "/api/admin/users" "$EXPECT_ANON_ADMIN"
+require_http_status "/api/metrics" "404"
 
 require_security_headers() {
     local headers_file

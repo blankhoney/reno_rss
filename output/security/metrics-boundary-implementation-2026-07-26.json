@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-26",
+  "candidate_revision_before_change": "c61cd6a6",
+  "decision": "D-04",
+  "public_contract": {
+    "hosts": [
+      "ai-reader.${DOMAIN}",
+      "staging-ai-reader.${DOMAIN}"
+    ],
+    "path": "/api/metrics",
+    "expected_status": 404,
+    "implementation": "exact Caddy handle before the general /api/* reverse proxy"
+  },
+  "internal_contract": {
+    "scrape_source": "ai-reader-worker container on the shared app network",
+    "targets": [
+      "http://api-prod:8000/api/metrics",
+      "http://api-staging:8000/api/metrics"
+    ],
+    "expected_status": 200,
+    "expected_content_type": "text/plain",
+    "required_metric_families": [
+      "ai_reader_up",
+      "ai_reader_http_requests_total",
+      "ai_reader_job_queue_queued"
+    ]
+  },
+  "local_verification": {
+    "static_boundary_contract": {
+      "command": "python infra/scripts/check-metrics-boundary.py",
+      "exit_code": 0
+    },
+    "smoke_shell_syntax": {
+      "command": "bash -n infra/scripts/smoke-test.sh",
+      "exit_code": 0
+    },
+    "api_internal_metrics_contract": {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_health.py -q",
+      "exit_code": 0,
+      "passed": 3
+    },
+    "compose_render": {
+      "staging": 0,
+      "prod": 0,
+      "edge": 0
+    },
+    "caddy_binary": "UNAVAILABLE",
+    "docker_daemon": "UNAVAILABLE_TIMEOUT"
+  },
+  "remaining_evidence": [
+    "CI Caddy validation",
+    "post-deploy public 404 on both environments",
+    "post-deploy internal worker-to-API scrape on both environments"
+  ]
+}
