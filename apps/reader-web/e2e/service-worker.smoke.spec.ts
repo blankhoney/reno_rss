@@ -237,6 +237,7 @@ for (const viewport of [
 }
 
 for (const viewport of [
+  { width: 320, height: 568 },
   { width: 375, height: 812 },
   { width: 390, height: 844 },
   { width: 768, height: 1024 },
