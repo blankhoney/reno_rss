@@ -1,0 +1,1356 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-26T00:28:48.764Z",
+  "candidate": {
+    "localGitRevision": "2569feca1e1de43cf88961af1b028717a6d99fcf",
+    "measuredBaseURL": "http://127.0.0.1:3010",
+    "remoteRevision": "UNKNOWN"
+  },
+  "environment": {
+    "architecture": "arm64",
+    "browser": "chromium 149.0.7827.55",
+    "iterations": 5,
+    "node": "v22.23.0",
+    "platform": "darwin",
+    "phases": [
+      "cold",
+      "warm-http-cache",
+      "service-worker-controlled"
+    ],
+    "readySelector": ".workbench",
+    "settleMs": 1000,
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "warmups": 1
+  },
+  "routes": [
+    {
+      "route": "/?module=home&sort=default&lang=zh",
+      "phase": "cold",
+      "samples": [
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 10.900000005960464,
+            "firstContentfulPaintMs": 44,
+            "firstPaintMs": 44,
+            "lcpMs": 44,
+            "loadEventMs": 46.80000000447035,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 627852,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 5081
+            },
+            "responseEndMs": 5.200000002980232,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 1
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 9.699999995529652,
+            "firstContentfulPaintMs": 24,
+            "firstPaintMs": 24,
+            "lcpMs": 24,
+            "loadEventMs": 41.19999999552965,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 627852,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 5081
+            },
+            "responseEndMs": 4.899999998509884,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 2
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 10.099999994039536,
+            "firstContentfulPaintMs": 24,
+            "firstPaintMs": 24,
+            "lcpMs": 24,
+            "loadEventMs": 41.899999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 627852,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 5081
+            },
+            "responseEndMs": 4.799999997019768,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 3
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 10.400000005960464,
+            "firstContentfulPaintMs": 40,
+            "firstPaintMs": 40,
+            "lcpMs": 40,
+            "loadEventMs": 41.70000000298023,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 627852,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 5081
+            },
+            "responseEndMs": 5,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 4
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 10.100000001490116,
+            "firstContentfulPaintMs": 44,
+            "firstPaintMs": 44,
+            "lcpMs": 84,
+            "loadEventMs": 44.100000001490116,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 627852,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 5081
+            },
+            "responseEndMs": 4.800000004470348,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 5
+        }
+      ],
+      "serviceWorkerControlled": false,
+      "summary": {
+        "cls": {
+          "median": 0.020726433745961132,
+          "p95": 0.020726433745961132,
+          "min": 0.020726433745961132,
+          "max": 0.020726433745961132
+        },
+        "domContentLoadedMs": {
+          "median": 10.100000001490116,
+          "p95": 10.900000005960464,
+          "min": 9.699999995529652,
+          "max": 10.900000005960464
+        },
+        "firstContentfulPaintMs": {
+          "median": 40,
+          "p95": 44,
+          "min": 24,
+          "max": 44
+        },
+        "firstPaintMs": {
+          "median": 40,
+          "p95": 44,
+          "min": 24,
+          "max": 44
+        },
+        "lcpMs": {
+          "median": 40,
+          "p95": 84,
+          "min": 24,
+          "max": 84
+        },
+        "loadEventMs": {
+          "median": 41.899999998509884,
+          "p95": 46.80000000447035,
+          "min": 41.19999999552965,
+          "max": 46.80000000447035
+        },
+        "longTaskCount": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "longTaskTotalMs": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "navigationTransferBytes": {
+          "median": 4100,
+          "p95": 4100,
+          "min": 4100,
+          "max": 4100
+        },
+        "resourceCount": {
+          "median": 20,
+          "p95": 20,
+          "min": 20,
+          "max": 20
+        },
+        "resourceTransferBytes": {
+          "median": 627852,
+          "p95": 627852,
+          "min": 627852,
+          "max": 627852
+        },
+        "responseEndMs": {
+          "median": 4.899999998509884,
+          "p95": 5.200000002980232,
+          "min": 4.799999997019768,
+          "max": 5.200000002980232
+        }
+      }
+    },
+    {
+      "route": "/?module=all&sort=default&lang=zh",
+      "phase": "cold",
+      "samples": [
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 9.699999995529652,
+            "firstContentfulPaintMs": 24,
+            "firstPaintMs": 24,
+            "lcpMs": 24,
+            "loadEventMs": 41.600000001490116,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 624866,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.699999995529652,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 1
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 9.899999998509884,
+            "firstContentfulPaintMs": 28,
+            "firstPaintMs": 28,
+            "lcpMs": 28,
+            "loadEventMs": 46.80000000447035,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 624866,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.600000001490116,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 2
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 12.399999998509884,
+            "firstContentfulPaintMs": 24,
+            "firstPaintMs": 24,
+            "lcpMs": 24,
+            "loadEventMs": 46.399999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 624866,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 2095
+            },
+            "responseEndMs": 6.200000002980232,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 3
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 10.299999997019768,
+            "firstContentfulPaintMs": 32,
+            "firstPaintMs": 32,
+            "lcpMs": 32,
+            "loadEventMs": 48.20000000298023,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 624866,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.799999997019768,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 4
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 9.700000002980232,
+            "firstContentfulPaintMs": 24,
+            "firstPaintMs": 24,
+            "lcpMs": 24,
+            "loadEventMs": 40.899999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 624866,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 298521,
+              "script": 324250,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.600000001490116,
+            "serviceWorkerControlled": false
+          },
+          "phase": "cold",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 5
+        }
+      ],
+      "serviceWorkerControlled": false,
+      "summary": {
+        "cls": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "domContentLoadedMs": {
+          "median": 9.899999998509884,
+          "p95": 12.399999998509884,
+          "min": 9.699999995529652,
+          "max": 12.399999998509884
+        },
+        "firstContentfulPaintMs": {
+          "median": 24,
+          "p95": 32,
+          "min": 24,
+          "max": 32
+        },
+        "firstPaintMs": {
+          "median": 24,
+          "p95": 32,
+          "min": 24,
+          "max": 32
+        },
+        "lcpMs": {
+          "median": 24,
+          "p95": 32,
+          "min": 24,
+          "max": 32
+        },
+        "loadEventMs": {
+          "median": 46.399999998509884,
+          "p95": 48.20000000298023,
+          "min": 40.899999998509884,
+          "max": 48.20000000298023
+        },
+        "longTaskCount": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "longTaskTotalMs": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "navigationTransferBytes": {
+          "median": 4072,
+          "p95": 4072,
+          "min": 4072,
+          "max": 4072
+        },
+        "resourceCount": {
+          "median": 16,
+          "p95": 16,
+          "min": 16,
+          "max": 16
+        },
+        "resourceTransferBytes": {
+          "median": 624866,
+          "p95": 624866,
+          "min": 624866,
+          "max": 624866
+        },
+        "responseEndMs": {
+          "median": 4.699999995529652,
+          "p95": 6.200000002980232,
+          "min": 4.600000001490116,
+          "max": 6.200000002980232
+        }
+      }
+    },
+    {
+      "route": "/?module=home&sort=default&lang=zh",
+      "phase": "warm-http-cache",
+      "samples": [
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 8,
+            "firstContentfulPaintMs": 36,
+            "firstPaintMs": 36,
+            "lcpMs": 80,
+            "loadEventMs": 40.5,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 4,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 1
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 8.399999998509884,
+            "firstContentfulPaintMs": 36,
+            "firstPaintMs": 36,
+            "lcpMs": 80,
+            "loadEventMs": 40.399999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 4.299999997019768,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 2
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 7.399999998509884,
+            "firstContentfulPaintMs": 20,
+            "firstPaintMs": 20,
+            "lcpMs": 76,
+            "loadEventMs": 40.79999999701977,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 4.100000001490116,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 3
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 7.300000004470348,
+            "firstContentfulPaintMs": 20,
+            "firstPaintMs": 20,
+            "lcpMs": 80,
+            "loadEventMs": 40.900000005960464,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 3.8000000044703484,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 4
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 8,
+            "firstContentfulPaintMs": 20,
+            "firstPaintMs": 20,
+            "lcpMs": 76,
+            "loadEventMs": 40.5,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4100,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 4.5,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 5
+        }
+      ],
+      "serviceWorkerControlled": false,
+      "summary": {
+        "cls": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "domContentLoadedMs": {
+          "median": 8,
+          "p95": 8.399999998509884,
+          "min": 7.300000004470348,
+          "max": 8.399999998509884
+        },
+        "firstContentfulPaintMs": {
+          "median": 20,
+          "p95": 36,
+          "min": 20,
+          "max": 36
+        },
+        "firstPaintMs": {
+          "median": 20,
+          "p95": 36,
+          "min": 20,
+          "max": 36
+        },
+        "lcpMs": {
+          "median": 80,
+          "p95": 80,
+          "min": 76,
+          "max": 80
+        },
+        "loadEventMs": {
+          "median": 40.5,
+          "p95": 40.900000005960464,
+          "min": 40.399999998509884,
+          "max": 40.900000005960464
+        },
+        "longTaskCount": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "longTaskTotalMs": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "navigationTransferBytes": {
+          "median": 4100,
+          "p95": 4100,
+          "min": 4100,
+          "max": 4100
+        },
+        "resourceCount": {
+          "median": 20,
+          "p95": 20,
+          "min": 20,
+          "max": 20
+        },
+        "resourceTransferBytes": {
+          "median": 5081,
+          "p95": 5081,
+          "min": 5081,
+          "max": 5081
+        },
+        "responseEndMs": {
+          "median": 4.100000001490116,
+          "p95": 4.5,
+          "min": 3.8000000044703484,
+          "max": 4.5
+        }
+      }
+    },
+    {
+      "route": "/?module=all&sort=default&lang=zh",
+      "phase": "warm-http-cache",
+      "samples": [
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 8.300000004470348,
+            "firstContentfulPaintMs": 40,
+            "firstPaintMs": 40,
+            "lcpMs": 76,
+            "loadEventMs": 43.5,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.600000001490116,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 1
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 7.700000002980232,
+            "firstContentfulPaintMs": 20,
+            "firstPaintMs": 20,
+            "lcpMs": 20,
+            "loadEventMs": 41.30000000447035,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.100000001490116,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 2
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 8.100000001490116,
+            "firstContentfulPaintMs": 20,
+            "firstPaintMs": 20,
+            "lcpMs": 20,
+            "loadEventMs": 40.600000001490116,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.299999997019768,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 3
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 7.200000002980232,
+            "firstContentfulPaintMs": 36,
+            "firstPaintMs": 36,
+            "lcpMs": 76,
+            "loadEventMs": 42,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.300000004470348,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 4
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 7.799999997019768,
+            "firstContentfulPaintMs": 24,
+            "firstPaintMs": 24,
+            "lcpMs": 24,
+            "loadEventMs": 43.600000001490116,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 4072,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 4.399999998509884,
+            "serviceWorkerControlled": false
+          },
+          "phase": "warm-http-cache",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 5
+        }
+      ],
+      "serviceWorkerControlled": false,
+      "summary": {
+        "cls": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "domContentLoadedMs": {
+          "median": 7.799999997019768,
+          "p95": 8.300000004470348,
+          "min": 7.200000002980232,
+          "max": 8.300000004470348
+        },
+        "firstContentfulPaintMs": {
+          "median": 24,
+          "p95": 40,
+          "min": 20,
+          "max": 40
+        },
+        "firstPaintMs": {
+          "median": 24,
+          "p95": 40,
+          "min": 20,
+          "max": 40
+        },
+        "lcpMs": {
+          "median": 24,
+          "p95": 76,
+          "min": 20,
+          "max": 76
+        },
+        "loadEventMs": {
+          "median": 42,
+          "p95": 43.600000001490116,
+          "min": 40.600000001490116,
+          "max": 43.600000001490116
+        },
+        "longTaskCount": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "longTaskTotalMs": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "navigationTransferBytes": {
+          "median": 4072,
+          "p95": 4072,
+          "min": 4072,
+          "max": 4072
+        },
+        "resourceCount": {
+          "median": 16,
+          "p95": 16,
+          "min": 16,
+          "max": 16
+        },
+        "resourceTransferBytes": {
+          "median": 2095,
+          "p95": 2095,
+          "min": 2095,
+          "max": 2095
+        },
+        "responseEndMs": {
+          "median": 4.300000004470348,
+          "p95": 4.600000001490116,
+          "min": 4.100000001490116,
+          "max": 4.600000001490116
+        }
+      }
+    },
+    {
+      "route": "/?module=home&sort=default&lang=zh",
+      "phase": "service-worker-controlled",
+      "samples": [
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 4.899999998509884,
+            "firstContentfulPaintMs": 32,
+            "firstPaintMs": 32,
+            "lcpMs": 72,
+            "loadEventMs": 29.899999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 1,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 1
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 5,
+            "firstContentfulPaintMs": 36,
+            "firstPaintMs": 36,
+            "lcpMs": 76,
+            "loadEventMs": 33.399999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 1,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 2
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 4.899999998509884,
+            "firstContentfulPaintMs": 32,
+            "firstPaintMs": 32,
+            "lcpMs": 72,
+            "loadEventMs": 30.299999997019768,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 0.8999999985098839,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 3
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 4.9000000059604645,
+            "firstContentfulPaintMs": 28,
+            "firstPaintMs": 28,
+            "lcpMs": 68,
+            "loadEventMs": 32.30000000447035,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 1,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 4
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0.020726433745961132,
+            "domContentLoadedMs": 4.5,
+            "firstContentfulPaintMs": 32,
+            "firstPaintMs": 32,
+            "lcpMs": 72,
+            "loadEventMs": 28.19999999552965,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 20,
+            "resourceTransferBytes": 5081,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 5081
+            },
+            "responseEndMs": 1,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=home&sort=default&lang=zh",
+          "sampleIndex": 5
+        }
+      ],
+      "serviceWorkerControlled": true,
+      "summary": {
+        "cls": {
+          "median": 0.020726433745961132,
+          "p95": 0.020726433745961132,
+          "min": 0.020726433745961132,
+          "max": 0.020726433745961132
+        },
+        "domContentLoadedMs": {
+          "median": 4.899999998509884,
+          "p95": 5,
+          "min": 4.5,
+          "max": 5
+        },
+        "firstContentfulPaintMs": {
+          "median": 32,
+          "p95": 36,
+          "min": 28,
+          "max": 36
+        },
+        "firstPaintMs": {
+          "median": 32,
+          "p95": 36,
+          "min": 28,
+          "max": 36
+        },
+        "lcpMs": {
+          "median": 72,
+          "p95": 76,
+          "min": 68,
+          "max": 76
+        },
+        "loadEventMs": {
+          "median": 30.299999997019768,
+          "p95": 33.399999998509884,
+          "min": 28.19999999552965,
+          "max": 33.399999998509884
+        },
+        "longTaskCount": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "longTaskTotalMs": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "navigationTransferBytes": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "resourceCount": {
+          "median": 20,
+          "p95": 20,
+          "min": 20,
+          "max": 20
+        },
+        "resourceTransferBytes": {
+          "median": 5081,
+          "p95": 5081,
+          "min": 5081,
+          "max": 5081
+        },
+        "responseEndMs": {
+          "median": 1,
+          "p95": 1,
+          "min": 0.8999999985098839,
+          "max": 1
+        }
+      }
+    },
+    {
+      "route": "/?module=all&sort=default&lang=zh",
+      "phase": "service-worker-controlled",
+      "samples": [
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 4.700000002980232,
+            "firstContentfulPaintMs": 28,
+            "firstPaintMs": 28,
+            "lcpMs": 28,
+            "loadEventMs": 32.899999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 1.1000000014901161,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 1
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 4.899999998509884,
+            "firstContentfulPaintMs": 64,
+            "firstPaintMs": 64,
+            "lcpMs": 64,
+            "loadEventMs": 25.399999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 1,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 2
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 4.799999997019768,
+            "firstContentfulPaintMs": 32,
+            "firstPaintMs": 32,
+            "lcpMs": 64,
+            "loadEventMs": 32.70000000298023,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 1,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 3
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 4.899999998509884,
+            "firstContentfulPaintMs": 36,
+            "firstPaintMs": 36,
+            "lcpMs": 68,
+            "loadEventMs": 26.399999998509884,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 1,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 4
+        },
+        {
+          "browserErrors": [],
+          "failedResponses": [],
+          "httpStatus": 200,
+          "metrics": {
+            "cls": 0,
+            "domContentLoadedMs": 5.0999999940395355,
+            "firstContentfulPaintMs": 28,
+            "firstPaintMs": 28,
+            "lcpMs": 28,
+            "loadEventMs": 33.79999999701977,
+            "longTaskCount": 0,
+            "longTaskTotalMs": 0,
+            "navigationTransferBytes": 0,
+            "resourceCount": 16,
+            "resourceTransferBytes": 2095,
+            "resourceTransferBytesByInitiatorType": {
+              "link": 0,
+              "script": 0,
+              "fetch": 2095
+            },
+            "responseEndMs": 1.0999999940395355,
+            "serviceWorkerControlled": true
+          },
+          "phase": "service-worker-controlled",
+          "route": "/?module=all&sort=default&lang=zh",
+          "sampleIndex": 5
+        }
+      ],
+      "serviceWorkerControlled": true,
+      "summary": {
+        "cls": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "domContentLoadedMs": {
+          "median": 4.899999998509884,
+          "p95": 5.0999999940395355,
+          "min": 4.700000002980232,
+          "max": 5.0999999940395355
+        },
+        "firstContentfulPaintMs": {
+          "median": 32,
+          "p95": 64,
+          "min": 28,
+          "max": 64
+        },
+        "firstPaintMs": {
+          "median": 32,
+          "p95": 64,
+          "min": 28,
+          "max": 64
+        },
+        "lcpMs": {
+          "median": 64,
+          "p95": 68,
+          "min": 28,
+          "max": 68
+        },
+        "loadEventMs": {
+          "median": 32.70000000298023,
+          "p95": 33.79999999701977,
+          "min": 25.399999998509884,
+          "max": 33.79999999701977
+        },
+        "longTaskCount": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "longTaskTotalMs": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "navigationTransferBytes": {
+          "median": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0
+        },
+        "resourceCount": {
+          "median": 16,
+          "p95": 16,
+          "min": 16,
+          "max": 16
+        },
+        "resourceTransferBytes": {
+          "median": 2095,
+          "p95": 2095,
+          "min": 2095,
+          "max": 2095
+        },
+        "responseEndMs": {
+          "median": 1,
+          "p95": 1.1000000014901161,
+          "min": 1,
+          "max": 1.1000000014901161
+        }
+      }
+    }
+  ]
+}

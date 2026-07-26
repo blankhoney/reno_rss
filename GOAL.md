@@ -41,14 +41,14 @@
 
 ## 3. Verified Baseline
 
-快照：`2026-07-26`，工作区分支 `goal/m1-annotation-integrity`，基线主线 `HEAD=504c98c7`；以下 M2.1 证据对应其上的未提交候选。
-当前工作区有未提交文件，但本次基线以当前仓库行为为准。
+快照：`2026-07-26`，基线主线 `origin/main=b4506ba0`；当前候选为 `goal/m3-performance-baseline`。
+本文件只将已执行命令和保存的工件视为事实；候选修改须在同一分支上复跑相关验证后才可进入主线。
 
 | Dimension | Current state | Evidence | Confidence | Missing evidence |
 | --- | --- | --- | --- | --- |
-| 仓库与执行入口 | 当前分支为 `goal/m1-annotation-integrity`；AGENTS 唯一位于仓库根；CI 触发器集中在 `.github/workflows/*`。 | `git log --oneline`、`rg --files AGENTS.md`、`cat .github/workflows/ci.yml` | High | 生产端完整上线证据 |
+| 仓库与执行入口 | 根 `AGENTS.md` 是唯一工程规则入口；CI 触发器集中在 `.github/workflows/*`。 | `rg --files AGENTS.md`、`cat .github/workflows/ci.yml`、当前 Git 历史 | High | 生产端完整上线证据 |
 | 前后端栈 | `reader-web`(Next.js 16.2.11)、`api`(FastAPI)、`worker`(Python 3.13, uv)、`PostgreSQL + Compose + Caddy + Authelia`，匿名 demo 与生产边界已分离。 | `README.md`、`TECHNICAL.md`、`SPEC-CICD.md`、`infra/caddy/Caddyfile`、Compose 渲染 | High | 运行时容器外链路的当前小时级健康曲线 |
-| API 正确性 | `uv ... pytest`（API）通过；`ruff check` 通过。 | 本次命令：`uv ... python -m pytest tests -q`（219 pass）；`ruff check .`（pass） | High | 真实 Postgres 条件下数据库一致性和迁移回退演练 |
+| API 正确性 | API 单元/集成测试与 PostgreSQL 条件合约已在 CI 通过；`ruff check` 通过。 | 本地：`uv ... python -m pytest tests -q`（219 pass）及 `ruff check .`；CI `30180626048`（PostgreSQL migration 后执行 API suite） | High | 历史快照恢复与 downgrade 演练 |
 | Worker 正确性 | `uv ... pytest`（worker）通过，含 4 个 PostgreSQL 条件跳过；`ruff check` 通过。 | 本次命令：`uv ... python -m pytest tests -q`（121 pass, 4 skipped）；`ruff check .`（pass） | High | 并发/恢复场景下长链路与重试边界 |
 | Reader 回归 | `npm test`（193 pass）与 `npm run build` 成功；核心浏览器矩阵为 Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；Scan/Focus/Keep 重排在 Chromium、Firefox、WebKit 的 320/375/390/768/1024/1280/1440px 均通过。 | `output/evidence/m2-cross-engine-core-2026-07-26.json`、`output/evidence/m2-responsive-widths-2026-07-26.json` | High | Firefox/WebKit 全量矩阵、跨引擎文本选区与更多输入法行为 |
 | 前端测试/构建基线 | 构建与测试为绿色；未引入 lint 脚本。 | `apps/reader-web/package.json`（scripts）、`npm run build`、`npm run test` | High | 是否需要新增 `npm run lint` 为约束条件 |
@@ -56,7 +56,7 @@
 | 部署配置 | Compose base/staging/prod/edge 可渲染；`api-staging` 与 `web-staging`、`api-prod` 与 `web-prod` 可识别；`bash -n` 脚本与 deploy/迁移脚本语法通过。 | 本地命令：`docker compose ... config`（base/staging/prod/edge）、脚本语法检查 | High | 真正容器内 Metrics scrape 与回滚演练 |
 | 授权与安全 | `git diff --check` 与脚本语法检查通过；`metrics` 内外边界脚本层已校验；`.env` 本地权限已整改。 | `python infra/scripts/check-metrics-boundary.py`（ok）、`bash -n` 脚本、`stat` 与 `chmod` 记录 | High | 生产域上 `401/403/404` 的长期回归与二用户隔离场景 |
 | 依赖与供应链 | `npm audit --omit=dev` 为 0 高危/致命；Trivy secret/漏洞扫描有本地证据。 | `npm audit --omit=dev`、`output/security/frontend-dependency-remediation-2026-07-26.json`、`output/security/trivy-secret-scan-2026-07-26.json` | High（本地） | 生产镜像构建后的外部依赖漂移与锁定持续性 |
-| 性能基线 | API 与 queue 有本地记忆库/内存基线；DB 基线标记 `NEEDS_BASELINE`；Web route/Web Vitals 目前仅有部分离线样本。 | `output/performance/api-memory-2026-07-26.json`、`output/performance/queue-memory-2026-07-26.json`、`output/performance/harness-validation-2026-07-26.json`、`output/performance/db-needs-baseline-2026-07-26.json` | Medium | Web/Web Vitals、真实 Postgres、跨设备真实路径负载 |
+| 性能基线 | Web 已有 production-build E2E fixture 下的五次冷、HTTP-cache warm、Service Worker controlled 路由基线；API/queue 有内存基线；DB 仍为 `NEEDS_BASELINE`。 | `evidence/web-performance-baseline-2026-07-26.json`（schema v2, 2 routes × 3 phases × 5 samples, 200/no browser or network errors）、`output/performance/api-memory-2026-07-26.json`、`output/performance/queue-memory-2026-07-26.json`、`output/performance/db-needs-baseline-2026-07-26.json` | High（本地 fixture） | Disposable PostgreSQL、真实设备/慢网和 deployment-like 负载 |
 | 可访问性 | 已有静态可访问性快照与对比值，但仍存在低对比风险；A11Y 体系缺少完整自动化回归门。 | `output/performance/frontend-font-build-2026-07-26.json` 中的对比抽样、Playwright 现有样本 | Medium | 自动化 contrast/role/reduced-motion/reflow 全量栅格 |
 | 可测验产品完整性 | M1 的三个小节各有独立证据；核心循环仍缺少完整状态矩阵（输入×来源×故障路径×恢复路径）。 | `output/evidence/m1-daily-partial-failure-2026-07-26.json`、`output/evidence/m1-reader-ask-retry-2026-07-26.json`、`output/evidence/m1-annotation-anchor-recovery-2026-07-26.json` | Medium | 完整 `A-02/A-03/A-07` 状态矩阵 |
 | 运行时体验与交付边界 | 生产探针与回归并未作为本轮目标内动作；当前实践集中在 staging 与本地验证。 | 既有 `docs/goal-completion-evidence.md` 历史记载 + `gh run` 历史 | Medium | 生产实测与生产侧故障恢复完整证据 |
@@ -69,6 +69,7 @@
 - `output/playwright/m1-fonts-2026-07-26/`
 - `output/playwright/m1-fonts-2026-07-26/`
 - `output/performance/`
+- `evidence/web-performance-baseline-2026-07-26.json`
 - `output/security/`
 - `output/anchor/annotation-anchor-contract-2026-07-26.json`
 - `output/release/pr15-staging-proof-2026-07-26.json`
@@ -178,7 +179,7 @@
 | A-06 | 响应式与跨输入 | MUST | 已有 Chromium 多断点覆盖 | 加入跨浏览器 + touch-equivalent + 重排边界场景 | Playwright 断点矩阵（375/390/768/1024/1280/1440，Chromium/WebKit/Firefox）+ 固定断言 | `output/playwright/*` | 无水平溢出、可操作、焦点返回正确、无关键入口丢失 |
 | A-07 | 用户可见质量（状态语言） | MUST | 部分场景通过，rubric 未闭环 | 在固定夹具上执行 rubric 达到可接受基线 | screenshot 套件 + 人工复核脚本输出 + 评分表 | `output/playwright/m1-fonts-...` 等 | 核心页面在固定场景下达到最低分阈值，无“装饰补丁式”提升 |
 | A-08 | API 与数据可靠性 | MUST | API/worker 本地通过，DB/迁移恢复路径不闭环 | migration + PG 条件测试 + 恢复回滚证明 | `uv ... pytest`（PG 条件）+ Alembic upgrade + 迁移回退脚本验证 | CI 运行日志 + 本地回放结果 | 条件测试与 migration replay 证明一致；无未解释 skip |
-| A-09 | 性能与稳定基线 | MUST | API/queue 有内存基线，DB Web 不足 | 补齐五次重复基线并固定阈值 | `python scripts/*baseline.py` 系列（或等价脚本）+ 对比报告 | `output/performance/*.json` | 基线为非空、可复现、噪声控制在阈值内 |
+| A-09 | 性能与稳定基线 | MUST | Web、API/queue 有本地基线；真实 DB 缺失 | Web 固定三缓存阶段的五次基线，补齐 disposable DB 并固定阈值 | `npm run baseline:web -- --base-url http://127.0.0.1:3010 --iterations 5 --warmups 1 --output ../../evidence/web-performance-baseline-2026-07-26.json` + `python scripts/*baseline.py` 系列（或等价脚本）+ 对比报告 | `evidence/web-performance-baseline-2026-07-26.json`、`output/performance/*.json` | 每路由/阶段有 5 个非空样本；SW 阶段全部受控；无浏览器/HTTP 错误；DB 基线可复现并有噪声阈值 |
 | A-10 | 恢复与韧性 | MUST | 重试样本存在，恢复预算未定 | 显式设定重试上界、错误分类、降级策略证据 | 故障注入脚本 + 重试恢复路径 + 日志关联验证 | `output/performance/*` 与 e2e 失败恢复场景 | 错误可回到已知状态，不发生沉默数据损坏 |
 | A-11 | 供应链和密钥边界 | MUST | Trivy 与 npm audit 本地绿色（高危/致命） | 复核 CI 高危致命阈值、secret redaction 与锁文件治理 | CI/本地同参数扫描 | `output/security/frontend-dependency-remediation-2026-07-26.json`、`output/security/trivy-secret-scan-2026-07-26.json` | 无高危/致命，扫描命令参数透明且与 CI 一致 |
 | A-12 | staging 发布与回滚闭环 | MUST | 部署脚本通过，回滚流程证据不足 | 在单一 SHA 上完成 deploy、rollback、重放、验证 | `deploy-staging.yml`/`rollback.yml` 驱动流程 + 运行后证据清单 | `output/release/*` 或新版本目录 | staging 可重复部署、回滚、再部署且各路由状态可重放 |
@@ -290,19 +291,20 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`goal/m1-annotation-integrity @ 504c98c7` 之上的 M2.1 候选（未提交）。
-- **Current milestone**：`M2.1（320px、AA muted text、reduced-motion 与最小跨引擎核心路径）`已形成可重复门；A-05/A-06 仍未完成，不能将其等同为全量无障碍或跨浏览器验收。
-- **Last green checkpoint**：`193 Reader Node`、Chromium `55/55`、Firefox `21/21`、WebKit `21/21`、iPhone WebKit `20/20`、`npm run build`（同一候选会话中复现）。
-- **Current validation**：A-02、A-03、A-11、脚本与 Compose 基本通过；A-05/A-06/A-08/A-09/A-10/A-12 持续进行中。
+- **Current candidate**：`goal/m3-performance-baseline`，基线主线 `b4506ba0`。
+- **Current milestone**：`M3.1（deployment-like performance/resilience）`；已建立 Web 三阶段五次测量协议，A-09 仍需 DB 与阈值闭环。
+- **Last green checkpoint**：`npm run build`（production E2E server 前置）、Web baseline 2 routes × 3 phases × 5 samples，主线 CI `30180884268` success。
+- **Current validation**：A-08 的 PostgreSQL CI 合约已通过；A-09 的 Web 部分已建立，A-05/A-06/A-09/A-10/A-12 持续进行中。
 - **Before/after metrics**：
+  - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：统一状态矩阵与恢复预算定义为当前最大收益实验
-- **Recovery point**：上一个稳定提交 `a77e801005944989fe4990a6db3ec6b49e62e5a1`（含已提交 anchor 恢复）与最近一组可验证工件哈希
+- **Current experiment**：以 disposable PostgreSQL 补足 DB 基线，并为已保存 Web 三阶段建立不掩盖噪声的阈值比较。
+- **Recovery point**：主线 `b4506ba06633b0f7971684cdc378a4ce020298d2` 与最近一组可验证工件哈希
 - **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、DB 恢复/并发、真实 PostgreSQL route 性能、staging 全链路 rollback-forward。
 - **Known risks**：未闭环的状态矩阵与回滚演练；跨引擎选区自动化尚不稳定。
-- **Next action**：建立跨引擎文本选区的可复现路径，再进入原子文章状态并发不变量。
+- **Next action**：在已有 PostgreSQL compose 路径中建立可重复 DB 基线，再做最小阈值比较；保持 A-06 的跨引擎选区实验已回退且不重开。
 
 ## 12. Decision and Change Log
 
@@ -312,6 +314,7 @@
 | 2026-07-26 | 将缺失外部服务定义为 `NEEDS_BASELINE` 而非阻塞。 | 防止人工审批依赖；任务可继续在替代链下执行。 |
 | 2026-07-26 | 冻结可见度：以 Playwright/Node 事实为验收主线，禁止凭主观审美提前宣告通过。 | A-07 需 rubric 证明，不可用视觉印象替代。 |
 | 2026-07-26 | 维持生产只读边界，staging 作为主发布与验证面。 | 保障核心目标不引入不可控生产风险。 |
+| 2026-07-26 | Web 性能工件升级为 schema v2，并按 cold / warm HTTP cache / Service Worker controlled 分离上下文。 | 避免把每次新建上下文的样本误称为 warm；每个测量页面以 `.workbench` 为就绪标记、关闭页面防止跨样本泄漏，并记录 SW 控制和资源类型传输。 |
 | 2026-07-26 | 重新编制 GOAL 并以证据优先格式输出。 | 本次提交：清晰主目标、门禁、基线、自动决策与停机条件。 |
 | 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
 | 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
@@ -334,7 +337,7 @@
 - 当某项实验两次连续失败（同证据框架下）时，撤销该实验并转向下一低风险候选。
 - 当验证出现隐性噪声而非功能回归时，先复现并固定随机种子后再判定。
 
-### Blocked（不作为长期常态）
+### External-risk handling (not a stop condition)
 
-- 出现真实数据/生产级别不可逆操作需求且未获许可时，改为完成替代验证并暂停该项，不将其判为任务完成。
-- 在 `AGENTS.md` 与仓库关键文档出现冲突时，以 AGENTS 与 GOAL 为准，更新文档以清理冲突后继续。
+- 真实数据、生产权限或密钥不可用时，使用 disposable 数据库、fixture、Mock 或适配层完成等价验证，并将差异列为 `NEEDS_BASELINE`；不得把该缺口改写为人工审批或恢复依赖。
+- `AGENTS.md` 与仓库关键文档不一致时，以 AGENTS 和本合同的保守兼容解释继续，修正文档漂移并记录决策。
