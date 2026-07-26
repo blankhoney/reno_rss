@@ -12,13 +12,15 @@ def test_postgres_article_state_preserves_independent_fields_and_rejects_invalid
     from sqlalchemy import create_engine
     from sqlalchemy.exc import IntegrityError
 
+    from app.core.config import normalize_database_url
     from app.db.auth_store import DatabaseAuthStore
     from app.db.models import articles, user_article_states
     from app.db.repositories.articles import DatabaseArticleRepository
 
     assert POSTGRES_URL is not None
-    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
-    auth_store = DatabaseAuthStore(POSTGRES_URL, engine=engine)
+    database_url = normalize_database_url(POSTGRES_URL)
+    engine = create_engine(database_url, pool_pre_ping=True)
+    auth_store = DatabaseAuthStore(database_url, engine=engine)
     user, _, _ = auth_store.create_user(f"state-contract-{uuid4()}")
     with engine.begin() as connection:
         article_id = connection.execute(
@@ -31,7 +33,7 @@ def test_postgres_article_state_preserves_independent_fields_and_rejects_invalid
             .returning(articles.c.id)
         ).scalar_one()
 
-    repository = DatabaseArticleRepository(POSTGRES_URL, engine=engine)
+    repository = DatabaseArticleRepository(database_url, engine=engine)
     repository.upsert_state(user.id, article_id, saved=True)
     final_state = repository.upsert_state(user.id, article_id, status="read")
     assert final_state is not None
