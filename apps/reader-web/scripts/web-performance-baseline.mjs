@@ -11,6 +11,7 @@ const defaultRoutes = [
   "/?module=home&sort=default&lang=zh",
   "/?module=all&sort=default&lang=zh",
 ];
+const supportedPhases = new Set(["cold", "warm-http-cache", "service-worker-controlled"]);
 
 function parsePositiveInteger(value, option) {
   const parsed = Number.parseInt(value, 10);
@@ -25,7 +26,9 @@ function parseArguments(argv) {
     baseURL: process.env.WEB_BASE_URL ?? "http://127.0.0.1:3010",
     iterations: 5,
     output: null,
+    readySelector: ".workbench",
     routes: defaultRoutes,
+    phases: ["cold", "warm-http-cache", "service-worker-controlled"],
     settleMs: 1_000,
     warmups: 1,
   };
@@ -39,7 +42,9 @@ function parseArguments(argv) {
     if (name === "--base-url") options.baseURL = value;
     else if (name === "--iterations") options.iterations = parsePositiveInteger(value, name);
     else if (name === "--output") options.output = value;
+    else if (name === "--ready-selector") options.readySelector = value;
     else if (name === "--routes") options.routes = value.split(",").filter(Boolean);
+    else if (name === "--phases") options.phases = value.split(",").filter(Boolean);
     else if (name === "--settle-ms") options.settleMs = parsePositiveInteger(value, name);
     else if (name === "--warmups") options.warmups = parsePositiveInteger(value, name);
     else throw new Error(`Unknown option: ${name}`);
@@ -54,6 +59,12 @@ function parseArguments(argv) {
   }
   if (options.routes.length === 0 || options.routes.some((route) => !route.startsWith("/"))) {
     throw new Error("--routes must be a non-empty comma-separated list of same-origin paths");
+  }
+  if (options.phases.length === 0 || options.phases.some((phase) => !supportedPhases.has(phase))) {
+    throw new Error(`--phases must use one or more of: ${[...supportedPhases].join(", ")}`);
+  }
+  if (!options.readySelector) {
+    throw new Error("--ready-selector must be a non-empty selector");
   }
   options.baseURL = parsedBaseURL.href.replace(/\/$/, "");
   return options;
@@ -124,11 +135,7 @@ async function installObservers(page) {
   });
 }
 
-async function measureRoute(browser, options, route, sampleIndex, phase) {
-  const context = await browser.newContext({
-    serviceWorkers: "block",
-    viewport: { width: 1440, height: 1_000 },
-  });
+async function measureRoute(context, options, route, sampleIndex, phase) {
   const page = await context.newPage();
   const browserErrors = [];
   const failedResponses = [];
@@ -153,19 +160,27 @@ async function measureRoute(browser, options, route, sampleIndex, phase) {
     }
   });
 
-  await installObservers(page);
-  const response = await page.goto(`${options.baseURL}${route}`, {
-    waitUntil: "domcontentloaded",
-    timeout: 30_000,
-  });
-  await page.waitForTimeout(options.settleMs);
+  try {
+    await installObservers(page);
+    const response = await page.goto(`${options.baseURL}${route}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
+    await page.waitForSelector(options.readySelector, { state: "attached", timeout: 30_000 });
+    await page.waitForTimeout(options.settleMs);
 
-  const metrics = await page.evaluate(() => {
+    const metrics = await page.evaluate(() => {
     const navigation = performance.getEntriesByType("navigation")[0];
     const paints = Object.fromEntries(
       performance.getEntriesByType("paint").map((entry) => [entry.name, entry.startTime]),
     );
     const resources = performance.getEntriesByType("resource");
+    const resourceTransferBytesByInitiatorType = {};
+    for (const resource of resources) {
+      const type = resource.initiatorType || "other";
+      resourceTransferBytesByInitiatorType[type] =
+        (resourceTransferBytesByInitiatorType[type] ?? 0) + (resource.transferSize ?? 0);
+    }
     const state = globalThis.__AI_READER_WEB_BASELINE__ ?? {};
     return {
       cls: state.cls ?? 0,
@@ -179,20 +194,56 @@ async function measureRoute(browser, options, route, sampleIndex, phase) {
       navigationTransferBytes: navigation?.transferSize ?? 0,
       resourceCount: resources.length,
       resourceTransferBytes: resources.reduce((total, entry) => total + (entry.transferSize ?? 0), 0),
+      resourceTransferBytesByInitiatorType,
       responseEndMs: navigation?.responseEnd ?? 0,
+      serviceWorkerControlled: navigator.serviceWorker?.controller != null,
     };
-  });
+    });
 
-  await context.close();
-  return {
-    browserErrors,
-    failedResponses,
-    httpStatus: response?.status() ?? null,
-    metrics,
-    phase,
-    route,
-    sampleIndex,
-  };
+    return {
+      browserErrors,
+      failedResponses,
+      httpStatus: response?.status() ?? null,
+      metrics,
+      phase,
+      route,
+      sampleIndex,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function createContext(browser, phase) {
+  return browser.newContext({
+    serviceWorkers: phase === "service-worker-controlled" ? "allow" : "block",
+    viewport: { width: 1440, height: 1_000 },
+  });
+}
+
+async function ensureServiceWorkerControl(context, options, route) {
+  const page = await context.newPage();
+  try {
+    await page.goto(`${options.baseURL}${route}`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.evaluate(async () => {
+      if (!("serviceWorker" in navigator)) throw new Error("service workers are unavailable");
+      await navigator.serviceWorker.ready;
+    });
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.waitForFunction(() => navigator.serviceWorker.controller != null, undefined, { timeout: 10_000 });
+  } finally {
+    await page.close();
+  }
+}
+
+function assertSampleHealthy(sample) {
+  const failures = [
+    ...sample.browserErrors.map((error) => error.kind),
+    ...sample.failedResponses.map((failure) => `${failure.status} ${failure.url}`),
+  ];
+  if (failures.length > 0) {
+    throw new Error(`baseline warmup failed for ${sample.route}: ${failures.join(", ")}`);
+  }
 }
 
 async function main() {
@@ -201,27 +252,62 @@ async function main() {
   const samples = [];
 
   try {
-    for (const route of options.routes) {
-      for (let index = 0; index < options.warmups; index += 1) {
-        await measureRoute(browser, options, route, index + 1, "warmup");
-      }
-      for (let index = 0; index < options.iterations; index += 1) {
-        samples.push(await measureRoute(browser, options, route, index + 1, "measured"));
+    for (const phase of options.phases) {
+      for (const route of options.routes) {
+        const runSample = async (sampleIndex, samplePhase) => {
+          const context = await createContext(browser, phase);
+          try {
+            return await measureRoute(context, options, route, sampleIndex, samplePhase);
+          } finally {
+            await context.close();
+          }
+        };
+        if (phase === "cold") {
+          for (let index = 0; index < options.warmups; index += 1) {
+            assertSampleHealthy(await runSample(index + 1, `${phase}:warmup`));
+          }
+          for (let index = 0; index < options.iterations; index += 1) {
+            samples.push(await runSample(index + 1, phase));
+          }
+          continue;
+        }
+        const context = await createContext(browser, phase);
+        try {
+          if (phase === "service-worker-controlled") {
+            await ensureServiceWorkerControl(context, options, route);
+          }
+          for (let index = 0; index < options.warmups; index += 1) {
+            assertSampleHealthy(await measureRoute(context, options, route, index + 1, `${phase}:warmup`));
+          }
+          for (let index = 0; index < options.iterations; index += 1) {
+            samples.push(await measureRoute(context, options, route, index + 1, phase));
+          }
+        } finally {
+          await context.close();
+        }
       }
     }
 
     const browserVersion = browser.version();
-    const routeResults = options.routes.map((route) => {
-      const routeSamples = samples.filter((sample) => sample.route === route);
-      const metricNames = Object.keys(routeSamples[0].metrics);
+    const routeResults = options.phases.flatMap((phase) => options.routes.map((route) => {
+      const routeSamples = samples.filter((sample) => sample.route === route && sample.phase === phase);
+      const metricNames = Object.entries(routeSamples[0].metrics)
+        .filter(([, value]) => typeof value === "number")
+        .map(([name]) => name);
+      const serviceWorkerControlled = routeSamples.every((sample) => sample.metrics.serviceWorkerControlled);
+      if (phase === "service-worker-controlled" && !serviceWorkerControlled) {
+        throw new Error(`service worker did not control every measured sample for ${route}`);
+      }
       return {
         route,
+        phase,
         samples: routeSamples,
+        serviceWorkerControlled,
         summary: Object.fromEntries(metricNames.map((name) => [name, summarize(routeSamples, name)])),
       };
-    });
+    }));
     const report = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: new Date().toISOString(),
       candidate: {
         localGitRevision: currentRevision(),
@@ -234,7 +320,8 @@ async function main() {
         iterations: options.iterations,
         node: process.version,
         platform: process.platform,
-        serviceWorkers: "blocked",
+        phases: options.phases,
+        readySelector: options.readySelector,
         settleMs: options.settleMs,
         viewport: { width: 1440, height: 1_000 },
         warmups: options.warmups,
