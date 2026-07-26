@@ -52,8 +52,8 @@
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion and core keyboard/reflow paths now run in the minimum browser matrix; semantic audit and screen-reader evidence remain |
 | A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; Scan/Focus/Keep 320/375/390/768/1024/1280/1440 reflow is green in Chromium/Firefox/WebKit; full suite and cross-engine selection/input pairwise matrix remain |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
-| A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; latest Alembic downgrade/replay is green, while restored-snapshot replay remains |
-| A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines and a schema-v1/v2 comparator exist, while equivalent-environment candidate comparisons remain |
+| A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; latest Alembic downgrade/replay and disposable logical snapshot restore both pass, while recovery-time/write-failure evidence remains |
+| A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines and a schema-v1/v2 comparator exist, and CI now compares candidates with the latest successful `main` baseline at a 3× threshold; deployment-like write/load evidence remains |
 | A-10 | IN_PROGRESS | Partial retry/metrics exist; bounded recovery, queue restart and correlated fault proof remain |
 | A-11 | IN_PROGRESS | Production audit and Trivy green; deterministic maintenance/lockfile review continue at release closure |
 | A-12 | IN_PROGRESS | Exact SHA staging deploy/smoke green; rollback/forward and registry cleanup rehearsal remain |
@@ -65,7 +65,7 @@
 
 1. **M2.2 — responsive/input extension (P0):** Add a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
 2. **M3 — atomic article state (P0):** Establish PostgreSQL-backed concurrent writes and `project ⇒ saved` storage invariant before tuning performance.
-3. **M3.1 — deployment-like performance/resilience (P0):** Create threshold comparison for the existing five-run Web/API/queue/DB baselines before tuning.
+3. **M3.1 — deployment-like performance/resilience (P0):** Measure bounded write/queue recovery and correlate its logs; retain the existing latest-`main` DB 3× threshold gate.
 4. **M4 — release recovery closure (P0):** Rehearse immutable staging rollback/forward and registry cleanup only after prior MUST gates are green.
 
 ## Iteration Log
@@ -84,6 +84,8 @@
 | 2026-07-26 | M3.1 established a disposable PostgreSQL baseline with representative query fixtures. | CI `30181950027` artifact `db-postgres-performance-baseline`: latest/search/ready-job/due-review each have five nonempty samples; p95 0.510/0.496/0.484/0.506 ms. |
 | 2026-07-26 | M3.1 added a schema-v1/v2 performance comparator without treating cross-environment measurements as a pass. | `infra/scripts/check-performance-baseline.py` self-compared API/queue and Web `lcpMs`; a synthetic 3.01× API p95 regressed with exit 1. PR #28 CI/staging `30182482954` passed. |
 | 2026-07-26 | M3 added latest Alembic downgrade/replay to the PostgreSQL CI path. | `downgrade -1 → upgrade head → current --check-heads` passed in PR #29 CI/staging `30182799323`; snapshot restoration remains separate work. |
+| 2026-07-27 | M3.1 added an equivalent-environment candidate DB threshold gate. | PR #31 CI `30183432804` downloaded the latest successful `main` baseline and passed `check-performance-baseline.py --max-regression 3`; CI `30212853939` repeated the comparison. |
+| 2026-07-27 | M3 added a disposable PostgreSQL logical snapshot recovery check. | CI `30212853939` artifact `db-postgres-snapshot-restore` restored the fixture into `snapshot_restore_verify` and asserted revision `0011_project_requires_saved`, article, and annotation; it did not access staging/production. |
 
 ## Evidence and Recovery Rules
 

@@ -48,7 +48,7 @@
 | --- | --- | --- | --- | --- |
 | 仓库与执行入口 | 根 `AGENTS.md` 是唯一工程规则入口；CI 触发器集中在 `.github/workflows/*`。 | `rg --files AGENTS.md`、`cat .github/workflows/ci.yml`、当前 Git 历史 | High | 生产端完整上线证据 |
 | 前后端栈 | `reader-web`(Next.js 16.2.11)、`api`(FastAPI)、`worker`(Python 3.13, uv)、`PostgreSQL + Compose + Caddy + Authelia`，匿名 demo 与生产边界已分离。 | `README.md`、`TECHNICAL.md`、`SPEC-CICD.md`、`infra/caddy/Caddyfile`、Compose 渲染 | High | 运行时容器外链路的当前小时级健康曲线 |
-| API 正确性 | API 单元/集成测试与 PostgreSQL 条件合约已在 CI 通过；最新 migration 已完成一次 `downgrade -1 → upgrade head → check-heads` 回放；`ruff check` 通过。 | 本地：`uv ... python -m pytest tests -q`（219 pass）及 `ruff check .`；CI `30182799323` | High | 历史快照恢复演练 |
+| API 正确性 | API 单元/集成测试与 PostgreSQL 条件合约已在 CI 通过；最新 migration 的降级/回放及隔离逻辑快照恢复均已验证；`ruff check` 通过。 | 本地：`uv ... python -m pytest tests -q`（219 pass）及 `ruff check .`；CI `30182799323`、`30212853939` artifact `db-postgres-snapshot-restore` | High | 真实部署数据量下的恢复时间与故障注入恢复链 |
 | Worker 正确性 | `uv ... pytest`（worker）通过，含 4 个 PostgreSQL 条件跳过；`ruff check` 通过。 | 本次命令：`uv ... python -m pytest tests -q`（121 pass, 4 skipped）；`ruff check .`（pass） | High | 并发/恢复场景下长链路与重试边界 |
 | Reader 回归 | `npm test`（193 pass）与 `npm run build` 成功；核心浏览器矩阵为 Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；Scan/Focus/Keep 重排在 Chromium、Firefox、WebKit 的 320/375/390/768/1024/1280/1440px 均通过。 | `output/evidence/m2-cross-engine-core-2026-07-26.json`、`output/evidence/m2-responsive-widths-2026-07-26.json` | High | Firefox/WebKit 全量矩阵、跨引擎文本选区与更多输入法行为 |
 | 前端测试/构建基线 | 构建与测试为绿色；未引入 lint 脚本。 | `apps/reader-web/package.json`（scripts）、`npm run build`、`npm run test` | High | 是否需要新增 `npm run lint` 为约束条件 |
@@ -56,7 +56,7 @@
 | 部署配置 | Compose base/staging/prod/edge 可渲染；`api-staging` 与 `web-staging`、`api-prod` 与 `web-prod` 可识别；`bash -n` 脚本与 deploy/迁移脚本语法通过。 | 本地命令：`docker compose ... config`（base/staging/prod/edge）、脚本语法检查 | High | 真正容器内 Metrics scrape 与回滚演练 |
 | 授权与安全 | `git diff --check` 与脚本语法检查通过；`metrics` 内外边界脚本层已校验；`.env` 本地权限已整改。 | `python infra/scripts/check-metrics-boundary.py`（ok）、`bash -n` 脚本、`stat` 与 `chmod` 记录 | High | 生产域上 `401/403/404` 的长期回归与二用户隔离场景 |
 | 依赖与供应链 | `npm audit --omit=dev` 为 0 高危/致命；Trivy secret/漏洞扫描有本地证据。 | `npm audit --omit=dev`、`output/security/frontend-dependency-remediation-2026-07-26.json`、`output/security/trivy-secret-scan-2026-07-26.json` | High（本地） | 生产镜像构建后的外部依赖漂移与锁定持续性 |
-| 性能基线 | Web 有三缓存阶段五次基线；API/queue 有内存基线；DB 已在 disposable CI PostgreSQL 上以代表性 fixture 测量 4 类只读查询各 5 次；比较器支持 schema v1/v2 与显式 Web 指标。 | Web：`evidence/web-performance-baseline-2026-07-26.json`；DB：CI run `30181950027` artifact `db-postgres-performance-baseline`（`MEASURED`，每查询 5 个非空样本，p95 0.48–0.51 ms）；`infra/scripts/check-performance-baseline.py` 的 API/queue/Web 自比较及合成回归测试 | High（fixture） | 等价运行环境中的实际候选阈值比较、真实设备/慢网和 deployment-like 负载 |
+| 性能基线 | Web 有三缓存阶段五次基线；API/queue 有内存基线；DB 已在 disposable CI PostgreSQL 上以代表性 fixture 测量 4 类只读查询各 5 次；比较器支持 schema v1/v2 与显式 Web 指标，并在 CI 将当前候选与最近成功 `main` 的同环境基线以 3× 门限比较。 | Web：`evidence/web-performance-baseline-2026-07-26.json`；DB：CI run `30181950027` artifact `db-postgres-performance-baseline`（`MEASURED`，每查询 5 个非空样本，p95 0.48–0.51 ms）；CI `30183432804` 与 `30212853939` artifact `db-postgres-performance-comparison` | High（fixture） | 真实设备/慢网、写入负载与 deployment-like 负载 |
 | 可访问性 | 已有静态可访问性快照与对比值，但仍存在低对比风险；A11Y 体系缺少完整自动化回归门。 | `output/performance/frontend-font-build-2026-07-26.json` 中的对比抽样、Playwright 现有样本 | Medium | 自动化 contrast/role/reduced-motion/reflow 全量栅格 |
 | 可测验产品完整性 | M1 的三个小节各有独立证据；核心循环仍缺少完整状态矩阵（输入×来源×故障路径×恢复路径）。 | `output/evidence/m1-daily-partial-failure-2026-07-26.json`、`output/evidence/m1-reader-ask-retry-2026-07-26.json`、`output/evidence/m1-annotation-anchor-recovery-2026-07-26.json` | Medium | 完整 `A-02/A-03/A-07` 状态矩阵 |
 | 运行时体验与交付边界 | 生产探针与回归并未作为本轮目标内动作；当前实践集中在 staging 与本地验证。 | 既有 `docs/goal-completion-evidence.md` 历史记载 + `gh run` 历史 | Medium | 生产实测与生产侧故障恢复完整证据 |
@@ -178,8 +178,8 @@
 | A-05 | 无障碍可用性 | MUST | 仅局部样本可见，自动化未闭环 | 通过 contrast/role/键盘/reflow/reduced-motion 基线 | Playwright accessibility + 自建 contrast 验证 | `output/goal-evidence.md` 后续新增条目 | 必要交互节点在 required contrast 与键盘路径下可用 |
 | A-06 | 响应式与跨输入 | MUST | 已有 Chromium 多断点覆盖 | 加入跨浏览器 + touch-equivalent + 重排边界场景 | Playwright 断点矩阵（375/390/768/1024/1280/1440，Chromium/WebKit/Firefox）+ 固定断言 | `output/playwright/*` | 无水平溢出、可操作、焦点返回正确、无关键入口丢失 |
 | A-07 | 用户可见质量（状态语言） | MUST | 部分场景通过，rubric 未闭环 | 在固定夹具上执行 rubric 达到可接受基线 | screenshot 套件 + 人工复核脚本输出 + 评分表 | `output/playwright/m1-fonts-...` 等 | 核心页面在固定场景下达到最低分阈值，无“装饰补丁式”提升 |
-| A-08 | API 与数据可靠性 | MUST | API/worker 本地通过，已验证最新 migration 的降级/回放；完整快照恢复仍未演练 | migration + PG 条件测试 + 恢复回滚证明 | `uv ... pytest`（PG 条件）+ Alembic `downgrade -1`、`upgrade head`、`current --check-heads` + 快照恢复脚本验证 | CI `30182799323` + 后续本地回放结果 | 条件测试与 migration replay 证明一致；无未解释 skip |
-| A-09 | 性能与稳定基线 | MUST | Web、API/queue 及 CI PostgreSQL 都有五次基线；schema-v1/v2 比较器已验证，等价环境候选阈值门仍缺失 | 固定 Web 三缓存阶段、CI DB fixture 和回归阈值 | Web 命令 + CI `Run PostgreSQL performance baseline` + `check-performance-baseline.py` 对比报告 | Web evidence、CI `30181950027` artifact `db-postgres-performance-baseline`、`output/performance/*.json` | 每路由/阶段有 5 个非空样本；SW 阶段全部受控；无浏览器/HTTP 错误；DB 基线可复现，并由等价环境候选比较执行噪声阈值 |
+| A-08 | API 与数据可靠性 | MUST | API/worker 本地通过；最新 migration 已降级/回放，隔离 PostgreSQL 逻辑快照已恢复并核对版本与 fixture 记录 | migration + PG 条件测试 + 恢复回滚证明 | `uv ... pytest`（PG 条件）+ Alembic `downgrade -1`、`upgrade head`、`current --check-heads` + CI `Verify disposable PostgreSQL snapshot restore` + 后续 rollback replay | CI `30182799323`、CI `30212853939` artifact `db-postgres-snapshot-restore` + 后续 rollback evidence | 条件测试、migration replay、恢复后 migration/fixture 断言与 rollback replay 一致；无未解释 skip |
+| A-09 | 性能与稳定基线 | MUST | Web、API/queue 及 CI PostgreSQL 都有五次基线；schema-v1/v2 比较器已验证，并在 CI 对最近成功 `main` 基线执行同环境 3× 阈值比较 | 固定 Web 三缓存阶段、CI DB fixture 和回归阈值 | Web 命令 + CI `Run PostgreSQL performance baseline` + `check-performance-baseline.py --max-regression 3` | Web evidence、CI `30181950027` artifact `db-postgres-performance-baseline`、CI `30183432804`/`30212853939` artifact `db-postgres-performance-comparison` | 每路由/阶段有 5 个非空样本；SW 阶段全部受控；无浏览器/HTTP 错误；DB 基线可复现，且同环境候选比较不超过 3× 门限 |
 | A-10 | 恢复与韧性 | MUST | 重试样本存在，恢复预算未定 | 显式设定重试上界、错误分类、降级策略证据 | 故障注入脚本 + 重试恢复路径 + 日志关联验证 | `output/performance/*` 与 e2e 失败恢复场景 | 错误可回到已知状态，不发生沉默数据损坏 |
 | A-11 | 供应链和密钥边界 | MUST | Trivy 与 npm audit 本地绿色（高危/致命） | 复核 CI 高危致命阈值、secret redaction 与锁文件治理 | CI/本地同参数扫描 | `output/security/frontend-dependency-remediation-2026-07-26.json`、`output/security/trivy-secret-scan-2026-07-26.json` | 无高危/致命，扫描命令参数透明且与 CI 一致 |
 | A-12 | staging 发布与回滚闭环 | MUST | 部署脚本通过，回滚流程证据不足 | 在单一 SHA 上完成 deploy、rollback、重放、验证 | `deploy-staging.yml`/`rollback.yml` 驱动流程 + 运行后证据清单 | `output/release/*` 或新版本目录 | staging 可重复部署、回滚、再部署且各路由状态可重放 |
@@ -291,21 +291,21 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`goal/m3-evidence-ledger`，基线主线 `bdffb588`。
-- **Current milestone**：`M3.1（deployment-like performance/resilience）`；Web 与 disposable CI DB 的五次测量、schema-v1/v2 比较器和最新 migration 回放均已建立，A-09 仍需等价环境的候选阈值执行。
-- **Last green checkpoint**：CI `30182799323` 成功完成 API/worker/reader、最新 migration 回放、DB fixture baseline、浏览器矩阵、镜像发布与 staging 部署。
-- **Current validation**：A-08 已有 PostgreSQL CI 合约与 latest downgrade/replay；A-09 已有 Web、DB 和比较器基础，A-05/A-06/A-09/A-10/A-12 持续进行中。
+- **Current candidate**：`main @ 3cbc6fd5`，最近台账候选为 `goal/m3-recovery-ledger`。
+- **Current milestone**：`M3.1（deployment-like performance/resilience）`；Web 与 disposable CI DB 的五次测量、schema-v1/v2 比较器、候选 3× 阈值门、latest migration 回放与隔离快照恢复均已建立。
+- **Last green checkpoint**：CI `30212853939` 成功完成 API/worker/reader、migration 回放、DB fixture baseline、候选比较、隔离快照恢复、浏览器矩阵、镜像发布与 staging 部署。
+- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门。A-05/A-06/A-08/A-09/A-10/A-12 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：在等价运行环境为已保存 Web、API、queue 与 DB 基线执行不掩盖噪声的候选比较。
-- **Recovery point**：主线 `bdffb5882e1b9624019d39eada3412f06aee21d6` 与最近一组可验证工件哈希
-- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、DB 恢复/并发、真实 PostgreSQL route 性能、staging 全链路 rollback-forward。
+- **Current experiment**：以 latest-successful `main` CI baseline 对每个候选执行 DB 3× 阈值比较；下一个实验应量化写入与恢复预算，而不是重复已通过的 fixture 读查询。
+- **Recovery point**：主线 `3cbc6fd54fff60eddb52d32a0e954a2d19ab1ddb` 与 CI `30212853939` 的性能比较、快照恢复工件。
+- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能、恢复时间预算、staging 全链路 rollback-forward。
 - **Known risks**：未闭环的状态矩阵与回滚演练；跨引擎选区自动化尚不稳定。
-- **Next action**：为现有性能工件在等价环境执行最小阈值比较；保持 A-06 的跨引擎选区实验已回退且不重开。
+- **Next action**：建立有界的写入/队列恢复故障实验及其关联日志证据；保持 A-06 的跨引擎选区实验已回退且不重开。
 
 ## 12. Decision and Change Log
 
@@ -319,6 +319,8 @@
 | 2026-07-26 | CI PostgreSQL baseline 使用幂等代表性 fixture，而非依赖测试残留。 | CI run `30181950027` artifact 证明 4 类查询各有 5 个非空样本；fixture 仅存在 disposable CI service，不触及 staging/production。 |
 | 2026-07-26 | 性能比较器显式选择延迟指标，并支持 schema v1 与 v2。 | `check-performance-baseline.py` 的 API/queue/Web 自比较通过，3.01 倍 API 合成回归以 exit 1 失败；未将跨环境比较误报为通过。 |
 | 2026-07-26 | 最新 Alembic revision 在 CI 固定执行降级与回放。 | CI `30182799323` 成功执行 `downgrade -1 → upgrade head → current --check-heads`，再完成全量质量、镜像与 staging 链。 |
+| 2026-07-27 | CI 固定从最近成功 `main` 下载 DB baseline，并以 3× 上限比较候选。 | PR #31 CI `30183432804` 及后续 CI `30212853939` 成功产出 `db-postgres-performance-comparison`；跨环境数据仍不得作为通过证据。 |
+| 2026-07-27 | CI 在 disposable PostgreSQL 中完成逻辑快照恢复验证。 | CI `30212853939` artifact `db-postgres-snapshot-restore` 恢复到隔离数据库，并断言 revision `0011_project_requires_saved`、fixture article 与 annotation；不触及 staging/production。 |
 | 2026-07-26 | 重新编制 GOAL 并以证据优先格式输出。 | 本次提交：清晰主目标、门禁、基线、自动决策与停机条件。 |
 | 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
 | 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
