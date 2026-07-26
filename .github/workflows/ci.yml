@@ -84,6 +84,24 @@ jobs:
           SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: uv run --isolated --with-editable . --extra dev alembic upgrade head
 
+      - name: Run PostgreSQL performance baseline
+        working-directory: apps/worker
+        env:
+          DB_PERF_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: >-
+          uv run --isolated --with-editable . --extra dev
+          python scripts/db-performance-baseline.py
+          --iterations 5 --warmups 1
+          --output ../../output/performance/db-postgres-ci.json
+
+      - name: Upload PostgreSQL performance baseline
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-postgres-performance-baseline
+          path: output/performance/db-postgres-ci.json
+          retention-days: 14
+
       - name: Test worker
         working-directory: apps/worker
         env:
