@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-07-26",
+  "base_commit": "2ad8c1838c3e3a0a6f789b316cd1f5f0f534728f",
+  "scope": "M2.2 Scan/Focus/Keep responsive reflow widths",
+  "viewports": [320, 375, 390, 768, 1024, 1280, 1440],
+  "browsers": {
+    "chromium": {"command": "npm run test:e2e -- --project=chromium --grep='mode remains navigable'", "tests": 21, "result": "pass"},
+    "firefox": {"command": "npm run test:e2e -- --project=firefox --grep='mode remains navigable'", "tests": 21, "result": "pass"},
+    "webkit": {"command": "npm run test:e2e -- --project=webkit --grep='mode remains navigable'", "tests": 21, "result": "pass"}
+  },
+  "assertions": ["no document horizontal overflow", "article link remains usable", "reader route retains the article action entry"],
+  "remaining_scope": ["full cross-engine suite", "cross-engine text selection", "screen-reader verification"]
+}

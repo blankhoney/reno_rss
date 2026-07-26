@@ -865,7 +865,10 @@ test("dual-pane reader intentionally stacks notes after content at 899px", async
 for (const viewport of [
   { width: 320, height: 568 },
   { width: 375, height: 812 },
+  { width: 390, height: 844 },
   { width: 768, height: 1024 },
+  { width: 1024, height: 900 },
+  { width: 1280, height: 960 },
   { width: 1440, height: 1000 },
 ]) {
   for (const mode of ["scan", "focus", "keep"] as const) {
