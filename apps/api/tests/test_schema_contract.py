@@ -174,6 +174,7 @@ def test_migration_column_nullability_matches_model():
         load_migration("0008_user_interest_reset.py"),
         load_migration("0009_project_acl.py"),
         load_migration("0010_llm_daily_usage.py"),
+        load_migration("0011_project_requires_saved.py"),
     ]
     recorder = MigrationOpRecorder()
     for migration in migrations:

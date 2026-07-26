@@ -54,6 +54,8 @@ jobs:
 
       - name: Test api
         working-directory: apps/api
+        env:
+          ARTICLE_POSTGRES_TEST_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: uv run --isolated --with-editable . --extra dev python -m pytest tests -q
 
       - name: Lint api

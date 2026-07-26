@@ -9,7 +9,7 @@ from typing import Protocol
 from uuid import UUID
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import Engine, Numeric, and_, case, create_engine, desc, func, or_, select, update
+from sqlalchemy import Engine, Numeric, and_, bindparam, case, create_engine, desc, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -1274,30 +1274,44 @@ class DatabaseArticleRepository:
     ) -> ArticleStateRecord | None:
         if self.get_article(article_id) is None:
             return None
-        current = self.get_state(user_id, article_id)
-        next_saved = saved if saved is not None else current.saved
-        next_project = False if next_saved is False else project if project is not None else current.project
-        values = {
-            "user_id": user_id,
-            "article_id": article_id,
-            "status": status if status is not None else current.status,
-            "saved": next_saved,
-            "project": next_project,
-            "read_progress": read_progress if read_progress is not None else current.read_progress,
-            "updated_at": datetime.now(UTC),
-        }
         with self.engine.begin() as connection:
             if self.engine.dialect.name == "postgresql":
+                # Each update field is computed against the row that wins the
+                # conflict, not a prior Python read. This prevents independent
+                # status/saved writes from clobbering each other under load.
+                incoming_status = bindparam("incoming_state_status", status)
+                incoming_saved = bindparam("incoming_state_saved", saved)
+                incoming_project = bindparam("incoming_state_project", project)
+                incoming_progress = bindparam("incoming_state_progress", read_progress)
+                next_saved = func.coalesce(incoming_saved, user_article_states.c.saved)
+                next_project = case(
+                    (incoming_saved.is_(False), False),
+                    else_=func.coalesce(incoming_project, user_article_states.c.project),
+                )
                 row = (
                     connection.execute(
                         pg_insert(user_article_states)
-                        .values(**values)
+                        .values(
+                            user_id=user_id,
+                            article_id=article_id,
+                            status=func.coalesce(incoming_status, "unread"),
+                            saved=func.coalesce(incoming_saved, False),
+                            project=func.coalesce(incoming_project, False),
+                            read_progress=incoming_progress,
+                            updated_at=datetime.now(UTC),
+                        )
                         .on_conflict_do_update(
                             index_elements=[
                                 user_article_states.c.user_id,
                                 user_article_states.c.article_id,
                             ],
-                            set_=values,
+                            set_={
+                                "status": func.coalesce(incoming_status, user_article_states.c.status),
+                                "saved": next_saved,
+                                "project": next_project,
+                                "read_progress": func.coalesce(incoming_progress, user_article_states.c.read_progress),
+                                "updated_at": datetime.now(UTC),
+                            },
                         )
                         .returning(user_article_states)
                     )
@@ -1305,6 +1319,18 @@ class DatabaseArticleRepository:
                     .one()
                 )
             else:
+                current = self.get_state(user_id, article_id)
+                next_saved = saved if saved is not None else current.saved
+                next_project = False if next_saved is False else project if project is not None else current.project
+                values = {
+                    "user_id": user_id,
+                    "article_id": article_id,
+                    "status": status if status is not None else current.status,
+                    "saved": next_saved,
+                    "project": next_project,
+                    "read_progress": read_progress if read_progress is not None else current.read_progress,
+                    "updated_at": datetime.now(UTC),
+                }
                 row = self._upsert_state_generic(connection, values)
         return _state_from_row(row)
 
