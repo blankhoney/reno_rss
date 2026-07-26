@@ -53,7 +53,7 @@
 | A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; Scan/Focus/Keep 320/375/390/768/1024/1280/1440 reflow is green in Chromium/Firefox/WebKit; full suite and cross-engine selection/input pairwise matrix remain |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
 | A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; restored-snapshot and downgrade replay remain |
-| A-09 | IN_PROGRESS | Web schema-v2 baseline has five samples for each cold/warm/SW-controlled route phase; API/queue memory baselines exist, disposable DB and threshold comparison remain |
+| A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines exist, threshold comparison remains |
 | A-10 | IN_PROGRESS | Partial retry/metrics exist; bounded recovery, queue restart and correlated fault proof remain |
 | A-11 | IN_PROGRESS | Production audit and Trivy green; deterministic maintenance/lockfile review continue at release closure |
 | A-12 | IN_PROGRESS | Exact SHA staging deploy/smoke green; rollback/forward and registry cleanup rehearsal remain |
@@ -65,7 +65,7 @@
 
 1. **M2.2 — responsive/input extension (P0):** Add a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
 2. **M3 — atomic article state (P0):** Establish PostgreSQL-backed concurrent writes and `project ⇒ saved` storage invariant before tuning performance.
-3. **M3.1 — deployment-like performance/resilience (P0):** Create disposable PostgreSQL and threshold comparison for the existing five-run Web/API/queue baselines before tuning.
+3. **M3.1 — deployment-like performance/resilience (P0):** Create threshold comparison for the existing five-run Web/API/queue/DB baselines before tuning.
 4. **M4 — release recovery closure (P0):** Rehearse immutable staging rollback/forward and registry cleanup only after prior MUST gates are green.
 
 ## Iteration Log
@@ -81,6 +81,7 @@
 | 2026-07-26 | M2.1 established a minimum cross-engine core matrix and corrected the user-switch offline cache invariant. | Chromium 55/55, Firefox 21/21, WebKit 21/21 and iPhone WebKit 20/20 passed; WebKit's `Load failed` is accepted only as no response, never as cached prior-user data. Record: `output/evidence/m2-cross-engine-core-2026-07-26.json`. |
 | 2026-07-26 | M2.2 added 390/1024/1280px to the reader-mode reflow contract. | Chromium, Firefox and WebKit each passed 21 mode×viewport checks. Record: `output/evidence/m2-responsive-widths-2026-07-26.json`. |
 | 2026-07-26 | M3.1 established a Web cache-phase baseline that distinguishes cold, HTTP-cache warm and Service Worker-controlled loads. | `evidence/web-performance-baseline-2026-07-26.json`: production build via E2E fixture, two routes × three phases × five samples, all HTTP 200/no browser or network errors; SW phase is asserted controlled. Main CI `30180884268` passed for merged A-08. |
+| 2026-07-26 | M3.1 established a disposable PostgreSQL baseline with representative query fixtures. | CI `30181950027` artifact `db-postgres-performance-baseline`: latest/search/ready-job/due-review each have five nonempty samples; p95 0.510/0.496/0.484/0.506 ms. |
 
 ## Evidence and Recovery Rules
 

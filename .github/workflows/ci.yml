@@ -84,6 +84,64 @@ jobs:
           SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: uv run --isolated --with-editable . --extra dev alembic upgrade head
 
+      - name: Seed PostgreSQL performance fixture
+        working-directory: apps/api
+        env:
+          SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: |
+          uv run --isolated --with-editable . --extra dev python - <<'PY'
+          from sqlalchemy import create_engine, text
+
+          engine = create_engine("postgresql+psycopg://postgres:postgres@localhost:5432/postgres")
+          with engine.begin() as connection:
+              connection.execute(text("""
+                  INSERT INTO app_users (id, display_name, session_token_hash, recovery_code_hash)
+                  VALUES ('00000000-0000-0000-0000-000000000901', 'Performance fixture',
+                          'performance-fixture-session', 'performance-fixture-recovery')
+                  ON CONFLICT (id) DO NOTHING
+              """))
+              connection.execute(text("""
+                  INSERT INTO feeds (id, feed_url, title)
+                  VALUES (990001, 'https://baseline.invalid/feed', 'Performance fixture')
+                  ON CONFLICT (id) DO NOTHING
+              """))
+              connection.execute(text("""
+                  INSERT INTO articles (id, primary_feed_id, title, url, published_at)
+                  VALUES (990001, 990001, 'Baseline fixture article',
+                          'https://baseline.invalid/article', NOW())
+                  ON CONFLICT (id) DO NOTHING
+              """))
+              connection.execute(text("""
+                  INSERT INTO jobs (id, job_type, status, payload, dedupe_key)
+                  VALUES (990001, 'score_article', 'queued', '{}'::jsonb, 'performance-fixture-job')
+                  ON CONFLICT (id) DO NOTHING
+              """))
+              connection.execute(text("""
+                  INSERT INTO article_annotations (id, article_id, user_id, type, content, next_review_at)
+                  VALUES (990001, 990001, '00000000-0000-0000-0000-000000000901',
+                          'review', 'Performance fixture', NOW())
+                  ON CONFLICT (id) DO NOTHING
+              """))
+          PY
+
+      - name: Run PostgreSQL performance baseline
+        working-directory: apps/worker
+        env:
+          DB_PERF_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: >-
+          uv run --isolated --with-editable . --extra dev
+          python scripts/db-performance-baseline.py
+          --iterations 5 --warmups 1
+          --output ../../output/performance/db-postgres-ci.json
+
+      - name: Upload PostgreSQL performance baseline
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-postgres-performance-baseline
+          path: output/performance/db-postgres-ci.json
+          retention-days: 14
+
       - name: Test worker
         working-directory: apps/worker
         env:
