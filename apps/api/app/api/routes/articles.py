@@ -3,6 +3,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import (
     ApiError,
@@ -327,19 +328,26 @@ def update_article_state(
 ) -> dict[str, object]:
     if article_repository.get_article(article_id) is None:
         raise ApiError(404, "not_found", "Article not found")
+    # Keep the deterministic in-memory adapter aligned with the database
+    # contract. PostgreSQL repeats this invariant atomically in the write.
     if payload.project is True:
         current_state = article_repository.get_state(current_user.id, article_id)
         next_saved = payload.saved if payload.saved is not None else current_state.saved
         if not next_saved:
             raise ApiError(409, "article_not_candidate", "Article must be saved before project")
-    state = article_repository.upsert_state(
-        current_user.id,
-        article_id,
-        status=payload.status,
-        saved=payload.saved,
-        project=payload.project,
-        read_progress=payload.read_progress,
-    )
+    try:
+        state = article_repository.upsert_state(
+            current_user.id,
+            article_id,
+            status=payload.status,
+            saved=payload.saved,
+            project=payload.project,
+            read_progress=payload.read_progress,
+        )
+    except IntegrityError as error:
+        if payload.project is True:
+            raise ApiError(409, "article_not_candidate", "Article must be saved before project") from error
+        raise
     if state is None:
         raise ApiError(404, "not_found", "Article not found")
     return {"state": article_state_public(state)}

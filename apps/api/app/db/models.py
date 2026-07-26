@@ -163,6 +163,10 @@ user_article_states = Table(
         "read_progress IS NULL OR (read_progress >= 0 AND read_progress <= 1)",
         name="ck_user_article_states_progress",
     ),
+    CheckConstraint(
+        "NOT project OR saved IS TRUE",
+        name="ck_user_article_states_project_requires_saved",
+    ),
 )
 
 scoring_batches = Table(
