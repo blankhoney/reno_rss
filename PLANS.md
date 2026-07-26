@@ -52,8 +52,8 @@
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion and core keyboard/reflow paths now run in the minimum browser matrix; semantic audit and screen-reader evidence remain |
 | A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; Scan/Focus/Keep 320/375/390/768/1024/1280/1440 reflow is green in Chromium/Firefox/WebKit; full suite and cross-engine selection/input pairwise matrix remain |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
-| A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; restored-snapshot and downgrade replay remain |
-| A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines exist, threshold comparison remains |
+| A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; latest Alembic downgrade/replay is green, while restored-snapshot replay remains |
+| A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines and a schema-v1/v2 comparator exist, while equivalent-environment candidate comparisons remain |
 | A-10 | IN_PROGRESS | Partial retry/metrics exist; bounded recovery, queue restart and correlated fault proof remain |
 | A-11 | IN_PROGRESS | Production audit and Trivy green; deterministic maintenance/lockfile review continue at release closure |
 | A-12 | IN_PROGRESS | Exact SHA staging deploy/smoke green; rollback/forward and registry cleanup rehearsal remain |
@@ -82,6 +82,8 @@
 | 2026-07-26 | M2.2 added 390/1024/1280px to the reader-mode reflow contract. | Chromium, Firefox and WebKit each passed 21 mode×viewport checks. Record: `output/evidence/m2-responsive-widths-2026-07-26.json`. |
 | 2026-07-26 | M3.1 established a Web cache-phase baseline that distinguishes cold, HTTP-cache warm and Service Worker-controlled loads. | `evidence/web-performance-baseline-2026-07-26.json`: production build via E2E fixture, two routes × three phases × five samples, all HTTP 200/no browser or network errors; SW phase is asserted controlled. Main CI `30180884268` passed for merged A-08. |
 | 2026-07-26 | M3.1 established a disposable PostgreSQL baseline with representative query fixtures. | CI `30181950027` artifact `db-postgres-performance-baseline`: latest/search/ready-job/due-review each have five nonempty samples; p95 0.510/0.496/0.484/0.506 ms. |
+| 2026-07-26 | M3.1 added a schema-v1/v2 performance comparator without treating cross-environment measurements as a pass. | `infra/scripts/check-performance-baseline.py` self-compared API/queue and Web `lcpMs`; a synthetic 3.01× API p95 regressed with exit 1. PR #28 CI/staging `30182482954` passed. |
+| 2026-07-26 | M3 added latest Alembic downgrade/replay to the PostgreSQL CI path. | `downgrade -1 → upgrade head → current --check-heads` passed in PR #29 CI/staging `30182799323`; snapshot restoration remains separate work. |
 
 ## Evidence and Recovery Rules
 
