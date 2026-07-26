@@ -52,6 +52,12 @@ jobs:
           cache: "npm"
           cache-dependency-path: apps/reader-web/package-lock.json
 
+      - name: Prepare PostgreSQL schema for API integration tests
+        working-directory: apps/api
+        env:
+          SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: uv run --isolated --with-editable . --extra dev alembic upgrade head
+
       - name: Test api
         working-directory: apps/api
         env:
