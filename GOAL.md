@@ -41,7 +41,7 @@
 
 ## 3. Verified Baseline
 
-快照：`2026-07-26`，基线主线 `origin/main=2569feca`；当前候选为 `goal/m3-performance-baseline`。
+快照：`2026-07-26`，基线主线 `origin/main=b4506ba0`；当前候选为 `goal/m3-performance-baseline`。
 本文件只将已执行命令和保存的工件视为事实；候选修改须在同一分支上复跑相关验证后才可进入主线。
 
 | Dimension | Current state | Evidence | Confidence | Missing evidence |
@@ -291,7 +291,7 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`goal/m3-performance-baseline`，基线主线 `2569feca`。
+- **Current candidate**：`goal/m3-performance-baseline`，基线主线 `b4506ba0`。
 - **Current milestone**：`M3.1（deployment-like performance/resilience）`；已建立 Web 三阶段五次测量协议，A-09 仍需 DB 与阈值闭环。
 - **Last green checkpoint**：`npm run build`（production E2E server 前置）、Web baseline 2 routes × 3 phases × 5 samples，主线 CI `30180884268` success。
 - **Current validation**：A-08 的 PostgreSQL CI 合约已通过；A-09 的 Web 部分已建立，A-05/A-06/A-09/A-10/A-12 持续进行中。
