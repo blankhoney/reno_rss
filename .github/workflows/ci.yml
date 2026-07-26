@@ -84,6 +84,15 @@ jobs:
           SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: uv run --isolated --with-editable . --extra dev alembic upgrade head
 
+      - name: Check Alembic latest downgrade and replay
+        working-directory: apps/api
+        env:
+          SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: |
+          uv run --isolated --with-editable . --extra dev alembic downgrade -1
+          uv run --isolated --with-editable . --extra dev alembic upgrade head
+          uv run --isolated --with-editable . --extra dev alembic current --check-heads
+
       - name: Seed PostgreSQL performance fixture
         working-directory: apps/api
         env:
