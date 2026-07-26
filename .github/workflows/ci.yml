@@ -196,6 +196,60 @@ jobs:
           path: output/performance/db-postgres-comparison.json
           retention-days: 14
 
+      - name: Verify disposable PostgreSQL snapshot restore
+        run: |
+          set -euo pipefail
+          snapshot_dir="output/evidence/db-snapshot-restore-ci"
+          mkdir -p "$snapshot_dir"
+          docker run --rm --network host --volume "$PWD/$snapshot_dir:/snapshot" --env PGPASSWORD=postgres postgres:16 \
+            pg_dump --host 127.0.0.1 --port 5432 --username postgres \
+            --format=custom --no-owner --no-privileges --dbname postgres \
+            --file /snapshot/postgres.dump
+          docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
+            createdb --host 127.0.0.1 --port 5432 --username postgres snapshot_restore_verify
+          docker run --rm --network host --volume "$PWD/$snapshot_dir:/snapshot" --env PGPASSWORD=postgres postgres:16 \
+            pg_restore --host 127.0.0.1 --port 5432 --username postgres \
+            --dbname snapshot_restore_verify --clean --if-exists --no-owner --no-privileges \
+            /snapshot/postgres.dump
+          docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
+            psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
+            --tuples-only --no-align --command "SELECT version_num FROM alembic_version" \
+            | grep -qx '0011_project_requires_saved'
+          docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
+            psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
+            --tuples-only --no-align --command "SELECT title FROM articles WHERE id = 990001" \
+            | grep -qx 'Baseline fixture article'
+          docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
+            psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
+            --tuples-only --no-align --command "SELECT content FROM article_annotations WHERE id = 990001" \
+            | grep -qx 'Performance fixture'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          Path("output/evidence/db-snapshot-restore-ci/status.json").write_text(
+              json.dumps(
+                  {
+                      "database": "snapshot_restore_verify",
+                      "fixture": "performance-fixture",
+                      "migration": "0011_project_requires_saved",
+                      "status": "restored",
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload PostgreSQL snapshot restore evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-postgres-snapshot-restore
+          path: output/evidence/db-snapshot-restore-ci
+          retention-days: 14
+
       - name: Test worker
         working-directory: apps/worker
         env:
