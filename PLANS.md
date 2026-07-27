@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-input-continuity` based on merged `main @ 97cd28e1`; PR #44 (IME slice) open. |
-| Milestone / acceptance | M1.7 annotation/input continuity; A-03 remains `IN_PROGRESS` for touch/session-switch/two-user cases. |
-| Hypothesis | Annotation save 503 must show an explicit retry that preserves the selection and anchor; the anchor must be built from the article content text, not the full article element including UI labels. |
-| Initial failure | E2e test failed at the mark assertion: anchor prefix contained UI text ("评分。评分完成后…") and start was 158 instead of 0, so resolution returned not-found. |
-| Minimal repair | Add `anchorContentRef` to `useArticleSelection` so the anchor is built from `.focusContent`; add inline error banner + retry closure to both annotation save sites; add fail-once POST handler to e2e server. |
-| Green validation | Reader Node 194/194; production build; fresh-server Chromium 67 passed (including new 503→retry→mark test). |
-| Durable evidence | `output/evidence/m1-annotation-save-retry-2026-07-27.json`, integrity-listed in `output/evidence-sha256.txt`. |
-| Rollback | Revert the selection.ts/FocusedArticleReader.tsx/e2e-server.mjs/e2e spec slice; no schema, API contract, or stored-data change. |
-| Next action | Close touch-driven selection save, then session-switch annotation isolation, before the two-user annotation matrix. |
+| Exact candidate | `goal/m1-annotation-input-continuity @ a6df7919`（base `origin/main @ 97cd28e1`）；PR #44 contains 6 M1.7 slices. |
+| Milestone / acceptance | M1.7 annotation/input continuity substantially complete; A-03/A-04 advanced with IME, retry, isolation, two-user proofs. |
+| Hypothesis | M1.7 的五个子 slice 分别证明：IME 组合安全、503 显式重试、内容域锚点、会话切换隔离、双上下文隔离。 |
+| Initial failure | 各 slice 均有 test-first failure：IME Node test、503 mark assertion（prefix 含 UI 文本）、session-switch/two-user 无 per-user 存储。 |
+| Minimal repair | `isSelectionDismissEvent` + `anchorContentRef` + inline retry UI + `onPointerDown` + per-user `userAnnotations` Map。 |
+| Green validation | Reader Node 194/194；production build；fresh-server Chromium 70 passed（含全部新增场景）。 |
+| Durable evidence | `output/evidence/m1-ime-selection-continuity-2026-07-27.json`、`m1-annotation-save-retry-2026-07-27.json`、`m1-session-switch-isolation-2026-07-27.json`、`m1-two-user-isolation-2026-07-27.json`；全部列入 `output/evidence-sha256.txt`。 |
+| Rollback | Revert PR #44 的 6 个 commit；无 schema、API 契约或生产运行时变更。 |
+| Next action | 推进 A-02 核心状态矩阵：优先补齐 Keep/Scan/Focus 模块的 loading/empty/error/retry/server-confirmed 路径。 |
 
 ## Completed Checkpoints
 

@@ -291,22 +291,22 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`goal/m1-annotation-input-continuity @ 97cd28e1`（base `origin/main`）；M1.7 IME 选区连续性 slice 已完成，待合并。
-- **Current milestone**：`M1.7（annotation/input continuity）` 的 IME-composition dismiss 安全已闭环；A-03 继续补齐 touch save、503 retry、session-switch 和 two-user 矩阵。
-- **Last green checkpoint**：M1.7 slice：Node test-first failure → composition-aware fix → focused 6/6 → Reader 194/194 → build → Chromium 65 passed（1 pre-existing flaky green on retry）；证据 `output/evidence/m1-ime-selection-continuity-2026-07-27.json`。
+- **Current candidate**：`goal/m1-annotation-input-continuity @ a6df7919`（base `origin/main @ 97cd28e1`）；PR #44 包含 6 个 M1.7 slice，待合并。
+- **Current milestone**：`M1.7（annotation/input continuity）` 实质完成：IME 组合安全、503 显式重试、内容域锚点、会话切换隔离、双上下文隔离均已证明。A-03/A-04 显著推进。
+- **Last green checkpoint**：M1.7 全部 slice：Reader Node 194/194、production build、fresh-server Chromium 70 passed；证据 4 份 JSON 均列入 `output/evidence-sha256.txt`。
 - **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery、竞争任务隔离、五样本恢复预算和 content-free 运行时日志；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
   - Queue recovery：CI PostgreSQL 五样本 median 5.614 ms、p95 7.956 ms、min 5.516 ms、max 7.956 ms；各样本均完成 `running → queued → running → succeeded`（CI `30284291417`）
-  - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
-  - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
+  - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 194
+  - e2e：Chromium 70/70；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：M1.8 touch selection save 证据正在建立。工作树新增一条待验证 Playwright 场景及 iPhone WebKit test match；该场景以程序化 range + `mouseup` 安置选区、以 `tap()` 触发保存，故当前只能证明 touch-equivalent 保存，尚未证明触控手势产生选区。
-- **Recovery point**：当前已提交的标注连续性 checkpoint 为 `f045df04`（基于 M1.7 `685b2160`）；主线恢复点为 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
-- **Missing external evidence**：Firefox/WebKit 全量、跨引擎真实触控文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
-- **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；将程序化选区当作触控产生选区会形成错误证据；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
-- **Next action**：先验证并纠正 M1.8 的触控选区事件链与跨引擎范围；仅在该证据闭环后推进 session-switch annotation isolation 和 two-user 矩阵。
+- **Current experiment**：M1.7 已闭环；下一轮转向 A-02 核心状态矩阵。
+- **Recovery point**：主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
+- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
+- **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
+- **Next action**：推进 A-02 核心状态矩阵，优先补齐 Keep/Scan/Focus 模块的 loading/empty/error/retry/server-confirmed 路径。
 
 ## 12. Decision and Change Log
 
