@@ -137,6 +137,50 @@ def test_run_once_logs_stale_lease_recovery(caplog):
     assert "worker stale lease recovery: worker_id=worker-after-restart recovered_count=1 lease_seconds=1" in caplog.text
 
 
+def test_run_forever_survives_transient_queue_outage_and_processes_jobs_after_recovery():
+    queue = InMemoryJobQueue()
+    outage_active = True
+
+    class OutageQueue:
+        def __getattr__(self, name):
+            return getattr(queue, name)
+
+        def reclaim_stale(self, **kwargs):
+            if outage_active:
+                raise RuntimeError("connection refused")
+            return queue.reclaim_stale(**kwargs)
+
+        def claim_next(self, worker_id):
+            if outage_active:
+                raise RuntimeError("connection refused")
+            return queue.claim_next(worker_id)
+
+    job = queue.enqueue("worker_echo", {"message": "after-outage"}, dedupe_key="outage:1")
+    stop = Event()
+    ticks = []
+
+    def on_tick():
+        ticks.append(1)
+        if len(ticks) >= 3:
+            nonlocal outage_active
+            outage_active = False
+        if len(ticks) >= 5:
+            stop.set()
+
+    run_forever(
+        OutageQueue(),
+        {"worker_echo": lambda payload: {"echo": payload["message"]}},
+        worker_id="worker-resilient",
+        poll_seconds=0.01,
+        stop_event=stop,
+        on_tick=on_tick,
+    )
+
+    stored = queue._jobs[job.id]
+    assert stored.status == "succeeded"
+    assert stored.result == {"echo": "after-outage"}
+
+
 def test_run_forever_emits_heartbeat_while_idle():
     queue = InMemoryJobQueue()
     stop_event = Event()

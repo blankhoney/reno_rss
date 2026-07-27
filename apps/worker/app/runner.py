@@ -116,14 +116,18 @@ def run_forever(
                 on_tick()
             except Exception:
                 LOGGER.exception("scheduler tick failed")
-        handled = run_once(
-            queue,
-            registry,
-            worker_id=worker_id,
-            retry_backoff_seconds=retry_backoff_seconds,
-            retry_backoff_max_seconds=retry_backoff_max_seconds,
-            job_lease_seconds=job_lease_seconds,
-        )
+        try:
+            handled = run_once(
+                queue,
+                registry,
+                worker_id=worker_id,
+                retry_backoff_seconds=retry_backoff_seconds,
+                retry_backoff_max_seconds=retry_backoff_max_seconds,
+                job_lease_seconds=job_lease_seconds,
+            )
+        except Exception:
+            LOGGER.exception("worker queue unavailable, will retry")
+            handled = False
         _emit_heartbeat(on_heartbeat)
         if not handled:
             stop_event.wait(poll_seconds)
