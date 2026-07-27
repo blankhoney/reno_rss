@@ -256,6 +256,24 @@ jobs:
           WORKER_QUEUE_POSTGRES_TEST_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: uv run --isolated --with-editable . --extra dev python -m pytest tests -q
 
+      - name: Run PostgreSQL queue recovery baseline
+        working-directory: apps/worker
+        env:
+          QUEUE_RECOVERY_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: |
+          uv run --isolated --with-editable . --extra dev python scripts/queue-recovery-baseline.py \
+            --iterations 5 \
+            --warmups 1 \
+            --output ../../output/evidence/queue-postgres-recovery-baseline/queue-recovery.json
+
+      - name: Upload PostgreSQL queue recovery baseline
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: queue-postgres-recovery-baseline
+          path: output/evidence/queue-postgres-recovery-baseline
+          retention-days: 14
+
       - name: Lint worker
         working-directory: apps/worker
         run: uv run --isolated --with-editable . --extra dev ruff check .
