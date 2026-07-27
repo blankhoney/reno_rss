@@ -291,10 +291,10 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`goal/m1-annotation-input-continuity @ 1a41edc4`（base `origin/main @ 97cd28e1`）；M1.7、M1.9a 与 A-05/A-07/A-15 的增量 slice 均已提交，尚待合并。
-- **Current milestone**：M1.7（annotation/input continuity）已完成。M1.9a 已完成 Keep/`starred` empty、saved success、503→retry 和 Review/Export 的可见恢复 slice；当前进入 M1.9b，收口 Scan / Focus 列表状态及文章返回上下文。
-- **Last green checkpoint**：M1.7 的完整 gate 为 Reader Node 194/194、production build、fresh-server Chromium 70 passed。其后 M1.9a 记录 Chromium 73/75，A-05 语义/键盘记录 Chromium 77，A-15 Ask abort 记录 Chromium 78；跨引擎核心扩至 Firefox 35/35、WebKit 35/35、iPhone WebKit 29/29。当前没有与 `1a41edc4` 对应的完整 Node/build 重跑记录，故不得把这些增量外推为全量 gate 通过。
-- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery、竞争任务隔离、五样本恢复预算和 content-free 运行时日志；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
+- **Current candidate**：`goal/m1-annotation-input-continuity @ f8feeeca`（base `origin/main @ 97cd28e1`）；M1.7、M1.9a、A-03、A-05/A-07/A-15 与 A-10 的增量 slice 均已提交，尚待合并。
+- **Current milestone**：M1.7（annotation/input continuity）已完成。M1.9a 已完成 Keep/`starred` empty、saved success、503→retry 和 Review/Export 的可见恢复 slice；当前进入 M1.9b，收口 Scan / Focus 列表状态及文章返回上下文。并行证据新增 A-03 selection-boundary/longer-quote precedence 与 A-10 transient queue-outage survival，但两者均未替代其余 MUST 矩阵。
+- **Last green checkpoint**：M1.7 的完整 gate 为 Reader Node 194/194、production build、fresh-server Chromium 70 passed。其后 M1.9a 记录 Chromium 73/75，A-05 语义/键盘记录 Chromium 77，A-15 Ask abort 记录 Chromium 78，A-07 state-language 记录 Chromium 79；跨引擎 grep 已到 Firefox 45/45、WebKit 44/44、iPhone WebKit 29/29。当前没有与 `f8feeeca` 对应的完整 Node/build/Chromium gate，且工作树另有未验证的 cross-engine grep 扩展，故不得外推为全量通过。
+- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery、竞争任务隔离、五样本恢复预算、content-free 日志，并新增 `run_forever` 遇 transient queue outage 后记录并进入下一周期的 TDD 证明及 permanent-failure observability assertion；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
@@ -302,11 +302,11 @@
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 194
   - e2e：Chromium 79/79；Firefox 44/44；WebKit 43/43；iPhone WebKit 29/29（cross-engine grep 扩展后，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：M1.9a 已在 Chromium 75 完成并入提交：Keep/`starred` empty、saved success、503→retry，及 Review retry / Export download；A-05 语义+Tab audit、A-07 状态语言 non-contradiction 与 A-15 Ask abort 已有后续小型 Chromium 证据。M1.9b（Scan / Focus）尚未开始验证，仍为 `IN_PROGRESS`。
-- **Recovery point**：当前 code/goal checkpoint 为 `1a41edc4`；完整 Reader Node/build checkpoint 仍为 `a6df7919`；主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
-- **Missing external evidence**：与当前 HEAD 对应的完整 Node/build/Chromium gate、Firefox/WebKit 全量、跨引擎文本选区和列表恢复、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
-- **Known risks**：核心状态矩阵仍未闭环；fixture 成功不等价于 API 模块筛选语义已验证；新 A-05/A-07/A-15 场景只有增量证据而非完整 gate；跨引擎选区自动化尚不稳定；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
-- **Next action**：为 Scan / Focus 先建立并验证 empty、503→retry、server success、article-return/refresh 的最小状态矩阵；随后重跑当前候选的 Reader Node、production build 和完整 Chromium gate，再扩展跨引擎列表恢复矩阵。
+- **Current experiment**：M1.9a 已在 Chromium 75 完成并入提交：Keep/`starred` empty、saved success、503→retry，及 Review retry / Export download；A-05 语义+Tab、A-07 状态语言、A-15 Ask abort 已有后续小型 Chromium 证据。A-03 新增 container-boundary 拒绝与 longer-quote-first markup-nesting 单测；A-10 新增 transient queue outage 后 runner 存活、永久失败可观测性断言。M1.9b（Scan / Focus）仍未开始验证，保持 `IN_PROGRESS`。
+- **Recovery point**：当前提交 checkpoint 为 `f8feeeca`；完整 Reader Node/build checkpoint 仍为 `a6df7919`；主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
+- **Missing external evidence**：与当前 HEAD 对应的完整 Node/build/Chromium gate、Firefox/WebKit 全量、跨引擎文本选区和列表恢复、真实 PostgreSQL transient outage/lock/timeout/retry-exhaustion 故障矩阵、真实 PostgreSQL 写入/route 性能。
+- **Known risks**：核心状态矩阵仍未闭环；fixture 成功不等价于 API 模块筛选语义已验证；新 A-03/A-05/A-07/A-10/A-15 场景仅有增量证据而非完整 gate；未提交的 cross-engine grep 扩展尚未执行；跨引擎选区自动化尚不稳定；恢复预算仍未覆盖真实数据库锁/超时/重试耗尽；GHCR 真实删除继续采用显式非破坏性 dry-run 策略。
+- **Next action**：为 Scan / Focus 先建立并验证 empty、503→retry、server success、article-return/refresh 的最小状态矩阵；随后在当前候选上合并并验证现有 cross-engine grep 扩展，重跑 Reader Node、production build 和完整 Chromium gate，再扩展跨引擎列表恢复矩阵。
 
 ## 12. Decision and Change Log
 
@@ -337,7 +337,7 @@
 | 2026-07-27 | M1.7：会话切换后标注必须按用户隔离。 | e2e server 新增 per-user annotation storage（`userAnnotations` Map）；用户 A 创建标注后切换到用户 B，B 只见 fixture 标注不见 A 的创建；Chromium 69 passed。证据：`output/evidence/m1-session-switch-isolation-2026-07-27.json`。 |
 | 2026-07-27 | M1.8：触控保存与触控选区必须分开取证。 | 工作树的 `touch selection save` 仅以程序化 range + `mouseup` 建立选区，再用 `tap()` 保存；它可证明保存按钮的 touch-equivalent 路径，不可证明原生触控文本选择。A-03/A-06 维持 Pending，最高优先级调整为建立或明确限定真实 `touchend → settled anchor → save` 事件链。 |
 | 2026-07-27 | M1.9a：M1.7 证据收口后，核心列表状态矩阵优先于新增视觉优化。 | `70f03234` 的 Keep/`starred` empty、saved success、503→retry 以及 `68ea97c8` 的 Review retry / Export download 已在 Chromium 73/75 验证，并写入哈希 evidence。fixture 结论仍须在需要时由 API 契约补证，不能外推为全模块或服务端完成。 |
-| 2026-07-27 | M1.9b：收口 Scan / Focus 的状态和返回上下文，再扩大已验证边界。 | 当前最新提交 `1a41edc4` 还加入 A-05 semantic/Tab、A-07 state-language 和 A-15 abort 的小型 Chromium 覆盖（至 78），但当前 HEAD 没有完整 Node/build gate。最高优先级保持 A-02，先以 Scan / Focus 的 empty、503→retry、success、article-return/refresh 建立最小可回退矩阵。 |
+| 2026-07-27 | M1.9b：收口 Scan / Focus 的状态和返回上下文，再扩大已验证边界。 | 当前提交 `f8feeeca` 已把 A-05 semantic/Tab、A-07 state-language、A-15 abort 扩至 Chromium 79，并将 cross-engine grep 扩至 Firefox 45/WebKit 44；A-03 新增 selection boundary 与 longer-quote nesting 单测，A-10 新增 transient queue-outage survival 和 permanent-failure observability。上述均为增量证据，当前 HEAD 尚无完整 Node/build/Chromium gate，且工作树仍有未运行的 grep 扩展。最高优先级保持 A-02，先以 Scan / Focus 的 empty、503→retry、success、article-return/refresh 建立最小可回退矩阵。 |
 
 ## 13. Stop and Escalation Conditions
 
