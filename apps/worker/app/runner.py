@@ -56,11 +56,18 @@ def run_once(
     retry_backoff_max_seconds: int = 3600,
     job_lease_seconds: int = 900,
 ) -> bool:
-    queue.reclaim_stale(
+    reclaimed = queue.reclaim_stale(
         lease_seconds=job_lease_seconds,
         base_backoff_seconds=retry_backoff_seconds,
         max_backoff_seconds=retry_backoff_max_seconds,
     )
+    if reclaimed:
+        LOGGER.info(
+            "worker stale lease recovery: worker_id=%s recovered_count=%s lease_seconds=%s",
+            worker_id,
+            len(reclaimed),
+            job_lease_seconds,
+        )
     job = queue.claim_next(worker_id)
     if job is None:
         return False
