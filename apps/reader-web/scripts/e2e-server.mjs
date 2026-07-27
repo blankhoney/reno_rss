@@ -38,6 +38,7 @@ let articleAskFailuresRemaining = 0;
 let articleStateFailuresRemaining = 0;
 let researchFailuresRemaining = 0;
 let annotationFailuresRemaining = 0;
+let articleListFailuresRemaining = 0;
 let adminSyncCompleted = false;
 const articleStates = new Map();
 const userAnnotations = new Map();
@@ -96,6 +97,7 @@ function resetFixtures() {
   articleStateFailuresRemaining = 0;
   researchFailuresRemaining = 0;
   annotationFailuresRemaining = 0;
+  articleListFailuresRemaining = 0;
   adminSyncCompleted = false;
   articleStates.clear();
   userAnnotations.clear();
@@ -194,6 +196,11 @@ const proxy = createServer(async (request, response) => {
     sendJson(response, 200, { ok: true });
     return;
   }
+  if (url.pathname === "/__e2e/article-list/fail-once" && request.method === "POST") {
+    articleListFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
   if (url.pathname === "/api/auth/me" && request.method === "GET") {
     sendJson(response, 200, { user: currentUser });
     return;
@@ -208,6 +215,11 @@ const proxy = createServer(async (request, response) => {
     return;
   }
   if (url.pathname === "/api/articles" && request.method === "GET") {
+    if (articleListFailuresRemaining > 0) {
+      articleListFailuresRemaining -= 1;
+      sendJson(response, 503, { error: { code: "list_unavailable", message: "文章列表暂不可用，请重试。" } });
+      return;
+    }
     const searchQuery = url.searchParams.get("q");
     if (searchQuery === "workbench-error") {
       sendJson(response, 500, { error: { message: "workbench fixture failure" } });

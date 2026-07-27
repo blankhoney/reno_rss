@@ -809,6 +809,61 @@ test("workbench failure does not render a contradictory empty state", async ({ p
   await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
 });
 
+test("starred module shows empty state when no articles are saved", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.goto("/?module=starred&sort=default&lang=zh");
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前模块没有可显示的文章。", { exact: true })).toBeVisible();
+});
+
+test("starred module renders saved articles from the server", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/articles?**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("module") !== "starred") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          id: 7,
+          title: "Keyboard article one",
+          url: "https://example.com/one",
+          feed: { id: 1, title: "Fixture feed" },
+          category: null,
+          published_at: "2026-07-21T00:00:00Z",
+          content_quality: "full",
+          summary_zh: "第一篇测试文章。",
+          score: null,
+          state: { status: "unread", saved: true, project: false, read_progress: 0 },
+        }],
+        next_cursor: null,
+        has_more: false,
+      }),
+    });
+  });
+  await page.goto("/?module=starred&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+});
+
+test("article list failure shows error with retry and recovers", async ({ page }) => {
+  await resetFixtures(page);
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.goto("/?module=all&sort=default&lang=zh");
+
+  await expect(page.getByText(/文章加载失败/)).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "重试" }).click();
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText(/文章加载失败/)).toHaveCount(0);
+});
+
 test("focused reader exposes retry for an article load failure", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/read/999?module=all&sort=default&lang=zh");
