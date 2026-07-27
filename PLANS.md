@@ -54,7 +54,7 @@
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
 | A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; latest Alembic downgrade/replay and disposable logical snapshot restore both pass, while recovery-time/write-failure evidence remains |
 | A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines and a schema-v1/v2 comparator exist, and CI now compares candidates with the latest successful `main` baseline at a 3× threshold; deployment-like write/load evidence remains |
-| A-10 | IN_PROGRESS | Partial retry/metrics exist; bounded recovery, queue restart and correlated fault proof remain |
+| A-10 | IN_PROGRESS | PostgreSQL CI now proves an expired lease is requeued with backoff and completed by a new worker; bounded recovery-time, structured log correlation, and broader fault proof remain |
 | A-11 | IN_PROGRESS | Production audit and Trivy green; deterministic maintenance/lockfile review continue at release closure |
 | A-12 | IN_PROGRESS | Exact SHA staging deploy/smoke green; rollback/forward and registry cleanup rehearsal remain |
 | A-13 | IN_PROGRESS | Current instructions reconciled; clean-clone replay and failure-linked seam evidence remain |
@@ -65,7 +65,7 @@
 
 1. **M2.2 — responsive/input extension (P0):** Add a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
 2. **M3 — atomic article state (P0):** Establish PostgreSQL-backed concurrent writes and `project ⇒ saved` storage invariant before tuning performance.
-3. **M3.1 — deployment-like performance/resilience (P0):** Measure bounded write/queue recovery and correlate its logs; retain the existing latest-`main` DB 3× threshold gate.
+3. **M3.1 — deployment-like performance/resilience (P0):** Measure bounded PostgreSQL lease-recovery time and correlate its logs; retain the existing latest-`main` DB 3× threshold gate.
 4. **M4 — release recovery closure (P0):** Rehearse immutable staging rollback/forward and registry cleanup only after prior MUST gates are green.
 
 ## Iteration Log
@@ -86,6 +86,7 @@
 | 2026-07-26 | M3 added latest Alembic downgrade/replay to the PostgreSQL CI path. | `downgrade -1 → upgrade head → current --check-heads` passed in PR #29 CI/staging `30182799323`; snapshot restoration remains separate work. |
 | 2026-07-27 | M3.1 added an equivalent-environment candidate DB threshold gate. | PR #31 CI `30183432804` downloaded the latest successful `main` baseline and passed `check-performance-baseline.py --max-regression 3`; CI `30212853939` repeated the comparison. |
 | 2026-07-27 | M3 added a disposable PostgreSQL logical snapshot recovery check. | CI `30212853939` artifact `db-postgres-snapshot-restore` restored the fixture into `snapshot_restore_verify` and asserted revision `0011_project_requires_saved`, article, and annotation; it did not access staging/production. |
+| 2026-07-27 | M3.1 proved PostgreSQL worker lease recovery across a worker replacement. | PR #34 CI `30213382395` ran `test_postgres_queue_state_machine_sql`: an expired lease was requeued with backoff, claimed by `worker-after-restart`, and marked succeeded. |
 
 ## Evidence and Recovery Rules
 

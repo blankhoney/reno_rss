@@ -291,21 +291,21 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`main @ 3cbc6fd5`，最近台账候选为 `goal/m3-recovery-ledger`。
+- **Current candidate**：`main @ 9cc5efa9`，最近台账候选为 `goal/m3-lease-recovery-ledger`。
 - **Current milestone**：`M3.1（deployment-like performance/resilience）`；Web 与 disposable CI DB 的五次测量、schema-v1/v2 比较器、候选 3× 阈值门、latest migration 回放与隔离快照恢复均已建立。
-- **Last green checkpoint**：CI `30212853939` 成功完成 API/worker/reader、migration 回放、DB fixture baseline、候选比较、隔离快照恢复、浏览器矩阵、镜像发布与 staging 部署。
-- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门。A-05/A-06/A-08/A-09/A-10/A-12 仍持续进行中。
+- **Last green checkpoint**：CI `30213382395` 成功完成 API/worker/reader、migration 回放、DB fixture baseline、候选比较、隔离快照恢复、真实 PostgreSQL 租约回收、浏览器矩阵、镜像发布与 staging 部署。
+- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL 的过期租约→退避→新 worker 成功恢复链。A-05/A-06/A-08/A-09/A-10/A-12 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：以 latest-successful `main` CI baseline 对每个候选执行 DB 3× 阈值比较；下一个实验应量化写入与恢复预算，而不是重复已通过的 fixture 读查询。
-- **Recovery point**：主线 `3cbc6fd54fff60eddb52d32a0e954a2d19ab1ddb` 与 CI `30212853939` 的性能比较、快照恢复工件。
-- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能、恢复时间预算、staging 全链路 rollback-forward。
+- **Current experiment**：以 latest-successful `main` CI baseline 对每个候选执行 DB 3× 阈值比较；过期租约实验已验证状态恢复，下一步应量化恢复时间和关联日志，而不是重复同一状态机路径。
+- **Recovery point**：主线 `9cc5efa9decb4058b5fbea5d86d3be7d431792a5` 与 CI `30213382395` 的 worker PostgreSQL 恢复链、性能比较和快照恢复工件。
+- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能、恢复时间与日志关联预算、staging 全链路 rollback-forward。
 - **Known risks**：未闭环的状态矩阵与回滚演练；跨引擎选区自动化尚不稳定。
-- **Next action**：建立有界的写入/队列恢复故障实验及其关联日志证据；保持 A-06 的跨引擎选区实验已回退且不重开。
+- **Next action**：为既有 PostgreSQL 租约恢复链记录可重复的恢复时间与结构化日志关联证据；保持 A-06 的跨引擎选区实验已回退且不重开。
 
 ## 12. Decision and Change Log
 
@@ -321,6 +321,7 @@
 | 2026-07-26 | 最新 Alembic revision 在 CI 固定执行降级与回放。 | CI `30182799323` 成功执行 `downgrade -1 → upgrade head → current --check-heads`，再完成全量质量、镜像与 staging 链。 |
 | 2026-07-27 | CI 固定从最近成功 `main` 下载 DB baseline，并以 3× 上限比较候选。 | PR #31 CI `30183432804` 及后续 CI `30212853939` 成功产出 `db-postgres-performance-comparison`；跨环境数据仍不得作为通过证据。 |
 | 2026-07-27 | CI 在 disposable PostgreSQL 中完成逻辑快照恢复验证。 | CI `30212853939` artifact `db-postgres-snapshot-restore` 恢复到隔离数据库，并断言 revision `0011_project_requires_saved`、fixture article 与 annotation；不触及 staging/production。 |
+| 2026-07-27 | CI 在 disposable PostgreSQL 中验证 worker 租约恢复由新 worker 完成。 | CI `30213382395` 的 `test_postgres_queue_state_machine_sql` 使过期 `running` job 退避为 `queued`，再由 `worker-after-restart` claim 并成功结束；未改变生产重试策略。 |
 | 2026-07-26 | 重新编制 GOAL 并以证据优先格式输出。 | 本次提交：清晰主目标、门禁、基线、自动决策与停机条件。 |
 | 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
 | 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
