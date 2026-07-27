@@ -300,7 +300,7 @@
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
   - Queue recovery：CI PostgreSQL 五样本 median 5.614 ms、p95 7.956 ms、min 5.516 ms、max 7.956 ms；各样本均完成 `running → queued → running → succeeded`（CI `30284291417`）
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 194
-  - e2e：Chromium 79/79；Firefox 39/39；WebKit 38/38；iPhone WebKit 29/29（cross-engine grep 扩展后，非各引擎全量）
+  - e2e：Chromium 79/79；Firefox 44/44；WebKit 43/43；iPhone WebKit 29/29（cross-engine grep 扩展后，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
 - **Current experiment**：M1.9a 已在 Chromium 75 完成并入提交：Keep/`starred` empty、saved success、503→retry，及 Review retry / Export download；A-05 语义+Tab audit、A-07 状态语言 non-contradiction 与 A-15 Ask abort 已有后续小型 Chromium 证据。M1.9b（Scan / Focus）尚未开始验证，仍为 `IN_PROGRESS`。
 - **Recovery point**：当前 code/goal checkpoint 为 `1a41edc4`；完整 Reader Node/build checkpoint 仍为 `a6df7919`；主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
