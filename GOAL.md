@@ -182,7 +182,7 @@
 | A-09 | 性能与稳定基线 | MUST | Web、API/queue 及 CI PostgreSQL 都有五次基线；schema-v1/v2 比较器已验证，并在 CI 对最近成功 `main` 基线执行同环境 3× 阈值比较 | 固定 Web 三缓存阶段、CI DB fixture 和回归阈值 | Web 命令 + CI `Run PostgreSQL performance baseline` + `check-performance-baseline.py --max-regression 3` | Web evidence、CI `30181950027` artifact `db-postgres-performance-baseline`、CI `30183432804`/`30212853939` artifact `db-postgres-performance-comparison` | 每路由/阶段有 5 个非空样本；SW 阶段全部受控；无浏览器/HTTP 错误；DB 基线可复现，且同环境候选比较不超过 3× 门限 |
 | A-10 | 恢复与韧性 | MUST | PostgreSQL 过期租约已可退避并由新 worker 完成；运行时会记录 content-free recovery 事件；恢复预算仍未测量 | 显式设定重试上界、错误分类、降级策略证据 | PostgreSQL lease-recovery test + `worker stale lease recovery` 日志断言 + 后续故障注入/时间预算 | CI `30213382395`、CI `30278849416` + 后续恢复指标 | 错误可回到已知状态，不发生沉默数据损坏 |
 | A-11 | 供应链和密钥边界 | MUST | Trivy 与 npm audit 本地绿色（高危/致命） | 复核 CI 高危致命阈值、secret redaction 与锁文件治理 | CI/本地同参数扫描 | `output/security/frontend-dependency-remediation-2026-07-26.json`、`output/security/trivy-secret-scan-2026-07-26.json` | 无高危/致命，扫描命令参数透明且与 CI 一致 |
-| A-12 | staging 发布与回滚闭环 | MUST | staging 已自动部署当前 `2ec6cd28`，回滚至已发布 `98d06a42`，再前进重放当前镜像；三步均通过 | 在单一最终 SHA 上完成 deploy、rollback、重放、验证 | CI `30279882267` + `rollback.yml` run `30280699086` + `deploy-staging.yml` run `30280839157` | GitHub Actions runs 与 step summaries | staging 可重复部署、回滚、再部署且各路由状态可重放 |
+| A-12 | staging 发布与回滚闭环 | MUST | staging 已自动部署 `2ec6cd28`，回滚至已发布 `98d06a42`，再前进重放当前镜像；三步均通过；GHCR cleanup 的 repository-scoped dry-run 已完成多架构校验且无删除 | 在单一最终 SHA 上完成 deploy、rollback、重放、验证 | CI `30279882267` + `rollback.yml` run `30280699086` + `deploy-staging.yml` run `30280839157` + `ghcr-cleanup.yml dry_run=true` | GitHub Actions `30279882267`、`30280699086`、`30280839157`、`30282030908` | staging 可重复部署、回滚、再部署且各路由状态可重放；cleanup rehearsal 不执行删除且无多架构校验错误 |
 | A-13 | 文档与执行可持续性 | MUST | 目录有基础文档，日志仍需统一 | 进展、决策、失败与下一步统一保存在 GOAL/PLANS/evidence | 交接复核脚本或手动核对：`PLANS` 与 `docs/session-handoff` 关联 | `PLANS.md`、`docs/session-handoff.md`、`docs/learning-notes.md` | 任何执行者可按文件继续，不依赖口头记忆 |
 | A-14 | 设计可识别性（非装饰性） | SHOULD | 有部分统一视觉修复 | 不采用装饰性技巧，按任务语义改进状态表达 | 视觉对比矩阵+rubric审查 | 设计验收记录 | 不以渐变/发光/粒子替代信息结构提升分数 |
 | A-15 | 外部服务与成本安全 | MUST | Ask 使用 Mock/Fixture 可验证 | 保证真实接口在预算/超时/禁用场景下安全降级 | Provider contract + Mock 回放 + caps/timeout 测试 | `output/evidence/*` | 无真实密钥消费；无法复现真实成本时不改用其作为必须验收 |
@@ -291,10 +291,10 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`main @ 2ec6cd28`，最近台账候选为 `goal/m4-rollback-forward-ledger`。
-- **Current milestone**：`M4（release recovery closure）`；M3.1 的基线、候选阈值、快照、租约恢复与可关联 recovery 日志已建立，staging rollback-forward 已完成。
-- **Last green checkpoint**：CI `30279882267` 成功完成当前 SHA 的质量、镜像和 staging；`30280699086` 回滚到 `sha-98d06a4` 成功；`30280839157` 前进重放 `sha-2ec6cd2` 并完成 staging runtime proof。
-- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery 和 content-free 运行时关联日志；A-12 已演练 staging rollback-forward。A-05/A-06/A-08/A-09/A-10/A-12 仍持续进行中。
+- **Current candidate**：`main @ c5c62fe2`，最近台账候选为 `goal/m4-cleanup-ledger`；最新已完成 staging replay 的应用镜像仍为 `sha-2ec6cd2`。
+- **Current milestone**：`M4（release recovery closure）`；M3.1 的基线、候选阈值、快照、租约恢复与可关联 recovery 日志已建立；staging rollback-forward 与 GHCR cleanup dry-run 均已完成。
+- **Last green checkpoint**：CI `30279882267` 成功完成 `sha-2ec6cd2` 的质量、镜像和 staging；`30280699086` 回滚到 `sha-98d06a4` 成功；`30280839157` 前进重放 `sha-2ec6cd2` 并完成 staging runtime proof；`30282030908` 对三个 repository-scoped GHCR package 的 dry-run 成功。
+- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery 和 content-free 运行时关联日志；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-05/A-06/A-08/A-09/A-10 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
@@ -302,9 +302,9 @@
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
 - **Current experiment**：以 latest-successful `main` CI baseline 对每个候选执行 DB 3× 阈值比较；下一步量化 PostgreSQL lease-recovery 时间与日志关联预算，而不是重复同一状态机路径。
-- **Recovery point**：主线 `2ec6cd285072bdd65ecfe8ae9571ff3409df9f1b`、回滚 `30280699086` 与前进 `30280839157`；staging 当前已重放至 `sha-2ec6cd2`。
-- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能、恢复时间预算和 registry cleanup rehearsal。
-- **Known risks**：未闭环的状态矩阵与回滚演练；跨引擎选区自动化尚不稳定。
+- **Recovery point**：主线 `c5c62fe28018b672c2735310d965e6c8520632b0`；已验证的应用回滚点为 `sha-98d06a4`，staging 已前进至 `sha-2ec6cd2`。
+- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能和恢复时间预算。
+- **Known risks**：未闭环的状态矩阵；跨引擎选区自动化尚不稳定；GHCR 真实删除未演练，保留为显式非破坏性 dry-run 策略。
 - **Next action**：为既有 PostgreSQL 租约恢复链记录可重复的恢复时间预算；保持 A-06 的跨引擎选区实验已回退且不重开。
 
 ## 12. Decision and Change Log
@@ -324,6 +324,7 @@
 | 2026-07-27 | CI 在 disposable PostgreSQL 中验证 worker 租约恢复由新 worker 完成。 | CI `30213382395` 的 `test_postgres_queue_state_machine_sql` 使过期 `running` job 退避为 `queued`，再由 `worker-after-restart` claim 并成功结束；未改变生产重试策略。 |
 | 2026-07-27 | Worker 在回收过期租约时记录 content-free 关联事件。 | CI `30278849416` 验证 `worker stale lease recovery` 包含 worker、recovered_count 与 lease_seconds，不记录 job payload 或错误正文。 |
 | 2026-07-27 | staging 已完成不可变镜像 rollback-forward 演练。 | 当前 SHA CI `30279882267` 成功部署；`30280699086` 回滚到 `sha-98d06a4` 成功；`30280839157` 将 `sha-2ec6cd2` 重放到 staging 并通过 runtime proof。 |
+| 2026-07-27 | GHCR cleanup 已以 repository-scoped package 路径完成非破坏性演练。 | `30281085629` 的 404 证明旧包名遗漏 `reno_rss/` 前缀；修复后 `30282030908` 在 dry-run 模式枚举三个包、保留 15 个 tagged 版本、验证多架构 manifest，且不删除版本。 |
 | 2026-07-26 | 重新编制 GOAL 并以证据优先格式输出。 | 本次提交：清晰主目标、门禁、基线、自动决策与停机条件。 |
 | 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
 | 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
