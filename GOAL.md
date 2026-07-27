@@ -302,11 +302,11 @@
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：M1.7 IME slice 已闭环；下一 slice 为 annotation save 503→retry continuity（需 `__e2e` fail-once toggle + POST handler）。
+- **Current experiment**：M1.7 annotation save 503→retry slice 已闭环（含 anchor-from-content 修复）；下一 slice 为 touch-driven selection save。
 - **Recovery point**：主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
 - **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
 - **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
-- **Next action**：实现 annotation save 503→retry continuity slice（A-03/A-02），然后推进 touch-driven selection save 和 session-switch annotation isolation。
+- **Next action**：实现 touch-driven selection save slice（A-03/A-06），然后推进 session-switch annotation isolation 和 two-user 矩阵。
 
 ## 12. Decision and Change Log
 
@@ -333,6 +333,7 @@
 | 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
 | 2026-07-26 | 将 Scan/Focus/Keep 重排门扩展至 390、1024、1280px。 | Chromium、Firefox、WebKit 各 21/21；断言覆盖无水平溢出、文章可进入和关键操作可见，跨引擎选区仍为 `IN_PROGRESS`。 |
 | 2026-07-27 | M1.7：IME composition 期间 Escape 仅取消输入法组合，不清除选区锚点。 | `isSelectionDismissEvent` 检查 `event.isComposing`；Node test-first failure + stash-reverted e2e failure 证明缺陷；修复后 focused 6/6、Reader 194/194、build、Chromium 65 passed。证据：`output/evidence/m1-ime-selection-continuity-2026-07-27.json`。 |
+| 2026-07-27 | M1.7：标注保存 503 必须显式可重试，且锚点必须从文章内容文本构建。 | 内联错误横幅 + retry 闭包保留选区；`anchorContentRef` 使锚点从 `.focusContent` 构建而非含 UI 标签的 `<article>`；e2e 先失败（prefix 含 UI 文本，start 158）后通过。Chromium 67 passed。证据：`output/evidence/m1-annotation-save-retry-2026-07-27.json`。 |
 
 ## 13. Stop and Escalation Conditions
 

@@ -60,7 +60,10 @@ export function selectionAnchorWithinContainer(
   );
 }
 
-export function useArticleSelection(containerRef: RefObject<HTMLElement | null>) {
+export function useArticleSelection(
+  containerRef: RefObject<HTMLElement | null>,
+  anchorContentRef?: RefObject<HTMLElement | null>,
+) {
   const [selectedText, setSelectedText] = useState("");
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [settledAnchor, setSettledAnchor] = useState<ArticleAnnotationAnchor | null>(null);
@@ -87,7 +90,8 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
       if (text == null) return;
       const range = selection.getRangeAt(0).cloneRange();
       setSelectedText(text);
-      setSettledAnchor(selectionAnchorWithinContainer(containerRef.current, range));
+      const anchorSource = anchorContentRef?.current ?? containerRef.current;
+      setSettledAnchor(selectionAnchorWithinContainer(anchorSource, range));
       setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
     }
 
@@ -119,7 +123,7 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
       document.removeEventListener("keydown", dismissSelection);
       window.removeEventListener("resize", hidePopover);
     };
-  }, [containerRef]);
+  }, [containerRef, anchorContentRef]);
 
   return {
     selectedText,

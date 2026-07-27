@@ -145,6 +145,8 @@ export function FocusedArticleReader({
   const [bilingual, setBilingual] = useState(false);
   const [annotations, setAnnotations] = useState<ArticleAnnotation[]>([]);
   const [annotationsError, setAnnotationsError] = useState<string | null>(null);
+  const [annotationSaveError, setAnnotationSaveError] = useState<string | null>(null);
+  const retryAnnotationSaveRef = useRef<(() => void) | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -163,6 +165,7 @@ export function FocusedArticleReader({
   const secondaryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const secondaryActionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const articleRef = useRef<HTMLElement | null>(null);
+  const focusContentRef = useRef<HTMLDivElement | null>(null);
   const scoreDetailsRef = useRef<HTMLDetailsElement | null>(null);
   const feedbackPanelRef = useRef<HTMLDivElement | null>(null);
   const feedbackScoreInputRef = useRef<HTMLInputElement | null>(null);
@@ -171,7 +174,7 @@ export function FocusedArticleReader({
   const showTranslationWhenReadyRef = useRef(false);
   const articleActions = useArticleActions(article, currentLang);
   const typewriter = useTypewriterStream();
-  const { selectedText, hasSelection, selectionRect, settledAnchor, clearSelection } = useArticleSelection(articleRef);
+  const { selectedText, hasSelection, selectionRect, settledAnchor, clearSelection } = useArticleSelection(articleRef, focusContentRef);
   const revealedAnswer = typewriter.revealed;
   const answerVisible = revealedAnswer.trim().length > 0 || typewriter.isRevealing;
   const answerPending = isAsking && !answerVisible && agentError == null;
@@ -930,7 +933,7 @@ export function FocusedArticleReader({
             </div>
           </div>
         ) : (
-          <div className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
+          <div ref={focusContentRef} className="articleContent content focusContent" dangerouslySetInnerHTML={{ __html: displayedHtml }} />
         )}
       </article>
         </div>
@@ -952,27 +955,44 @@ export function FocusedArticleReader({
               className="readerToolbarBtn readerToolbarBtnPrimary"
               disabled={noteDraft.trim().length === 0}
               onClick={() => {
-                void createArticleAnnotation(article.id, {
-                  content: noteDraft.trim(),
-                  selectedText: selectedText || null,
-                  color: highlightColor,
-                  anchor: settledAnchor ?? undefined,
-                })
-                  .then((created) => {
-                    setAnnotations((current) => [created, ...current]);
-                    setNoteDraft("");
-                    emitToast({ title: "笔记已保存", variant: "success" });
+                const save = () => {
+                  void createArticleAnnotation(article.id, {
+                    content: noteDraft.trim(),
+                    selectedText: selectedText || null,
+                    color: highlightColor,
+                    anchor: settledAnchor ?? undefined,
                   })
-                  .catch((error) => {
-                    emitToast({
-                      title: error instanceof Error ? error.message : "笔记保存失败",
-                      variant: "error",
+                    .then((created) => {
+                      setAnnotations((current) => [created, ...current]);
+                      setNoteDraft("");
+                      setAnnotationSaveError(null);
+                      retryAnnotationSaveRef.current = null;
+                      emitToast({ title: "笔记已保存", variant: "success" });
+                    })
+                    .catch((error) => {
+                      const message = error instanceof Error ? error.message : "笔记保存失败";
+                      setAnnotationSaveError(message);
+                      retryAnnotationSaveRef.current = save;
+                      emitToast({ title: message, variant: "error" });
                     });
-                  });
+                };
+                save();
               }}
             >
               保存笔记
             </button>
+            {annotationSaveError ? (
+              <p className="adminConsoleError" role="alert">
+                {annotationSaveError}
+                <button
+                  type="button"
+                  className="readerToolbarBtn"
+                  onClick={() => retryAnnotationSaveRef.current?.()}
+                >
+                  重试保存
+                </button>
+              </p>
+            ) : null}
           </aside>
         ) : null}
 
@@ -1052,30 +1072,47 @@ export function FocusedArticleReader({
                 .split(",")
                 .map((item) => item.trim())
                 .filter(Boolean);
-              void createArticleAnnotation(article.id, {
-                content: text,
-                selectedText: text,
-                type: "annotation",
-                color: highlightColor,
-                tags,
-                anchor: settledAnchor ?? undefined,
-              })
-                .then((created) => {
-                  setAnnotations((current) => [created, ...current]);
-                  emitToast({ title: "已保存划线", variant: "success" });
-                  clearSelection();
+              const save = () => {
+                void createArticleAnnotation(article.id, {
+                  content: text,
+                  selectedText: text,
+                  type: "annotation",
+                  color: highlightColor,
+                  tags,
+                  anchor: settledAnchor ?? undefined,
                 })
-                .catch((error: unknown) => {
-                  emitToast({
-                    title: "划线保存失败",
-                    body: error instanceof Error ? error.message : "请稍后重试",
-                    variant: "error",
+                  .then((created) => {
+                    setAnnotations((current) => [created, ...current]);
+                    setAnnotationSaveError(null);
+                    retryAnnotationSaveRef.current = null;
+                    emitToast({ title: "已保存划线", variant: "success" });
+                    clearSelection();
+                  })
+                  .catch((error: unknown) => {
+                    const message = error instanceof Error ? error.message : "划线保存失败";
+                    setAnnotationSaveError(message);
+                    retryAnnotationSaveRef.current = save;
+                    emitToast({ title: "划线保存失败", body: message, variant: "error" });
                   });
-                });
+              };
+              save();
             }}
           >
             保存划线
           </button>
+          {annotationSaveError ? (
+            <p className="adminConsoleError" role="alert">
+              {annotationSaveError}
+              <button
+                type="button"
+                className="readerToolbarBtn"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => retryAnnotationSaveRef.current?.()}
+              >
+                重试保存
+              </button>
+            </p>
+          ) : null}
         </div>
       ) : null}
 

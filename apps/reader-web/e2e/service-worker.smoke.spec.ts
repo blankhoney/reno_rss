@@ -447,6 +447,71 @@ test("selection anchor survives Escape pressed during IME composition", async ({
   expect(anchor?.exact).toBe("Evidence persists.");
 });
 
+test("annotation save 503 shows explicit retry and recovers without losing the selection", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  let lastAnchor: unknown = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    lastAnchor = body.anchor;
+    if (postCount === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 60,
+          article_id: 7,
+          type: "annotation",
+          selected_text: body.selected_text,
+          content: body.content,
+          color: body.color,
+          tags: [],
+          anchor: body.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+
+  await expect(page.getByText("划线保存失败")).toBeVisible();
+  const retryButton = page.getByRole("button", { name: "重试保存" });
+  await expect(retryButton).toBeVisible();
+  await expect(toolbar).toBeVisible();
+
+  await retryButton.click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  expect(postCount).toBe(2);
+  const anchor = lastAnchor as Record<string, unknown> | null;
+  expect(anchor).not.toBeNull();
+  expect(anchor?.kind).toBe("text-quote");
+  expect(anchor?.exact).toBe("Evidence persists.");
+  await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
+});
+
 test("refreshed repeated annotations restore only the context-proven quote and surface ambiguity", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-repeated");

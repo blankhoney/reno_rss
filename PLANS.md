@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-input-continuity` based on merged `main @ 97cd28e1`. |
-| Milestone / acceptance | M1.7 annotation/input continuity; A-03 remains `IN_PROGRESS` for touch/retry/two-user cases. |
-| Hypothesis | Escape pressed to cancel an IME composition must cancel only the composition; clearing the settled selection would silently drop the pending annotation anchor before save. |
-| Initial failure | Node test for composition-aware dismiss failed on the old candidate; with the fix stashed, the focused Chromium scenario reproduced the anchor loss (composing Escape hid the selection toolbar). |
-| Minimal repair | Replace key-only `isSelectionDismissKey` with `isSelectionDismissEvent` that ignores Escape while `event.isComposing`; no UI, API, or anchor-contract change. |
-| Green validation | Focused Node 6/6; Reader Node 194/194; production build; fresh-server Chromium 65 passed + 1 pre-existing flaky (focus-shortcut test) green on retry and in isolation. |
-| Durable evidence | `output/evidence/m1-ime-selection-continuity-2026-07-27.json`, integrity-listed in `output/evidence-sha256.txt`. |
-| Rollback | Revert the selection.ts/selection.test.ts/e2e slice together; no runtime schema, API or stored-data change. |
-| Next action | Close the annotation save 503→retry continuity case, then touch-driven selection save, before the two-user annotation matrix. |
+| Exact candidate | `goal/m1-annotation-input-continuity` based on merged `main @ 97cd28e1`; PR #44 (IME slice) open. |
+| Milestone / acceptance | M1.7 annotation/input continuity; A-03 remains `IN_PROGRESS` for touch/session-switch/two-user cases. |
+| Hypothesis | Annotation save 503 must show an explicit retry that preserves the selection and anchor; the anchor must be built from the article content text, not the full article element including UI labels. |
+| Initial failure | E2e test failed at the mark assertion: anchor prefix contained UI text ("评分。评分完成后…") and start was 158 instead of 0, so resolution returned not-found. |
+| Minimal repair | Add `anchorContentRef` to `useArticleSelection` so the anchor is built from `.focusContent`; add inline error banner + retry closure to both annotation save sites; add fail-once POST handler to e2e server. |
+| Green validation | Reader Node 194/194; production build; fresh-server Chromium 67 passed (including new 503→retry→mark test). |
+| Durable evidence | `output/evidence/m1-annotation-save-retry-2026-07-27.json`, integrity-listed in `output/evidence-sha256.txt`. |
+| Rollback | Revert the selection.ts/FocusedArticleReader.tsx/e2e-server.mjs/e2e spec slice; no schema, API contract, or stored-data change. |
+| Next action | Close touch-driven selection save, then session-switch annotation isolation, before the two-user annotation matrix. |
 
 ## Completed Checkpoints
 
@@ -42,6 +42,7 @@
 | M2.1 cross-engine accessible core minimum | A-05, A-06 | AA muted-text/reduced-motion assertion and Chromium/Firefox/WebKit/iPhone core paths | Full cross-engine suite, screen-reader and cross-engine selection matrix incomplete |
 | M3.1 bounded queue lease recovery | A-10 | Competing-job regression plus 5 PostgreSQL samples through replacement-worker success; full CI/images/staging green | Database outage, lock contention, timeout and retry-exhaustion matrix remains |
 | M1.7 IME selection continuity | A-03, A-02 | Composition-aware dismiss test-first failure; composing Escape preserves the anchor through save in Chromium | Touch save, annotation 503 retry, session-switch and two-user annotation matrix incomplete |
+| M1.7 annotation save 503 retry | A-03, A-02 | 503 → explicit retry → success with anchor-backed highlight; anchor built from content text, not article element | Touch save, session-switch and two-user annotation matrix incomplete |
 
 ## Acceptance Ledger
 
@@ -49,7 +50,7 @@
 | --- | --- | --- |
 | A-01 | PASS | Exact revision, evidence manifest, reproducible focused gates |
 | A-02 | IN_PROGRESS | Daily Cluster partial-failure/retry/open-return and Reader/Ask 503→retry→citation slices green; complete Daily/Scan → Reader/Ask → Keep → Review/Research/Export state matrix remains |
-| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat restoration, ambiguity rejection, M1.5 inline-markup retention and M1.7 IME-composition dismiss safety are green; touch-equivalent save, save retry and two-user cases remain |
+| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat restoration, ambiguity rejection, M1.5 inline-markup retention, M1.7 IME-composition dismiss safety and M1.7 annotation save 503→retry with content-scoped anchor are green; touch-equivalent save, session-switch and two-user cases remain |
 | A-04 | IN_PROGRESS | Annotation ambiguity now keeps private data visible without misbinding; admin/public metrics/session checks exist, and two-user browser/cache matrix remains |
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion and core keyboard/reflow paths now run in the minimum browser matrix; semantic audit and screen-reader evidence remain |
 | A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; Scan/Focus/Keep 320/375/390/768/1024/1280/1440 reflow is green in Chromium/Firefox/WebKit; full suite and cross-engine selection/input pairwise matrix remain |
@@ -97,6 +98,7 @@
 | 2026-07-28 | M3.1 reproduced queue-baseline contention before repair. | Initial artifact `30282641983` reported `RuntimeError`; test-only commit `801a9b6b` and CI `30284173132` added a priority-1 ready competitor and failed exactly because the baseline consumed other work. |
 | 2026-07-28 | M3.1 established a deterministic bounded PostgreSQL lease-recovery baseline. | PR #40 / CI `30284291417` kept the competitor queued, measured five replacement-worker recoveries (median 5.614 ms, p95 7.956 ms), uploaded the artifact, and passed full quality/images/staging. |
 | 2026-07-27 | M1.7 closed the IME-composition selection continuity slice. | Node test and stash-reverted Chromium e2e first failed; after the composition-aware dismiss fix, focused Node 6/6, Reader Node 194/194, production build and fresh-server Chromium 65 passed (1 pre-existing flaky green on retry/isolation). Record: `output/evidence/m1-ime-selection-continuity-2026-07-27.json`. |
+| 2026-07-27 | M1.7 closed the annotation save 503→retry continuity slice. | E2e test first failed at mark assertion (anchor prefix contained UI text, start 158 not 0); after `anchorContentRef` fix and inline retry UI, Reader Node 194/194, production build and fresh-server Chromium 67 passed. Record: `output/evidence/m1-annotation-save-retry-2026-07-27.json`. |
 
 ## Evidence and Recovery Rules
 

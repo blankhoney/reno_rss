@@ -37,6 +37,7 @@ let dailyClusterFailuresRemaining = 0;
 let articleAskFailuresRemaining = 0;
 let articleStateFailuresRemaining = 0;
 let researchFailuresRemaining = 0;
+let annotationFailuresRemaining = 0;
 let adminSyncCompleted = false;
 const articleStates = new Map();
 const completedResearchJob = {
@@ -93,6 +94,7 @@ function resetFixtures() {
   articleAskFailuresRemaining = 0;
   articleStateFailuresRemaining = 0;
   researchFailuresRemaining = 0;
+  annotationFailuresRemaining = 0;
   adminSyncCompleted = false;
   articleStates.clear();
 }
@@ -182,6 +184,11 @@ const proxy = createServer(async (request, response) => {
   }
   if (url.pathname === "/__e2e/research/fail-once" && request.method === "POST") {
     researchFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/annotation/fail-once" && request.method === "POST") {
+    annotationFailuresRemaining = 1;
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -636,6 +643,32 @@ const proxy = createServer(async (request, response) => {
             review_count: 1,
           }]
         : [],
+    });
+    return;
+  }
+  if ((url.pathname === "/api/articles/7/annotations" || url.pathname === "/api/articles/9/annotations") && request.method === "POST") {
+    if (annotationFailuresRemaining > 0) {
+      annotationFailuresRemaining -= 1;
+      sendJson(response, 503, { error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } });
+      return;
+    }
+    const articleId = url.pathname.includes("/9/") ? 9 : 7;
+    const payload = await readJsonBody(request);
+    sendJson(response, 201, {
+      annotation: {
+        id: 60,
+        article_id: articleId,
+        type: payload.type ?? "annotation",
+        selected_text: payload.selected_text ?? null,
+        content: payload.content ?? "",
+        color: payload.color ?? "yellow",
+        tags: payload.tags ?? [],
+        anchor: payload.anchor ?? null,
+        created_at: "2026-07-27T00:00:00Z",
+        next_review_at: null,
+        interval_days: 1,
+        review_count: 0,
+      },
     });
     return;
   }
