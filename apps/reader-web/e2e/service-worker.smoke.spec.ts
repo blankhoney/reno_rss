@@ -923,6 +923,30 @@ test("article list failure shows error with retry and recovers", async ({ page }
   await expect(page.getByText(/文章加载失败/)).toHaveCount(0);
 });
 
+test("state language never contradicts itself across modules", async ({ page }) => {
+  await resetFixtures(page);
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText(/文章加载失败/)).toHaveCount(0);
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText(/文章加载失败/)).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Keyboard article one", { exact: true })).toHaveCount(0);
+
+  await page.goto("/?module=starred&sort=default&lang=zh");
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByText(/文章加载失败/)).toHaveCount(0);
+
+  await page.goto("/?module=review&sort=default&lang=zh");
+  await expect(page.getByText("A durable note returns when it matters.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/复习队列暂不可用/)).toHaveCount(0);
+  await expect(page.getByText("今天没有到期划线", { exact: true })).toHaveCount(0);
+});
+
 test("review queue failure shows error with retry and recovers", async ({ page }) => {
   await resetFixtures(page);
   await page.request.post("/__e2e/review/fail-once");
