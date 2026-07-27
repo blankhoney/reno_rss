@@ -291,10 +291,10 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`main @ 39422aee`，PR #40 已合并；staging 已验证其不可变镜像 `sha-db574ab`。
-- **Current milestone**：`M3.1（deployment-like performance/resilience）` 的 PostgreSQL 租约恢复时间预算已建立；A-10 继续补齐数据库故障、锁竞争、超时与重试耗尽矩阵。
-- **Last green checkpoint**：PR #40 CI `30284291417` 在 `db574ab4` 完成质量、三镜像发布和 staging runtime proof；其中 PostgreSQL 竞争回归、五次恢复测量、Reader/browser/Compose/Trivy 全部通过。
-- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery、竞争任务隔离、五样本恢复预算和 content-free 运行时日志；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
+- **Current candidate**：`main @ 97cd28e1`，PR #42 已合并；staging 已验证其不可变镜像 `sha-2ec0cd2`。
+- **Current milestone**：`M1（核心流程状态正确性）` 已补齐 Research terminal failure → 显式重试 → 新 durable job URL → 引用结果切片；A-02 继续按单一确定性切片补齐完整状态矩阵。
+- **Last green checkpoint**：PR #42 CI `30285567734` 在 `2ec0cd2` 完成质量、三镜像发布和 staging runtime proof；此前 test-only CI `30285458057` 对缺失错误/重试契约产生预期失败。
+- **Current validation**：A-02 已覆盖 Daily partial failure、Ask 503、candidate write 503 与 Research terminal failure 的显式恢复切片；A-08/A-09/A-10 保留 PostgreSQL 合约、性能与恢复证据；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
@@ -302,11 +302,11 @@
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：队列恢复基线以 synthetic 最高优先级隔离 CI 中的普通 ready job，同时仍通过生产 `claim_next`/`reclaim_stale` 路径；下一轮转向 A-02 核心状态矩阵。
-- **Recovery point**：主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
+- **Current experiment**：Research 失败 fixture 只失败首次创建，验证问题上下文保留、错误以 alert 暴露、重试生成新 durable job 且结果保留 citation；下一轮继续 A-02 的下一项可见状态缺口。
+- **Recovery point**：主线 `97cd28e1ed36cb5895671c857d33f8d3176a6126`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-2ec0cd2`。
 - **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
 - **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
-- **Next action**：为 A-02 建立版本化核心流程状态矩阵，优先补齐 Daily/Scan → Reader/Ask → Keep 的 loading/empty/error/retry/server-confirmed 路径。
+- **Next action**：继续 A-02 版本化核心流程状态矩阵，优先选择 Review/Research/Export 中尚无确定性浏览器证据的 loading/empty/error/retry/server-confirmed 路径。
 
 ## 12. Decision and Change Log
 
