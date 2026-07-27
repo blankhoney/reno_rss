@@ -1013,6 +1013,30 @@ test("Reader keeps article context when Ask fails once and then retries", async 
   ]);
 });
 
+test("Ask abort via 停止 returns to a clean state without error", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/articles/7/ask", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: 'data: {"type":"answer","content":"Late answer"}\n\ndata: {"type":"done"}\n\n',
+    });
+  });
+
+  await page.goto("/read/7?module=home&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await page.getByRole("button", { name: /文章助手/ }).click();
+  await page.getByRole("button", { name: "总结", exact: true }).click();
+
+  await expect(page.getByRole("button", { name: "停止" })).toBeVisible();
+  await page.getByRole("button", { name: "停止" }).click();
+
+  await expect(page.getByRole("button", { name: "停止" })).toHaveCount(0);
+  await expect(page.getByText("Late answer")).toHaveCount(0);
+  await expect(page.getByText(/文章助手暂不可用/)).toHaveCount(0);
+});
+
 test("Reader preserves article context through a failed candidate write and retries to server-confirmed state", async ({ page }) => {
   const errors = captureUnexpectedBrowserErrors(page);
   await resetFixtures(page);
