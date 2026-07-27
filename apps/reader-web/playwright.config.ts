@@ -5,7 +5,7 @@ const baseURL = `http://127.0.0.1:${port}`;
 const crossEngineCoreFlows =
   /muted reading text|principal success fixtures|previous user's cached article|mobile module drawer|article shortcuts|article links and command input|scan mode remains|focus mode remains|keep mode remains|starred module|article list failure|review queue failure|core pages expose semantic|state language never contradicts|refreshed repeated|inline-markup annotation|workbench failure|focused reader exposes retry|Daily Intelligence labels|search URL state|continue-reading route|export panel downloads|mobile Agent and Toast|axe scan finds no critical/;
 const touchCoreFlows =
-  /muted reading text|principal success fixtures|previous user's cached article|mobile module drawer|article links and command input|scan mode remains|focus mode remains|keep mode remains/;
+  /muted reading text|principal success fixtures|previous user's cached article|mobile module drawer|article links and command input|scan mode remains|focus mode remains|keep mode remains|axe scan finds no critical/;
 
 export default defineConfig({
   testDir: "./e2e",
