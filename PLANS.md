@@ -32,7 +32,7 @@
 | Checkpoint | Acceptance advanced | Evidence | Remaining boundary |
 | --- | --- | --- | --- |
 | M0 baseline and evaluation infrastructure | A-01 | Versioned performance/security/Playwright artifacts and verified hash manifest | External browser/PostgreSQL route values remain `NEEDS_BASELINE` |
-| Deterministic lint, self-hosted fonts, dependency/security and metrics boundary | A-01, A-04, A-11, A-12, A-15 | Exact-SHA CI/staging proof, pinned tooling, source/license artifacts, internal metrics/public deny | Rollback/registry cleanup and external-only evidence remain |
+| Deterministic lint, self-hosted fonts, dependency/security and metrics boundary | A-01, A-04, A-11, A-12, A-15 | Exact-SHA CI/staging proof, pinned tooling, source/license artifacts, internal metrics/public deny, staging rollback-forward and GHCR cleanup dry-run | External-only evidence remains |
 | Versioned annotation anchor | A-03, A-04, A-08 | API/OpenAPI/Reader/browser anchor tests | Refresh, repeated-quote, alternate input and session matrix incomplete |
 | M1.1 Daily partial failure | A-02, A-07 | One failing test before repair; focused and full Reader validation after repair | One deterministic state slice only; full state/browser/input matrix incomplete |
 | M1.2 Reader/Ask partial failure | A-02, A-07, A-15 | One failing test before repair; 503 → retry → SSE citation and full Reader validation | One deterministic Ask failure slice only; provider/recovery/state matrix incomplete |
@@ -56,7 +56,7 @@
 | A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines and a schema-v1/v2 comparator exist, and CI now compares candidates with the latest successful `main` baseline at a 3× threshold; deployment-like write/load evidence remains |
 | A-10 | IN_PROGRESS | PostgreSQL CI proves an expired lease is requeued with backoff and completed by a new worker; the worker emits a content-free recovery correlation log, while bounded recovery-time and broader fault proof remain |
 | A-11 | IN_PROGRESS | Production audit and Trivy green; deterministic maintenance/lockfile review continue at release closure |
-| A-12 | IN_PROGRESS | Current `sha-2ec6cd2` staging deploy, rollback to published `sha-98d06a4`, and forward replay to current all passed (`30279882267` → `30280699086` → `30280839157`); registry cleanup rehearsal remains |
+| A-12 | PASS | `sha-2ec6cd2` staging deploy, rollback to published `sha-98d06a4`, and forward replay all passed (`30279882267` → `30280699086` → `30280839157`); repository-scoped GHCR cleanup dry-run `30282030908` validated all manifests without deleting versions |
 | A-13 | IN_PROGRESS | Current instructions reconciled; clean-clone replay and failure-linked seam evidence remain |
 | A-14 | NOT_STARTED | Optional craft work waits for MUST behavior/access/performance gates |
 | A-15 | IN_PROGRESS | Mock/provider contract now includes one typed Ask 503/retry/SSE citation; cap/timeout/fallback matrix remains |
@@ -66,7 +66,7 @@
 1. **M2.2 — responsive/input extension (P0):** Add a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
 2. **M3 — atomic article state (P0):** Establish PostgreSQL-backed concurrent writes and `project ⇒ saved` storage invariant before tuning performance.
 3. **M3.1 — deployment-like performance/resilience (P0):** Measure bounded PostgreSQL lease-recovery time and correlate its logs; retain the existing latest-`main` DB 3× threshold gate.
-4. **M4 — release recovery closure (P0):** Rehearse registry cleanup with immutable-tag protection; staging rollback/forward is complete.
+4. **M4 — release recovery closure (P0):** Complete; retain the non-destructive cleanup dry-run policy and revisit only when an explicitly authorized deletion window is needed.
 
 ## Iteration Log
 
@@ -89,6 +89,7 @@
 | 2026-07-27 | M3.1 proved PostgreSQL worker lease recovery across a worker replacement. | PR #34 CI `30213382395` ran `test_postgres_queue_state_machine_sql`: an expired lease was requeued with backoff, claimed by `worker-after-restart`, and marked succeeded. |
 | 2026-07-27 | M3.1 added a content-free recovery correlation event. | PR #36 CI `30278849416` verified the worker logs its identity, recovery count and lease threshold only when stale work is reclaimed. |
 | 2026-07-27 | M4 completed the staging immutable rollback-forward rehearsal. | Current SHA CI `30279882267` deployed `sha-2ec6cd2`; rollback `30280699086` returned staging to `sha-98d06a4`; manual forward run `30280839157` restored `sha-2ec6cd2` with runtime proof. |
+| 2026-07-27 | M4 completed the GHCR cleanup rehearsal without deleting packages. | `30281085629` exposed the missing `reno_rss/` package prefix; after the workflow fix, `30282030908` dry-run enumerated all three packages, applied 30-day/15-tag retention candidates, and passed multi-architecture validation. |
 
 ## Evidence and Recovery Rules
 
