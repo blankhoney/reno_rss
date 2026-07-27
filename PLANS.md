@@ -54,9 +54,9 @@
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
 | A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; latest Alembic downgrade/replay and disposable logical snapshot restore both pass, while recovery-time/write-failure evidence remains |
 | A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines and a schema-v1/v2 comparator exist, and CI now compares candidates with the latest successful `main` baseline at a 3× threshold; deployment-like write/load evidence remains |
-| A-10 | IN_PROGRESS | PostgreSQL CI now proves an expired lease is requeued with backoff and completed by a new worker; bounded recovery-time, structured log correlation, and broader fault proof remain |
+| A-10 | IN_PROGRESS | PostgreSQL CI proves an expired lease is requeued with backoff and completed by a new worker; the worker emits a content-free recovery correlation log, while bounded recovery-time and broader fault proof remain |
 | A-11 | IN_PROGRESS | Production audit and Trivy green; deterministic maintenance/lockfile review continue at release closure |
-| A-12 | IN_PROGRESS | Exact SHA staging deploy/smoke green; rollback/forward and registry cleanup rehearsal remain |
+| A-12 | IN_PROGRESS | Current `sha-2ec6cd2` staging deploy, rollback to published `sha-98d06a4`, and forward replay to current all passed (`30279882267` → `30280699086` → `30280839157`); registry cleanup rehearsal remains |
 | A-13 | IN_PROGRESS | Current instructions reconciled; clean-clone replay and failure-linked seam evidence remain |
 | A-14 | NOT_STARTED | Optional craft work waits for MUST behavior/access/performance gates |
 | A-15 | IN_PROGRESS | Mock/provider contract now includes one typed Ask 503/retry/SSE citation; cap/timeout/fallback matrix remains |
@@ -66,7 +66,7 @@
 1. **M2.2 — responsive/input extension (P0):** Add a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
 2. **M3 — atomic article state (P0):** Establish PostgreSQL-backed concurrent writes and `project ⇒ saved` storage invariant before tuning performance.
 3. **M3.1 — deployment-like performance/resilience (P0):** Measure bounded PostgreSQL lease-recovery time and correlate its logs; retain the existing latest-`main` DB 3× threshold gate.
-4. **M4 — release recovery closure (P0):** Rehearse immutable staging rollback/forward and registry cleanup only after prior MUST gates are green.
+4. **M4 — release recovery closure (P0):** Rehearse registry cleanup with immutable-tag protection; staging rollback/forward is complete.
 
 ## Iteration Log
 
@@ -87,6 +87,8 @@
 | 2026-07-27 | M3.1 added an equivalent-environment candidate DB threshold gate. | PR #31 CI `30183432804` downloaded the latest successful `main` baseline and passed `check-performance-baseline.py --max-regression 3`; CI `30212853939` repeated the comparison. |
 | 2026-07-27 | M3 added a disposable PostgreSQL logical snapshot recovery check. | CI `30212853939` artifact `db-postgres-snapshot-restore` restored the fixture into `snapshot_restore_verify` and asserted revision `0011_project_requires_saved`, article, and annotation; it did not access staging/production. |
 | 2026-07-27 | M3.1 proved PostgreSQL worker lease recovery across a worker replacement. | PR #34 CI `30213382395` ran `test_postgres_queue_state_machine_sql`: an expired lease was requeued with backoff, claimed by `worker-after-restart`, and marked succeeded. |
+| 2026-07-27 | M3.1 added a content-free recovery correlation event. | PR #36 CI `30278849416` verified the worker logs its identity, recovery count and lease threshold only when stale work is reclaimed. |
+| 2026-07-27 | M4 completed the staging immutable rollback-forward rehearsal. | Current SHA CI `30279882267` deployed `sha-2ec6cd2`; rollback `30280699086` returned staging to `sha-98d06a4`; manual forward run `30280839157` restored `sha-2ec6cd2` with runtime proof. |
 
 ## Evidence and Recovery Rules
 
