@@ -582,7 +582,9 @@ test("failed research preserves its question and retries into a new durable job"
   await page.getByRole("button", { name: "启动研究" }).click();
 
   await expect(page).toHaveURL(/module=research.*job=90/);
-  await expect(page.getByRole("alert")).toHaveText("研究 provider 超时，请重试");
+  const researchError = page.getByText("研究 provider 超时，请重试", { exact: true });
+  await expect(researchError).toBeVisible();
+  await expect(researchError).toHaveAttribute("role", "alert");
   await expect(question).toHaveValue("哪些恢复路径仍需验证？");
   await page.getByRole("button", { name: "重试研究" }).click();
 

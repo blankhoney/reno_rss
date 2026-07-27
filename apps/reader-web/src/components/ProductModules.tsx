@@ -598,7 +598,11 @@ export function ResearchPanel({ initialJobId = null }: { initialJobId?: number |
 
   return (
     <PanelShell title="语料研究 Agent" hint="跨 TopN / 项目 / 主题提问；异步 job，可轮询导出。">
-      {error ? <p className="adminConsoleError">{error}</p> : null}
+      {error ? (
+        <p className="adminConsoleError" role="alert">
+          {error}
+        </p>
+      ) : null}
       <div className="articleListActions">
         {RESEARCH_TEMPLATES.map((template) => (
           <button
@@ -635,7 +639,7 @@ export function ResearchPanel({ initialJobId = null }: { initialJobId?: number |
           <input value={question} onChange={(event) => setQuestion(event.target.value)} />
         </label>
         <button type="button" className="readerToolbarBtn readerToolbarBtnPrimary" disabled={busy} onClick={run}>
-          {busy ? "运行中…" : "启动研究"}
+          {busy ? "运行中…" : error ? "重试研究" : "启动研究"}
         </button>
       </div>
       {jobId != null ? (
