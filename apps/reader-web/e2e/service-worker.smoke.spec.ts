@@ -108,6 +108,29 @@ test("registers and controls the second local page load", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller != null)).toBe(true);
 });
 
+test("core pages expose semantic landmarks, headings, and named controls", async ({ page }) => {
+  await resetFixtures(page);
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.locator("main")).toBeVisible();
+  await expect(page.locator("nav").first()).toBeVisible();
+  await expect(page.getByRole("heading").first()).toBeVisible();
+  await expect(page.getByRole("button").first()).toBeVisible();
+  await expect(page.getByRole("link").first()).toBeVisible();
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.locator("main")).toBeVisible();
+  await expect(page.getByRole("toolbar", { name: "文章操作" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "翻译全文" })).toBeVisible();
+
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText(/文章加载失败/)).toBeVisible();
+  await expect(page.locator('[aria-live="polite"]').first()).toBeVisible();
+});
+
 test("principal success fixtures render without unexpected browser errors", async ({ page }) => {
   const errors = captureUnexpectedBrowserErrors(page);
   await resetFixtures(page);
