@@ -1,4 +1,6 @@
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+import logging
 from threading import Event
 
 from app.jobs.queue import InMemoryJobQueue
@@ -109,6 +111,30 @@ def test_run_once_returns_false_when_no_job_is_ready():
     handled = run_once(queue, {"worker_echo": lambda payload: payload}, worker_id="worker-1")
 
     assert handled is False
+
+
+def test_run_once_logs_stale_lease_recovery(caplog):
+    queue = InMemoryJobQueue()
+    job = queue.enqueue("worker_echo", {"message": "recover"}, dedupe_key="recover:1")
+    claimed = queue.claim_next(worker_id="worker-before-restart")
+    assert claimed is not None
+    queue._jobs[job.id] = replace(
+        claimed,
+        locked_at=datetime.now(UTC) - timedelta(seconds=2),
+    )
+
+    caplog.set_level(logging.INFO, logger="app.runner")
+    handled = run_once(
+        queue,
+        {"worker_echo": lambda payload: {"echo": payload["message"]}},
+        worker_id="worker-after-restart",
+        job_lease_seconds=1,
+        retry_backoff_seconds=1,
+        retry_backoff_max_seconds=30,
+    )
+
+    assert handled is False
+    assert "worker stale lease recovery: worker_id=worker-after-restart recovered_count=1 lease_seconds=1" in caplog.text
 
 
 def test_run_forever_emits_heartbeat_while_idle():
