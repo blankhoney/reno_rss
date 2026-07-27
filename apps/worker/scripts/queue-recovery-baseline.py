@@ -18,6 +18,10 @@ from app.jobs.queue import PostgresJobQueue
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 RECOVERY_DATABASE_URL_ENV = "QUEUE_RECOVERY_DATABASE_URL"
+# Synthetic baseline work must be claimed ahead of unrelated ready work already
+# present in the disposable CI database. PostgreSQL INTEGER's maximum keeps this
+# scoped to the baseline row without mutating existing jobs or queue semantics.
+BASELINE_PRIORITY = 2_147_483_647
 
 
 def positive_integer(value: str) -> int:
@@ -82,11 +86,21 @@ def run_once(queue: PostgresJobQueue, database_url: str, *, dedupe_key: str) -> 
                 text(
                     """
                     INSERT INTO jobs (job_type, payload, dedupe_key, priority, max_attempts)
-                    VALUES ('queue_recovery_baseline', CAST(:payload AS jsonb), :dedupe_key, 0, 2)
+                    VALUES (
+                        'queue_recovery_baseline',
+                        CAST(:payload AS jsonb),
+                        :dedupe_key,
+                        :priority,
+                        2
+                    )
                     RETURNING id
                     """
                 ),
-                {"payload": json.dumps({"baseline": "queue-recovery"}), "dedupe_key": dedupe_key},
+                {
+                    "payload": json.dumps({"baseline": "queue-recovery"}),
+                    "dedupe_key": dedupe_key,
+                    "priority": BASELINE_PRIORITY,
+                },
             ).scalar_one()
 
         claimed = queue.claim_next("baseline-worker-before-restart")
@@ -182,7 +196,14 @@ def main() -> None:
             for sample_index in range(1, arguments.iterations + 1)
         ]
     except Exception as error:
-        report.update({"status": "ERROR", "errorType": type(error).__name__, "samples": []})
+        error_evidence: dict[str, object] = {
+            "status": "ERROR",
+            "errorType": type(error).__name__,
+            "samples": [],
+        }
+        if isinstance(error, RuntimeError):
+            error_evidence["errorMessage"] = str(error)
+        report.update(error_evidence)
         write_report(report, arguments.output)
         raise SystemExit(1) from None
     finally:
