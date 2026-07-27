@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from uuid import uuid4
 
 import pytest
@@ -14,6 +16,7 @@ from app.main import normalize_database_url
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 API_ROOT = REPO_ROOT / "apps" / "api"
+WORKER_ROOT = REPO_ROOT / "apps" / "worker"
 
 
 def test_postgres_queue_state_machine_sql():
@@ -120,6 +123,68 @@ def test_postgres_queue_state_machine_sql():
         assert exhausted.last_error == "still down"
     finally:
         queue.dispose()
+
+
+def test_queue_recovery_baseline_claims_its_synthetic_job_when_other_work_is_ready(tmp_path):
+    database_url = os.environ.get("WORKER_QUEUE_POSTGRES_TEST_URL")
+    if not database_url:
+        pytest.skip("set WORKER_QUEUE_POSTGRES_TEST_URL to run the real Postgres queue test")
+
+    _run_api_command(database_url, "alembic", "upgrade", "head")
+
+    normalized_url = normalize_database_url(database_url) or database_url
+    engine = create_engine(normalized_url, pool_pre_ping=True)
+    competing_dedupe_key = f"queue-recovery-competing-job:{uuid4()}"
+    output_path = tmp_path / "queue-recovery.json"
+    try:
+        with engine.begin() as connection:
+            competing_job_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO jobs (job_type, payload, dedupe_key, priority)
+                    VALUES ('queue_recovery_competitor', '{}'::jsonb, :dedupe_key, 1)
+                    RETURNING id
+                    """
+                ),
+                {"dedupe_key": competing_dedupe_key},
+            ).scalar_one()
+
+        env = os.environ.copy()
+        env["QUEUE_RECOVERY_DATABASE_URL"] = database_url
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/queue-recovery-baseline.py",
+                "--iterations",
+                "1",
+                "--warmups",
+                "1",
+                "--output",
+                str(output_path),
+            ],
+            cwd=WORKER_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        report = json.loads(output_path.read_text(encoding="utf-8"))
+        assert report["status"] == "MEASURED"
+        assert len(report["samples"]) == 1
+        with engine.begin() as connection:
+            competing_status = connection.execute(
+                text("SELECT status FROM jobs WHERE id=:id"),
+                {"id": competing_job_id},
+            ).scalar_one()
+        assert competing_status == "queued"
+    finally:
+        with engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM jobs WHERE dedupe_key=:dedupe_key"),
+                {"dedupe_key": competing_dedupe_key},
+            )
+        engine.dispose()
 
 
 def _enqueue_job(database_url: str, job_type: str, *, max_attempts: int) -> int:
