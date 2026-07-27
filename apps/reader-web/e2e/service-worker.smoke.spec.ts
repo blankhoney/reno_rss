@@ -576,6 +576,31 @@ test("session switch isolates annotations between users", async ({ page }) => {
   await expect(page.locator('mark[data-annotation-id="60"]')).toHaveCount(0);
 });
 
+test("two browser contexts isolate annotations without cross-context leakage", async ({ browser }) => {
+  const contextA = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const contextB = await browser.newContext();
+  const pageB = await contextB.newPage();
+
+  await resetFixtures(pageA);
+  await pageA.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(pageA.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(pageA);
+  await expect(pageA.getByRole("toolbar", { name: "选中文字操作" })).toBeVisible();
+  await pageA.getByRole("button", { name: "保存划线" }).click();
+  await expect(pageA.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(pageA.locator('mark[data-annotation-id="60"]')).toBeVisible();
+
+  await pageA.request.post("/api/auth/login");
+  await pageB.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(pageB.getByText("Babbage", { exact: true })).toBeVisible();
+  await expect(pageB.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await expect(pageB.locator('mark[data-annotation-id="60"]')).toHaveCount(0);
+
+  await contextA.close();
+  await contextB.close();
+});
+
 test("refreshed repeated annotations restore only the context-proven quote and surface ambiguity", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-repeated");

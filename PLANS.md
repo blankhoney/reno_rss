@@ -44,6 +44,7 @@
 | M1.7 IME selection continuity | A-03, A-02 | Composition-aware dismiss test-first failure; composing Escape preserves the anchor through save in Chromium | Touch save, annotation 503 retry, session-switch and two-user annotation matrix incomplete |
 | M1.7 annotation save 503 retry | A-03, A-02, A-06 | 503 → explicit retry → success with anchor-backed highlight; anchor built from content text, not article element; onPointerDown prevents touch selection collapse; anchor round-trip e2e added | Touch selection automation, session-switch and two-user annotation matrix incomplete |
 | M1.7 session-switch annotation isolation | A-03, A-04 | Per-user annotation storage in e2e server; user B does not see user A's created annotation after login switch; Chromium 69 passed | Two-user concurrent browser matrix incomplete |
+| M1.7 two-user concurrent isolation | A-03, A-04 | Two browser contexts: ada creates annotation 60, babbage context sees fixture 41 only; no cross-context leakage; Chromium 70 passed | Touch selection automation and full cross-engine annotation matrix remain |
 
 ## Acceptance Ledger
 
@@ -51,8 +52,8 @@
 | --- | --- | --- |
 | A-01 | PASS | Exact revision, evidence manifest, reproducible focused gates |
 | A-02 | IN_PROGRESS | Daily Cluster partial-failure/retry/open-return and Reader/Ask 503→retry→citation slices green; complete Daily/Scan → Reader/Ask → Keep → Review/Research/Export state matrix remains |
-| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat restoration, ambiguity rejection, M1.5 inline-markup retention, M1.7 IME-composition dismiss safety, M1.7 annotation save 503→retry with content-scoped anchor, and M1.7 session-switch isolation are green; touch-equivalent selection automation and two-user concurrent cases remain |
-| A-04 | IN_PROGRESS | Annotation ambiguity keeps private data visible without misbinding; admin/public metrics/session checks exist; M1.7 session-switch proves user B cannot see user A's created annotations; two-user concurrent browser/cache matrix remains |
+| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat, ambiguity rejection, M1.5 inline-markup, M1.7 IME dismiss, save 503→retry with content-scoped anchor, session-switch isolation, and two-user concurrent isolation are green; touch selection automation and full cross-engine annotation matrix remain |
+| A-04 | IN_PROGRESS | Annotation ambiguity keeps private data visible; admin/public metrics/session checks exist; M1.7 session-switch and two-user concurrent contexts prove no cross-user annotation leakage; full two-user cache/Service-Worker matrix remains |
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion and core keyboard/reflow paths now run in the minimum browser matrix; semantic audit and screen-reader evidence remain |
 | A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; Scan/Focus/Keep 320/375/390/768/1024/1280/1440 reflow is green in Chromium/Firefox/WebKit; full suite and cross-engine selection/input pairwise matrix remain |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
@@ -101,6 +102,7 @@
 | 2026-07-27 | M1.7 closed the IME-composition selection continuity slice. | Node test and stash-reverted Chromium e2e first failed; after the composition-aware dismiss fix, focused Node 6/6, Reader Node 194/194, production build and fresh-server Chromium 65 passed (1 pre-existing flaky green on retry/isolation). Record: `output/evidence/m1-ime-selection-continuity-2026-07-27.json`. |
 | 2026-07-27 | M1.7 closed the annotation save 503→retry continuity slice. | E2e test first failed at mark assertion (anchor prefix contained UI text, start 158 not 0); after `anchorContentRef` fix and inline retry UI, Reader Node 194/194, production build and fresh-server Chromium 67 passed. Record: `output/evidence/m1-annotation-save-retry-2026-07-27.json`. |
 | 2026-07-27 | M1.7 closed the session-switch annotation isolation slice. | Per-user annotation storage in e2e server; user A creates annotation, switches to user B via login, B sees fixture but not A's annotation. Chromium 69 passed. Record: `output/evidence/m1-session-switch-isolation-2026-07-27.json`. |
+| 2026-07-27 | M1.7 closed the two-user concurrent annotation isolation slice. | Two browser contexts: ada creates annotation 60, babbage context sees fixture 41 only; no cross-context leakage. Chromium 70 passed. Record: `output/evidence/m1-two-user-isolation-2026-07-27.json`. |
 
 ## Evidence and Recovery Rules
 

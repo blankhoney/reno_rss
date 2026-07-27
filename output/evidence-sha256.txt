@@ -29,3 +29,4 @@ bd9ff3acb072b73ae585c67ca6b5dc99688afcefec23f03329a221771659b9b2  output/evidenc
 2dc1103b08cccdeffc996be9b9492106a0584c9f68c521dbdf33e54b9832f2a0  output/evidence/m1-ime-selection-continuity-2026-07-27.json
 a53bf3522293641e4d0d7cc9f2a542536d4a7d8546a0582cf87d3d1e1a279ef8  output/evidence/m1-annotation-save-retry-2026-07-27.json
 22c70377a9d223e0b2d59c8301b28cf978154e9af8240a5e8e4f19ad9f7d1ee9  output/evidence/m1-session-switch-isolation-2026-07-27.json
+97515a2edce118d4a36a7213d016a56fcb911521146acb5c1ac2c1e3f931b3fc  output/evidence/m1-two-user-isolation-2026-07-27.json
