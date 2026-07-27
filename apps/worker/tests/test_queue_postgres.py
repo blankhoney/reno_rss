@@ -63,6 +63,45 @@ def test_postgres_queue_state_machine_sql():
         assert succeeded.status == "succeeded"
         assert succeeded.result == {"processed": True}
 
+        stale_job_id = _enqueue_job(database_url, "worker_postgres_stale", max_attempts=2)
+        stale_claim = queue.claim_next("worker-before-restart")
+        assert stale_claim is not None
+        assert stale_claim.id == stale_job_id
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE jobs SET locked_at=NOW() - INTERVAL '2 seconds' WHERE id=:id"
+                ),
+                {"id": stale_job_id},
+            )
+
+        reclaimed = queue.reclaim_stale(
+            lease_seconds=1,
+            base_backoff_seconds=1,
+            max_backoff_seconds=30,
+        )
+        assert [job.id for job in reclaimed] == [stale_job_id]
+        assert reclaimed[0].status == "queued"
+        assert reclaimed[0].locked_by is None
+        assert reclaimed[0].last_error == "job lease expired"
+
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE jobs SET run_after=NOW() WHERE id=:id"), {"id": stale_job_id})
+
+        recovered_claim = queue.claim_next("worker-after-restart")
+        assert recovered_claim is not None
+        assert recovered_claim.id == stale_job_id
+        assert recovered_claim.attempt_count == 2
+        recovered = queue.mark_succeeded(
+            recovered_claim.id,
+            {"recovered_after_lease": True},
+            worker_id="worker-after-restart",
+        )
+        assert recovered is not None
+        assert recovered.status == "succeeded"
+        assert recovered.result == {"recovered_after_lease": True}
+
         exhausted_job_id = _enqueue_job(database_url, "worker_postgres_exhausted", max_attempts=1)
         exhausted_claim = queue.claim_next("worker-1")
         assert exhausted_claim is not None
