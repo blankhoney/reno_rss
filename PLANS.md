@@ -51,7 +51,7 @@
 | ID | Status | Current proof / next necessary proof |
 | --- | --- | --- |
 | A-01 | PASS | Exact revision, evidence manifest, reproducible focused gates |
-| A-02 | IN_PROGRESS | Daily Cluster partial-failure/retry/open-return, Reader/Ask 503→retry→citation, and Keep/starred empty/populated/error/retry slices green; Scan/Focus/Review/Research/Export state matrix remains |
+| A-02 | IN_PROGRESS | Daily, Reader/Ask, Keep/starred (empty/populated/error/retry), Review (error/retry), Export (download), and Research (failed retry) slices green; Scan/Focus visual mode paths and cross-engine coverage remain |
 | A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat, ambiguity rejection, M1.5 inline-markup, M1.7 IME dismiss, save 503→retry with content-scoped anchor, session-switch isolation, and two-user concurrent isolation are green; touch selection automation and full cross-engine annotation matrix remain |
 | A-04 | IN_PROGRESS | Annotation ambiguity keeps private data visible; admin/public metrics/session checks exist; M1.7 session-switch and two-user concurrent contexts prove no cross-user annotation leakage; full two-user cache/Service-Worker matrix remains |
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion and core keyboard/reflow paths now run in the minimum browser matrix; semantic audit and screen-reader evidence remain |
@@ -104,6 +104,7 @@
 | 2026-07-27 | M1.7 closed the session-switch annotation isolation slice. | Per-user annotation storage in e2e server; user A creates annotation, switches to user B via login, B sees fixture but not A's annotation. Chromium 69 passed. Record: `output/evidence/m1-session-switch-isolation-2026-07-27.json`. |
 | 2026-07-27 | M1.7 closed the two-user concurrent annotation isolation slice. | Two browser contexts: ada creates annotation 60, babbage context sees fixture 41 only; no cross-context leakage. Chromium 70 passed. Record: `output/evidence/m1-two-user-isolation-2026-07-27.json`. |
 | 2026-07-27 | A-02 added Keep/starred module state matrix. | Empty state (no saved articles), populated list (server saved:true via page.route), and article list 503→retry recovery with fail-once toggle. Chromium 73 passed. Record: `output/evidence/a02-keep-state-matrix-2026-07-27.json`. |
+| 2026-07-27 | A-02 added Review error/retry and Export download coverage. | Review fail-once 503→retry→queue loads; Export fixture endpoint with markdown download and success message. Chromium 75 passed. Record: `output/evidence/a02-review-export-matrix-2026-07-27.json`. |
 
 ## Evidence and Recovery Rules
 
