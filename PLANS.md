@@ -64,7 +64,7 @@
 | A-12 | PASS | `sha-2ec6cd2` staging deploy, rollback to published `sha-98d06a4`, and forward replay all passed (`30279882267` → `30280699086` → `30280839157`); repository-scoped GHCR cleanup dry-run `30282030908` validated all manifests without deleting versions |
 | A-13 | IN_PROGRESS | Current instructions reconciled; clean-clone replay and failure-linked seam evidence remain |
 | A-14 | NOT_STARTED | Optional craft work waits for MUST behavior/access/performance gates |
-| A-15 | IN_PROGRESS | Mock/provider contract now includes one typed Ask 503/retry/SSE citation; cap/timeout/fallback matrix remains |
+| A-15 | IN_PROGRESS | Mock/provider contract includes Ask 503/retry/SSE citation and abort mid-stream (停止) clean recovery; real-provider cap/timeout/fallback matrix remains NEEDS_BASELINE |
 
 ## Autonomous Work Queue
 
@@ -105,6 +105,8 @@
 | 2026-07-27 | M1.7 closed the two-user concurrent annotation isolation slice. | Two browser contexts: ada creates annotation 60, babbage context sees fixture 41 only; no cross-context leakage. Chromium 70 passed. Record: `output/evidence/m1-two-user-isolation-2026-07-27.json`. |
 | 2026-07-27 | A-02 added Keep/starred module state matrix. | Empty state (no saved articles), populated list (server saved:true via page.route), and article list 503→retry recovery with fail-once toggle. Chromium 73 passed. Record: `output/evidence/a02-keep-state-matrix-2026-07-27.json`. |
 | 2026-07-27 | A-02 added Review error/retry and Export download coverage. | Review fail-once 503→retry→queue loads; Export fixture endpoint with markdown download and success message. Chromium 75 passed. Record: `output/evidence/a02-review-export-matrix-2026-07-27.json`. |
+| 2026-07-27 | A-05 added semantic landmark and keyboard focus audit. | Workbench/reader expose main, nav, heading, toolbar, button, link, aria-live; Tab reaches elements with visible outline/box-shadow. Cross-engine grep expanded (Firefox 35, WebKit 35). Chromium 77 passed. |
+| 2026-07-27 | A-15 added Ask abort mid-stream degradation test. | Delayed SSE via page.route; 停止 cancels without late answer or error state. Chromium 78 passed. |
 
 ## Evidence and Recovery Rules
 
