@@ -737,6 +737,8 @@ test("article shortcuts only apply when the article list owns focus", async ({ p
   await page.keyboard.press("Enter");
   await expect(page.getByRole("listbox", { name: "排序方式" })).toBeVisible();
   await expect(page).toHaveURL(/\?module=all/);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox", { name: "排序方式" })).toHaveCount(0);
 
   const list = page.locator(".articleList");
   await list.focus();
