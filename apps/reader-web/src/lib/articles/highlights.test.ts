@@ -55,3 +55,18 @@ test("anchored marks expose unresolved ids when the stored context is ambiguous"
   assert.doesNotMatch(result.html, /data-annotation-id="12"/);
   assert.deepEqual(result.unresolvedAnnotationIds, [12]);
 });
+
+test("longer quotes are marked before shorter nested fragments", () => {
+  const html = "<p>The quick brown fox jumps over the lazy dog.</p>";
+  const result = applyHighlightMarksWithResolution(html, [
+    { id: 1, selectedText: "fox", color: "green" },
+    { id: 2, selectedText: "quick brown fox jumps", color: "blue" },
+  ]);
+
+  assert.match(result.html, /data-annotation-id="2"/);
+  assert.match(result.html, /data-annotation-id="1"/);
+  const outerStart = result.html.indexOf('data-annotation-id="2"');
+  const innerStart = result.html.indexOf('data-annotation-id="1"');
+  assert.ok(outerStart < innerStart, "longer mark must wrap the shorter one");
+  assert.deepEqual(result.unresolvedAnnotationIds, []);
+});
