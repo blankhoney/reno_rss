@@ -36,6 +36,7 @@ let usageFailuresRemaining = 0;
 let dailyClusterFailuresRemaining = 0;
 let articleAskFailuresRemaining = 0;
 let articleStateFailuresRemaining = 0;
+let researchFailuresRemaining = 0;
 let adminSyncCompleted = false;
 const articleStates = new Map();
 const completedResearchJob = {
@@ -91,6 +92,7 @@ function resetFixtures() {
   dailyClusterFailuresRemaining = 0;
   articleAskFailuresRemaining = 0;
   articleStateFailuresRemaining = 0;
+  researchFailuresRemaining = 0;
   adminSyncCompleted = false;
   articleStates.clear();
 }
@@ -175,6 +177,11 @@ const proxy = createServer(async (request, response) => {
   }
   if (url.pathname === "/__e2e/article-state/fail-once" && request.method === "POST") {
     articleStateFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/research/fail-once" && request.method === "POST") {
+    researchFailuresRemaining = 1;
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -677,7 +684,26 @@ const proxy = createServer(async (request, response) => {
     return;
   }
   if (url.pathname === "/api/research/jobs" && request.method === "POST") {
+    if (researchFailuresRemaining > 0) {
+      researchFailuresRemaining -= 1;
+      sendJson(response, 200, { job_id: 90, poll_url: "/api/jobs/90" });
+      return;
+    }
     sendJson(response, 200, { job_id: completedResearchJob.id, poll_url: `/api/jobs/${completedResearchJob.id}` });
+    return;
+  }
+  if (url.pathname === "/api/jobs/90" && request.method === "GET") {
+    sendJson(response, 200, {
+      id: 90,
+      job_type: "research",
+      status: "failed",
+      progress: { completed: 0, total: 1 },
+      result: null,
+      last_error: "研究 provider 超时，请重试",
+      created_at: "2026-07-22T00:00:00Z",
+      updated_at: "2026-07-22T00:01:00Z",
+      completed_at: "2026-07-22T00:01:00Z",
+    });
     return;
   }
   if (url.pathname === `/api/jobs/${completedResearchJob.id}` && request.method === "GET") {

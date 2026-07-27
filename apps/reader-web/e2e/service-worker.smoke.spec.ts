@@ -571,6 +571,29 @@ test("starting research writes the durable job URL", async ({ page }) => {
   await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
 });
 
+test("failed research preserves its question and retries into a new durable job", async ({ page }) => {
+  const errors = captureUnexpectedBrowserErrors(page);
+  await resetFixtures(page);
+  await page.request.post("/__e2e/research/fail-once");
+  await page.goto("/?module=research&sort=default&lang=zh");
+
+  const question = page.getByRole("textbox", { name: "问题" });
+  await question.fill("哪些恢复路径仍需验证？");
+  await page.getByRole("button", { name: "启动研究" }).click();
+
+  await expect(page).toHaveURL(/module=research.*job=90/);
+  const researchError = page.getByText("研究 provider 超时，请重试", { exact: true });
+  await expect(researchError).toBeVisible();
+  await expect(researchError).toHaveAttribute("role", "alert");
+  await expect(question).toHaveValue("哪些恢复路径仍需验证？");
+  await page.getByRole("button", { name: "重试研究" }).click();
+
+  await expect(page).toHaveURL(/module=research.*job=88/);
+  await expect(page.getByText("优先跟进检索质量。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Keyboard article one/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("workbench failure does not render a contradictory empty state", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=all&sort=default&lang=zh&q=workbench-error");
