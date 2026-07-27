@@ -26,3 +26,4 @@ a8a23069e3bbf9e00bb658b492bb023f20f80bfe8a9121428b87436d410f5d6a  output/evidenc
 ec5b9e1cf5114664d836f739905bffef2e09f449825baf6708136b76659a24a7  output/evidence/m1-inline-markup-annotation-recovery-2026-07-26.json
 a3067e768fcecde640b5689d24eda33775d0938c739e419e9d304c4d038a5246  output/evidence/m2-cross-engine-core-2026-07-26.json
 bd9ff3acb072b73ae585c67ca6b5dc99688afcefec23f03329a221771659b9b2  output/evidence/m2-responsive-widths-2026-07-26.json
+2dc1103b08cccdeffc996be9b9492106a0584c9f68c521dbdf33e54b9832f2a0  output/evidence/m1-ime-selection-continuity-2026-07-27.json

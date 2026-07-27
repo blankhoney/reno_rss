@@ -33,8 +33,12 @@ export function selectionPreview(text: string, limit = 36): string {
   return `${normalized.slice(0, limit)}...`;
 }
 
-export function isSelectionDismissKey(key: string): boolean {
-  return key === "Escape";
+export function isSelectionDismissEvent(
+  event: Pick<KeyboardEvent, "key" | "isComposing">,
+): boolean {
+  // Escape during IME composition cancels the composition, not the selection:
+  // clearing here would silently drop the pending annotation anchor.
+  return event.key === "Escape" && !event.isComposing;
 }
 
 export function selectionAnchorWithinContainer(
@@ -92,7 +96,7 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
     }
 
     function dismissSelection(event: KeyboardEvent) {
-      if (!isSelectionDismissKey(event.key)) return;
+      if (!isSelectionDismissEvent(event)) return;
       setSelectedText("");
       setSettledAnchor(null);
       setSelectionRect(null);

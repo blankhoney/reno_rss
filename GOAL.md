@@ -291,9 +291,9 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`main @ 39422aee`，PR #40 已合并；staging 已验证其不可变镜像 `sha-db574ab`。
-- **Current milestone**：`M3.1（deployment-like performance/resilience）` 的 PostgreSQL 租约恢复时间预算已建立；A-10 继续补齐数据库故障、锁竞争、超时与重试耗尽矩阵。
-- **Last green checkpoint**：PR #40 CI `30284291417` 在 `db574ab4` 完成质量、三镜像发布和 staging runtime proof；其中 PostgreSQL 竞争回归、五次恢复测量、Reader/browser/Compose/Trivy 全部通过。
+- **Current candidate**：`goal/m1-annotation-input-continuity @ 97cd28e1`（base `origin/main`）；M1.7 IME 选区连续性 slice 已完成，待合并。
+- **Current milestone**：`M1.7（annotation/input continuity）` 的 IME-composition dismiss 安全已闭环；A-03 继续补齐 touch save、503 retry、session-switch 和 two-user 矩阵。
+- **Last green checkpoint**：M1.7 slice：Node test-first failure → composition-aware fix → focused 6/6 → Reader 194/194 → build → Chromium 65 passed（1 pre-existing flaky green on retry）；证据 `output/evidence/m1-ime-selection-continuity-2026-07-27.json`。
 - **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery、竞争任务隔离、五样本恢复预算和 content-free 运行时日志；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
@@ -302,11 +302,11 @@
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：队列恢复基线以 synthetic 最高优先级隔离 CI 中的普通 ready job，同时仍通过生产 `claim_next`/`reclaim_stale` 路径；下一轮转向 A-02 核心状态矩阵。
+- **Current experiment**：M1.7 IME slice 已闭环；下一 slice 为 annotation save 503→retry continuity（需 `__e2e` fail-once toggle + POST handler）。
 - **Recovery point**：主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
 - **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
 - **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
-- **Next action**：为 A-02 建立版本化核心流程状态矩阵，优先补齐 Daily/Scan → Reader/Ask → Keep 的 loading/empty/error/retry/server-confirmed 路径。
+- **Next action**：实现 annotation save 503→retry continuity slice（A-03/A-02），然后推进 touch-driven selection save 和 session-switch annotation isolation。
 
 ## 12. Decision and Change Log
 
@@ -332,6 +332,7 @@
 | 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
 | 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
 | 2026-07-26 | 将 Scan/Focus/Keep 重排门扩展至 390、1024、1280px。 | Chromium、Firefox、WebKit 各 21/21；断言覆盖无水平溢出、文章可进入和关键操作可见，跨引擎选区仍为 `IN_PROGRESS`。 |
+| 2026-07-27 | M1.7：IME composition 期间 Escape 仅取消输入法组合，不清除选区锚点。 | `isSelectionDismissEvent` 检查 `event.isComposing`；Node test-first failure + stash-reverted e2e failure 证明缺陷；修复后 focused 6/6、Reader 194/194、build、Chromium 65 passed。证据：`output/evidence/m1-ime-selection-continuity-2026-07-27.json`。 |
 
 ## 13. Stop and Escalation Conditions
 
