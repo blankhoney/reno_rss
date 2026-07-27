@@ -39,6 +39,7 @@ let articleStateFailuresRemaining = 0;
 let researchFailuresRemaining = 0;
 let annotationFailuresRemaining = 0;
 let articleListFailuresRemaining = 0;
+let reviewFailuresRemaining = 0;
 let adminSyncCompleted = false;
 const articleStates = new Map();
 const userAnnotations = new Map();
@@ -98,6 +99,7 @@ function resetFixtures() {
   researchFailuresRemaining = 0;
   annotationFailuresRemaining = 0;
   articleListFailuresRemaining = 0;
+  reviewFailuresRemaining = 0;
   adminSyncCompleted = false;
   articleStates.clear();
   userAnnotations.clear();
@@ -198,6 +200,11 @@ const proxy = createServer(async (request, response) => {
   }
   if (url.pathname === "/__e2e/article-list/fail-once" && request.method === "POST") {
     articleListFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/review/fail-once" && request.method === "POST") {
+    reviewFailuresRemaining = 1;
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -395,6 +402,11 @@ const proxy = createServer(async (request, response) => {
     return;
   }
   if (url.pathname === "/api/annotations/review" && request.method === "GET") {
+    if (reviewFailuresRemaining > 0) {
+      reviewFailuresRemaining -= 1;
+      sendJson(response, 503, { error: { code: "review_unavailable", message: "复习队列暂不可用，请重试。" } });
+      return;
+    }
     if (fixtureMode(request) === "daily-error") {
       sendJson(response, 500, { error: { message: "review fixture failure" } });
       return;
@@ -777,6 +789,18 @@ const proxy = createServer(async (request, response) => {
   if (url.pathname === "/api/jobs/7" && request.method === "GET") {
     jobRequestCount += 1;
     sendJson(response, 200, { status: jobRequestCount === 1 ? "queued" : "succeeded" });
+    return;
+  }
+  if (url.pathname === "/api/export/project" && request.method === "GET") {
+    const format = url.searchParams.get("format") ?? "markdown";
+    const body = format === "json"
+      ? JSON.stringify({ articles: [{ id: 7, title: "Keyboard article one" }] })
+      : "# Keyboard article one\n\nExported fixture content.";
+    response.writeHead(200, {
+      "content-type": format === "json" ? "application/json" : "text/markdown",
+      "content-disposition": `attachment; filename="project-export.${format === "json" ? "json" : "md"}"`,
+    });
+    response.end(body);
     return;
   }
 

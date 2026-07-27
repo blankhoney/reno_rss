@@ -864,6 +864,30 @@ test("article list failure shows error with retry and recovers", async ({ page }
   await expect(page.getByText(/文章加载失败/)).toHaveCount(0);
 });
 
+test("review queue failure shows error with retry and recovers", async ({ page }) => {
+  await resetFixtures(page);
+  await page.request.post("/__e2e/review/fail-once");
+  await page.goto("/?module=review&sort=default&lang=zh");
+
+  await expect(page.getByText(/复习队列暂不可用/)).toBeVisible();
+  await page.getByRole("button", { name: "重试" }).click();
+  await expect(page.getByText("A durable note returns when it matters.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/复习队列暂不可用/)).toHaveCount(0);
+});
+
+test("export panel downloads project markdown", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=export&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "立项导出" })).toBeVisible();
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Markdown" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toContain("project-export");
+  await expect(page.getByText(/已下载/)).toBeVisible();
+});
+
 test("focused reader exposes retry for an article load failure", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/read/999?module=all&sort=default&lang=zh");

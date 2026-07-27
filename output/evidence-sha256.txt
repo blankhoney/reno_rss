@@ -31,3 +31,4 @@ a53bf3522293641e4d0d7cc9f2a542536d4a7d8546a0582cf87d3d1e1a279ef8  output/evidenc
 22c70377a9d223e0b2d59c8301b28cf978154e9af8240a5e8e4f19ad9f7d1ee9  output/evidence/m1-session-switch-isolation-2026-07-27.json
 97515a2edce118d4a36a7213d016a56fcb911521146acb5c1ac2c1e3f931b3fc  output/evidence/m1-two-user-isolation-2026-07-27.json
 f9789da4b7fc952c07cc00c2edaf0feefc54e71595c38949d131892fdfefe357  output/evidence/a02-keep-state-matrix-2026-07-27.json
+247b966b42aef36ff3cab086f6c20746ca3a4fb6ad4e253110b42e1ac420cf48  output/evidence/a02-review-export-matrix-2026-07-27.json
