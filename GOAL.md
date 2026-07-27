@@ -180,7 +180,7 @@
 | A-07 | 用户可见质量（状态语言） | MUST | 部分场景通过，rubric 未闭环 | 在固定夹具上执行 rubric 达到可接受基线 | screenshot 套件 + 人工复核脚本输出 + 评分表 | `output/playwright/m1-fonts-...` 等 | 核心页面在固定场景下达到最低分阈值，无“装饰补丁式”提升 |
 | A-08 | API 与数据可靠性 | MUST | API/worker 本地通过；最新 migration 已降级/回放，隔离 PostgreSQL 逻辑快照已恢复并核对版本与 fixture 记录 | migration + PG 条件测试 + 恢复回滚证明 | `uv ... pytest`（PG 条件）+ Alembic `downgrade -1`、`upgrade head`、`current --check-heads` + CI `Verify disposable PostgreSQL snapshot restore` + 后续 rollback replay | CI `30182799323`、CI `30212853939` artifact `db-postgres-snapshot-restore` + 后续 rollback evidence | 条件测试、migration replay、恢复后 migration/fixture 断言与 rollback replay 一致；无未解释 skip |
 | A-09 | 性能与稳定基线 | MUST | Web、API/queue 及 CI PostgreSQL 都有五次基线；schema-v1/v2 比较器已验证，并在 CI 对最近成功 `main` 基线执行同环境 3× 阈值比较 | 固定 Web 三缓存阶段、CI DB fixture 和回归阈值 | Web 命令 + CI `Run PostgreSQL performance baseline` + `check-performance-baseline.py --max-regression 3` | Web evidence、CI `30181950027` artifact `db-postgres-performance-baseline`、CI `30183432804`/`30212853939` artifact `db-postgres-performance-comparison` | 每路由/阶段有 5 个非空样本；SW 阶段全部受控；无浏览器/HTTP 错误；DB 基线可复现，且同环境候选比较不超过 3× 门限 |
-| A-10 | 恢复与韧性 | MUST | PostgreSQL 过期租约已可退避并由新 worker 完成；运行时会记录 content-free recovery 事件；恢复预算仍未测量 | 显式设定重试上界、错误分类、降级策略证据 | PostgreSQL lease-recovery test + `worker stale lease recovery` 日志断言 + 后续故障注入/时间预算 | CI `30213382395`、CI `30278849416` + 后续恢复指标 | 错误可回到已知状态，不发生沉默数据损坏 |
+| A-10 | 恢复与韧性 | MUST | PostgreSQL 过期租约可由替代 worker 恢复；CI 已在存在竞争任务时完成 5 次 `running → queued → running → succeeded` 测量，median 5.614 ms、p95 7.956 ms，并保留 content-free recovery 日志 | 保留可重复恢复预算，并补齐数据库暂不可用、锁竞争、超时与重试耗尽的错误分类和降级证据 | PostgreSQL lease-recovery/竞争测试 + `queue-recovery-baseline.py` + `worker stale lease recovery` 日志断言 + 后续故障注入 | CI `30213382395`、`30278849416`、`30284291417` artifact `queue-postgres-recovery-baseline` + 后续故障矩阵 | 已覆盖故障可在预算内回到已知状态；不重复完成、不沉默损坏数据、不泄露 payload |
 | A-11 | 供应链和密钥边界 | MUST | Trivy 与 npm audit 本地绿色（高危/致命） | 复核 CI 高危致命阈值、secret redaction 与锁文件治理 | CI/本地同参数扫描 | `output/security/frontend-dependency-remediation-2026-07-26.json`、`output/security/trivy-secret-scan-2026-07-26.json` | 无高危/致命，扫描命令参数透明且与 CI 一致 |
 | A-12 | staging 发布与回滚闭环 | MUST | staging 已自动部署 `2ec6cd28`，回滚至已发布 `98d06a42`，再前进重放当前镜像；三步均通过；GHCR cleanup 的 repository-scoped dry-run 已完成多架构校验且无删除 | 在单一最终 SHA 上完成 deploy、rollback、重放、验证 | CI `30279882267` + `rollback.yml` run `30280699086` + `deploy-staging.yml` run `30280839157` + `ghcr-cleanup.yml dry_run=true` | GitHub Actions `30279882267`、`30280699086`、`30280839157`、`30282030908` | staging 可重复部署、回滚、再部署且各路由状态可重放；cleanup rehearsal 不执行删除且无多架构校验错误 |
 | A-13 | 文档与执行可持续性 | MUST | 目录有基础文档，日志仍需统一 | 进展、决策、失败与下一步统一保存在 GOAL/PLANS/evidence | 交接复核脚本或手动核对：`PLANS` 与 `docs/session-handoff` 关联 | `PLANS.md`、`docs/session-handoff.md`、`docs/learning-notes.md` | 任何执行者可按文件继续，不依赖口头记忆 |
@@ -291,21 +291,22 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`main @ c5c62fe2`，最近台账候选为 `goal/m4-cleanup-ledger`；最新已完成 staging replay 的应用镜像仍为 `sha-2ec6cd2`。
-- **Current milestone**：`M4（release recovery closure）`；M3.1 的基线、候选阈值、快照、租约恢复与可关联 recovery 日志已建立；staging rollback-forward 与 GHCR cleanup dry-run 均已完成。
-- **Last green checkpoint**：CI `30279882267` 成功完成 `sha-2ec6cd2` 的质量、镜像和 staging；`30280699086` 回滚到 `sha-98d06a4` 成功；`30280839157` 前进重放 `sha-2ec6cd2` 并完成 staging runtime proof；`30282030908` 对三个 repository-scoped GHCR package 的 dry-run 成功。
-- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery 和 content-free 运行时关联日志；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-05/A-06/A-08/A-09/A-10 仍持续进行中。
+- **Current candidate**：`main @ 39422aee`，PR #40 已合并；staging 已验证其不可变镜像 `sha-db574ab`。
+- **Current milestone**：`M3.1（deployment-like performance/resilience）` 的 PostgreSQL 租约恢复时间预算已建立；A-10 继续补齐数据库故障、锁竞争、超时与重试耗尽矩阵。
+- **Last green checkpoint**：PR #40 CI `30284291417` 在 `db574ab4` 完成质量、三镜像发布和 staging runtime proof；其中 PostgreSQL 竞争回归、五次恢复测量、Reader/browser/Compose/Trivy 全部通过。
+- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery、竞争任务隔离、五样本恢复预算和 content-free 运行时日志；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
+  - Queue recovery：CI PostgreSQL 五样本 median 5.614 ms、p95 7.956 ms、min 5.516 ms、max 7.956 ms；各样本均完成 `running → queued → running → succeeded`（CI `30284291417`）
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：以 latest-successful `main` CI baseline 对每个候选执行 DB 3× 阈值比较；下一步量化 PostgreSQL lease-recovery 时间与日志关联预算，而不是重复同一状态机路径。
-- **Recovery point**：主线 `c5c62fe28018b672c2735310d965e6c8520632b0`；已验证的应用回滚点为 `sha-98d06a4`，staging 已前进至 `sha-2ec6cd2`。
-- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能和恢复时间预算。
-- **Known risks**：未闭环的状态矩阵；跨引擎选区自动化尚不稳定；GHCR 真实删除未演练，保留为显式非破坏性 dry-run 策略。
-- **Next action**：为既有 PostgreSQL 租约恢复链记录可重复的恢复时间预算；保持 A-06 的跨引擎选区实验已回退且不重开。
+- **Current experiment**：队列恢复基线以 synthetic 最高优先级隔离 CI 中的普通 ready job，同时仍通过生产 `claim_next`/`reclaim_stale` 路径；下一轮转向 A-02 核心状态矩阵。
+- **Recovery point**：主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
+- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
+- **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
+- **Next action**：为 A-02 建立版本化核心流程状态矩阵，优先补齐 Daily/Scan → Reader/Ask → Keep 的 loading/empty/error/retry/server-confirmed 路径。
 
 ## 12. Decision and Change Log
 
@@ -325,6 +326,8 @@
 | 2026-07-27 | Worker 在回收过期租约时记录 content-free 关联事件。 | CI `30278849416` 验证 `worker stale lease recovery` 包含 worker、recovered_count 与 lease_seconds，不记录 job payload 或错误正文。 |
 | 2026-07-27 | staging 已完成不可变镜像 rollback-forward 演练。 | 当前 SHA CI `30279882267` 成功部署；`30280699086` 回滚到 `sha-98d06a4` 成功；`30280839157` 将 `sha-2ec6cd2` 重放到 staging 并通过 runtime proof。 |
 | 2026-07-27 | GHCR cleanup 已以 repository-scoped package 路径完成非破坏性演练。 | `30281085629` 的 404 证明旧包名遗漏 `reno_rss/` 前缀；修复后 `30282030908` 在 dry-run 模式枚举三个包、保留 15 个 tagged 版本、验证多架构 manifest，且不删除版本。 |
+| 2026-07-28 | 队列恢复基线不得假设 disposable CI 数据库中没有其他 ready job。 | 初始 CI `30282641983` 产出 `RuntimeError`；test-only CI `30284173132` 用优先级 1 的竞争 job 稳定复现失败，证明普通优先级 synthetic job 会误领其他工作。 |
+| 2026-07-28 | synthetic recovery job 使用 PostgreSQL INTEGER 最大优先级，但继续走生产 claim/reclaim/complete 状态机。 | PR #40 CI `30284291417` 的竞争回归与五样本 baseline 均通过，竞争 job 保持 queued；artifact median 5.614 ms、p95 7.956 ms，完整质量、镜像和 staging 链绿色。 |
 | 2026-07-26 | 重新编制 GOAL 并以证据优先格式输出。 | 本次提交：清晰主目标、门禁、基线、自动决策与停机条件。 |
 | 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
 | 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
