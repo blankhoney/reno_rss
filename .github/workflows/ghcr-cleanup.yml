@@ -27,7 +27,9 @@ jobs:
       - name: Cleanup AI Reader images
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
-          packages: ai-reader-web,ai-reader-api,ai-reader-worker
+          # CI publishes under ghcr.io/<owner>/<repository>/<image>, so the
+          # Package API names include the repository path as well.
+          packages: reno_rss/ai-reader-web,reno_rss/ai-reader-api,reno_rss/ai-reader-worker
           delete-untagged: true
           keep-n-tagged: 15
           older-than: 30 days
