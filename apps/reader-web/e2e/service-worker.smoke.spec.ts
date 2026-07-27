@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 async function resetFixtures(page: import("@playwright/test").Page) {
   await page.request.post("/__e2e/reset");
@@ -165,6 +166,32 @@ test("keyboard Tab reaches interactive elements with visible focus", async ({ pa
     return el && el !== document.body ? el.getAttribute("aria-label") ?? el.tagName.toLowerCase() : null;
   });
   expect(readerFocused).not.toBeNull();
+});
+
+test("axe scan finds no critical accessibility violations on core pages", async ({ page }) => {
+  await resetFixtures(page);
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  const workbenchResults = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .disableRules(["color-contrast"])
+    .analyze();
+  const workbenchCritical = workbenchResults.violations.filter(
+    (v) => v.impact === "critical" || v.impact === "serious",
+  );
+  expect(workbenchCritical, `Workbench a11y: ${JSON.stringify(workbenchCritical.map((v) => v.id))}`).toEqual([]);
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  const readerResults = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .disableRules(["color-contrast"])
+    .analyze();
+  const readerCritical = readerResults.violations.filter(
+    (v) => v.impact === "critical" || v.impact === "serious",
+  );
+  expect(readerCritical, `Reader a11y: ${JSON.stringify(readerCritical.map((v) => v.id))}`).toEqual([]);
 });
 
 test("principal success fixtures render without unexpected browser errors", async ({ page }) => {
