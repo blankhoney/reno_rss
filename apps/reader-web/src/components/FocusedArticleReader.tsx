@@ -1028,6 +1028,7 @@ export function FocusedArticleReader({
           role="toolbar"
           aria-label="选中文字操作"
           onMouseDown={(event) => event.preventDefault()}
+          onPointerDown={(event) => event.preventDefault()}
           style={{
             top: Math.max(8, selectionRect.top - 8),
             left: selectionRect.left + selectionRect.width / 2,
@@ -1036,6 +1037,7 @@ export function FocusedArticleReader({
           <button
             type="button"
             onMouseDown={(event) => event.preventDefault()}
+            onPointerDown={(event) => event.preventDefault()}
             onClick={() => void askAgent("请解释我选中的这段内容。")}
           >
             解释选中
@@ -1065,6 +1067,7 @@ export function FocusedArticleReader({
           <button
             type="button"
             onMouseDown={(event) => event.preventDefault()}
+            onPointerDown={(event) => event.preventDefault()}
             onClick={() => {
               const text = selectedText.trim();
               if (!text) return;
@@ -1107,6 +1110,7 @@ export function FocusedArticleReader({
                 type="button"
                 className="readerToolbarBtn"
                 onMouseDown={(event) => event.preventDefault()}
+                onPointerDown={(event) => event.preventDefault()}
                 onClick={() => retryAnnotationSaveRef.current?.()}
               >
                 重试保存

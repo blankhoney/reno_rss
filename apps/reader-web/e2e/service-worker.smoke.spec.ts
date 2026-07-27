@@ -512,6 +512,52 @@ test("annotation save 503 shows explicit retry and recovers without losing the s
   await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
 });
 
+test("selection save round-trips the anchor through POST and renders the highlight", async ({ page }) => {
+  await resetFixtures(page);
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 61,
+          article_id: 7,
+          type: "annotation",
+          selected_text: submitted.selected_text,
+          content: submitted.content,
+          color: submitted.color,
+          tags: [],
+          anchor: submitted.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+
+  expect(submitted?.selected_text).toBe("Evidence persists.");
+  const anchor = submitted?.anchor as Record<string, unknown>;
+  expect(anchor.exact).toBe("Evidence persists.");
+  expect(anchor.kind).toBe("text-quote");
+  await expect(page.locator('mark[data-annotation-id="61"]')).toBeVisible();
+});
+
 test("refreshed repeated annotations restore only the context-proven quote and surface ambiguity", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-repeated");

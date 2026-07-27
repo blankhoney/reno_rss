@@ -42,7 +42,7 @@
 | M2.1 cross-engine accessible core minimum | A-05, A-06 | AA muted-text/reduced-motion assertion and Chromium/Firefox/WebKit/iPhone core paths | Full cross-engine suite, screen-reader and cross-engine selection matrix incomplete |
 | M3.1 bounded queue lease recovery | A-10 | Competing-job regression plus 5 PostgreSQL samples through replacement-worker success; full CI/images/staging green | Database outage, lock contention, timeout and retry-exhaustion matrix remains |
 | M1.7 IME selection continuity | A-03, A-02 | Composition-aware dismiss test-first failure; composing Escape preserves the anchor through save in Chromium | Touch save, annotation 503 retry, session-switch and two-user annotation matrix incomplete |
-| M1.7 annotation save 503 retry | A-03, A-02 | 503 → explicit retry → success with anchor-backed highlight; anchor built from content text, not article element | Touch save, session-switch and two-user annotation matrix incomplete |
+| M1.7 annotation save 503 retry | A-03, A-02, A-06 | 503 → explicit retry → success with anchor-backed highlight; anchor built from content text, not article element; onPointerDown prevents touch selection collapse; anchor round-trip e2e added | Touch selection automation, session-switch and two-user annotation matrix incomplete |
 
 ## Acceptance Ledger
 
