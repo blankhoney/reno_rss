@@ -558,6 +558,24 @@ test("selection save round-trips the anchor through POST and renders the highlig
   await expect(page.locator('mark[data-annotation-id="61"]')).toBeVisible();
 });
 
+test("session switch isolates annotations between users", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+
+  await selectReaderText(page);
+  await expect(page.getByRole("toolbar", { name: "选中文字操作" })).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
+
+  await page.request.post("/api/auth/login");
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Babbage", { exact: true })).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="60"]')).toHaveCount(0);
+});
+
 test("refreshed repeated annotations restore only the context-proven quote and surface ambiguity", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-repeated");

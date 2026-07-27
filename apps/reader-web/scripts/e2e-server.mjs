@@ -40,6 +40,7 @@ let researchFailuresRemaining = 0;
 let annotationFailuresRemaining = 0;
 let adminSyncCompleted = false;
 const articleStates = new Map();
+const userAnnotations = new Map();
 const completedResearchJob = {
   id: 88,
   job_type: "research",
@@ -97,6 +98,7 @@ function resetFixtures() {
   annotationFailuresRemaining = 0;
   adminSyncCompleted = false;
   articleStates.clear();
+  userAnnotations.clear();
 }
 
 function articleStateFor(id) {
@@ -627,23 +629,23 @@ const proxy = createServer(async (request, response) => {
       });
       return;
     }
-    sendJson(response, 200, {
-      items: articleId === 7
-        ? [{
-            id: 41,
-            article_id: 7,
-            type: "annotation",
-            selected_text: "A durable note returns when it matters.",
-            content: "Keep evidence attached to its source.",
-            color: "yellow",
-            tags: ["evidence"],
-            created_at: "2026-07-24T08:00:00Z",
-            next_review_at: "2026-07-26T08:00:00Z",
-            interval_days: 3,
-            review_count: 1,
-          }]
-        : [],
-    });
+    const fixtureItems = articleId === 7
+      ? [{
+          id: 41,
+          article_id: 7,
+          type: "annotation",
+          selected_text: "A durable note returns when it matters.",
+          content: "Keep evidence attached to its source.",
+          color: "yellow",
+          tags: ["evidence"],
+          created_at: "2026-07-24T08:00:00Z",
+          next_review_at: "2026-07-26T08:00:00Z",
+          interval_days: 3,
+          review_count: 1,
+        }]
+      : [];
+    const userItems = userAnnotations.get(`${currentUser.id}:${articleId}`) ?? [];
+    sendJson(response, 200, { items: [...userItems, ...fixtureItems] });
     return;
   }
   if ((url.pathname === "/api/articles/7/annotations" || url.pathname === "/api/articles/9/annotations") && request.method === "POST") {
@@ -654,22 +656,25 @@ const proxy = createServer(async (request, response) => {
     }
     const articleId = url.pathname.includes("/9/") ? 9 : 7;
     const payload = await readJsonBody(request);
-    sendJson(response, 201, {
-      annotation: {
-        id: 60,
-        article_id: articleId,
-        type: payload.type ?? "annotation",
-        selected_text: payload.selected_text ?? null,
-        content: payload.content ?? "",
-        color: payload.color ?? "yellow",
-        tags: payload.tags ?? [],
-        anchor: payload.anchor ?? null,
-        created_at: "2026-07-27T00:00:00Z",
-        next_review_at: null,
-        interval_days: 1,
-        review_count: 0,
-      },
-    });
+    const key = `${currentUser.id}:${articleId}`;
+    const existing = userAnnotations.get(key) ?? [];
+    const annotation = {
+      id: 60 + existing.length,
+      article_id: articleId,
+      type: payload.type ?? "annotation",
+      selected_text: payload.selected_text ?? null,
+      content: payload.content ?? "",
+      color: payload.color ?? "yellow",
+      tags: payload.tags ?? [],
+      anchor: payload.anchor ?? null,
+      created_at: "2026-07-27T00:00:00Z",
+      next_review_at: null,
+      interval_days: 1,
+      review_count: 0,
+    };
+    existing.push(annotation);
+    userAnnotations.set(key, existing);
+    sendJson(response, 201, { annotation });
     return;
   }
   if ((url.pathname === "/api/articles/7" || url.pathname === "/api/articles/9") && request.method === "GET") {

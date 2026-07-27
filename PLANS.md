@@ -43,6 +43,7 @@
 | M3.1 bounded queue lease recovery | A-10 | Competing-job regression plus 5 PostgreSQL samples through replacement-worker success; full CI/images/staging green | Database outage, lock contention, timeout and retry-exhaustion matrix remains |
 | M1.7 IME selection continuity | A-03, A-02 | Composition-aware dismiss test-first failure; composing Escape preserves the anchor through save in Chromium | Touch save, annotation 503 retry, session-switch and two-user annotation matrix incomplete |
 | M1.7 annotation save 503 retry | A-03, A-02, A-06 | 503 → explicit retry → success with anchor-backed highlight; anchor built from content text, not article element; onPointerDown prevents touch selection collapse; anchor round-trip e2e added | Touch selection automation, session-switch and two-user annotation matrix incomplete |
+| M1.7 session-switch annotation isolation | A-03, A-04 | Per-user annotation storage in e2e server; user B does not see user A's created annotation after login switch; Chromium 69 passed | Two-user concurrent browser matrix incomplete |
 
 ## Acceptance Ledger
 
@@ -50,8 +51,8 @@
 | --- | --- | --- |
 | A-01 | PASS | Exact revision, evidence manifest, reproducible focused gates |
 | A-02 | IN_PROGRESS | Daily Cluster partial-failure/retry/open-return and Reader/Ask 503→retry→citation slices green; complete Daily/Scan → Reader/Ask → Keep → Review/Research/Export state matrix remains |
-| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat restoration, ambiguity rejection, M1.5 inline-markup retention, M1.7 IME-composition dismiss safety and M1.7 annotation save 503→retry with content-scoped anchor are green; touch-equivalent save, session-switch and two-user cases remain |
-| A-04 | IN_PROGRESS | Annotation ambiguity now keeps private data visible without misbinding; admin/public metrics/session checks exist, and two-user browser/cache matrix remains |
+| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat restoration, ambiguity rejection, M1.5 inline-markup retention, M1.7 IME-composition dismiss safety, M1.7 annotation save 503→retry with content-scoped anchor, and M1.7 session-switch isolation are green; touch-equivalent selection automation and two-user concurrent cases remain |
+| A-04 | IN_PROGRESS | Annotation ambiguity keeps private data visible without misbinding; admin/public metrics/session checks exist; M1.7 session-switch proves user B cannot see user A's created annotations; two-user concurrent browser/cache matrix remains |
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion and core keyboard/reflow paths now run in the minimum browser matrix; semantic audit and screen-reader evidence remain |
 | A-06 | IN_PROGRESS | Chromium 55/55, Firefox/WebKit 21/21 and iPhone WebKit 20/20 core subset green; Scan/Focus/Keep 320/375/390/768/1024/1280/1440 reflow is green in Chromium/Firefox/WebKit; full suite and cross-engine selection/input pairwise matrix remain |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
@@ -99,6 +100,7 @@
 | 2026-07-28 | M3.1 established a deterministic bounded PostgreSQL lease-recovery baseline. | PR #40 / CI `30284291417` kept the competitor queued, measured five replacement-worker recoveries (median 5.614 ms, p95 7.956 ms), uploaded the artifact, and passed full quality/images/staging. |
 | 2026-07-27 | M1.7 closed the IME-composition selection continuity slice. | Node test and stash-reverted Chromium e2e first failed; after the composition-aware dismiss fix, focused Node 6/6, Reader Node 194/194, production build and fresh-server Chromium 65 passed (1 pre-existing flaky green on retry/isolation). Record: `output/evidence/m1-ime-selection-continuity-2026-07-27.json`. |
 | 2026-07-27 | M1.7 closed the annotation save 503→retry continuity slice. | E2e test first failed at mark assertion (anchor prefix contained UI text, start 158 not 0); after `anchorContentRef` fix and inline retry UI, Reader Node 194/194, production build and fresh-server Chromium 67 passed. Record: `output/evidence/m1-annotation-save-retry-2026-07-27.json`. |
+| 2026-07-27 | M1.7 closed the session-switch annotation isolation slice. | Per-user annotation storage in e2e server; user A creates annotation, switches to user B via login, B sees fixture but not A's annotation. Chromium 69 passed. Record: `output/evidence/m1-session-switch-isolation-2026-07-27.json`. |
 
 ## Evidence and Recovery Rules
 

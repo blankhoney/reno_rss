@@ -125,15 +125,15 @@
 | 数据可靠性门：PostgreSQL 条件测试、migration replay、恢复脚本。 | High | High | High | Medium | CI postgres 服务 + 本地脚本 | API/worker 不能只依赖 memory 变体。 |
 | Staging 回滚/恢复链条与证据固定。 | High | Medium | Medium | Medium | deploy/rollback/workflow | 发布成功不等于可恢复成功。 |
 
-### 当前最高优先级 — M2.1：320px 可达性、muted-text AA 与 reduced-motion 最小门
+### 当前最高优先级 — M1.8：触控选区到保存的锚点连续性证据
 
-- **优先级与关系**：P0；承接已通过 Chromium 的 M1.5 inline-markup 安全恢复，不重开其已验证行为。它为 A-05/A-06 建立第一个可重复门，并在闭环后移交给原子文章状态 P0。
-- **优化目的**：在最窄 320px 视口中证明阅读核心控制、错误/恢复信息和内容不发生水平溢出、不可达或层叠遮挡；同时确保实际阅读使用的 muted text 在 light/dark 下达到 AA，并且 reduced-motion 不隐藏状态或动作。
-- **执行范围**：扩展既有 Chromium viewport loop 至 320px，复用现有 CSS token、geometry assertion 和 `prefers-reduced-motion` 合同；仅调整被失败测试证明的 token 或布局规则。保留 warm editorial 方向、现有导航/toolbar/Agent/Toast 层级及 375px 以上行为；不得借机重做视觉系统、改用新 CSS 框架或把桌面提示强塞入窄屏。
-- **验收标准**：角色化 muted reading text 在 light/dark 对应背景的对比至少为 4.5:1；在 normal 与 reduced-motion 两种模式下，当前测试覆盖的关键 reader/workbench 路径在 320px 无 `scrollWidth > clientWidth`、无被 fixed layer 遮挡的必要操作、无减少动效后丢失的 loading/error/retry 信息；现有 375/768/1440 行为继续通过。
-- **验证方法**：先让新增 320px 或 token 断言在旧候选上失败；运行 focused contrast/motion/reflow 浏览器场景、Reader Node suite、production build 与完整 Chromium suite。当前已将最小核心路径扩至 Firefox、WebKit 与 iPhone WebKit，并将 Scan/Focus/Keep 的重排断言扩至 1024/1280；记录 viewport、theme、motion、命令 exit、截图或几何结果。全量跨引擎与屏幕阅读器仍明确为后续缺口，不得以当前子集替代。
-- **方案取舍**：优先收紧单个 token 或单个 responsive rule；若一个修复会影响多个角色，拆为 token 与布局两个可回滚 slice。通过静态色值测试不足以宣称 reflow 已通过，必须保留浏览器几何断言。
-- **风险与回滚**：低到中等 CSS/fixture 风险；每个 token/geometry slice 独立回退，不能因修复对比度而降低既有控件可见性或点击面积。
+- **优先级与关系**：P0；直接收口 M1.7 已提交的 IME-composition 连续性与标注保存 503 重试/内容范围锚点（`685b2160`、`f045df04`），服务 A-03 标注可信性与 A-06 跨输入可用性。它优先于 M2.1，因为错误归属或把程序化选区误作触控证据会破坏研究信任；完成后恢复 M2.1 作为下一个 P0。
+- **优化目的**：证明移动触控用户从真实、容器内的有效选区，到浮层出现、编辑或直接保存、刷新后锚点重建，始终保留同一篇已净化正文中的精确 quote；不能以桌面 `mouseup` 或程序化 range 注入冒充原生触控选区证据。
+- **执行范围**：审计现有待验证的 `touch selection save` 场景：其可继续作为“保存按钮 touch-equivalent”覆盖，但必须明确分离其程序化选区前置条件。新增或修正一个可重复的触控选区生命周期证明（真实触控手势；若浏览器平台无法稳定暴露原生文本选择，则使用能覆盖 `touchend → settled anchor → save` 的等价事件链并记录限制）。只在失败复现证明需要时调整 selection hook、reader 浮层或 E2E fixture；继续从 `.focusContent` 的净化文本生成 anchor，保留 IME Escape、mouse、keyboard 和 503 retry 行为。
+- **验收标准**：触控/明确记录的 touch-equivalent 路径仅接受 article content 内有效 range；`touchend` 后浮层可达且其保存动作不因 selection collapse 丢失 `selected_text` 或 anchor；提交的 anchor 为受版本约束的 text-quote、`exact` 与已净化内容相符；保存/刷新后仅在唯一上下文匹配处高亮。跨正文、重复或不唯一上下文必须 detached/警告，不得猜测首个命中。现有 IME Escape、503 retry 与内容范围锚点回归继续通过。
+- **验证方法**：先在旧候选上让触控生命周期断言失败；分别运行 selection/anchor Node 测试、目标 Playwright 场景与完整 Chromium 套件，并将新增关键路径加入既有 WebKit/iPhone WebKit 最小矩阵（或记录该引擎的确定性限制，绝不把 Chromium 结果外推为跨引擎通过）。随后运行 Reader `npm test`、production build、`git diff --check`；记录输入方式、viewport、选择事件链、请求 payload、刷新后的 mark/detached 结果和每条命令 exit。
+- **方案取舍**：优先验证并复用现有冻结 anchor 状态，而不是重新引入 DOM 字符串首匹配或依赖活动 `window.getSelection()`；保留最小 event/fixture seam。若引擎无法原生自动化文本选择，测试必须把限制和等价覆盖写清，不能降低“不得静默错绑”的验收标准。
+- **风险与回滚**：中等浏览器自动化与 selection 生命周期风险。将事件覆盖、行为修复和跨引擎扩展拆分为独立可回退 slice；任何不确定的原生选择模拟不得修改生产行为，也不得宣称 A-03/A-06 完成。
 
 ### P0 后继任务（M2.1 验证后）— 原子文章状态与候选不变量
 
@@ -302,11 +302,11 @@
   - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
   - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：M1.7 annotation save 503→retry slice 已闭环（含 anchor-from-content 修复）；下一 slice 为 touch-driven selection save。
-- **Recovery point**：主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
-- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
-- **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
-- **Next action**：实现 touch-driven selection save slice（A-03/A-06），然后推进 session-switch annotation isolation 和 two-user 矩阵。
+- **Current experiment**：M1.8 touch selection save 证据正在建立。工作树新增一条待验证 Playwright 场景及 iPhone WebKit test match；该场景以程序化 range + `mouseup` 安置选区、以 `tap()` 触发保存，故当前只能证明 touch-equivalent 保存，尚未证明触控手势产生选区。
+- **Recovery point**：当前已提交的标注连续性 checkpoint 为 `f045df04`（基于 M1.7 `685b2160`）；主线恢复点为 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
+- **Missing external evidence**：Firefox/WebKit 全量、跨引擎真实触控文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
+- **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；将程序化选区当作触控产生选区会形成错误证据；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
+- **Next action**：先验证并纠正 M1.8 的触控选区事件链与跨引擎范围；仅在该证据闭环后推进 session-switch annotation isolation 和 two-user 矩阵。
 
 ## 12. Decision and Change Log
 
@@ -334,6 +334,8 @@
 | 2026-07-26 | 将 Scan/Focus/Keep 重排门扩展至 390、1024、1280px。 | Chromium、Firefox、WebKit 各 21/21；断言覆盖无水平溢出、文章可进入和关键操作可见，跨引擎选区仍为 `IN_PROGRESS`。 |
 | 2026-07-27 | M1.7：IME composition 期间 Escape 仅取消输入法组合，不清除选区锚点。 | `isSelectionDismissEvent` 检查 `event.isComposing`；Node test-first failure + stash-reverted e2e failure 证明缺陷；修复后 focused 6/6、Reader 194/194、build、Chromium 65 passed。证据：`output/evidence/m1-ime-selection-continuity-2026-07-27.json`。 |
 | 2026-07-27 | M1.7：标注保存 503 必须显式可重试，且锚点必须从文章内容文本构建。 | 内联错误横幅 + retry 闭包保留选区；`anchorContentRef` 使锚点从 `.focusContent` 构建而非含 UI 标签的 `<article>`；e2e 先失败（prefix 含 UI 文本，start 158）后通过。Chromium 67 passed。证据：`output/evidence/m1-annotation-save-retry-2026-07-27.json`。 |
+| 2026-07-27 | M1.7：会话切换后标注必须按用户隔离。 | e2e server 新增 per-user annotation storage（`userAnnotations` Map）；用户 A 创建标注后切换到用户 B，B 只见 fixture 标注不见 A 的创建；Chromium 69 passed。证据：`output/evidence/m1-session-switch-isolation-2026-07-27.json`。 |
+| 2026-07-27 | M1.8：触控保存与触控选区必须分开取证。 | 工作树的 `touch selection save` 仅以程序化 range + `mouseup` 建立选区，再用 `tap()` 保存；它可证明保存按钮的 touch-equivalent 路径，不可证明原生触控文本选择。A-03/A-06 维持 Pending，最高优先级调整为建立或明确限定真实 `touchend → settled anchor → save` 事件链。 |
 
 ## 13. Stop and Escalation Conditions
 
