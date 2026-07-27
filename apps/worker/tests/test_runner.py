@@ -181,6 +181,21 @@ def test_run_forever_survives_transient_queue_outage_and_processes_jobs_after_re
     assert stored.result == {"echo": "after-outage"}
 
 
+def test_run_once_logs_permanent_failure_for_observability(caplog):
+    queue = InMemoryJobQueue()
+    queue.enqueue("doomed", {"attempt": 1}, dedupe_key="doomed:1", max_attempts=1)
+
+    def handler(_payload):
+        raise RetryableJobError("service gone")
+
+    caplog.set_level(logging.ERROR, logger="app.runner")
+    run_once(queue, {"doomed": handler}, worker_id="worker-obs")
+
+    stored = list(queue._jobs.values())[0]
+    assert stored.status == "failed"
+    assert stored.last_error == "service gone"
+
+
 def test_run_forever_emits_heartbeat_while_idle():
     queue = InMemoryJobQueue()
     stop_event = Event()
