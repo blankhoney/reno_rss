@@ -131,6 +131,42 @@ test("core pages expose semantic landmarks, headings, and named controls", async
   await expect(page.locator('[aria-live="polite"]').first()).toBeVisible();
 });
 
+test("keyboard Tab reaches interactive elements with visible focus", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+
+  await page.keyboard.press("Tab");
+  const firstFocused = await page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return null;
+    const style = getComputedStyle(el);
+    return {
+      tag: el.tagName.toLowerCase(),
+      hasOutline: style.outlineStyle !== "none" && style.outlineWidth !== "0px",
+      hasBoxShadow: style.boxShadow !== "none",
+    };
+  });
+  expect(firstFocused).not.toBeNull();
+  expect(firstFocused!.hasOutline || firstFocused!.hasBoxShadow).toBe(true);
+
+  for (let i = 0; i < 5; i++) await page.keyboard.press("Tab");
+  const laterFocused = await page.evaluate(() => {
+    const el = document.activeElement;
+    return el && el !== document.body ? el.tagName.toLowerCase() : null;
+  });
+  expect(laterFocused).not.toBeNull();
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await page.keyboard.press("Tab");
+  const readerFocused = await page.evaluate(() => {
+    const el = document.activeElement;
+    return el && el !== document.body ? el.getAttribute("aria-label") ?? el.tagName.toLowerCase() : null;
+  });
+  expect(readerFocused).not.toBeNull();
+});
+
 test("principal success fixtures render without unexpected browser errors", async ({ page }) => {
   const errors = captureUnexpectedBrowserErrors(page);
   await resetFixtures(page);
