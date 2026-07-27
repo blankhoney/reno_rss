@@ -1,9 +1,9 @@
 # Project Optimization Execution Plan
 
 > Authoritative goal: `GOAL.md`
-> Updated: 2026-07-26 (Asia/Taipei)
-> Behavior checkpoint: `504c98c7125d6e589872b68c6c8c61311a5350f0` (merged `main`; M2.1 candidate is currently uncommitted)
-> Current state: **M2.1 — accessible responsive interaction, A-05/A-06 in progress; core-loop/data/release MUST gates remain open**
+> Updated: 2026-07-28 (Asia/Taipei)
+> Behavior checkpoint: `39422aee25f21adaaa2682e8ada15badc82df57c` (merged `main`; PR #40)
+> Current state: **M3.1 PostgreSQL lease-recovery budget established; A-10 broader fault matrix and core-loop MUST gates remain open**
 
 ## Execution Contract
 
@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-integrity` based on merged `main` `504c98c7`; focused M2.1 browser-matrix slice is uncommitted. |
-| Milestone / acceptance | M2.1 accessibility/reflow cross-engine minimum; A-05 and A-06 remain `IN_PROGRESS`. |
-| Hypothesis | A compact core matrix gives earlier warning for browser-specific caching, overlay, focus and reflow regressions without presenting a subset as full-browser coverage. |
-| Initial failure | CI installed only Chromium; the user-switch cache test assumed every safe offline outcome was a synthetic 503, while WebKit safely rejects the offline request. |
-| Minimal repair | Add Firefox, WebKit and touch projects filtered to core routes; define cache safety as current-user data, typed offline error, or no response—not a previous-user response. |
-| Green validation | Chromium 55/55; Firefox 21/21; WebKit 21/21; iPhone WebKit 20/20; Node 193/193; production build. |
-| Durable evidence | `output/evidence/m2-cross-engine-core-2026-07-26.json`, integrity-listed in `output/evidence-sha256.txt`. |
-| Rollback | Revert CI browser install, Playwright projects and cache assertion together; no application runtime, schema, API or stored data changes. |
-| Next action | Make cross-engine text selection reproducible before calling A-06 complete. |
+| Exact candidate | Merged `main @ 39422aee`; behavior head `db574ab4`; PR #40. |
+| Milestone / acceptance | M3.1 bounded PostgreSQL lease recovery; A-10 remains `IN_PROGRESS` for broader fault classes. |
+| Hypothesis | A synthetic maximum-priority job can measure the production claim/reclaim/complete path without consuming unrelated ready jobs in the shared disposable CI database. |
+| Initial failure | CI `30282641983` returned `RuntimeError`; test-only CI `30284173132` then reproduced the conflict with a priority-1 competing job (`1 failed, 126 passed`). |
+| Minimal repair | Give only the synthetic baseline row PostgreSQL INTEGER maximum priority and retain safe RuntimeError detail in the artifact; no production queue ordering or existing job was mutated. |
+| Green validation | CI `30284291417`: PostgreSQL competitor regression, 5 recovery samples, API/Worker/Reader, browser matrix, Compose, Trivy, three GHCR images and staging all passed. |
+| Durable evidence | Artifact `queue-postgres-recovery-baseline`: median 5.614 ms, p95 7.956 ms, min 5.516 ms, max 7.956 ms; five complete recovery state sequences. |
+| Rollback | Revert PR #40 merge `39422aee`; the change adds only CI evidence/test/script behavior and no schema or production runtime path. |
+| Next action | Build the A-02 core visible-state matrix and close the highest-value Daily/Scan → Reader/Ask → Keep gaps one deterministic slice at a time. |
 
 ## Completed Checkpoints
 
@@ -40,6 +40,7 @@
 | M1.4 candidate state retry | A-02, A-04, A-10 | One deterministic state-write 503 preserves Reader context; explicit retry reloads server-confirmed candidate state | Broader state matrix, input/browser pairwise coverage, and bounded recovery budget incomplete |
 | M1.5 inline-markup annotation recovery | A-03, A-04, A-07 | Cross-markup anchor remains unresolved, and its retained note is available natively | Touch, IME, retry, and multi-user annotation matrix incomplete |
 | M2.1 cross-engine accessible core minimum | A-05, A-06 | AA muted-text/reduced-motion assertion and Chromium/Firefox/WebKit/iPhone core paths | Full cross-engine suite, screen-reader and cross-engine selection matrix incomplete |
+| M3.1 bounded queue lease recovery | A-10 | Competing-job regression plus 5 PostgreSQL samples through replacement-worker success; full CI/images/staging green | Database outage, lock contention, timeout and retry-exhaustion matrix remains |
 
 ## Acceptance Ledger
 
@@ -54,7 +55,7 @@
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; full fixed-fixture rubric/state language remains |
 | A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; latest Alembic downgrade/replay and disposable logical snapshot restore both pass, while recovery-time/write-failure evidence remains |
 | A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines and a schema-v1/v2 comparator exist, and CI now compares candidates with the latest successful `main` baseline at a 3× threshold; deployment-like write/load evidence remains |
-| A-10 | IN_PROGRESS | PostgreSQL CI proves an expired lease is requeued with backoff and completed by a new worker; the worker emits a content-free recovery correlation log, while bounded recovery-time and broader fault proof remain |
+| A-10 | IN_PROGRESS | PostgreSQL CI proves an expired lease is requeued and completed by a replacement worker; a competing ready job remains untouched; 5 samples have median 5.614 ms/p95 7.956 ms; content-free recovery logs exist, while database outage/lock/timeout/retry-exhaustion proof remains |
 | A-11 | IN_PROGRESS | Production audit and Trivy green; deterministic maintenance/lockfile review continue at release closure |
 | A-12 | PASS | `sha-2ec6cd2` staging deploy, rollback to published `sha-98d06a4`, and forward replay all passed (`30279882267` → `30280699086` → `30280839157`); repository-scoped GHCR cleanup dry-run `30282030908` validated all manifests without deleting versions |
 | A-13 | IN_PROGRESS | Current instructions reconciled; clean-clone replay and failure-linked seam evidence remain |
@@ -63,10 +64,12 @@
 
 ## Autonomous Work Queue
 
-1. **M2.2 — responsive/input extension (P0):** Add a cross-engine reproducible text-selection alternative; preserve the desktop-only shortcut contract on touch projects.
-2. **M3 — atomic article state (P0):** Establish PostgreSQL-backed concurrent writes and `project ⇒ saved` storage invariant before tuning performance.
-3. **M3.1 — deployment-like performance/resilience (P0):** Measure bounded PostgreSQL lease-recovery time and correlate its logs; retain the existing latest-`main` DB 3× threshold gate.
-4. **M4 — release recovery closure (P0):** Complete; retain the non-destructive cleanup dry-run policy and revisit only when an explicitly authorized deletion window is needed.
+1. **M1.6 — core visible-state matrix (P0):** Version Daily/Scan → Reader/Ask → Keep states and close loading/empty/error/retry/server-confirmed gaps with deterministic fixtures.
+2. **M1.7 — annotation/input continuity (P0):** Close touch, IME, retry, session and two-user anchor cases without unsafe rebinding.
+3. **M1.8 — identity/provider boundaries (P0):** Complete two-user cache/API isolation and provider cap/timeout/fallback/idempotency matrix.
+4. **M2.2 — accessibility/input extension (P0):** Complete semantic/focus/reduced-motion evidence, then retry a reproducible cross-engine selection alternative.
+5. **M3.2 — broader fault matrix (P0):** Add database outage, lock contention, timeout and retry-exhaustion recovery evidence while retaining the current five-sample budget.
+6. **M4 — release recovery closure (P0):** Complete; retain the non-destructive cleanup dry-run policy.
 
 ## Iteration Log
 
@@ -90,6 +93,8 @@
 | 2026-07-27 | M3.1 added a content-free recovery correlation event. | PR #36 CI `30278849416` verified the worker logs its identity, recovery count and lease threshold only when stale work is reclaimed. |
 | 2026-07-27 | M4 completed the staging immutable rollback-forward rehearsal. | Current SHA CI `30279882267` deployed `sha-2ec6cd2`; rollback `30280699086` returned staging to `sha-98d06a4`; manual forward run `30280839157` restored `sha-2ec6cd2` with runtime proof. |
 | 2026-07-27 | M4 completed the GHCR cleanup rehearsal without deleting packages. | `30281085629` exposed the missing `reno_rss/` package prefix; after the workflow fix, `30282030908` dry-run enumerated all three packages, applied 30-day/15-tag retention candidates, and passed multi-architecture validation. |
+| 2026-07-28 | M3.1 reproduced queue-baseline contention before repair. | Initial artifact `30282641983` reported `RuntimeError`; test-only commit `801a9b6b` and CI `30284173132` added a priority-1 ready competitor and failed exactly because the baseline consumed other work. |
+| 2026-07-28 | M3.1 established a deterministic bounded PostgreSQL lease-recovery baseline. | PR #40 / CI `30284291417` kept the competitor queued, measured five replacement-worker recoveries (median 5.614 ms, p95 7.956 ms), uploaded the artifact, and passed full quality/images/staging. |
 
 ## Evidence and Recovery Rules
 
