@@ -67,6 +67,7 @@ export function useArticleSelection(
   const [selectedText, setSelectedText] = useState("");
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [settledAnchor, setSettledAnchor] = useState<ArticleAnnotationAnchor | null>(null);
+  const [selectionRevision, setSelectionRevision] = useState(0);
 
   useEffect(() => {
     // While dragging, keep the captured text current but never show or reposition
@@ -93,6 +94,7 @@ export function useArticleSelection(
       const anchorSource = anchorContentRef?.current ?? containerRef.current;
       setSettledAnchor(selectionAnchorWithinContainer(anchorSource, range));
       setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
+      setSelectionRevision((revision) => revision + 1);
     }
 
     function hidePopover() {
@@ -130,6 +132,7 @@ export function useArticleSelection(
     hasSelection: selectedText.trim().length > 0,
     selectionRect,
     settledAnchor,
+    selectionRevision,
     clearSelection: () => {
       setSelectedText("");
       setSettledAnchor(null);

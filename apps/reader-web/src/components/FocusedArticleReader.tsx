@@ -147,6 +147,7 @@ export function FocusedArticleReader({
   const [annotationsError, setAnnotationsError] = useState<string | null>(null);
   const [annotationSaveError, setAnnotationSaveError] = useState<string | null>(null);
   const retryAnnotationSaveRef = useRef<(() => void) | null>(null);
+  const retryAnnotationSelectionRevisionRef = useRef<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -174,7 +175,24 @@ export function FocusedArticleReader({
   const showTranslationWhenReadyRef = useRef(false);
   const articleActions = useArticleActions(article, currentLang);
   const typewriter = useTypewriterStream();
-  const { selectedText, hasSelection, selectionRect, settledAnchor, clearSelection } = useArticleSelection(articleRef, focusContentRef);
+  const {
+    selectedText,
+    hasSelection,
+    selectionRect,
+    settledAnchor,
+    selectionRevision,
+    clearSelection,
+  } = useArticleSelection(articleRef, focusContentRef);
+  useEffect(() => {
+    if (
+      retryAnnotationSelectionRevisionRef.current != null &&
+      retryAnnotationSelectionRevisionRef.current !== selectionRevision
+    ) {
+      retryAnnotationSelectionRevisionRef.current = null;
+      retryAnnotationSaveRef.current = null;
+      setAnnotationSaveError(null);
+    }
+  }, [selectionRevision]);
   const revealedAnswer = typewriter.revealed;
   const answerVisible = revealedAnswer.trim().length > 0 || typewriter.isRevealing;
   const answerPending = isAsking && !answerVisible && agentError == null;
@@ -967,12 +985,14 @@ export function FocusedArticleReader({
                       setNoteDraft("");
                       setAnnotationSaveError(null);
                       retryAnnotationSaveRef.current = null;
+                      retryAnnotationSelectionRevisionRef.current = null;
                       emitToast({ title: "笔记已保存", variant: "success" });
                     })
                     .catch((error) => {
                       const message = error instanceof Error ? error.message : "笔记保存失败";
                       setAnnotationSaveError(message);
                       retryAnnotationSaveRef.current = save;
+                      retryAnnotationSelectionRevisionRef.current = null;
                       emitToast({ title: message, variant: "error" });
                     });
                 };
@@ -1088,6 +1108,7 @@ export function FocusedArticleReader({
                     setAnnotations((current) => [created, ...current]);
                     setAnnotationSaveError(null);
                     retryAnnotationSaveRef.current = null;
+                    retryAnnotationSelectionRevisionRef.current = null;
                     emitToast({ title: "已保存划线", variant: "success" });
                     clearSelection();
                   })
@@ -1095,6 +1116,7 @@ export function FocusedArticleReader({
                     const message = error instanceof Error ? error.message : "划线保存失败";
                     setAnnotationSaveError(message);
                     retryAnnotationSaveRef.current = save;
+                    retryAnnotationSelectionRevisionRef.current = selectionRevision;
                     emitToast({ title: "划线保存失败", body: message, variant: "error" });
                   });
               };
