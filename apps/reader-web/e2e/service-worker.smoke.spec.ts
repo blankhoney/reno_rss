@@ -815,6 +815,143 @@ test("later-page article return restores cursor page and its highlighted card", 
   await expect(returnedCard).toHaveClass(/articleCardReturnTarget/);
 });
 
+test("scan mode paging failure hides stale cards and retries the current cursor", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  let pageTwoRequests = 0;
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/articles" && url.searchParams.get("cursor") === "cursor-page-2") {
+      pageTwoRequests += 1;
+    }
+  });
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.request.post("/__e2e/article-list/fail-once");
+  const nextPage = page.getByRole("button", { name: "下一页 ›" });
+  await nextPage.focus();
+  await nextPage.press("Enter");
+
+  const errorStatus = page.getByText("文章加载失败", { exact: true });
+  const retryButton = page.getByRole("button", { name: "重试" });
+  await expect(errorStatus).toBeVisible();
+  await expect(retryButton).toBeFocused();
+  await expect(page.getByText("Keyboard article one", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Keyboard article two", { exact: true })).toHaveCount(0);
+  const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  for (const target of [errorStatus, retryButton]) {
+    const bounds = await target.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height);
+  }
+  await expect(page).toHaveURL(/trail=/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("scan");
+
+  await retryButton.click();
+  const articleList = page.locator("ul.articleList");
+  await expect(page.getByText("Cursor article two", { exact: true })).toBeVisible();
+  await expect(articleList).toBeFocused();
+  await expect(page.getByText("文章加载失败", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  expect(pageTwoRequests).toBe(2);
+});
+
+test("scan mode error offers a previous-page escape", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+
+  await expect(page.getByText("文章加载失败", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "‹ 上一页" }).click();
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/trail=/);
+});
+
+test("scan mode shows empty only after a successful empty response", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  let releaseEmptyResponse: (() => void) | null = null;
+  const emptyResponseGate = new Promise<void>((resolve) => {
+    releaseEmptyResponse = resolve;
+  });
+  await page.route("**/api/articles?**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("module") !== "all" || url.searchParams.has("cursor")) {
+      await route.fallback();
+      return;
+    }
+    await emptyResponseGate;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], next_cursor: null, has_more: false }),
+    });
+  });
+
+  const navigation = page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByLabel("文章加载中")).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("文章加载失败", { exact: true })).toHaveCount(0);
+  releaseEmptyResponse!();
+  await navigation;
+
+  await expect(page.getByLabel("文章加载中")).toHaveCount(0);
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前模块没有可显示的文章。", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("scan");
+});
+
+test("scan mode restores direct pagination Back from the URL", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+  await expect(page.getByText("Cursor article two", { exact: true })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/?module=all&sort=default&lang=zh$/);
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("Cursor article two", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+});
+
+test("scan mode restores later-page context after return reload and browser Back", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=latest&lang=original&q=fixture");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+  await expect(page.getByText("Cursor article two", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: /Cursor article two/ }).click();
+  await expect(page).toHaveURL(/\/read\/9\?.*module=all.*sort=latest.*lang=original.*q=fixture.*trail=/);
+
+  await page.getByRole("link", { name: "返回工作台" }).click();
+  await expect(page).toHaveURL(/module=all.*sort=latest.*lang=original.*q=fixture.*trail=.*article=9/);
+  const returnedCard = page.getByRole("link", { name: /Cursor article two/ });
+  await expect(returnedCard).toHaveClass(/articleCardReturnTarget/);
+
+  await page.reload();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Cursor article two/ })).toHaveClass(/articleCardReturnTarget/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("scan");
+
+  await page.getByRole("link", { name: /Cursor article two/ }).click();
+  await expect(page).toHaveURL(/\/read\/9\?/);
+  await page.goBack();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Cursor article two/ })).toBeVisible();
+  await expect(page).toHaveURL(/module=all.*sort=latest.*lang=original.*q=fixture.*trail=.*article=9/);
+});
+
 test("search URL state ignores slow results after a newer query", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=search&filter=all&sort=default&q=slow");

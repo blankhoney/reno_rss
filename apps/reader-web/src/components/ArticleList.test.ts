@@ -52,6 +52,27 @@ test("ArticleList renders skeleton cards while loading instead of empty copy", (
   assert.doesNotMatch(html, /暂无文章/);
 });
 
+test("ArticleList does not render empty copy or a focusable list while loading failed", () => {
+  const html = renderArticleList({
+    articles: [],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+    loadError: "文章列表暂不可用",
+    hasPrev: true,
+    onPrev: () => {},
+    onRetry: () => {},
+  });
+
+  assert.match(html, /文章加载失败/);
+  assert.match(html, /文章列表暂不可用/);
+  assert.match(html, />重试<\/button>/);
+  assert.match(html, />‹ 上一页<\/button>/);
+  assert.doesNotMatch(html, /暂无文章/);
+  assert.doesNotMatch(html, /<ul/);
+  assert.doesNotMatch(html, /articleListPager/);
+});
+
 test("ArticleList renders pager controls with disabled state", () => {
   const article: Article = {
     id: 7,
