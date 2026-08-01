@@ -3,8 +3,17 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-const proxyPort = 3010;
-const appPort = 3011;
+function resolvePort(value, fallback) {
+  const port = Number(value ?? fallback);
+  if (!Number.isInteger(port) || port < 1 || port > 65534) {
+    throw new Error("READER_E2E_PORT must be an integer between 1 and 65534");
+  }
+  return port;
+}
+
+const evidenceRun = process.env.PLAYWRIGHT_EVIDENCE === "1";
+const proxyPort = resolvePort(process.env.READER_E2E_PORT, evidenceRun ? 3012 : 3010);
+const appPort = proxyPort + 1;
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const users = {
   ada: {
