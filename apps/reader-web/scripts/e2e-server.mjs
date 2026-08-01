@@ -293,6 +293,53 @@ const proxy = createServer(async (request, response) => {
       });
       return;
     }
+    if (searchQuery === "focus-fixture") {
+      const focusPageTwo = url.searchParams.get("cursor") === "focus-cursor-page-2";
+      sendJson(response, 200, {
+        items: focusPageTwo
+          ? [{
+              id: 13,
+              title: "Focus cursor article",
+              url: "https://example.com/focus-two",
+              feed: { id: 2, title: "Focus fixture feed" },
+              category: null,
+              published_at: "2026-07-18T00:00:00Z",
+              content_quality: "full",
+              summary_zh: "Focus 第二页测试文章。",
+              score: null,
+              state: { status: "unread", saved: false, project: false, read_progress: 0 },
+            }]
+          : [
+              {
+                id: 11,
+                title: "Focus article one",
+                url: "https://example.com/focus-one",
+                feed: { id: 2, title: "Focus fixture feed" },
+                category: null,
+                published_at: "2026-07-21T00:00:00Z",
+                content_quality: "full",
+                summary_zh: "Focus 第一篇测试文章。",
+                score: null,
+                state: { status: "unread", saved: false, project: false, read_progress: 0 },
+              },
+              {
+                id: 12,
+                title: "Focus article two",
+                url: "https://example.com/focus-two",
+                feed: { id: 2, title: "Focus fixture feed" },
+                category: null,
+                published_at: "2026-07-20T00:00:00Z",
+                content_quality: "full",
+                summary_zh: "Focus 第二篇首页文章。",
+                score: null,
+                state: { status: "unread", saved: false, project: false, read_progress: 0 },
+              },
+            ],
+        next_cursor: focusPageTwo ? null : "focus-cursor-page-2",
+        has_more: !focusPageTwo,
+      });
+      return;
+    }
     if (url.searchParams.get("cursor") === "cursor-page-2") {
       sendJson(response, 200, {
         items: [
@@ -701,8 +748,13 @@ const proxy = createServer(async (request, response) => {
     sendJson(response, 201, { annotation });
     return;
   }
-  if ((url.pathname === "/api/articles/7" || url.pathname === "/api/articles/9") && request.method === "GET") {
-    const id = url.pathname.endsWith("/9") ? 9 : 7;
+  if (
+    (url.pathname === "/api/articles/7" ||
+      url.pathname === "/api/articles/9" ||
+      url.pathname === "/api/articles/13") &&
+    request.method === "GET"
+  ) {
+    const id = url.pathname.endsWith("/13") ? 13 : url.pathname.endsWith("/9") ? 9 : 7;
     const mode = fixtureMode(request);
     const repeatedAnnotationFixture = id === 7 && mode === "annotation-repeated";
     const ambiguousAnnotationFixture = id === 7 && mode === "annotation-ambiguous";
@@ -724,8 +776,14 @@ const proxy = createServer(async (request, response) => {
     sendJson(response, 200, {
       id,
       owner: currentUser.id,
-      title: id === 7 ? "Durable research workflows" : "Fast search result",
-      url: id === 7 ? "https://example.com/durable-research" : "https://example.com/search",
+      title:
+        id === 7 ? "Durable research workflows" : id === 13 ? "Focus cursor article" : "Fast search result",
+      url:
+        id === 7
+          ? "https://example.com/durable-research"
+          : id === 13
+            ? "https://example.com/focus-two"
+            : "https://example.com/search",
       feed: { id: 1, title: "Fixture Research" },
       category: { id: 2, title: "Research systems" },
       published_at: "2026-07-24T08:00:00Z",
