@@ -2,8 +2,8 @@
 
 > Authoritative goal: `GOAL.md`
 > Updated: 2026-08-01 (Asia/Taipei)
-> Behavior checkpoint: `goal/m1-annotation-input-continuity @ c44f99e9`（Scan/Focus list-state test slice pushed; user-owned `GOAL.md` preserved）
-> Current state: **M1.9b Scan + Focus list-state truth is locally green; broader A-02/release evidence remains in progress**
+> Behavior checkpoint: `goal/m1-annotation-input-continuity @ 57fb5a5`（Reader evidence-port isolation pushed; user-owned `GOAL.md` preserved）
+> Current state: **M1.9b Scan + Focus fixture state truth is locally green; full system quality queue starts with per-user Daily Brief ownership**
 
 ## Execution Contract
 
@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-input-continuity @ c44f99e9`；Scan 修复、证据 harness、audit skill、账本和 Focus fixture/matrix 已拆分提交并 push，`GOAL.md` 仍是用户自有未提交修改。 |
-| Milestone / acceptance | M1.9b Scan + Focus list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, and article return/reload/Back; broader A-02 remains `IN_PROGRESS` until release-level and remaining state/input evidence is complete. |
-| Hypothesis | 非首次分页失败会保留旧 `rawArticles`，同时 URL/pageIndex 已进入下一页；错误 DOM 又位于首屏以下，导致旧 success 冒充当前结果且 retry 不明显。复核还发现：直接 pagination Back 不重新加载 URL cursor，且 error 会卸载已聚焦控件。Focus 独立矩阵未发现额外 mode-specific 缺口。 |
-| Initial failure | Scan 首次 Chromium 失败于 page-2 旧卡、Node 失败于 focusable empty `<ul>`、截图显示首屏外错误；直接 page-2 Back 与键盘错误焦点也分别复现了 URL/可见状态和恢复可达性问题。Focus 首次独立矩阵在共享修复上全绿，没有新增生产行为失败。 |
-| Minimal repair | Current-request failure clears stale articles；`ArticleList` owns mutually exclusive error/list/pager, transfers focus to retry, restores its list focus after recovery, and retains an explicit previous-page escape；`ReaderWorkbench` classifies retry by page index, clears stale paging flags for superseding initial requests, and rebuilds list cursor state from `popstate` URL. Focus 只增加独立 fixture 数据与证明，不增加 API/module/filter 分支。 |
-| Green validation | Reader Node 198/198；production build；normal Playwright matrix 244/244（Chromium 90、Firefox 57、WebKit 57、iPhone WebKit 40）；Focus focused Chromium 14/14、Firefox/WebKit/iPhone WebKit 36/36。直接 Focus runtime drive 通过：ID 11/12/13、错误时 stale/empty 为 0、Retry/list focus 交接、return/reload/article Back/direct pagination Back 均保留 `mode=focus` 与正确 URL。 |
-| Durable evidence | Fixture-only screenshots remain under ignored `apps/reader-web/test-results/evidence/`; `test:evidence` forces a fresh current-worktree fixture server and separates Desktop Chromium from iPhone WebKit. Focus runtime observations are in local `/tmp/verify-focus-runtime` only; local skill benchmark remains under ignored `.claude/skills/reader-web-audit-workspace/iteration-1/`. No real content/provider/secret is included. |
-| Rollback | Revert the independently pushed Scan test/fix/evidence/skill/ledger commits and Focus fixture/matrix commit as separate units; no schema, API shape, production configuration, or real-provider operation is involved. |
-| Next action | Keep A-02 broader state/input and release evidence in progress; next queue item is M1.7 annotation/input continuity, while preserving the explicit boundary that local fixture Focus proof is not a production/API contract pass. |
+| Exact candidate | `goal/m1-annotation-input-continuity @ 57fb5a5`；Scan/Focus 状态修复、证据 harness 和端口隔离已拆分提交并 push，`GOAL.md` 仍是用户自有未提交修改。 |
+| Milestone / acceptance | M1.9b Scan + Focus fixture list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, and article return/reload/Back; broader A-02/A-06/A-07 remains `IN_PROGRESS` because API semantics, native touch, screen-reader and release evidence are separate gates. |
+| Hypothesis | 已修复的首要缺口是分页失败保留旧 success、错误 DOM 脱离首屏、URL/cursor Back 分叉和失败后焦点丢失；Focus 独立矩阵未发现额外 mode-specific 缺口。当前新的 harness 风险是固定 3010 被既有本地 server 占用会阻止 fresh evidence。 |
+| Initial failure | Scan 首次 Chromium/Node/截图复现 stale card、focusable empty `<ul>`、首屏外错误和焦点丢失；Focus 首次独立矩阵在共享修复上全绿。`npm run test:evidence` 首次因 3010 已占用直接失败，证明 evidence 启动端口不是可隔离的。 |
+| Minimal repair | 复用既有 `ArticleList`/`ReaderWorkbench` seam 完成 Scan/Focus 状态修复；`playwright.config.ts`、`e2e-server.mjs` 和 `package.json` 统一使用 `READER_E2E_PORT`，evidence 默认改用 3012，upstream 自动使用 proxy+1；默认 E2E 仍保持 3010。 |
+| Green validation | `npm test` 通过；`npm run build` 通过；`READER_E2E_PORT=3015 PLAYWRIGHT_REUSE_SERVER=false npm run test:e2e` 244/244（Chromium 90、Firefox 57、WebKit 57、iPhone WebKit 40）；`npm run test:evidence` 3/3；自定义 3014 evidence smoke 1/1；`git diff --check` 通过。 |
+| Durable evidence | 新增 `output/evidence/reader-evidence-port-isolation-2026-08-01.json`，截图仍只来自 fixture 并保留在 ignored `apps/reader-web/test-results/evidence/`；未读取 secret、真实内容、provider 或生产服务。 |
+| Rollback | Revert `57fb5a5` 即可恢复原 evidence port contract；产品 API/schema、Service Worker、生产配置和真实 provider 均未改变。 |
+| Next action | 按 dated plan 进入 Batch 1：先用两用户 API 失败证明收口 Daily Brief ownership；继续保留 native touch、screen-reader、真实 DB/生产与真实 provider 证据为未完成边界。 |
 
 ## Completed Checkpoints
 
@@ -112,6 +112,7 @@
 | 2026-07-30 | M1.9b Scan reproduced and repaired stale pagination/error presentation. | First Chromium run failed because page-1 cards remained under the page-2 URL; Node first failed on a focusable error-state `<ul>`; screenshot showed the error below the viewport. After centralizing list error state, Node 198/198, build, and Playwright 219/219 passed. Focus remains next. |
 | 2026-07-30 | Review hardening closed Scan continuity/focus evidence gaps. | A direct page-2 browser Back initially left page-2 cards under a page-1 URL; keyboard pagination failure initially moved focus to `body`. The shared list/workbench seam now restores URL cursor data, focus and a previous-page escape. Node 198/198, build, normal cross-browser 224/224, isolated fixture evidence 3/3, and direct local runtime driving all passed. Focus remains next. |
 | 2026-08-01 | M1.9b Focus independently proved the shared list-state seam. | Added fixture IDs 11/12/13 under `q=focus-fixture` with `sort=score`, `lang=original`; no Focus API/module branch was added. Focus Chromium 14/14 and Firefox/WebKit/iPhone WebKit 36/36 passed; full Node 198/198, build and Playwright 244/244 passed. Direct local runtime confirmed Focus mode, stale/empty exclusion, Retry/list focus transfer, return/reload/article Back and direct pagination Back. M1.9b is locally green; broader A-02 and release evidence remain in progress. |
+| 2026-08-01 | Batch 0 isolated the Reader evidence server from the default local fixture port. | First `npm run test:evidence` failed because 3010 was already occupied; after `READER_E2E_PORT` support, fixed evidence port 3012 passed 3/3, custom port 3014 passed 1/1, and fresh full E2E on 3015 passed 244/244. `npm test`, production build and `git diff --check` also passed. Commit `57fb5a5` was pushed without staging the user-owned `GOAL.md`; next batch is per-user Daily Brief ownership. |
 
 ## Evidence and Recovery Rules
 
