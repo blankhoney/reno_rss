@@ -45,8 +45,8 @@ async function enableNotesDualPane(page: import("@playwright/test").Page) {
   await setCraftPreferences(page, { mode: "focus", dualPane: true, dualPaneKind: "notes" });
 }
 
-async function selectReaderText(page: import("@playwright/test").Page) {
-  const paragraph = page.locator(".focusContent p").first();
+async function selectReaderText(page: import("@playwright/test").Page, paragraphIndex = 0) {
+  const paragraph = page.locator(".focusContent p").nth(paragraphIndex);
   await paragraph.scrollIntoViewIfNeeded();
   const box = await paragraph.boundingBox();
   if (box == null) throw new Error("E2E article fixture has no selectable text");
@@ -596,6 +596,75 @@ test("annotation save 503 shows explicit retry and recovers without losing the s
   expect(anchor?.kind).toBe("text-quote");
   expect(anchor?.exact).toBe("Evidence persists.");
   await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
+});
+
+test("new selection invalidates a stale annotation retry and saves the replacement anchor", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    submissions.push(body);
+    if (postCount === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 62,
+          article_id: 7,
+          type: "annotation",
+          selected_text: body.selected_text,
+          content: body.content,
+          color: body.color,
+          tags: [],
+          anchor: body.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+
+  await selectReaderText(page, 0);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("划线保存失败")).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试保存" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(toolbar).toBeHidden();
+  await selectReaderText(page, 1);
+  await expect(toolbar).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试保存" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  expect(postCount).toBe(2);
+  expect(submissions[0].selected_text).toBe("Evidence persists.");
+  expect(submissions[1].selected_text).toBe("Evidence should survive navigation.");
+  const replacementAnchor = submissions[1].anchor as Record<string, unknown>;
+  expect(replacementAnchor.kind).toBe("text-quote");
+  expect(replacementAnchor.exact).toBe("Evidence should survive navigation.");
+  await expect(page.locator('mark[data-annotation-id="62"]')).toBeVisible();
 });
 
 test("selection save round-trips the anchor through POST and renders the highlight", async ({ page }) => {
