@@ -2,8 +2,8 @@
 
 > Authoritative goal: `GOAL.md`
 > Updated: 2026-08-01 (Asia/Taipei)
-> Behavior checkpoint: `goal/m1-annotation-input-continuity @ 57fb5a5`（Reader evidence-port isolation pushed; user-owned `GOAL.md` preserved）
-> Current state: **M1.9b Scan + Focus fixture state truth is locally green; full system quality queue starts with per-user Daily Brief ownership**
+> Behavior checkpoint: `goal/m1-annotation-input-continuity @ b146d4e0`（Scan/Focus continuity plus stale annotation retry repair pushed; user-owned `GOAL.md` preserved）
+> Current state: **M1.9b Scan + Focus fixture state truth is locally green; M1.7 stale annotation retry invalidation is locally green; native touch and broader cross-engine annotation evidence remain open**
 
 ## Execution Contract
 
@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-input-continuity @ 57fb5a5`；Scan/Focus 状态修复、证据 harness 和端口隔离已拆分提交并 push，`GOAL.md` 仍是用户自有未提交修改。 |
-| Milestone / acceptance | M1.9b Scan + Focus fixture list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, and article return/reload/Back; broader A-02/A-06/A-07 remains `IN_PROGRESS` because API semantics, native touch, screen-reader and release evidence are separate gates. |
-| Hypothesis | 已修复的首要缺口是分页失败保留旧 success、错误 DOM 脱离首屏、URL/cursor Back 分叉和失败后焦点丢失；Focus 独立矩阵未发现额外 mode-specific 缺口。当前新的 harness 风险是固定 3010 被既有本地 server 占用会阻止 fresh evidence。 |
+| Exact candidate | `goal/m1-annotation-input-continuity @ b146d4e0`；Scan/Focus 状态修复、证据 harness、端口隔离和 stale annotation retry 修复已拆分提交并 push，`GOAL.md` 仍是用户自有未提交修改。 |
+| Milestone / acceptance | M1.9b Scan + Focus fixture list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, and article return/reload/Back; one M1.7 stale annotation retry slice is also green; broader A-02/A-03/A-06/A-07 remains `IN_PROGRESS` because API semantics, native touch, screen-reader and release evidence are separate gates. |
+| Hypothesis | 已修复的首要缺口是分页失败保留旧 success、错误 DOM 脱离首屏、URL/cursor Back 分叉、失败后焦点丢失，以及新选区仍持有旧 annotation retry；Focus 独立矩阵未发现额外 mode-specific 缺口。当前仍需用真实 touch/跨引擎证据检验 selection lifecycle。 |
 | Initial failure | Scan 首次 Chromium/Node/截图复现 stale card、focusable empty `<ul>`、首屏外错误和焦点丢失；Focus 首次独立矩阵在共享修复上全绿。`npm run test:evidence` 首次因 3010 已占用直接失败，证明 evidence 启动端口不是可隔离的。 |
 | Minimal repair | 复用既有 `ArticleList`/`ReaderWorkbench` seam 完成 Scan/Focus 状态修复；`playwright.config.ts`、`e2e-server.mjs` 和 `package.json` 统一使用 `READER_E2E_PORT`，evidence 默认改用 3012，upstream 自动使用 proxy+1；默认 E2E 仍保持 3010。 |
-| Green validation | `npm test` 通过；`npm run build` 通过；`READER_E2E_PORT=3015 PLAYWRIGHT_REUSE_SERVER=false npm run test:e2e` 244/244（Chromium 90、Firefox 57、WebKit 57、iPhone WebKit 40）；`npm run test:evidence` 3/3；自定义 3014 evidence smoke 1/1；`git diff --check` 通过。 |
+| Green validation | `npm test` 通过（198/198）；`npm run build` 通过；Scan/Focus full matrix 244/244（Chromium 90、Firefox 57、WebKit 57、iPhone WebKit 40）；annotation retry pair Chromium 2/2；`npm run test:evidence` 3/3；自定义 evidence smoke 1/1；`git diff --check` 通过。 |
 | Durable evidence | 新增 `output/evidence/reader-evidence-port-isolation-2026-08-01.json`，截图仍只来自 fixture 并保留在 ignored `apps/reader-web/test-results/evidence/`；未读取 secret、真实内容、provider 或生产服务。 |
-| Rollback | Revert `57fb5a5` 即可恢复原 evidence port contract；产品 API/schema、Service Worker、生产配置和真实 provider 均未改变。 |
-| Next action | 按 dated plan 进入 Batch 1：先用两用户 API 失败证明收口 Daily Brief ownership；继续保留 native touch、screen-reader、真实 DB/生产与真实 provider 证据为未完成边界。 |
+| Rollback | Revert `b146d4e0`（以及需要时的 `d5b4833`）即可移除 stale annotation retry slice；产品 API/schema、Service Worker、生产配置和真实 provider 均未改变。端口隔离仍由 `57fb5a5` 保留。 |
+| Next action | 继续 M1.7：先补 touch-equivalent/native touch selection 与跨引擎 annotation retry 矩阵，再处理真实 DB/生产、screen-reader 与 provider evidence；不要把当前 Chromium fixture slice 宣布为完整输入连续性关闭。 |
 
 ## Completed Checkpoints
 
@@ -45,6 +45,7 @@
 | M1.7 annotation save 503 retry | A-03, A-02, A-06 | 503 → explicit retry → success with anchor-backed highlight; anchor built from content text, not article element; onPointerDown prevents touch selection collapse; anchor round-trip e2e added | Touch selection automation, session-switch and two-user annotation matrix incomplete |
 | M1.7 session-switch annotation isolation | A-03, A-04 | Per-user annotation storage in e2e server; user B does not see user A's created annotation after login switch; Chromium 69 passed | Two-user concurrent browser matrix incomplete |
 | M1.7 two-user concurrent isolation | A-03, A-04 | Two browser contexts: ada creates annotation 60, babbage context sees fixture 41 only; no cross-context leakage; Chromium 70 passed | Touch selection automation and full cross-engine annotation matrix remain |
+| M1.7 stale annotation retry invalidation | A-03, A-02 | Red Chromium test reproduced the old `重试保存` after Escape→new paragraph selection; `selectionRevision` now invalidates only the failed selection's retry, while same-selection retry remains valid. Chromium annotation pair 2/2, Reader Node 198/198 and production build passed | Native touch selection, pending-request race, and full cross-engine annotation matrix remain |
 | M1.9b Scan + Focus list-state truth | A-02, A-05, A-06, A-07 | Scan test-first failures exposed stale cards, off-viewport error, direct pagination Back drift, and lost retry focus; Focus then used independent IDs 11/12/13 and `score/original/q=focus-fixture` context. Both modes now pass loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, article return/reload/Back across Chromium/Firefox/WebKit/iPhone WebKit | Broader A-02, API semantics, native selection, screen reader and release-bound SHA/CI evidence remain |
 
 ## Acceptance Ledger
@@ -53,7 +54,7 @@
 | --- | --- | --- |
 | A-01 | PASS | Exact revision, evidence manifest, reproducible focused gates |
 | A-02 | IN_PROGRESS | Daily, Reader/Ask, Keep/starred, Review, Export, Research, Scan and Focus local fixture matrices are green. Scan and Focus each prove loading→confirmed empty, page-2 503 without stale cards, retry→server success, previous-page/direct Back, and article return/reload/Back across four browser projects; broader state/input and release evidence remains. |
-| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat, ambiguity rejection, M1.5 inline-markup, M1.7 IME dismiss, save 503→retry with content-scoped anchor, session-switch isolation, and two-user concurrent isolation are green; touch selection automation and full cross-engine annotation matrix remain |
+| A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat, ambiguity rejection, M1.5 inline-markup, M1.7 IME dismiss, save 503→retry with content-scoped anchor, stale retry invalidation, session-switch isolation, and two-user concurrent isolation are green; touch selection automation, pending-request race and full cross-engine annotation matrix remain |
 | A-04 | IN_PROGRESS | Annotation ambiguity keeps private data visible; admin/public metrics/session checks exist; M1.7 session-switch and two-user concurrent contexts prove no cross-user annotation leakage; full two-user cache/Service-Worker matrix remains |
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion, core keyboard/reflow, semantic landmarks, keyboard Tab focus, and axe-core WCAG 2.0 A/AA scan (zero critical/serious violations, color-contrast excluded as known gap) now run in the browser matrix; screen-reader evidence and full contrast remediation remain |
 | A-06 | IN_PROGRESS | Current candidate passes normal matrix Chromium 90/90, Firefox 57/57, WebKit 57/57, iPhone WebKit 40/40; isolated fixture evidence remains Desktop Chromium 2/2 + iPhone WebKit 1/1. Scan and Focus loading/empty/paging-retry/previous-page/direct Back/return recovery run cross-engine; Scan/Focus/Keep reflow remains green at 320–1440px; native selection/input and screen-reader proof remain. |
@@ -112,7 +113,8 @@
 | 2026-07-30 | M1.9b Scan reproduced and repaired stale pagination/error presentation. | First Chromium run failed because page-1 cards remained under the page-2 URL; Node first failed on a focusable error-state `<ul>`; screenshot showed the error below the viewport. After centralizing list error state, Node 198/198, build, and Playwright 219/219 passed. Focus remains next. |
 | 2026-07-30 | Review hardening closed Scan continuity/focus evidence gaps. | A direct page-2 browser Back initially left page-2 cards under a page-1 URL; keyboard pagination failure initially moved focus to `body`. The shared list/workbench seam now restores URL cursor data, focus and a previous-page escape. Node 198/198, build, normal cross-browser 224/224, isolated fixture evidence 3/3, and direct local runtime driving all passed. Focus remains next. |
 | 2026-08-01 | M1.9b Focus independently proved the shared list-state seam. | Added fixture IDs 11/12/13 under `q=focus-fixture` with `sort=score`, `lang=original`; no Focus API/module branch was added. Focus Chromium 14/14 and Firefox/WebKit/iPhone WebKit 36/36 passed; full Node 198/198, build and Playwright 244/244 passed. Direct local runtime confirmed Focus mode, stale/empty exclusion, Retry/list focus transfer, return/reload/article Back and direct pagination Back. M1.9b is locally green; broader A-02 and release evidence remain in progress. |
-| 2026-08-01 | Batch 0 isolated the Reader evidence server from the default local fixture port. | First `npm run test:evidence` failed because 3010 was already occupied; after `READER_E2E_PORT` support, fixed evidence port 3012 passed 3/3, custom port 3014 passed 1/1, and fresh full E2E on 3015 passed 244/244. `npm test`, production build and `git diff --check` also passed. Commit `57fb5a5` was pushed without staging the user-owned `GOAL.md`; next batch is per-user Daily Brief ownership. |
+| 2026-08-01 | Batch 0 isolated the Reader evidence server from the default local fixture port. | First `npm run test:evidence` failed because 3010 was already occupied; after `READER_E2E_PORT` support, fixed evidence port 3012 passed 3/3, custom port 3014 passed 1/1, and fresh full E2E on 3015 passed 244/244. `npm test`, production build and `git diff --check` also passed. Commit `57fb5a5` was pushed without staging the user-owned `GOAL.md`. |
+| 2026-08-01 | M1.7 closed one stale annotation retry invalidation slice. | Chromium red test confirmed that a 503 retry closure remained visible after Escape→new paragraph selection. `selectionRevision` plus a per-selection retry ref now clears only the obsolete retry; same-selection 503→retry remains green. Commits `d5b4833` and `b146d4e0` were pushed. Chromium pair 2/2, Reader Node 198/198 and production build passed; native touch, pending-request race, and full cross-engine annotation evidence remain open. |
 
 ## Evidence and Recovery Rules
 
