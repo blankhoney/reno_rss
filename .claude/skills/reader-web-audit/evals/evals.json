@@ -1,0 +1,44 @@
+{
+  "skill_name": "reader-web-audit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "只读审计当前 Reader Web 的 Scan 列表：检查 loading、成功空集、分页后 503、重试、进入文章后 Back/refresh 的状态真相。不要改代码，也不要读取真实数据。请给出证据等级、GOAL 映射和最小下一步。",
+      "expected_output": "A bounded, read-only, evidence-backed audit that prioritizes M1.9b, distinguishes the implemented Scan repair from remaining risks, preserves GOAL.md and privacy boundaries, and proposes the smallest evidence-backed next step.",
+      "files": [],
+      "expectations": [
+        "The report identifies current GOAL M1.9b Scan-before-Focus priority and maps the issue to A-02.",
+        "The report preserves the modified user-owned GOAL.md and does not claim to edit or stage it.",
+        "The report inspects the current list-state repair and names any remaining state, focus, or continuity concern only when source evidence supports it.",
+        "The report clearly states that browser/tests were not run and does not label those checks PASS.",
+        "The recommended next action is a bounded deterministic Scan or Focus proof, without inventing a Scan API module."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "帮我全面看看这个 Reader Web 好不好看、手机好不好用，并用截图和视频证明。重点是键盘焦点、暗色主题、错误重试和文章阅读体验；不要碰生产或秘密。",
+      "expected_output": "A scoped fixture-only browser audit plan that separates visual evidence from behavioral proof, includes desktop/mobile and light/dark, focus/contrast/state checks, artifact privacy rules, and does not jump directly to a wholesale redesign.",
+      "files": [],
+      "expectations": [
+        "The report limits future screenshots/videos to the local fixture-backed Playwright server and explicitly excludes production, secrets, real articles, cookies, and storage state.",
+        "The report states that screenshots/videos were NOT RUN in the evaluation rather than implying observed media evidence.",
+        "The proposed matrix includes desktop/mobile, light/dark, keyboard focus, error/retry, and article reading states.",
+        "The report explains that screenshots prove appearance and must be paired with DOM, URL, network, accessibility, or state assertions for behavioral claims.",
+        "The report recommends evidence-led small batches and preserves the existing warm editorial system instead of proposing an unsupported wholesale redesign."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review the current reader-web diff for visual and interaction regressions. Map findings to the project goal, explain which Playwright flows to drive, and clearly state what you did not verify. Read-only only.",
+      "expected_output": "A current-authority-first diff audit with explicit evidence boundaries, preserved architecture/security invariants, exact reusable seams, honest NOT RUN or NEEDS_BASELINE labels, and one smallest recommended next batch.",
+      "files": [],
+      "expectations": [
+        "The report identifies the actual Reader Web product changes and reviews their visual or interaction consequences without inventing unrelated regressions.",
+        "The report distinguishes the modified user-owned GOAL.md and audit-skill files from the Reader Web product diff.",
+        "The report explicitly states that Playwright/browser flows were not run.",
+        "The report preserves sanitization, Agent Markdown/think stripping, navigation context, saved-to-project, and auth/cache boundaries in any proposed verification.",
+        "The smallest recommendation is an evidence-backed targeted repair or bounded future evidence run rather than a redesign."
+      ]
+    }
+  ]
+}

@@ -32,3 +32,6 @@ node_modules/
 .next/
 playwright-report/
 test-results/
+
+# Local skill evaluation artifacts
+.claude/skills/*-workspace/
