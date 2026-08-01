@@ -1,9 +1,9 @@
 # Project Optimization Execution Plan
 
 > Authoritative goal: `GOAL.md`
-> Updated: 2026-07-30 (Asia/Taipei)
-> Behavior checkpoint: working tree on `goal/m1-annotation-input-continuity @ 734d15dd`（uncommitted M1.9b Scan slice; user-owned `GOAL.md` preserved）
-> Current state: **M1.9b Scan list-state truth is locally green; Focus remains the next fixed A-02 slice**
+> Updated: 2026-08-01 (Asia/Taipei)
+> Behavior checkpoint: `goal/m1-annotation-input-continuity @ c44f99e9`（Scan/Focus list-state test slice pushed; user-owned `GOAL.md` preserved）
+> Current state: **M1.9b Scan + Focus list-state truth is locally green; broader A-02/release evidence remains in progress**
 
 ## Execution Contract
 
@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-input-continuity @ 734d15dd`；当前工作树含未提交 M1.9b Scan、Playwright evidence skill/harness 和用户自有 `GOAL.md` 修改，尚无新的提交 SHA。 |
-| Milestone / acceptance | M1.9b Scan list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, and article return/reload/Back; A-02 remains `IN_PROGRESS` until Focus follows the same sequence. |
-| Hypothesis | 非首次分页失败会保留旧 `rawArticles`，同时 URL/pageIndex 已进入下一页；错误 DOM 又位于首屏以下，导致旧 success 冒充当前结果且 retry 不明显。复核还发现：直接 pagination Back 不重新加载 URL cursor，且 error 会卸载已聚焦控件。 |
-| Initial failure | Focused Chromium first failed because `Keyboard article one` remained after page-2 503；Node test first failed because error state still rendered a focusable empty `<ul>`；failure screenshot showed the error panel below the first viewport。直接从 page 2 后退时，URL 已回 page 1 但页面仍显示 page 2；键盘触发失败后焦点落到 `body`。 |
-| Minimal repair | Current-request failure clears stale articles；`ArticleList` owns mutually exclusive error/list/pager, transfers focus to retry, restores its list focus after recovery, and retains an explicit previous-page escape；`ReaderWorkbench` classifies retry by page index, clears stale paging flags for superseding initial requests, and rebuilds list cursor state from `popstate` URL. No API, cursor serialization, server ordering, cache, schema, or production contract changed. |
-| Green validation | Reader Node 198/198；production build；normal Playwright matrix 224/224（Chromium 85、Firefox 52、WebKit 52、iPhone WebKit 35）；isolated `test:evidence` 3/3（Desktop Chromium × 2、iPhone WebKit × 1）。直接 `/verify` runtime drive passed with first-viewport error/retry, no stale/empty state, retry/list focus transfer, return/reload/Back context, and direct pagination Back recovery；`git diff --check` passed before docs refresh. |
-| Durable evidence | Fixture-only screenshots remain under ignored `apps/reader-web/test-results/evidence/`; `test:evidence` forces a fresh local fixture server rather than reusing port 3010, and separates Desktop Chromium from iPhone WebKit capture. Local skill benchmark is under `.claude/skills/reader-web-audit-workspace/iteration-1/`（with skill 100%, without skill 80%）. These are working-tree evidence, not committed milestone artifacts. |
-| Rollback | Revert the uncommitted Reader list/e2e/harness slice; no schema, API shape, production configuration, or real-provider operation is involved. |
-| Next action | Repeat the same fail-first matrix for Focus using different fixture IDs/context; do not create Focus-specific product branches if the shared Scan repair already satisfies it. |
+| Exact candidate | `goal/m1-annotation-input-continuity @ c44f99e9`；Scan 修复、证据 harness、audit skill、账本和 Focus fixture/matrix 已拆分提交并 push，`GOAL.md` 仍是用户自有未提交修改。 |
+| Milestone / acceptance | M1.9b Scan + Focus list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, and article return/reload/Back; broader A-02 remains `IN_PROGRESS` until release-level and remaining state/input evidence is complete. |
+| Hypothesis | 非首次分页失败会保留旧 `rawArticles`，同时 URL/pageIndex 已进入下一页；错误 DOM 又位于首屏以下，导致旧 success 冒充当前结果且 retry 不明显。复核还发现：直接 pagination Back 不重新加载 URL cursor，且 error 会卸载已聚焦控件。Focus 独立矩阵未发现额外 mode-specific 缺口。 |
+| Initial failure | Scan 首次 Chromium 失败于 page-2 旧卡、Node 失败于 focusable empty `<ul>`、截图显示首屏外错误；直接 page-2 Back 与键盘错误焦点也分别复现了 URL/可见状态和恢复可达性问题。Focus 首次独立矩阵在共享修复上全绿，没有新增生产行为失败。 |
+| Minimal repair | Current-request failure clears stale articles；`ArticleList` owns mutually exclusive error/list/pager, transfers focus to retry, restores its list focus after recovery, and retains an explicit previous-page escape；`ReaderWorkbench` classifies retry by page index, clears stale paging flags for superseding initial requests, and rebuilds list cursor state from `popstate` URL. Focus 只增加独立 fixture 数据与证明，不增加 API/module/filter 分支。 |
+| Green validation | Reader Node 198/198；production build；normal Playwright matrix 244/244（Chromium 90、Firefox 57、WebKit 57、iPhone WebKit 40）；Focus focused Chromium 14/14、Firefox/WebKit/iPhone WebKit 36/36。直接 Focus runtime drive 通过：ID 11/12/13、错误时 stale/empty 为 0、Retry/list focus 交接、return/reload/article Back/direct pagination Back 均保留 `mode=focus` 与正确 URL。 |
+| Durable evidence | Fixture-only screenshots remain under ignored `apps/reader-web/test-results/evidence/`; `test:evidence` forces a fresh current-worktree fixture server and separates Desktop Chromium from iPhone WebKit. Focus runtime observations are in local `/tmp/verify-focus-runtime` only; local skill benchmark remains under ignored `.claude/skills/reader-web-audit-workspace/iteration-1/`. No real content/provider/secret is included. |
+| Rollback | Revert the independently pushed Scan test/fix/evidence/skill/ledger commits and Focus fixture/matrix commit as separate units; no schema, API shape, production configuration, or real-provider operation is involved. |
+| Next action | Keep A-02 broader state/input and release evidence in progress; next queue item is M1.7 annotation/input continuity, while preserving the explicit boundary that local fixture Focus proof is not a production/API contract pass. |
 
 ## Completed Checkpoints
 
@@ -45,18 +45,18 @@
 | M1.7 annotation save 503 retry | A-03, A-02, A-06 | 503 → explicit retry → success with anchor-backed highlight; anchor built from content text, not article element; onPointerDown prevents touch selection collapse; anchor round-trip e2e added | Touch selection automation, session-switch and two-user annotation matrix incomplete |
 | M1.7 session-switch annotation isolation | A-03, A-04 | Per-user annotation storage in e2e server; user B does not see user A's created annotation after login switch; Chromium 69 passed | Two-user concurrent browser matrix incomplete |
 | M1.7 two-user concurrent isolation | A-03, A-04 | Two browser contexts: ada creates annotation 60, babbage context sees fixture 41 only; no cross-context leakage; Chromium 70 passed | Touch selection automation and full cross-engine annotation matrix remain |
-| M1.9b Scan list-state truth | A-02, A-05, A-06, A-07 | Test-first page-2 503 exposed stale page-1 cards, an off-viewport error, direct pagination Back drift, and lost retry focus; loading→confirmed empty, retry→server page 2, previous-page escape, explicit return/reload, article Back, and direct pagination Back now pass across Chromium/Firefox/WebKit/iPhone WebKit | Focus must repeat the independent matrix before M1.9b closes |
+| M1.9b Scan + Focus list-state truth | A-02, A-05, A-06, A-07 | Scan test-first failures exposed stale cards, off-viewport error, direct pagination Back drift, and lost retry focus; Focus then used independent IDs 11/12/13 and `score/original/q=focus-fixture` context. Both modes now pass loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, article return/reload/Back across Chromium/Firefox/WebKit/iPhone WebKit | Broader A-02, API semantics, native selection, screen reader and release-bound SHA/CI evidence remain |
 
 ## Acceptance Ledger
 
 | ID | Status | Current proof / next necessary proof |
 | --- | --- | --- |
 | A-01 | PASS | Exact revision, evidence manifest, reproducible focused gates |
-| A-02 | IN_PROGRESS | Daily, Reader/Ask, Keep/starred, Review, Export, Research, and Scan are green. Scan now proves loading→confirmed empty, page-2 503 without stale cards, retry→server success, and article return/reload/Back across four browser projects; Focus remains the next independent slice. |
+| A-02 | IN_PROGRESS | Daily, Reader/Ask, Keep/starred, Review, Export, Research, Scan and Focus local fixture matrices are green. Scan and Focus each prove loading→confirmed empty, page-2 503 without stale cards, retry→server success, previous-page/direct Back, and article return/reload/Back across four browser projects; broader state/input and release evidence remains. |
 | A-03 | IN_PROGRESS | Initial anchor plus M1.3 shifted-repeat, ambiguity rejection, M1.5 inline-markup, M1.7 IME dismiss, save 503→retry with content-scoped anchor, session-switch isolation, and two-user concurrent isolation are green; touch selection automation and full cross-engine annotation matrix remain |
 | A-04 | IN_PROGRESS | Annotation ambiguity keeps private data visible; admin/public metrics/session checks exist; M1.7 session-switch and two-user concurrent contexts prove no cross-user annotation leakage; full two-user cache/Service-Worker matrix remains |
 | A-05 | IN_PROGRESS | AA muted-text, reduced-motion, core keyboard/reflow, semantic landmarks, keyboard Tab focus, and axe-core WCAG 2.0 A/AA scan (zero critical/serious violations, color-contrast excluded as known gap) now run in the browser matrix; screen-reader evidence and full contrast remediation remain |
-| A-06 | IN_PROGRESS | Current working tree passes normal matrix Chromium 85/85, Firefox 52/52, WebKit 52/52, iPhone WebKit 35/35; isolated fixture evidence additionally passes Desktop Chromium 2/2 and iPhone WebKit 1/1. Scan loading/empty/paging-retry/previous-page/direct Back/return recovery now runs cross-engine; Scan/Focus/Keep reflow remains green at 320–1440px; cross-engine native selection/input and screen-reader proof remain. |
+| A-06 | IN_PROGRESS | Current candidate passes normal matrix Chromium 90/90, Firefox 57/57, WebKit 57/57, iPhone WebKit 40/40; isolated fixture evidence remains Desktop Chromium 2/2 + iPhone WebKit 1/1. Scan and Focus loading/empty/paging-retry/previous-page/direct Back/return recovery run cross-engine; Scan/Focus/Keep reflow remains green at 320–1440px; native selection/input and screen-reader proof remain. |
 | A-07 | IN_PROGRESS | Daily and Reader/Ask partial states are truthful; cross-module state language non-contradiction audit (error/empty/content never co-occur) is green in Chromium and cross-engine grep; full fixed-fixture rubric/scoring remains |
 | A-08 | IN_PROGRESS | PostgreSQL `project ⇒ saved` invariant and atomic upsert are covered by CI PostgreSQL migration + API contract; latest Alembic downgrade/replay and disposable logical snapshot restore both pass, while recovery-time/write-failure evidence remains |
 | A-09 | IN_PROGRESS | Web schema-v2 and CI PostgreSQL fixture baselines have five samples per route/query phase; API/queue memory baselines and a schema-v1/v2 comparator exist, and CI now compares candidates with the latest successful `main` baseline at a 3× threshold; deployment-like write/load evidence remains |
@@ -69,8 +69,8 @@
 
 ## Autonomous Work Queue
 
-1. **M1.9b — Focus list-state truth (P0):** Repeat Scan's fail-first loading/empty/page-2 503→retry/server success/article return-reload-Back matrix for Focus; reuse the shared repair and avoid a Focus-only product branch unless a new failure proves one is needed.
-2. **M1.7 — annotation/input continuity (P0):** Close touch, IME, retry, session and two-user anchor cases without unsafe rebinding.
+1. **M1.7 — annotation/input continuity (P0):** Close touch, IME, retry, session and two-user anchor cases without unsafe rebinding. M1.9b Scan + Focus list-state truth is locally green but not a release closure.
+2. **M1.8 — identity/provider boundaries (P0):** Complete two-user cache/API isolation and provider cap/timeout/fallback/idempotency matrix.
 3. **M1.8 — identity/provider boundaries (P0):** Complete two-user cache/API isolation and provider cap/timeout/fallback/idempotency matrix.
 4. **M2.2 — accessibility/input extension (P0):** Complete semantic/focus/reduced-motion evidence, then retry a reproducible cross-engine selection alternative.
 5. **M3.2 — broader fault matrix (P0):** Add database outage, lock contention, timeout and retry-exhaustion recovery evidence while retaining the current five-sample budget.
@@ -111,6 +111,7 @@
 | 2026-07-30 | Added a repository-local Reader Web audit skill and fixture-only visual evidence command. | `reader-web-audit` is manual/read-only and forbids secrets/production/real content; 3-prompt benchmark scored 100% with skill vs 80% without. `test:evidence` captures reviewed fixture PNGs and retains screenshot/video only on failure. |
 | 2026-07-30 | M1.9b Scan reproduced and repaired stale pagination/error presentation. | First Chromium run failed because page-1 cards remained under the page-2 URL; Node first failed on a focusable error-state `<ul>`; screenshot showed the error below the viewport. After centralizing list error state, Node 198/198, build, and Playwright 219/219 passed. Focus remains next. |
 | 2026-07-30 | Review hardening closed Scan continuity/focus evidence gaps. | A direct page-2 browser Back initially left page-2 cards under a page-1 URL; keyboard pagination failure initially moved focus to `body`. The shared list/workbench seam now restores URL cursor data, focus and a previous-page escape. Node 198/198, build, normal cross-browser 224/224, isolated fixture evidence 3/3, and direct local runtime driving all passed. Focus remains next. |
+| 2026-08-01 | M1.9b Focus independently proved the shared list-state seam. | Added fixture IDs 11/12/13 under `q=focus-fixture` with `sort=score`, `lang=original`; no Focus API/module branch was added. Focus Chromium 14/14 and Firefox/WebKit/iPhone WebKit 36/36 passed; full Node 198/198, build and Playwright 244/244 passed. Direct local runtime confirmed Focus mode, stale/empty exclusion, Retry/list focus transfer, return/reload/article Back and direct pagination Back. M1.9b is locally green; broader A-02 and release evidence remain in progress. |
 
 ## Evidence and Recovery Rules
 
