@@ -11,7 +11,8 @@
     "start:e2e": "npm run prepare:e2e && node scripts/e2e-server.mjs",
     "baseline:web": "node scripts/web-performance-baseline.mjs",
     "test": "node --test --import tsx 'src/**/*.test.ts'",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:evidence": "PLAYWRIGHT_EVIDENCE=1 PLAYWRIGHT_REUSE_SERVER=false playwright test --project=chromium-evidence --project=webkit-touch-evidence"
   },
   "dependencies": {
     "motion": "^12.38.0",
