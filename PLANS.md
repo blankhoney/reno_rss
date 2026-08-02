@@ -2,8 +2,8 @@
 
 > Authoritative goal: `GOAL.md`
 > Updated: 2026-08-02 (Asia/Taipei)
-> Behavior checkpoint: `goal/m1-annotation-input-continuity @ 4acd2ec7`（fetch-content typed-404 boundary added; user-owned `GOAL.md` preserved）
-> Current state: **Reader route identity, cursor bounds, related-source partial failure, Scan/Focus state truth, stale-retry, Daily Brief ownership, Worker lease renewal and fetch-content typed 404 are locally green; useful-work health, translation budget, broader API schema closure, accessibility and release safety remain open**
+> Behavior checkpoint: `goal/m1-annotation-input-continuity @ d59ef71`（translation daily account and migration added; user-owned `GOAL.md` preserved）
+> Current state: **Reader route identity, cursor bounds, related-source partial failure, Scan/Focus state truth, stale-retry, Daily Brief ownership, Worker lease renewal, fetch-content typed 404 and translation budget account are locally green; useful-work health, broader API schema closure, accessibility and release safety remain open**
 
 ## Execution Contract
 
@@ -17,15 +17,15 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-input-continuity @ 4acd2ec7`；Scan/Focus 状态修复、证据 harness、端口隔离、stale annotation retry、Daily Brief ownership、strict Reader route、cursor boundary、related-source failure 和 fetch-content typed 404 已拆分提交并 push/local，`GOAL.md` 仍是用户自有未提交修改。新后继策略见 `docs/superpowers/plans/2026-08-02-whole-system-optimization-plan.md`。 |
+| Exact candidate | `goal/m1-annotation-input-continuity @ d59ef71`；Scan/Focus 状态修复、证据 harness、端口隔离、stale annotation retry、Daily Brief ownership、strict Reader route、cursor boundary、related-source failure、fetch-content typed 404 和 translation budget account 已拆分提交并 push/local，`GOAL.md` 仍是用户自有未提交修改。新后继策略见 `docs/superpowers/plans/2026-08-02-whole-system-optimization-plan.md`。 |
 | Milestone / acceptance | M1.9b Scan + Focus fixture list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, and article return/reload/Back; one M1.7 stale annotation retry slice, Daily Brief ownership proof, strict Reader route identity/auth, bounded cursor, related-source partial failure and fetch-content existence/typed-error slices are green; broader A-02/A-03/A-04/A-06/A-07 remains `IN_PROGRESS` because API schema closure, native touch, screen-reader and release evidence are separate gates. |
 | Hypothesis | 已修复的首要缺口是分页失败保留旧 success、错误 DOM 脱离首屏、URL/cursor Back 分叉、失败后焦点丢失，以及新选区仍持有旧 annotation retry；Focus 独立矩阵未发现额外 mode-specific 缺口。当前仍需用真实 touch/跨引擎证据检验 selection lifecycle。 |
 | Initial failure | Scan 首次 Chromium/Node/截图复现 stale card、focusable empty `<ul>`、首屏外错误和焦点丢失；Focus 首次独立矩阵在共享修复上全绿。`npm run test:evidence` 首次因 3010 已占用直接失败，证明 evidence 启动端口不是可隔离的。 |
 | Minimal repair | 复用既有 `ArticleList`/`ReaderWorkbench` seam 完成 Scan/Focus 状态修复；`playwright.config.ts`、`e2e-server.mjs` 和 `package.json` 统一使用 `READER_E2E_PORT`，evidence 默认改用 3012，upstream 自动使用 proxy+1；默认 E2E 仍保持 3010。 |
-| Green validation | 当前 Reader Node `201/201`；production build 通过；route Node `3/3`、invalid-route Chromium `2/2`、cursor/navigation Node `10/10`、Scan pagination Chromium `5/5`、related-source Chromium `2/2`、视觉 evidence `3/3`；API fetch-content tests `10 passed`、API full pytest `222 passed, 1 skipped`、API Ruff 通过；既有 Scan/Focus full matrix `244/244` 与 annotation pair `2/2` 仍为 fixture-only 历史证据；`git diff --check` 通过。 |
+| Green validation | 当前 Reader Node `201/201`；production build 通过；route Node `3/3`、invalid-route Chromium `2/2`、cursor/navigation Node `10/10`、Scan pagination Chromium `5/5`、related-source Chromium `2/2`、视觉 evidence `3/3`；API fetch-content tests `10 passed`、API full pytest `222 passed, 1 skipped`、API Ruff 通过；Worker translation/ledger target `9 passed`、Worker full pytest `137 passed, 6 skipped`、Worker Ruff 通过；既有 Scan/Focus full matrix `244/244` 与 annotation pair `2/2` 仍为 fixture-only 历史证据；`git diff --check` 通过。 |
 | Durable evidence | 新增 `output/evidence/reader-evidence-port-isolation-2026-08-01.json`，截图仍只来自 fixture 并保留在 ignored `apps/reader-web/test-results/evidence/`；未读取 secret、真实内容、provider 或生产服务。 |
 | Rollback | Revert `b146d4e0`（以及需要时的 `d5b4833`）即可移除 stale annotation retry slice；产品 API/schema、Service Worker、生产配置和真实 provider 均未改变。端口隔离仍由 `57fb5a5` 保留。 |
-| Next action | 继续 `docs/superpowers/plans/2026-08-02-whole-system-optimization-plan.md`：lease renewal 与 fetch-content typed 404 已完成，下一步做 Worker useful-work health/translation budget 的 failure-first slice，再处理 broader API response schema closure、视觉/无障碍和交付文档；native touch、screen-reader、真实 DB/provider/生产仍保持未完成。 |
+| Next action | 继续 `docs/superpowers/plans/2026-08-02-whole-system-optimization-plan.md`：lease renewal 与 translation budget 已完成，useful-work health 仍因缺少安全的跨容器状态 seam 保持 open；下一步处理 broader API response schema closure，再做视觉/无障碍和交付文档；native touch、screen-reader、真实 DB/provider/生产仍保持未完成。 |
 
 ## Completed Checkpoints
 
@@ -120,6 +120,7 @@
 | 2026-08-02 | Reader cursor state received a bounded URL contract. | `normalizeCursorTrail`/`buildWorkbenchHref` reject oversized encoded state, and pagination refuses to advance when the next trail cannot be retained, preserving current page truth with a visible toast. Node cursor/navigation 10/10, Scan pagination/Back Chromium 5/5, build passed; full cross-engine rerun remains open. |
 | 2026-08-02 | Related navigation now distinguishes partial failure from empty relationships. | Themes/clusters retain successful links while labeling failed sources and retrying only the failed source. Chromium related-source pair 2/2, full Reader Node 201/201 and build passed; real relation API semantics remain unverified. |
 | 2026-08-02 | API fetch-content now rejects missing articles before enqueue. | Failure-first API test initially observed `202` for article `999999`; route preflight now returns the shared typed `404/not_found` envelope and leaves the queue unchanged. OpenAPI was regenerated with the 404 response. `tests/test_jobs_api.py` 10 passed; API full pytest 222 passed, 1 skipped; Ruff and `git diff --check` passed. Real PostgreSQL delete-after-enqueue races remain a separate boundary. |
+| 2026-08-02 | Translation now has an independent daily budget account. | Failure-first fake-provider tests proved cached translations do not charge and exhausted budget does not call the provider. Worker ledger, API ledger/admin metrics and migration `0012_translation_daily_usage_account` now share `translate`; Worker full pytest 137 passed/6 skipped and API full pytest 222 passed/1 skipped, with Ruff green. Real PostgreSQL migration replay and provider spend remain unrun. |
 
 ## Evidence and Recovery Rules
 
