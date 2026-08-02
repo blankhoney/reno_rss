@@ -477,6 +477,9 @@ const proxy = createServer(async (request, response) => {
           reason: "可恢复证据链直接影响研究可信度。",
           summary_zh: "让浏览、标注与研究任务在导航后保持连续。",
           overall_score: 91,
+          risk_flags: ["reposted"],
+          source_quality: 88,
+          content_quality: "full",
         }],
         worth_scan: [{
           article_id: 8,

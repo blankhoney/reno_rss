@@ -25,6 +25,7 @@ test("dailyBriefFromApi maps nested tier items and null brief", () => {
     brief: {
       generated_at: "2026-07-18T08:00:00+00:00",
       title: "今日情报 2026-07-18",
+      source: "recommendations_latest",
       must_read: [
         {
           article_id: 1,
@@ -35,6 +36,9 @@ test("dailyBriefFromApi maps nested tier items and null brief", () => {
           reason: "hot",
           summary_zh: "摘要",
           overall_score: 93,
+          risk_flags: ["reposted", "", "reposted", 7],
+          source_quality: 87.5,
+          content_quality: "full",
         },
       ],
       worth_scan: [{ article_id: 2, title: "B", tier: "read", rank_score: 70, reason: "ok" }],
@@ -44,10 +48,24 @@ test("dailyBriefFromApi maps nested tier items and null brief", () => {
 
   assert.ok(brief);
   assert.equal(brief.title, "今日情报 2026-07-18");
+  assert.equal(brief.source, "recommendations_latest");
   assert.equal(brief.mustRead[0]?.summaryZh, "摘要");
   assert.equal(brief.mustRead[0]?.overallScore, 93);
+  assert.deepEqual(brief.mustRead[0]?.riskFlags, ["reposted", "reposted"]);
+  assert.equal(brief.mustRead[0]?.sourceQuality, 87.5);
+  assert.equal(brief.mustRead[0]?.contentQuality, "full");
   assert.equal(brief.worthScan[0]?.articleId, 2);
   assert.equal(brief.canSkip[0]?.tier, "skim");
+});
+
+test("dailyBriefFromApi ignores malformed tier rows", () => {
+  const brief = dailyBriefFromApi({
+    brief: {
+      must_read: [null as never, "invalid" as never, { article_id: 4, title: "Valid" }],
+    },
+  });
+
+  assert.deepEqual(brief?.mustRead.map((item) => item.articleId), [4]);
 });
 
 test("briefItemFromApi drops rows without article_id", () => {
@@ -61,7 +79,20 @@ test("briefTierSections returns three labeled tiers in product order", () => {
   const sections = briefTierSections({
     generatedAt: null,
     title: "今日情报",
-    mustRead: [{ articleId: 1, title: "A", rank: 1, tier: "must_read", rankScore: 90, reason: "r", summaryZh: null, overallScore: 90 }],
+    source: null,
+    mustRead: [{
+      articleId: 1,
+      title: "A",
+      rank: 1,
+      tier: "must_read",
+      rankScore: 90,
+      reason: "r",
+      summaryZh: null,
+      overallScore: 90,
+      riskFlags: [],
+      sourceQuality: null,
+      contentQuality: null,
+    }],
     worthScan: [],
     canSkip: [],
   });

@@ -1486,6 +1486,16 @@ test("Daily Intelligence labels failed sources instead of false empty states", a
   await expect(page.getByText("暂无条目", { exact: true })).toHaveCount(0);
 });
 
+test("Daily Intelligence preserves canonical brief metadata in its cards", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=home&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "今日研究简报" })).toBeVisible();
+  await expect(page.getByText("风险 reposted", { exact: true })).toBeVisible();
+  await expect(page.getByText("源可信 88", { exact: true })).toBeVisible();
+  await expect(page.getByText("full", { exact: true })).toBeVisible();
+});
+
 test("Daily Intelligence preserves usable research context through a secondary-source retry", async ({ page }) => {
   const errors = captureUnexpectedBrowserErrors(page);
   await resetFixtures(page);

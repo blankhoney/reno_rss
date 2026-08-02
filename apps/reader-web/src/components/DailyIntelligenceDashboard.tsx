@@ -2,33 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiGet } from "@/lib/api/client";
 import { listArticles, listAnnotationReviewQueue } from "@/lib/api/articles";
+import { briefTierSections, latestBrief, type BriefTierId, type DailyBrief } from "@/lib/api/briefs";
 import { listClusters, listFeeds, listThemes } from "@/lib/api/intel";
 import { ScoreRing } from "./ScoreRing";
-
-type BriefItem = {
-  article_id: number;
-  title: string;
-  rank?: number | null;
-  tier?: string;
-  rank_score?: number | null;
-  reason?: string;
-  summary_zh?: string | null;
-  overall_score?: number | null;
-  risk_flags?: string[];
-  source_quality?: number | null;
-  content_quality?: string | null;
-};
-
-type Brief = {
-  generated_at?: string | null;
-  title?: string;
-  must_read?: BriefItem[];
-  worth_scan?: BriefItem[];
-  can_skip?: BriefItem[];
-  source?: string;
-};
 
 type EntryCard = {
   id: string;
@@ -40,14 +17,14 @@ type EntryCard = {
   error?: string;
 };
 
-const TIERS: Array<{ key: keyof Brief; label: string; hint: string }> = [
-  { key: "must_read", label: "今日必读", hint: "高信号，优先精读" },
-  { key: "worth_scan", label: "值得扫", hint: "有价值，可快速浏览" },
-  { key: "can_skip", label: "可忽略", hint: "低优先级或高不确定" },
-];
+const TIER_HINTS: Record<BriefTierId, string> = {
+  must_read: "高信号，优先精读",
+  worth_scan: "有价值，可快速浏览",
+  can_skip: "低优先级或高不确定",
+};
 
 export function DailyIntelligenceDashboard() {
-  const [brief, setBrief] = useState<Brief | null>(null);
+  const [brief, setBrief] = useState<DailyBrief | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -80,7 +57,7 @@ export function DailyIntelligenceDashboard() {
     setSourceQualityError(null);
 
     Promise.allSettled([
-      apiGet<{ brief?: Brief | null }>("/api/briefs/latest"),
+      latestBrief(),
       listArticles({ limit: 5, module: "read-later" }),
       listArticles({ limit: 5, module: "project" }),
       listAnnotationReviewQueue(5),
@@ -101,7 +78,7 @@ export function DailyIntelligenceDashboard() {
         ] = results;
 
         if (briefResult.status === "fulfilled") {
-          setBrief(briefResult.value.brief ?? null);
+          setBrief(briefResult.value);
           setError(null);
         } else {
           setError(
@@ -230,7 +207,7 @@ export function DailyIntelligenceDashboard() {
           <h1 className="articleListTitle">{brief?.title || "今日情报"}</h1>
           <p className="workbenchRibbonMuted">
             研究仪表 · 不是原始 RSS 时间线
-            {brief?.generated_at ? ` · ${String(brief.generated_at).slice(0, 16)}` : ""}
+            {brief?.generatedAt ? ` · ${brief.generatedAt.slice(0, 16)}` : ""}
             {brief?.source ? ` · ${brief.source}` : ""}
           </p>
         </div>
@@ -422,14 +399,14 @@ export function DailyIntelligenceDashboard() {
       ) : null}
 
       {brief
-        ? TIERS.map((tier) => {
-            const items = (brief[tier.key] as BriefItem[] | undefined) ?? [];
+        ? briefTierSections(brief).map((tier) => {
+            const items = tier.items;
             return (
-              <section key={tier.key} className="dailyIntelTier" aria-label={tier.label}>
+              <section key={tier.id} className="dailyIntelTier" aria-label={tier.label}>
                 <header className="dailyIntelTierHeader">
                   <h2>{tier.label}</h2>
                   <span className="workbenchRibbonMuted">
-                    {tier.hint} · {items.length}
+                    {TIER_HINTS[tier.id]} · {items.length}
                   </span>
                 </header>
                 {items.length === 0 ? (
@@ -437,31 +414,31 @@ export function DailyIntelligenceDashboard() {
                 ) : (
                   <ul className="dailyIntelList">
                     {items.map((item) => (
-                      <li key={`${tier.key}-${item.article_id}`} className="dailyIntelCard">
+                      <li key={`${tier.id}-${item.articleId}`} className="dailyIntelCard">
                         <Link
                           className="dailyIntelCardLink"
-                          href={`/read/${item.article_id}?module=home&sort=default&lang=zh`}
+                          href={`/read/${item.articleId}?module=home&sort=default&lang=zh`}
                           prefetch={false}
                         >
                           <div className="dailyIntelCardMain">
                             <div className="dailyIntelCardMeta">
                               {item.rank != null ? <span>#{item.rank}</span> : null}
                               {item.tier ? <span>{item.tier}</span> : null}
-                              {item.risk_flags && item.risk_flags.length > 0 ? (
+                              {item.riskFlags.length > 0 ? (
                                 <span className="dailyIntelRisk">
-                                  风险 {item.risk_flags.join("·")}
+                                  风险 {item.riskFlags.join("·")}
                                 </span>
                               ) : null}
-                              {item.source_quality != null ? (
-                                <span title="来源质量维度">源可信 {Math.round(item.source_quality)}</span>
+                              {item.sourceQuality != null ? (
+                                <span title="来源质量维度">源可信 {Math.round(item.sourceQuality)}</span>
                               ) : null}
-                              {item.content_quality ? (
-                                <span title="正文质量">{item.content_quality}</span>
+                              {item.contentQuality ? (
+                                <span title="正文质量">{item.contentQuality}</span>
                               ) : null}
                             </div>
                             <h3 className="dailyIntelCardTitle">{item.title}</h3>
                             <p className="dailyIntelCardSummary">
-                              {item.summary_zh?.trim() || item.reason || "暂无摘要"}
+                              {item.summaryZh?.trim() || item.reason || "暂无摘要"}
                             </p>
                             {item.reason ? (
                               <p className="dailyIntelCardReason" title={item.reason}>
@@ -470,7 +447,7 @@ export function DailyIntelligenceDashboard() {
                             ) : null}
                           </div>
                           <ScoreRing
-                            value={item.overall_score ?? item.rank_score ?? null}
+                            value={item.overallScore ?? item.rankScore ?? null}
                             tier={item.tier ?? null}
                             size={52}
                           />
