@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "88b051a",
+  "milestone": "Reader cursor URL boundary / A-02 / A-06",
+  "acceptance": ["A-02", "A-06"],
+  "scenario": "Opaque pagination cursors remain recoverable in URL state; oversized incoming trails reset to the first page and an unrepresentable next page cannot advance the UI.",
+  "measurement_before_repair": {
+    "command": "node --import tsx --input-type=module -e 'measure buildWorkbenchHref for normal, max, and oversized trails'",
+    "result": {
+      "normal_href_length": 71,
+      "max_trail_href_length": 94464,
+      "single_cursor_over_max": "trail omitted"
+    }
+  },
+  "failure_before_repair": [
+    {
+      "command": "node --test --import tsx src/lib/articles/navigation.test.ts src/components/ReaderWorkbench.test.ts",
+      "result": "failed: oversized trail was accepted and appendCursorForNextPage returned a 25-item stack"
+    },
+    {
+      "command": "npx playwright test e2e/service-worker.smoke.spec.ts --project=chromium -g \"oversized cursor trails\"",
+      "result": "failed by timeout when the local fixture HTTP entry was asked to navigate a 94KB URL; this was recorded as a transport-size limitation, not a product pass"
+    }
+  ],
+  "repair": [
+    "Added an 8192-character workbench href budget and a 7680-character encoded cursor-trail budget, with raw-trail parsing bounded before JSON.parse.",
+    "Normalized oversized incoming trails to the first page and redirected malformed/non-canonical reader workbench URLs while preserving module, sort, language, query, and return article context.",
+    "Prevented next-page state from advancing when the new cursor cannot be serialized; the user receives a recoverable error toast instead of a page-two result under a page-one URL.",
+    "Added final pushState validation so a pagination transition cannot silently omit its trail."
+  ],
+  "validation": [
+    {
+      "command": "node --test --import tsx src/lib/articles/navigation.test.ts src/components/ReaderWorkbench.test.ts",
+      "result": "pass: 10 tests"
+    },
+    {
+      "command": "npx playwright test e2e/service-worker.smoke.spec.ts --project=chromium -g \"oversized cursor trails\"",
+      "result": "pass: 1 test using a transportable approximately 7.8KB oversized trail"
+    },
+    {
+      "command": "npx playwright test e2e/service-worker.smoke.spec.ts --project=chromium -g \"later-page article return|scan mode paging failure|scan mode error offers a previous-page escape\"",
+      "result": "pass: 3 tests"
+    },
+    {
+      "command": "npm test",
+      "result": "pass: 201 tests"
+    },
+    {
+      "command": "npm run build",
+      "result": "pass: Next.js production build and TypeScript validation"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The 94KB URL cannot be used as a browser proof through the local fixture HTTP entry because navigation timed out; the behavioral proof uses a transportable 7.8KB over-budget trail. No production proxy, real API, staging/production service, database, or provider was accessed."
+}
