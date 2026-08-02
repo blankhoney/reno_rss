@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import logging
-from threading import Event
+from threading import Event, Thread
 from typing import Protocol
+
+from app.jobs.queue import QueueJob
 
 
 LOGGER = logging.getLogger(__name__)
@@ -18,9 +20,11 @@ class JobQueue(Protocol):
         lease_seconds: int,
         base_backoff_seconds: int,
         max_backoff_seconds: int,
-    ) -> list[object]: ...
+    ) -> list[QueueJob]: ...
 
-    def claim_next(self, worker_id: str): ...
+    def claim_next(self, worker_id: str) -> QueueJob | None: ...
+
+    def renew_lease(self, job_id: int, *, worker_id: str) -> QueueJob | None: ...
 
     def mark_succeeded(
         self,
@@ -28,7 +32,7 @@ class JobQueue(Protocol):
         result: dict[str, object],
         *,
         worker_id: str,
-    ): ...
+    ) -> QueueJob | None: ...
 
     def mark_retryable_failure(
         self,
@@ -55,6 +59,7 @@ def run_once(
     retry_backoff_seconds: int = 60,
     retry_backoff_max_seconds: int = 3600,
     job_lease_seconds: int = 900,
+    lease_renew_interval_seconds: float | None = None,
 ) -> bool:
     reclaimed = queue.reclaim_stale(
         lease_seconds=job_lease_seconds,
@@ -77,22 +82,83 @@ def run_once(
         queue.mark_failed(job.id, f"unknown job_type: {job.job_type}", worker_id=worker_id)
         return True
 
+    renewal_stop = Event()
+    renewal_thread = _start_lease_renewer(
+        queue,
+        job.id,
+        worker_id=worker_id,
+        interval_seconds=lease_renew_interval_seconds
+        if lease_renew_interval_seconds is not None
+        else _lease_renew_interval_seconds(job_lease_seconds),
+        stop_event=renewal_stop,
+    )
+    terminal_action: tuple[str, object]
     try:
-        result = _normalize_result(handler(job.payload))
-    except RetryableJobError as error:
+        try:
+            result = _normalize_result(handler(job.payload))
+        except RetryableJobError as error:
+            terminal_action = ("retry", str(error))
+        except Exception as error:
+            LOGGER.exception("worker job failed: job_id=%s job_type=%s", job.id, job.job_type)
+            terminal_action = ("failed", str(error))
+        else:
+            terminal_action = ("succeeded", result)
+    finally:
+        renewal_stop.set()
+        renewal_thread.join()
+
+    action, value = terminal_action
+    if action == "retry":
         queue.mark_retryable_failure(
             job.id,
-            str(error),
+            str(value),
             worker_id=worker_id,
             base_backoff_seconds=retry_backoff_seconds,
             max_backoff_seconds=retry_backoff_max_seconds,
         )
-    except Exception as error:
-        LOGGER.exception("worker job failed: job_id=%s job_type=%s", job.id, job.job_type)
-        queue.mark_failed(job.id, str(error), worker_id=worker_id)
+    elif action == "failed":
+        queue.mark_failed(job.id, str(value), worker_id=worker_id)
     else:
-        queue.mark_succeeded(job.id, result, worker_id=worker_id)
+        queue.mark_succeeded(job.id, value if isinstance(value, dict) else {}, worker_id=worker_id)
     return True
+
+
+def _lease_renew_interval_seconds(job_lease_seconds: int) -> float:
+    return max(0.1, job_lease_seconds / 3)
+
+
+def _start_lease_renewer(
+    queue: JobQueue,
+    job_id: int,
+    *,
+    worker_id: str,
+    interval_seconds: float,
+    stop_event: Event,
+) -> Thread:
+    interval_seconds = max(0.01, interval_seconds)
+
+    def renew_until_stopped() -> None:
+        while not stop_event.wait(interval_seconds):
+            try:
+                renewed = queue.renew_lease(job_id, worker_id=worker_id)
+            except Exception:
+                LOGGER.exception(
+                    "worker lease renewal failed: job_id=%s worker_id=%s",
+                    job_id,
+                    worker_id,
+                )
+                continue
+            if renewed is None:
+                LOGGER.warning(
+                    "worker lease ownership lost: job_id=%s worker_id=%s",
+                    job_id,
+                    worker_id,
+                )
+                return
+
+    thread = Thread(target=renew_until_stopped, name=f"lease-renew-{job_id}", daemon=True)
+    thread.start()
+    return thread
 
 
 def run_forever(
@@ -104,6 +170,7 @@ def run_forever(
     retry_backoff_seconds: int = 60,
     retry_backoff_max_seconds: int = 3600,
     job_lease_seconds: int = 900,
+    lease_renew_interval_seconds: float | None = None,
     stop_event: Event | None = None,
     on_heartbeat: Callable[[], None] | None = None,
     on_tick: Callable[[], None] | None = None,
@@ -124,6 +191,7 @@ def run_forever(
                 retry_backoff_seconds=retry_backoff_seconds,
                 retry_backoff_max_seconds=retry_backoff_max_seconds,
                 job_lease_seconds=job_lease_seconds,
+                lease_renew_interval_seconds=lease_renew_interval_seconds,
             )
         except Exception:
             LOGGER.exception("worker queue unavailable, will retry")
