@@ -37,3 +37,4 @@ c0ee01811006d139166983c54d06dd09763af65a0e85c2f0c32b156e67247c2f  output/evidenc
 9dea7a05da92e7ff8de55c86a573e6b657b293032104a7456ea8f9449e7e49ed  output/evidence/worker-score-budget-reservation-2026-08-02.json
 3e21f07a4f89ba2d3099dc4373388313144bbf324a393da574feb6fa82f81f11  output/evidence/reader-article-id-auth-boundary-2026-08-02.json
 6da679f373d27a36d6188f5570008759cfd09b42add25ce6f815d7ffa28c4427  output/evidence/reader-cursor-url-boundary-2026-08-02.json
+dbbae9e324ac2a27554e5b9bfe31f1b5418225eb7c7102fbfbe62aa15c0e5d61  output/evidence/reader-related-source-failure-2026-08-02.json
