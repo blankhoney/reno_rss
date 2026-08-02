@@ -16,6 +16,14 @@ async function waitForSettledArticleList(page: import("@playwright/test").Page) 
     .toBe(true);
 }
 
+async function waitForSettledFocusReader(page: import("@playwright/test").Page) {
+  await expect
+    .poll(() =>
+      page.locator("main.focusReader").evaluate((element) => Number(getComputedStyle(element).opacity) >= 0.99),
+    )
+    .toBe(true);
+}
+
 function captureUnexpectedBrowserErrors(page: import("@playwright/test").Page) {
   const errors: string[] = [];
   page.on("console", (message) => {
@@ -351,7 +359,6 @@ test("axe scan finds no critical accessibility violations on core pages", async 
   await waitForSettledArticleList(page);
   const workbenchResults = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa"])
-    .disableRules(["color-contrast"])
     .analyze();
   const workbenchCritical = workbenchResults.violations.filter(
     (v) => v.impact === "critical" || v.impact === "serious",
@@ -360,9 +367,9 @@ test("axe scan finds no critical accessibility violations on core pages", async 
 
   await page.goto("/read/7?module=all&sort=default&lang=zh");
   await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await waitForSettledFocusReader(page);
   const readerResults = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa"])
-    .disableRules(["color-contrast"])
     .analyze();
   const readerCritical = readerResults.violations.filter(
     (v) => v.impact === "critical" || v.impact === "serious",
