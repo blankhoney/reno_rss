@@ -1694,9 +1694,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Latest Brief Api Briefs Latest Get"
+                  "$ref": "#/components/schemas/BriefResponse"
                 }
               }
             }
@@ -2474,6 +2472,133 @@
         ],
         "title": "AskRequest"
       },
+      "BriefItemResponse": {
+        "properties": {
+          "article_id": {
+            "type": "integer",
+            "title": "Article Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "tier": {
+            "type": "string",
+            "title": "Tier"
+          },
+          "rank_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Score"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "summary_zh": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Zh"
+          },
+          "overall_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overall Score"
+          },
+          "risk_flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Risk Flags"
+          },
+          "source_quality": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Quality"
+          },
+          "content_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Quality"
+          }
+        },
+        "type": "object",
+        "required": [
+          "article_id",
+          "title",
+          "rank",
+          "tier",
+          "rank_score",
+          "reason",
+          "summary_zh",
+          "overall_score",
+          "risk_flags",
+          "source_quality",
+          "content_quality"
+        ],
+        "title": "BriefItemResponse"
+      },
+      "BriefResponse": {
+        "properties": {
+          "brief": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DailyBriefResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "brief"
+        ],
+        "title": "BriefResponse"
+      },
       "CreateBenchmarkRequest": {
         "properties": {
           "suite": {
@@ -2572,6 +2697,67 @@
           "article_ids"
         ],
         "title": "CreateScoringBatchRequest"
+      },
+      "DailyBriefResponse": {
+        "properties": {
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "must_read": {
+            "items": {
+              "$ref": "#/components/schemas/BriefItemResponse"
+            },
+            "type": "array",
+            "title": "Must Read"
+          },
+          "worth_scan": {
+            "items": {
+              "$ref": "#/components/schemas/BriefItemResponse"
+            },
+            "type": "array",
+            "title": "Worth Scan"
+          },
+          "can_skip": {
+            "items": {
+              "$ref": "#/components/schemas/BriefItemResponse"
+            },
+            "type": "array",
+            "title": "Can Skip"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "title",
+          "source",
+          "must_read",
+          "worth_scan",
+          "can_skip"
+        ],
+        "title": "DailyBriefResponse"
       },
       "FetchContentJobResponse": {
         "properties": {

@@ -22,6 +22,16 @@ async def test_latest_brief_returns_null_when_empty(client):
 
 
 @pytest.mark.asyncio
+async def test_latest_brief_openapi_declares_typed_response(app):
+    response = app.openapi()["paths"]["/api/briefs/latest"]["get"]
+
+    assert (
+        response["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/BriefResponse"
+    )
+
+
+@pytest.mark.asyncio
 async def test_latest_brief_does_not_cross_user_read_global_job(app):
     from httpx import ASGITransport, AsyncClient
 

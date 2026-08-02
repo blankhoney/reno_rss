@@ -964,6 +964,35 @@ export interface components {
             /** History */
             history?: components["schemas"]["AskHistoryTurn"][];
         };
+        /** BriefItemResponse */
+        BriefItemResponse: {
+            /** Article Id */
+            article_id: number;
+            /** Title */
+            title: string;
+            /** Rank */
+            rank: number | null;
+            /** Tier */
+            tier: string;
+            /** Rank Score */
+            rank_score: number | null;
+            /** Reason */
+            reason: string;
+            /** Summary Zh */
+            summary_zh: string | null;
+            /** Overall Score */
+            overall_score: number | null;
+            /** Risk Flags */
+            risk_flags: string[];
+            /** Source Quality */
+            source_quality: number | null;
+            /** Content Quality */
+            content_quality: string | null;
+        };
+        /** BriefResponse */
+        BriefResponse: {
+            brief: components["schemas"]["DailyBriefResponse"] | null;
+        };
         /** CreateBenchmarkRequest */
         CreateBenchmarkRequest: {
             /**
@@ -1008,6 +1037,21 @@ export interface components {
             candidate_window: string;
             /** Article Ids */
             article_ids: number[];
+        };
+        /** DailyBriefResponse */
+        DailyBriefResponse: {
+            /** Generated At */
+            generated_at: string | null;
+            /** Title */
+            title: string;
+            /** Source */
+            source: string | null;
+            /** Must Read */
+            must_read: components["schemas"]["BriefItemResponse"][];
+            /** Worth Scan */
+            worth_scan: components["schemas"]["BriefItemResponse"][];
+            /** Can Skip */
+            can_skip: components["schemas"]["BriefItemResponse"][];
         };
         /** FetchContentJobResponse */
         FetchContentJobResponse: {
@@ -2458,9 +2502,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BriefResponse"];
                 };
             };
         };

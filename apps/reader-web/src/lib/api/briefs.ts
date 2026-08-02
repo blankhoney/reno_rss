@@ -1,30 +1,10 @@
 import { apiGet } from "./client";
+import type { components } from "./generated/schema";
 
-export type ApiBriefItem = {
-  article_id?: number | null;
-  title?: string | null;
-  rank?: number | null;
-  tier?: string | null;
-  rank_score?: number | null;
-  reason?: string | null;
-  summary_zh?: string | null;
-  overall_score?: number | null;
+type ApiBriefItem = Partial<components["schemas"]["BriefItemResponse"]> & {
   risk_flags?: unknown;
   source_quality?: unknown;
   content_quality?: unknown;
-};
-
-export type ApiDailyBrief = {
-  generated_at?: string | null;
-  title?: string | null;
-  source?: string | null;
-  must_read?: ApiBriefItem[];
-  worth_scan?: ApiBriefItem[];
-  can_skip?: ApiBriefItem[];
-} | null;
-
-export type ApiBriefResponse = {
-  brief?: ApiDailyBrief;
 };
 
 export type BriefItem = {
@@ -114,9 +94,11 @@ function mapItems(raw: unknown): BriefItem[] {
   return items;
 }
 
-export function dailyBriefFromApi(payload: ApiBriefResponse): DailyBrief | null {
-  const brief = payload.brief ?? null;
-  if (brief == null) return null;
+export function dailyBriefFromApi(payload: unknown): DailyBrief | null {
+  if (payload == null || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const rawBrief = (payload as { brief?: unknown }).brief;
+  if (rawBrief == null || typeof rawBrief !== "object" || Array.isArray(rawBrief)) return null;
+  const brief = rawBrief as Partial<components["schemas"]["DailyBriefResponse"]>;
   return {
     generatedAt: typeof brief.generated_at === "string" ? brief.generated_at : null,
     title: stringOrFallback(brief.title, "今日情报"),
@@ -141,5 +123,7 @@ export function isIntelligenceModule(moduleId: string): boolean {
 }
 
 export async function latestBrief(): Promise<DailyBrief | null> {
-  return dailyBriefFromApi(await apiGet<ApiBriefResponse>("/api/briefs/latest"));
+  return dailyBriefFromApi(
+    await apiGet<components["schemas"]["BriefResponse"]>("/api/briefs/latest"),
+  );
 }
