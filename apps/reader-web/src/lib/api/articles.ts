@@ -127,17 +127,7 @@ type ApiListResponse = {
   has_more?: boolean;
 };
 
-type ApiJobResponse = {
-  id: number;
-  job_type: string;
-  status: string;
-  progress: unknown;
-  result: unknown;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-  completed_at: string | null;
-};
+type ApiJobResponse = components["schemas"]["JobResponse"];
 
 type PollOptions = {
   intervalMs?: number;
@@ -535,7 +525,7 @@ export async function enqueueFetchContentJob(
   articleId: number,
   init?: ApiRequestInit,
 ): Promise<EnqueuedJob> {
-  const payload = await apiPost<{ job_id: number; status: string }, undefined>(
+  const payload = await apiPost<components["schemas"]["FetchContentJobResponse"], undefined>(
     `/api/articles/${articleId}/fetch-content`,
     undefined,
     init,

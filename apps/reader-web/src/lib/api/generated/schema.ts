@@ -1009,6 +1009,13 @@ export interface components {
             /** Article Ids */
             article_ids: number[];
         };
+        /** FetchContentJobResponse */
+        FetchContentJobResponse: {
+            /** Job Id */
+            job_id: number;
+            /** Status */
+            status: string;
+        };
         /** GrantRequest */
         GrantRequest: {
             /**
@@ -1023,6 +1030,31 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** JobResponse */
+        JobResponse: {
+            /** Id */
+            id: number;
+            /** Job Type */
+            job_type: string;
+            /** Status */
+            status: string;
+            /** Progress */
+            progress: {
+                [key: string]: unknown;
+            };
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Last Error */
+            last_error: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Completed At */
+            completed_at: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1730,13 +1762,20 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["FetchContentJobResponse"];
                 };
+            };
+            /** @description Article not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2368,9 +2407,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JobResponse"];
                 };
             };
             /** @description Validation Error */
