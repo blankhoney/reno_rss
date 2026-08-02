@@ -377,6 +377,43 @@ test("axe scan finds no critical accessibility violations on core pages", async 
   expect(readerCritical, `Reader a11y: ${JSON.stringify(readerCritical.map((v) => v.id))}`).toEqual([]);
 });
 
+test("dark theme axe scan finds no critical accessibility violations on core pages", async ({ page }) => {
+  await resetFixtures(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("ai-reader.theme", "dark");
+  });
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe("dark");
+  await waitForSettledArticleList(page);
+  const workbenchResults = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .analyze();
+  const workbenchCritical = workbenchResults.violations.filter(
+    (v) => v.impact === "critical" || v.impact === "serious",
+  );
+  expect(
+    workbenchCritical,
+    `Dark Workbench a11y: ${JSON.stringify(workbenchCritical.map((v) => v.id))}`,
+  ).toEqual([]);
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe("dark");
+  await waitForSettledFocusReader(page);
+  const readerResults = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .analyze();
+  const readerCritical = readerResults.violations.filter(
+    (v) => v.impact === "critical" || v.impact === "serious",
+  );
+  expect(
+    readerCritical,
+    `Dark Reader a11y: ${JSON.stringify(readerCritical.map((v) => v.id))}`,
+  ).toEqual([]);
+});
+
 test("principal success fixtures render without unexpected browser errors", async ({ page }) => {
   const errors = captureUnexpectedBrowserErrors(page);
   await resetFixtures(page);
