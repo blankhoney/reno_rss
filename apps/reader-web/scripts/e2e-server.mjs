@@ -237,6 +237,42 @@ const proxy = createServer(async (request, response) => {
       return;
     }
     const searchQuery = url.searchParams.get("q");
+    if (searchQuery === "empty-page") {
+      const emptyPage = url.searchParams.get("cursor") === "empty-page-cursor";
+      sendJson(response, 200, {
+        items: emptyPage
+          ? []
+          : [
+              {
+                id: 7,
+                title: "Keyboard article one",
+                url: "https://example.com/one",
+                feed: { id: 1, title: "Fixture feed" },
+                category: null,
+                published_at: "2026-07-21T00:00:00Z",
+                content_quality: "full",
+                summary_zh: "第一篇测试文章。",
+                score: null,
+                state: { status: "unread", saved: false, project: false, read_progress: 0 },
+              },
+              {
+                id: 8,
+                title: "Keyboard article two",
+                url: "https://example.com/two",
+                feed: { id: 1, title: "Fixture feed" },
+                category: null,
+                published_at: "2026-07-20T00:00:00Z",
+                content_quality: "full",
+                summary_zh: "第二篇测试文章。",
+                score: null,
+                state: { status: "unread", saved: false, project: false, read_progress: 0 },
+              },
+            ],
+        next_cursor: emptyPage ? null : "empty-page-cursor",
+        has_more: !emptyPage,
+      });
+      return;
+    }
     if (searchQuery === "workbench-error") {
       sendJson(response, 500, { error: { message: "workbench fixture failure" } });
       return;

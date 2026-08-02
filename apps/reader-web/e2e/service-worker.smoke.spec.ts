@@ -85,6 +85,24 @@ test("authenticated invalid read route keeps session chrome without fetching an 
   expect(articleRequests).toBe(0);
 });
 
+test("article 404 envelope renders not-found copy instead of generic load failure", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/articles/999", async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "not_found", message: "Article not found" } }),
+    });
+  });
+
+  await page.goto("/read/999?module=all&sort=default&lang=zh");
+
+  await expect(page.getByText("文章不存在", { exact: true })).toBeVisible();
+  await expect(page.getByText("文章加载失败", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Article not found", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试加载" })).toBeVisible();
+});
+
 async function selectReaderText(page: import("@playwright/test").Page) {
   const paragraph = page.locator(".focusContent p").first();
   await paragraph.scrollIntoViewIfNeeded();
@@ -910,6 +928,25 @@ test("oversized cursor trails canonicalize back to the first page", async ({ pag
   await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
   await expect(page).not.toHaveURL(/trail=/);
   await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+});
+
+test("successful later empty page offers a previous-page escape", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh&q=empty-page");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "‹ 上一页" })).toBeEnabled();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page.getByText("Keyboard article one", { exact: true })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "‹ 上一页" }).click();
+
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/trail=/);
 });
 
 test("scan mode paging failure hides stale cards and retries the current cursor", async ({ page }) => {

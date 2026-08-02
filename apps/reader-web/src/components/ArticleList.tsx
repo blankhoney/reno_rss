@@ -319,7 +319,7 @@ export function ArticleList({
           })}
         </ul>
       ) : null}
-      {!isLoading && loadError == null && !isEmpty ? (
+      {!isLoading && loadError == null && (!isEmpty || hasPrev) ? (
         <nav className="articleListPager" aria-label="翻页">
           <button
             type="button"
