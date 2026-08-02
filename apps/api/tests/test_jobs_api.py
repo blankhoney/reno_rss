@@ -1,14 +1,29 @@
+from datetime import UTC, datetime
+
 import pytest
 
 
 pytestmark = pytest.mark.asyncio
 
 
-async def test_duplicate_fetch_content_job_returns_existing_job(client):
+def _seed_article(app):
+    return app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/fetch-content-contract",
+            "title": "Fetch content contract article",
+            "published_at": datetime(2026, 8, 2, 12, tzinfo=UTC),
+        }
+    )
+
+
+async def test_duplicate_fetch_content_job_returns_existing_job(app, client):
+    article = _seed_article(app)
     await client.post("/api/auth/login", json={"display_name": "Blank"})
 
-    first = await client.post("/api/articles/1/fetch-content")
-    second = await client.post("/api/articles/1/fetch-content")
+    first = await client.post(f"/api/articles/{article.id}/fetch-content")
+    second = await client.post(f"/api/articles/{article.id}/fetch-content")
 
     assert first.status_code == 202
     assert second.status_code == 202
@@ -16,9 +31,28 @@ async def test_duplicate_fetch_content_job_returns_existing_job(client):
     assert first.json()["status"] == "queued"
 
 
-async def test_current_user_can_view_own_job(client):
+async def test_fetch_content_missing_article_returns_typed_404_without_enqueueing(app, client):
     await client.post("/api/auth/login", json={"display_name": "Blank"})
-    created = await client.post("/api/articles/1/fetch-content")
+    before = app.state.job_repository.pipeline_snapshot(("fetch_article_content",))["queued"]
+
+    response = await client.post("/api/articles/999999/fetch-content")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    after = app.state.job_repository.pipeline_snapshot(("fetch_article_content",))["queued"]
+    assert after == before
+
+
+async def test_fetch_content_openapi_declares_not_found_response(app):
+    responses = app.openapi()["paths"]["/api/articles/{article_id}/fetch-content"]["post"]["responses"]
+
+    assert responses["404"]["description"] == "Article not found"
+
+
+async def test_current_user_can_view_own_job(app, client):
+    article = _seed_article(app)
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    created = await client.post(f"/api/articles/{article.id}/fetch-content")
 
     response = await client.get(f"/api/jobs/{created.json()['job_id']}")
 
@@ -41,13 +75,15 @@ async def test_current_user_can_view_own_job(client):
 async def test_second_user_can_poll_deduped_fetch_content_job(app):
     from httpx import ASGITransport, AsyncClient
 
+    article = _seed_article(app)
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="https://test",
         headers={"Referer": "https://test/"},
     ) as first_client:
         await first_client.post("/api/auth/login", json={"display_name": "First"})
-        first = await first_client.post("/api/articles/1/fetch-content")
+        first = await first_client.post(f"/api/articles/{article.id}/fetch-content")
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -55,7 +91,7 @@ async def test_second_user_can_poll_deduped_fetch_content_job(app):
         headers={"Referer": "https://test/"},
     ) as second_client:
         await second_client.post("/api/auth/login", json={"display_name": "Second"})
-        second = await second_client.post("/api/articles/1/fetch-content")
+        second = await second_client.post(f"/api/articles/{article.id}/fetch-content")
         response = await second_client.get(f"/api/jobs/{second.json()['job_id']}")
 
     assert second.status_code == 202
