@@ -45,6 +45,11 @@ class ArticleStateRequest(BaseModel):
     read_progress: float | None = Field(default=None, ge=0, le=1)
 
 
+class FetchContentJobResponse(BaseModel):
+    job_id: int
+    status: str
+
+
 class ArticleFeedbackRequest(BaseModel):
     user_score: int = Field(ge=0, le=100)
     feedback_type: str = Field(json_schema_extra={"enum": list(FEEDBACK_TYPES)})
@@ -590,6 +595,8 @@ def create_article_annotation(
 
 @router.post(
     "/articles/{article_id}/fetch-content",
+    response_model=FetchContentJobResponse,
+    status_code=202,
     responses={404: {"description": "Article not found"}},
 )
 @limiter.limit(write_rate_limit)
@@ -599,7 +606,7 @@ def enqueue_fetch_content_job(
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
     job_repository: JobStore = Depends(get_job_repository),
-) -> JSONResponse:
+) -> FetchContentJobResponse:
     if article_repository.get_article(article_id) is None:
         # Fail before enqueueing so a deleted/invalid article is not presented as
         # an asynchronous success that can only fail after a worker claims it.
@@ -610,7 +617,7 @@ def enqueue_fetch_content_job(
         dedupe_key=dedupe_key_for("fetch_article_content", article_id),
         created_by=current_user.id,
     )
-    return JSONResponse(status_code=202, content={"job_id": job.id, "status": job.status})
+    return FetchContentJobResponse(job_id=job.id, status=job.status)
 
 
 @router.post("/articles/{article_id}/translate")

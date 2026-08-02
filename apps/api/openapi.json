@@ -815,11 +815,13 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/FetchContentJobResponse"
+                }
               }
             }
           },
@@ -2572,6 +2574,24 @@
           "article_ids"
         ],
         "title": "CreateScoringBatchRequest"
+      },
+      "FetchContentJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "integer",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "FetchContentJobResponse"
       },
       "GrantRequest": {
         "properties": {
