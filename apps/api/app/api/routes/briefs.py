@@ -8,14 +8,13 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import (
     get_article_repository,
-    get_job_repository,
     get_recommendation_repository,
     get_scoring_repository,
     require_user,
 )
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import ArticleRecord, ArticleStore
-from app.db.repositories.jobs import JobRecord, JobStore
+from app.db.repositories.jobs import JobRecord
 from app.db.repositories.recommendations import RecommendationStore
 from app.db.repositories.scoring import ScoreRecord, ScoringStore
 
@@ -120,20 +119,18 @@ def latest_brief_from_jobs(jobs: list[JobRecord]) -> dict[str, object] | None:
 @router.get("/latest")
 def latest_brief(
     current_user: UserRecord = Depends(require_user),
-    job_repository: JobStore = Depends(get_job_repository),
     article_repository: ArticleStore = Depends(get_article_repository),
     scoring_repository: ScoringStore = Depends(get_scoring_repository),
     recommendation_repository: RecommendationStore = Depends(get_recommendation_repository),
 ) -> dict[str, object]:
-    jobs = job_repository.latest_succeeded("generate_daily_brief", limit=10)
-    raw_brief = latest_brief_from_jobs(jobs)
-    if raw_brief is None:
-        raw_brief = brief_from_recommendations(
-            current_user.id,
-            recommendation_repository,
-            article_repository,
-            scoring_repository,
-        )
+    # A brief is private research output: global "latest" jobs cannot establish ownership.
+    # Derive the visible payload from the current user's recommendation edition instead.
+    raw_brief = brief_from_recommendations(
+        current_user.id,
+        recommendation_repository,
+        article_repository,
+        scoring_repository,
+    )
     if raw_brief is None:
         return {"brief": None}
 
