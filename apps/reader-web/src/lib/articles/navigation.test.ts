@@ -3,9 +3,19 @@ import test from "node:test";
 import {
   buildFocusReadHref,
   buildWorkbenchHref,
+  parseArticleId,
   parseCursorTrail,
   serializeCursorTrail,
 } from "./navigation";
+
+test("article route IDs accept only positive safe integer segments", () => {
+  assert.equal(parseArticleId("7"), 7);
+  assert.equal(parseArticleId("007"), 7);
+
+  for (const raw of ["", "7abc", "7.9", "+7", " 7", "7 ", "0", "-1", String(Number.MAX_SAFE_INTEGER + 1)]) {
+    assert.equal(parseArticleId(raw), null, `expected ${raw} to be rejected`);
+  }
+});
 
 test("cursor trails round-trip only valid opaque cursor stacks", () => {
   const trail = [null, "cursor-two", "cursor-three"];

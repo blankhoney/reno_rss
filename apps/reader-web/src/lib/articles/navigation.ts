@@ -1,6 +1,16 @@
 const MAX_CURSOR_TRAIL_LENGTH = 24;
 const MAX_CURSOR_LENGTH = 4096;
 
+/**
+ * Accept only the complete decimal route segment; parseInt would silently
+ * alias malformed paths such as `/read/7abc` to article 7.
+ */
+export function parseArticleId(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const articleId = Number(raw);
+  return Number.isSafeInteger(articleId) && articleId > 0 ? articleId : null;
+}
+
 export type WorkbenchNavigationContext = {
   module: string;
   sort: string;

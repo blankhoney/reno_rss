@@ -45,6 +45,46 @@ async function enableNotesDualPane(page: import("@playwright/test").Page) {
   await setCraftPreferences(page, { mode: "focus", dualPane: true, dualPaneKind: "notes" });
 }
 
+test("invalid read route waits for the auth gate before showing its error", async ({ page }) => {
+  await resetFixtures(page);
+  let authRequests = 0;
+  let articleRequests = 0;
+  await page.route("**/api/auth/me", async (route) => {
+    authRequests += 1;
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "unauthorized", message: "Authentication required" } }),
+    });
+  });
+  await page.route("**/api/articles/**", async (route) => {
+    articleRequests += 1;
+    await route.abort();
+  });
+
+  await page.goto("/read/abc?module=all&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "登录 AI Reader" })).toBeVisible();
+  await expect(page.getByText("文章不存在", { exact: true })).toHaveCount(0);
+  expect(authRequests).toBeGreaterThan(0);
+  expect(articleRequests).toBe(0);
+});
+
+test("authenticated invalid read route keeps session chrome without fetching an article", async ({ page }) => {
+  await resetFixtures(page);
+  let articleRequests = 0;
+  await page.route("**/api/articles/**", async (route) => {
+    articleRequests += 1;
+    await route.abort();
+  });
+
+  await page.goto("/read/7.9?module=all&sort=default&lang=zh");
+
+  await expect(page.getByLabel("当前会话")).toBeVisible();
+  await expect(page.getByText("文章不存在", { exact: true })).toBeVisible();
+  expect(articleRequests).toBe(0);
+});
+
 async function selectReaderText(page: import("@playwright/test").Page) {
   const paragraph = page.locator(".focusContent p").first();
   await paragraph.scrollIntoViewIfNeeded();
