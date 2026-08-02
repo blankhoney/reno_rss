@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "61729b0",
+  "milestone": "Reader Daily Intelligence canonical Brief adapter",
+  "acceptance": ["A-02", "A-07", "A-13"],
+  "scenario": "Daily Intelligence consumes one canonical Brief model without dropping source/risk/content-quality metadata, while preserving its existing secondary-source partial-failure and refresh behavior.",
+  "failure_before_repair": [
+    {
+      "command": "cd apps/reader-web && npm test -- --test-name-pattern='(nested tier items|malformed tier rows)'",
+      "result": "failed: the adapter dropped source and item metadata; malformed null rows reached property access instead of being ignored"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3017 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'canonical brief metadata' --project=chromium",
+      "result": "failed: Daily card metadata was not visible because the fixture and duplicate dashboard model did not carry the canonical fields"
+    }
+  ],
+  "repair": [
+    "Extended the Brief adapter with source, riskFlags, sourceQuality, and contentQuality; runtime normalization now ignores null/non-object tier rows and keeps existing missing-article filtering.",
+    "Replaced DailyIntelligenceDashboard's duplicate snake_case Brief request/types with latestBrief(), canonical camelCase fields, and briefTierSections(); the six non-Brief requests and Promise.allSettled partial-failure flow remain unchanged.",
+    "Added metadata to the local Daily fixture and a browser parity assertion for risk, source quality, and content quality."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/reader-web && npm test -- --test-name-pattern='(nested tier items|malformed tier rows)'",
+      "result": "pass"
+    },
+    {
+      "command": "cd apps/reader-web && npm test",
+      "result": "pass: 204 tests"
+    },
+    {
+      "command": "cd apps/reader-web && npm run build",
+      "result": "pass: Next.js production build and TypeScript check"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3019 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'Daily Intelligence' --project=chromium",
+      "result": "pass: 3 tests covering failed brief state, canonical metadata, and secondary-source retry"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The endpoint remains an untyped OpenAPI response and browser evidence uses the local fixture with Chromium only; this does not prove deployed FastAPI field parity, real PostgreSQL/provider behavior, staging/production auth, screen-reader behavior, or native touch input."
+}
