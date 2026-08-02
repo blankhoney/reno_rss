@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "d133e3cc",
+  "milestone": "Settled Reader ArticleList contrast subgate",
+  "acceptance": ["A-05", "A-06", "A-07"],
+  "scenario": "After the light-theme token repair, the settled ArticleList's shortcut hint, metadata, title, summary, tier, and read affordance pass the color-contrast rule in both light and dark themes across Chromium, Firefox, WebKit, and iPhone WebKit fixture projects.",
+  "failure_before_repair": {
+    "command": "cd apps/reader-web && READER_E2E_PORT=3032 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'axe scan finds no critical' --project=chromium",
+    "result": "broader contrast-inclusive axe probe failed with serious color-contrast nodes across mixed card/status states; it did not isolate whether the settled ArticleList text itself was still failing after the token repair"
+  },
+  "repair": [
+    "Added a scoped Axe color-contrast subgate for settled ArticleList selectors rather than treating the broad mixed-state axe result as a single token diagnosis.",
+    "Ran the same subgate in the existing desktop cross-engine and iPhone WebKit project filters; no product CSS change was made in this proof slice because all selected nodes passed."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3036 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'settled ArticleList text' --project=chromium",
+      "result": "pass: 1 Chromium test covering light and dark themes"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3037 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'settled ArticleList text' --project=firefox --project=webkit --project=webkit-touch",
+      "result": "pass: 3 tests (Firefox, WebKit, iPhone WebKit)"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "This subgate covers settled ArticleList text/control nodes only. Dynamic Focus Reader status chips, color-mix states, non-text borders, screen-reader output, native iPhone selection, production proxy behavior, and staging/production auth/cache remain separate or unproven boundaries."
+}
