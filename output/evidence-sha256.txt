@@ -43,3 +43,4 @@ d50afb3a579f98a606e71163935e2d9dc792f236971b33ceb57b0914e7e20458  output/evidenc
 f7a5d80680842525f11721f25ebd85195e2734e19d473aa3f0fd24f3dc194ccd  output/evidence/worker-governance-schema-2026-08-02.json
 67e0a315cc4ae335c162a63537c777a600f29cf7678a95218f5630a6902a0fdd  output/evidence/reader-recovery-state-2026-08-02.json
 b44753fd0706a0fc8afca563d3be2858f10b81a10a341b6c07bf6d7c5440e040  output/evidence/reader-daily-brief-adapter-2026-08-02.json
+2036f12f57edeea6e47922859cc28660fd9a55b7925965dd1ae52e1e0748691e  output/evidence/reader-selection-geometry-2026-08-02.json
