@@ -55,6 +55,16 @@ async def test_admin_starts_scoring_batch_and_enqueues_job(app, client):
     assert response.json()["batch_id"] == created.json()["batch"]["id"]
     assert response.json()["status"] == "queued"
     assert response.json()["job_id"]
+    job = app.state.job_repository.get_visible_job(
+        response.json()["job_id"],
+        current_user_id=_admin.id,
+        is_admin=True,
+    )
+    assert job is not None
+    assert job.payload == {
+        "payload_version": 1,
+        "batch_id": created.json()["batch"]["id"],
+    }
 
 
 async def test_admin_gets_scoring_batch_detail(app, client):

@@ -264,7 +264,7 @@ class DatabaseScoreSink:
         return batch_id
 
     def enqueue_score_batch(self, batch_id: int) -> None:
-        payload = {"batch_id": batch_id}
+        payload = {"payload_version": 1, "batch_id": batch_id}
         params = {
             "job_type": "score_batch",
             "payload": json.dumps(payload, ensure_ascii=False),

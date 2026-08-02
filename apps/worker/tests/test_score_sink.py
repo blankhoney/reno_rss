@@ -106,6 +106,20 @@ def test_score_sink_writes_success_and_error_rows_with_active_history():
     ]
 
 
+def test_score_sink_enqueues_versioned_score_batch_job():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    sink = DatabaseScoreSink(engine=engine)
+
+    sink.enqueue_score_batch(10)
+
+    with engine.begin() as connection:
+        job = connection.execute(text("SELECT * FROM jobs")).mappings().one()
+
+    assert job["job_type"] == "score_batch"
+    assert job["payload"] == '{"payload_version": 1, "batch_id": 10}'
+
+
 def test_score_sink_enqueues_deduped_recommendations_job():
     engine = create_engine("sqlite:///:memory:")
     _create_schema(engine)

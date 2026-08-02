@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import logging
 from typing import Protocol
 
+from app.jobs.payload_contracts import validate_payload_version
 from app.providers.llm import LLMProvider
 
 
@@ -40,6 +41,8 @@ def score_batch(
     webhook: WebhookEmitter | None = None,
     high_score_threshold: int = 85,
 ) -> dict[str, object]:
+    # Validate before provider work because queued jobs may cross deploy revisions.
+    validate_payload_version(payload, job_type="score_batch")
     batch_id = payload.get("batch_id")
     if batch_id is None:
         raise KeyError("payload['batch_id'] is required")
