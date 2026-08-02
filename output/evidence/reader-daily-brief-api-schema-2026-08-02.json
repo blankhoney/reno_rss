@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "63c75f54",
+  "milestone": "Daily Brief API response schema closure",
+  "acceptance": ["A-02", "A-07", "A-13"],
+  "scenario": "The user-scoped Daily Brief endpoint declares the exact nullable envelope and item metadata it emits, and Reader consumes the generated OpenAPI response type while retaining runtime normalization for untrusted payloads.",
+  "failure_before_repair": {
+    "command": "cd apps/api && uv run --isolated --with-editable . --extra dev python -m pytest tests/test_briefs.py -q -k openapi_declares_typed_response",
+    "result": "failed: the 200 response schema had no $ref and remained an unrestricted additionalProperties object"
+  },
+  "repair": [
+    "Added BriefItemResponse, DailyBriefResponse, and nullable-but-required BriefResponse Pydantic models to the existing user-scoped route.",
+    "Added response_model=BriefResponse and normalized malformed optional generated_at/title/source/content-quality values before model validation; score risk flags are exposed as strings.",
+    "Regenerated apps/api/openapi.json and reader-web generated/schema.ts so the operation now references components.schemas.BriefResponse and its nested item fields.",
+    "Replaced the Reader adapter's duplicate wire aliases with generated component types while keeping its unknown-payload guard and malformed-row filtering at the runtime boundary."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev python -m pytest tests/test_briefs.py -q",
+      "result": "pass: 8 tests"
+    },
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 225 tests, 1 skipped, 4 existing SQLite deprecation warnings"
+    },
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev ruff check .",
+      "result": "pass"
+    },
+    {
+      "command": "cd apps/reader-web && npm test && npm run build",
+      "result": "pass: Reader Node suite and Next.js production build/TypeScript check"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m app.export_openapi --out openapi.json && npx --yes openapi-typescript@7.13.0 apps/api/openapi.json -o apps/reader-web/src/lib/api/generated/schema.ts",
+      "result": "pass: OpenAPI export and generated TypeScript completed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "This closes the local FastAPI/OpenAPI/generated-TypeScript contract only. It does not prove real PostgreSQL/provider behavior, worker materialization ownership, staging/production auth/cache, or deployed schema artifact delivery; runtime adapter normalization remains intentionally defensive because network JSON is still untrusted."
+}
