@@ -77,6 +77,53 @@ def test_postgres_worker_claim_uses_skip_locked():
     assert engine.connection.params == {"worker_id": "worker-1"}
 
 
+def test_postgres_worker_renew_requires_running_owner():
+    class FakeScalarResult:
+        def one_or_none(self):
+            return None
+
+    class FakeMappingResult:
+        def mappings(self):
+            return FakeScalarResult()
+
+    class FakeConnection:
+        def __init__(self):
+            self.statement = None
+            self.params = None
+
+        def execute(self, statement, params=None):
+            self.statement = statement
+            self.params = params
+            return FakeMappingResult()
+
+    class FakeBegin:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def __enter__(self):
+            return self.connection
+
+        def __exit__(self, *_args):
+            return None
+
+    class FakeEngine:
+        def __init__(self):
+            self.connection = FakeConnection()
+
+        def begin(self):
+            return FakeBegin(self.connection)
+
+    engine = FakeEngine()
+    queue = PostgresJobQueue("postgresql+psycopg://postgres:postgres@localhost/test", engine=engine)
+
+    assert queue.renew_lease(7, worker_id="worker-1") is None
+    statement = str(engine.connection.statement)
+    assert "locked_at=NOW()" in statement
+    assert "status='running'" in statement
+    assert "locked_by=:worker_id" in statement
+    assert engine.connection.params == {"job_id": 7, "worker_id": "worker-1"}
+
+
 def test_worker_queue_factory_normalizes_postgres_url(monkeypatch):
     from app.main import create_worker_queue
 
@@ -180,6 +227,57 @@ def test_terminal_writes_require_running_owner():
     assert stored.status == "running"
     assert stored.locked_by == "worker-1"
     assert stored.last_error is None
+
+
+def test_renew_lease_refreshes_locked_at_for_the_running_owner():
+    queue = InMemoryJobQueue()
+    job = queue.enqueue("fetch_article_content", {}, dedupe_key="fetch:renew")
+    claimed = queue.claim_next(worker_id="worker-1")
+    assert claimed is not None
+
+    renewed = queue.renew_lease(job.id, worker_id="worker-1")
+
+    assert renewed is not None
+    assert renewed.status == "running"
+    assert renewed.locked_by == "worker-1"
+    assert renewed.locked_at is not None
+    assert claimed.locked_at is not None
+    assert renewed.locked_at >= claimed.locked_at
+    assert renewed.attempt_count == claimed.attempt_count
+
+
+def test_renew_lease_rejects_wrong_owner_and_terminal_jobs():
+    queue = InMemoryJobQueue()
+    job = queue.enqueue("fetch_article_content", {}, dedupe_key="fetch:renew-owner")
+    claimed = queue.claim_next(worker_id="worker-1")
+    assert claimed is not None
+
+    assert queue.renew_lease(job.id, worker_id="worker-2") is None
+    succeeded = queue.mark_succeeded(job.id, {"ok": True}, worker_id="worker-1")
+    assert succeeded is not None
+    assert queue.renew_lease(job.id, worker_id="worker-1") is None
+
+
+def test_renewed_lease_is_not_reclaimed_as_stale():
+    queue = InMemoryJobQueue()
+    job = queue.enqueue("fetch_article_content", {}, dedupe_key="fetch:renew-stale")
+    claimed = queue.claim_next(worker_id="worker-1")
+    assert claimed is not None
+    queue._jobs[job.id] = replace(
+        claimed,
+        locked_at=datetime.now(UTC) - timedelta(seconds=901),
+    )
+
+    renewed = queue.renew_lease(job.id, worker_id="worker-1")
+    reclaimed = queue.reclaim_stale(
+        lease_seconds=900,
+        base_backoff_seconds=30,
+        max_backoff_seconds=300,
+    )
+
+    assert renewed is not None
+    assert reclaimed == []
+    assert queue._jobs[job.id].status == "running"
 
 
 def test_cancelled_job_is_not_claimed_or_overwritten_by_terminal_write():

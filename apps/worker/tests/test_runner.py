@@ -1,10 +1,57 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import logging
-from threading import Event
+from threading import Event, Thread
 
 from app.jobs.queue import InMemoryJobQueue
 from app.runner import RetryableJobError, run_forever, run_once
+
+
+def test_run_once_renews_a_running_job_until_the_handler_finishes():
+    queue = InMemoryJobQueue()
+    job = queue.enqueue("slow", {}, dedupe_key="slow:renew")
+    started = Event()
+    release = Event()
+    renewed = Event()
+    errors: list[BaseException] = []
+
+    class RenewalProbeQueue:
+        def __getattr__(self, name):
+            return getattr(queue, name)
+
+        def renew_lease(self, job_id: int, *, worker_id: str):
+            renewed.set()
+            return queue.renew_lease(job_id, worker_id=worker_id)
+
+    def handler(_payload):
+        started.set()
+        assert release.wait(timeout=2)
+        return {"ok": True}
+
+    def execute():
+        try:
+            run_once(
+                RenewalProbeQueue(),
+                {"slow": handler},
+                worker_id="worker-1",
+                job_lease_seconds=1,
+                lease_renew_interval_seconds=0.01,
+            )
+        except BaseException as caught:  # keep the test thread from hiding a contract error
+            errors.append(caught)
+
+    thread = Thread(target=execute)
+    thread.start()
+    try:
+        assert started.wait(timeout=1)
+        assert renewed.wait(timeout=1)
+    finally:
+        release.set()
+        thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert queue._jobs[job.id].status == "succeeded"
 
 
 def test_run_once_marks_job_succeeded_with_result():

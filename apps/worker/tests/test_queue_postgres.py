@@ -38,6 +38,13 @@ def test_postgres_queue_state_machine_sql():
         assert claimed.status == "running"
         assert claimed.attempt_count == 1
 
+        renewed = queue.renew_lease(claimed.id, worker_id="worker-1")
+        assert renewed is not None
+        assert renewed.status == "running"
+        assert renewed.locked_by == "worker-1"
+        assert renewed.attempt_count == claimed.attempt_count
+        assert queue.renew_lease(claimed.id, worker_id="worker-2") is None
+
         retried = queue.mark_retryable_failure(
             claimed.id,
             "temporary outage",
