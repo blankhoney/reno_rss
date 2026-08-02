@@ -59,6 +59,15 @@ async def test_fetch_content_openapi_declares_typed_202_response(app):
     )
 
 
+async def test_job_polling_openapi_declares_typed_response(app):
+    response = app.openapi()["paths"]["/api/jobs/{job_id}"]["get"]
+
+    assert (
+        response["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/JobResponse"
+    )
+
+
 async def test_current_user_can_view_own_job(app, client):
     article = _seed_article(app)
     await client.post("/api/auth/login", json={"display_name": "Blank"})
