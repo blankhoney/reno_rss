@@ -34,3 +34,4 @@ f9789da4b7fc952c07cc00c2edaf0feefc54e71595c38949d131892fdfefe357  output/evidenc
 247b966b42aef36ff3cab086f6c20746ca3a4fb6ad4e253110b42e1ac420cf48  output/evidence/a02-review-export-matrix-2026-07-27.json
 c0ee01811006d139166983c54d06dd09763af65a0e85c2f0c32b156e67247c2f  output/evidence/reader-evidence-port-isolation-2026-08-01.json
 0e226702a9d28d5b9fc1335c1e6c4f44bb894dac6d6d232592420693d6631a70  output/evidence/api-daily-brief-ownership-2026-08-02.json
+9dea7a05da92e7ff8de55c86a573e6b657b293032104a7456ea8f9449e7e49ed  output/evidence/worker-score-budget-reservation-2026-08-02.json

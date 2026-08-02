@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "3ec3d26",
+  "milestone": "Batch 2 / A-10 / A-15",
+  "acceptance": ["A-10", "A-15"],
+  "scenario": "Concurrent score batches share one atomic daily reservation boundary and historical score attempts count toward the configured cap.",
+  "failure_before_repair": {
+    "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_scoring.py tests/test_score_sink.py -q",
+    "result": "failed: two batches both called the provider after observing the same persisted count; DatabaseScoreSink had no reservation method"
+  },
+  "repair": [
+    "Added a score_budget protocol and reserved each article immediately before provider invocation.",
+    "Added DatabaseScoreSink.reserve_score_attempt using the existing llm_daily_usage table and PostgreSQL row locking.",
+    "Folded historical article_base_scores attempts into the reservation effective usage with max(ledger, history).",
+    "Added a conditional PostgreSQL ThreadPoolExecutor test for cap=3 atomicity."
+  ],
+  "validation": [
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_scoring.py tests/test_score_sink.py -q",
+      "result": "pass: 20 tests"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 126 tests, 5 skipped; 2 existing SQLite deprecation warnings"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_scoring.py tests/test_score_sink.py tests/test_sinks_postgres.py -q -rs",
+      "result": "pass: 20 tests; 4 PostgreSQL tests skipped because WORKER_QUEUE_POSTGRES_TEST_URL was unavailable"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev ruff check .",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The real PostgreSQL concurrency test is present but was not run locally because Docker and WORKER_QUEUE_POSTGRES_TEST_URL were unavailable. Mock provider calls remain local and no real provider budget was consumed."
+}
