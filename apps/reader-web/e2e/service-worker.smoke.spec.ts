@@ -190,6 +190,37 @@ test("normal accent and warning text meet AA contrast in both themes", async ({ 
   }
 });
 
+test("settled ArticleList text meets AA contrast in both themes", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+
+  const selectors = [
+    ".articleListKbdHint kbd",
+    ".articleCardMeta",
+    ".articleCardTitle",
+    ".articleCardSummary",
+    ".articleCardTier",
+    ".articleReadLink",
+  ];
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate((nextTheme) => {
+      document.documentElement.dataset.theme = nextTheme;
+    }, theme);
+    const results = await new AxeBuilder({ page })
+      .include(selectors)
+      .withRules(["color-contrast"])
+      .analyze();
+    const contrastViolations = results.violations.filter(
+      (violation) => violation.impact === "critical" || violation.impact === "serious",
+    );
+    expect(
+      contrastViolations,
+      `${theme} ArticleList contrast: ${JSON.stringify(contrastViolations.map((item) => item.id))}`,
+    ).toEqual([]);
+  }
+});
+
 test("auth and command palette inputs keep a visible keyboard focus indicator", async ({ page }) => {
   await resetFixtures(page);
   await page.route("**/api/auth/me", async (route) => {
