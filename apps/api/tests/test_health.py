@@ -31,6 +31,7 @@ async def test_api_metrics_exposes_prometheus_text(app, client):
     assert "ai_reader_up 1" in body
     assert 'ai_reader_llm_calls_used{account="ask"}' in body
     assert 'ai_reader_llm_calls_limit{account="agent"}' in body
+    assert 'ai_reader_llm_calls_limit{account="translate"}' in body
     assert "ai_reader_http_request_duration_seconds_count" in body
     assert "ai_reader_http_errors_total" in body
     assert "ai_reader_http_error_ratio" in body

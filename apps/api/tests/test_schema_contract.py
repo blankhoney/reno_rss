@@ -51,6 +51,9 @@ class MigrationOpRecorder:
     def create_check_constraint(self, *_args, **_kwargs):
         return None
 
+    def drop_constraint(self, *_args, **_kwargs):
+        return None
+
     def add_column(self, table_name, column):
         self.tables[table_name][column.name] = column
 
@@ -175,6 +178,7 @@ def test_migration_column_nullability_matches_model():
         load_migration("0009_project_acl.py"),
         load_migration("0010_llm_daily_usage.py"),
         load_migration("0011_project_requires_saved.py"),
+        load_migration("0012_translation_daily_usage_account.py"),
     ]
     recorder = MigrationOpRecorder()
     for migration in migrations:

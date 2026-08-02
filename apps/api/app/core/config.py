@@ -21,6 +21,7 @@ DEFAULT_AUTH_RATELIMIT = "5/minute;30/hour"
 DEFAULT_LLM_DAILY_CALL_BUDGET = 500
 DEFAULT_SCORE_DAILY_CALL_BUDGET = 60
 DEFAULT_AGENT_DAILY_CALL_BUDGET = 20
+DEFAULT_TRANSLATION_DAILY_CALL_BUDGET = 60
 DEFAULT_SLOW_REQUEST_MS = 500
 
 
@@ -55,6 +56,7 @@ class Settings:
     llm_daily_call_budget: int = DEFAULT_LLM_DAILY_CALL_BUDGET
     score_daily_call_budget: int = DEFAULT_SCORE_DAILY_CALL_BUDGET
     agent_daily_call_budget: int = DEFAULT_AGENT_DAILY_CALL_BUDGET
+    translation_daily_call_budget: int = DEFAULT_TRANSLATION_DAILY_CALL_BUDGET
     scheduler_enabled: bool = True
     # When true, requests without a session cookie are resolved to a shared demo
     # user (role=user) so staging can be a fully public functional demo. MUST stay
@@ -196,6 +198,10 @@ def get_settings() -> Settings:
         agent_daily_call_budget=_parse_int(
             os.environ.get("AGENT_DAILY_CALL_BUDGET"),
             DEFAULT_AGENT_DAILY_CALL_BUDGET,
+        ),
+        translation_daily_call_budget=_parse_int(
+            os.environ.get("TRANSLATION_DAILY_CALL_BUDGET"),
+            DEFAULT_TRANSLATION_DAILY_CALL_BUDGET,
         ),
         scheduler_enabled=_parse_bool_with_default(
             os.environ.get("SCHEDULER_ENABLED"),

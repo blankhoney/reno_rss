@@ -423,7 +423,7 @@ app_settings = Table(
 )
 
 # Atomic day buckets shared by every API process. Score usage is also
-# independently auditable from article_base_scores; ask/agent reserve here.
+# independently auditable from article_base_scores; ask/agent/translate reserve here.
 llm_daily_usage = Table(
     "llm_daily_usage",
     metadata,
@@ -432,7 +432,7 @@ llm_daily_usage = Table(
     Column("used", Integer, nullable=False, server_default=text("0")),
     updated_at_column(),
     CheckConstraint(
-        "account IN ('score', 'ask', 'agent')",
+        "account IN ('score', 'ask', 'agent', 'translate')",
         name="ck_llm_daily_usage_account",
     ),
     CheckConstraint("used >= 0", name="ck_llm_daily_usage_used"),
