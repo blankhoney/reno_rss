@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "95cd988",
+  "milestone": "Reader structured article errors and successful empty-page recovery",
+  "acceptance": ["A-02", "A-05", "A-06", "A-07"],
+  "scenario": "A typed article 404 keeps its not-found meaning, while a successful later empty cursor page keeps a previous-page escape and restores the first page through the existing cursor trail.",
+  "failure_before_repair": [
+    {
+      "command": "cd apps/reader-web && npm test -- --test-name-pattern='later empty page'",
+      "result": "failed: later empty ArticleList rendered no articleListPager despite hasPrev=true"
+    },
+    {
+      "command": "cd apps/reader-web && npx playwright test e2e/service-worker.smoke.spec.ts -g 'article 404 envelope' --project=chromium",
+      "result": "failed: the real 404 envelope rendered generic load-failure copy instead of article-not-found copy"
+    },
+    {
+      "command": "cd apps/reader-web && npx playwright test e2e/service-worker.smoke.spec.ts -g 'successful later empty page' --project=chromium",
+      "result": "failed: the pre-repair fixture returned an article for the later cursor, so no successful empty state or previous escape was observable"
+    }
+  ],
+  "repair": [
+    "FocusedArticleScreen now retains ApiError status/code metadata and classifies not-found by status 404 or code not_found, rather than matching message text.",
+    "ArticleList now renders its existing pager when a confirmed empty page still has a previous page; first-page empty results remain pager-free.",
+    "The local fixture server now exposes a q=empty-page scenario whose second cursor returns HTTP 200 with an empty item list, allowing the browser recovery path to be tested without a real API."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/reader-web && npm test -- --test-name-pattern='(typed not-found|later empty page)'",
+      "result": "pass"
+    },
+    {
+      "command": "cd apps/reader-web && npm test",
+      "result": "pass: 203 tests"
+    },
+    {
+      "command": "cd apps/reader-web && npm run build",
+      "result": "pass: Next.js production build and TypeScript check"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3015 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'invalid read route|article 404 envelope|successful later empty page|scan mode paging failure|scan mode error offers' --project=chromium",
+      "result": "pass: 6 tests"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "Browser evidence uses the local disposable fixture and Chromium only; it does not prove the deployed FastAPI response, real proxy URL limits, native iPhone selection, screen-reader behavior, staging/production auth, or real user data."
+}
