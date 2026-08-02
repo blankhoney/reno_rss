@@ -2,26 +2,25 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import logging
 from threading import Event, Thread
+from typing import cast
 
 from app.jobs.queue import InMemoryJobQueue
-from app.runner import RetryableJobError, run_forever, run_once
+from app.runner import JobQueue, RetryableJobError, run_forever, run_once
 
 
 def test_run_once_renews_a_running_job_until_the_handler_finishes():
-    queue = InMemoryJobQueue()
-    job = queue.enqueue("slow", {}, dedupe_key="slow:renew")
     started = Event()
     release = Event()
     renewed = Event()
     errors: list[BaseException] = []
 
-    class RenewalProbeQueue:
-        def __getattr__(self, name):
-            return getattr(queue, name)
-
+    class RenewalProbeQueue(InMemoryJobQueue):
         def renew_lease(self, job_id: int, *, worker_id: str):
             renewed.set()
-            return queue.renew_lease(job_id, worker_id=worker_id)
+            return super().renew_lease(job_id, worker_id=worker_id)
+
+    queue = RenewalProbeQueue()
+    job = queue.enqueue("slow", {}, dedupe_key="slow:renew")
 
     def handler(_payload):
         started.set()
@@ -31,7 +30,7 @@ def test_run_once_renews_a_running_job_until_the_handler_finishes():
     def execute():
         try:
             run_once(
-                RenewalProbeQueue(),
+                queue,
                 {"slow": handler},
                 worker_id="worker-1",
                 job_lease_seconds=1,
@@ -215,7 +214,7 @@ def test_run_forever_survives_transient_queue_outage_and_processes_jobs_after_re
             stop.set()
 
     run_forever(
-        OutageQueue(),
+        cast(JobQueue, OutageQueue()),
         {"worker_echo": lambda payload: {"echo": payload["message"]}},
         worker_id="worker-resilient",
         poll_seconds=0.01,

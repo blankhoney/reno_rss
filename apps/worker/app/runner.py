@@ -10,7 +10,7 @@ from app.jobs.queue import QueueJob
 
 LOGGER = logging.getLogger(__name__)
 
-Handler = Callable[[Mapping[str, object]], Mapping[str, object] | None]
+Handler = Callable[[Mapping[str, object]], object]
 
 
 class JobQueue(Protocol):
@@ -42,9 +42,9 @@ class JobQueue(Protocol):
         worker_id: str,
         base_backoff_seconds: int,
         max_backoff_seconds: int,
-    ): ...
+    ) -> QueueJob | None: ...
 
-    def mark_failed(self, job_id: int, error: str, *, worker_id: str): ...
+    def mark_failed(self, job_id: int, error: str, *, worker_id: str) -> QueueJob | None: ...
 
 
 class RetryableJobError(RuntimeError):
@@ -201,7 +201,7 @@ def run_forever(
             stop_event.wait(poll_seconds)
 
 
-def _normalize_result(result: Mapping[str, object] | None) -> dict[str, object]:
+def _normalize_result(result: object) -> dict[str, object]:
     if result is None:
         return {}
     if not isinstance(result, Mapping):
