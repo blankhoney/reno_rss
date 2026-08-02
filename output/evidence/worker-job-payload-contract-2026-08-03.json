@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-03",
+  "base_revision": "6e40b0cf",
+  "milestone": "Worker score and recommendation job payload contract",
+  "acceptance": ["A-10", "A-15"],
+  "scenario": "Fresh API/Worker scoring and recommendation jobs declare payload_version 1; Worker rejects supplied unknown versions before side effects while preserving an explicit legacy-v0 compatibility path.",
+  "failure_before_repair": [
+    {
+      "command": "cd apps/api && env -u DATABASE_URL -u SCORING_DATABASE_URL uv run --isolated --with-editable . --extra dev python -m pytest tests/test_scoring_batches.py -q",
+      "result": "failed: persisted admin score job payload was {\\\"batch_id\\\": 1} and lacked payload_version"
+    },
+    {
+      "command": "cd apps/worker && env -u WORKER_QUEUE_POSTGRES_TEST_URL -u DATABASE_URL -u SCORING_DATABASE_URL uv run --isolated --with-editable . --extra dev python -m pytest tests/test_job_payload_contracts.py -q",
+      "result": "failed: 6 contract assertions; unversioned payload had no compatibility warning, unsupported versions reached provider work, and runner marked an unsupported score payload succeeded"
+    }
+  ],
+  "repair": [
+    "Added Worker-local payload_contracts.py with exact integer payload_version validation, legacy-v0 generation, CURRENT_PAYLOAD_VERSION=1, and DEFAULT_ALGORITHM_VERSION=b4.v1.",
+    "API admin and Worker score sink producers now emit payload_version 1 without changing dedupe keys or rubric semantics.",
+    "score_batch validates before article lookup, reservation, provider calls, score persistence, webhook emission, finish_batch, or recommendation enqueue.",
+    "Recommendation producer emits payload_version, source_batch_id, and algorithm_version; v1 requires an explicit supported algorithm while legacy-v0 alone retains the historical default.",
+    "Conditional PostgreSQL sink expectations were updated to the new JSON contract without running a real PostgreSQL service."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/api && env -u DATABASE_URL -u SCORING_DATABASE_URL uv run --isolated --with-editable . --extra dev python -m pytest tests/test_scoring_batches.py -q",
+      "result": "pass: 4 tests"
+    },
+    {
+      "command": "cd apps/worker && env -u WORKER_QUEUE_POSTGRES_TEST_URL -u DATABASE_URL -u SCORING_DATABASE_URL uv run --isolated --with-editable . --extra dev python -m pytest tests/test_score_sink.py tests/test_recommendations.py tests/test_job_payload_contracts.py tests/test_runner.py -q",
+      "result": "pass: 36 tests"
+    },
+    {
+      "command": "cd apps/api && env -u DATABASE_URL -u SCORING_DATABASE_URL uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 225 tests, 1 skipped"
+    },
+    {
+      "command": "cd apps/worker && env -u WORKER_QUEUE_POSTGRES_TEST_URL -u DATABASE_URL -u SCORING_DATABASE_URL uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 225 tests, 1 skipped"
+    },
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev ruff check .; cd apps/worker && uv run --isolated --with-editable . --extra dev ruff check .",
+      "result": "pass: both packages"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass before each behavior commit"
+    }
+  ],
+  "commits": [
+    "4d03c550 fix(worker): version score-batch payloads",
+    "6e40b0cf fix(worker): require recommendation algorithm in v1 jobs"
+  ],
+  "known_limit": "Evidence is local API memory repository, Worker SQLite/in-memory queue, and fake-provider proof. No real PostgreSQL, provider spend, queue inventory, rolling deployment, staging, or production verification was run. Legacy-v0 retirement is not implemented."
+}

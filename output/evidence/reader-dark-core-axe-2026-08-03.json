@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-03",
+  "base_revision": "0b4d298d",
+  "milestone": "Reader dark-theme full core-page Axe proof",
+  "acceptance": ["A-05", "A-06", "A-07"],
+  "scenario": "The application initializes dark theme from the saved preference before navigation, then Workbench and Focus Reader full pages pass settled-state WCAG 2A/AA Axe with color-contrast enabled.",
+  "failure_before_repair": [
+    {
+      "source": "Prior evidence boundary",
+      "result": "The existing full-page Axe gate ran only with the default theme; dark coverage was limited to token and settled ArticleList subgates. No dark full-page failure had yet been measured."
+    }
+  ],
+  "repair": [
+    "Added a dedicated Playwright test that sets only localStorage[ai-reader.theme]=dark before navigation, allowing layout.tsx to own the pre-paint dataset.theme initialization.",
+    "Reused settled ArticleList and Focus Reader opacity guards before unrestricted WCAG 2A/AA Axe analysis on both core routes.",
+    "No CSS or product visual repair was necessary because the first focused dark full-page probe passed."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3050 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'dark theme axe scan finds no critical' --project=chromium",
+      "result": "pass: 1 Chromium test"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3051 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'dark theme axe scan finds no critical' --project=chromium --project=firefox --project=webkit --project=webkit-touch",
+      "result": "pass: 4 tests (Chromium, Firefox, WebKit, iPhone WebKit)"
+    },
+    {
+      "command": "cd apps/reader-web && npm test",
+      "result": "pass: 199 Node tests"
+    },
+    {
+      "command": "cd apps/reader-web && npm run build",
+      "result": "pass: Next.js production build and TypeScript check"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass before the test commit"
+    }
+  ],
+  "commits": [
+    "0b4d298d test(reader): scan dark core pages with axe"
+  ],
+  "known_limit": "The browser matrix proves fixture rendering and Axe execution only. It does not prove native iPhone text selection, gestures, VoiceOver/screen-reader output, production proxy/auth/cache behavior, real providers, or staging/production theme persistence."
+}

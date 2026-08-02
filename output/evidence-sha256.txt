@@ -47,3 +47,5 @@ b44753fd0706a0fc8afca563d3be2858f10b81a10a341b6c07bf6d7c5440e040  output/evidenc
 1ddff8fa6ef7564eb14a9bb7e5e7722ba79f3983d734de83a4160d0102772f1a  output/evidence/reader-a11y-contrast-focus-2026-08-02.json
 a0e02bddb2cf332c674093492d5b047c3dea070adb2f9a282a74fe93cf5b9086  output/evidence/reader-daily-brief-api-schema-2026-08-02.json
 2827738f3c98b5f1adcfeff1f1f687d2d63c5ff53d2ed85e4295eb715a8a4572  output/evidence/reader-article-list-contrast-2026-08-02.json
+52b2d5cdd1454cbf157fba9eea60f28c5c65991f9779f697f996e2f8bcd6c848  output/evidence/worker-job-payload-contract-2026-08-03.json
+aa4190712226ebec2170457a86044c9eb736a0f39da82057111c942f10db4457  output/evidence/reader-dark-core-axe-2026-08-03.json
