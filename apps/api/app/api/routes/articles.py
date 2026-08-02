@@ -588,14 +588,22 @@ def create_article_annotation(
     return {"annotation": annotation_public(annotation)}
 
 
-@router.post("/articles/{article_id}/fetch-content")
+@router.post(
+    "/articles/{article_id}/fetch-content",
+    responses={404: {"description": "Article not found"}},
+)
 @limiter.limit(write_rate_limit)
 def enqueue_fetch_content_job(
     request: Request,
     article_id: int = Path(gt=0),
     current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
     job_repository: JobStore = Depends(get_job_repository),
 ) -> JSONResponse:
+    if article_repository.get_article(article_id) is None:
+        # Fail before enqueueing so a deleted/invalid article is not presented as
+        # an asynchronous success that can only fail after a worker claims it.
+        raise ApiError(404, "not_found", "Article not found")
     job = job_repository.enqueue(
         "fetch_article_content",
         {"article_id": article_id},

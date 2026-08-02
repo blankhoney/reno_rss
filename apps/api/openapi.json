@@ -823,6 +823,9 @@
               }
             }
           },
+          "404": {
+            "description": "Article not found"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
