@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "recorded_at": "2026-08-02",
-  "base_revision": "95cd988",
+  "base_revision": "06cae12",
   "milestone": "Reader structured article errors and successful empty-page recovery",
   "acceptance": ["A-02", "A-05", "A-06", "A-07"],
   "scenario": "A typed article 404 keeps its not-found meaning, while a successful later empty cursor page keeps a previous-page escape and restores the first page through the existing cursor trail.",
@@ -39,7 +39,11 @@
     },
     {
       "command": "cd apps/reader-web && READER_E2E_PORT=3015 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'invalid read route|article 404 envelope|successful later empty page|scan mode paging failure|scan mode error offers' --project=chromium",
-      "result": "pass: 6 tests"
+      "result": "pass: 6 tests at 95cd988"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3016 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'successful later empty page' --project=chromium",
+      "result": "pass: 2 tests covering scan and focus modes"
     },
     {
       "command": "git diff --check",

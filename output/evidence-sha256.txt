@@ -41,4 +41,4 @@ dbbae9e324ac2a27554e5b9bfe31f1b5418225eb7c7102fbfbe62aa15c0e5d61  output/evidenc
 e9e973ca375921f19599adb7acf03503102b06cf1888c7acaa530490746b9217  output/evidence/worker-lease-renewal-2026-08-02.json
 d50afb3a579f98a606e71163935e2d9dc792f236971b33ceb57b0914e7e20458  output/evidence/worker-fetch-content-truth-2026-08-02.json
 f7a5d80680842525f11721f25ebd85195e2734e19d473aa3f0fd24f3dc194ccd  output/evidence/worker-governance-schema-2026-08-02.json
-9c8cc66e8552c8000498f5e2b3c5fc867d189fc85fe4a679fabff3cd1b83e596  output/evidence/reader-recovery-state-2026-08-02.json
+67e0a315cc4ae335c162a63537c777a600f29cf7678a95218f5630a6902a0fdd  output/evidence/reader-recovery-state-2026-08-02.json
