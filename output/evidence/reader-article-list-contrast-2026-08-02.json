@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "recorded_at": "2026-08-02",
-  "base_revision": "d133e3cc",
+  "base_revision": "8d3e2452",
   "milestone": "Settled Reader ArticleList contrast subgate",
   "acceptance": ["A-05", "A-06", "A-07"],
   "scenario": "After the light-theme token repair, the settled ArticleList's shortcut hint, metadata, title, summary, tier, and read affordance pass the color-contrast rule in both light and dark themes across Chromium, Firefox, WebKit, and iPhone WebKit fixture projects.",
@@ -10,8 +10,9 @@
     "result": "broader contrast-inclusive axe probe failed with serious color-contrast nodes across mixed card/status states; it did not isolate whether the settled ArticleList text itself was still failing after the token repair"
   },
   "repair": [
-    "Added a scoped Axe color-contrast subgate for settled ArticleList selectors rather than treating the broad mixed-state axe result as a single token diagnosis.",
-    "Ran the same subgate in the existing desktop cross-engine and iPhone WebKit project filters; no product CSS change was made in this proof slice because all selected nodes passed."
+    "Added a scoped Axe color-contrast subgate for ArticleList selectors and a shared wait that excludes paging opacity and fade-up animation from contrast sampling.",
+    "Changed the visible article index from the low-contrast border token to the already AA-safe muted token after the settled broad axe probe identified that concrete node.",
+    "Ran the subgate in the existing desktop cross-engine and iPhone WebKit project filters; the structural axe gate continues to exclude color-contrast while the remaining dynamic Reader findings stay separately tracked."
   ],
   "validation": [
     {
@@ -21,6 +22,10 @@
     {
       "command": "cd apps/reader-web && READER_E2E_PORT=3037 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'settled ArticleList text' --project=firefox --project=webkit --project=webkit-touch",
       "result": "pass: 3 tests (Firefox, WebKit, iPhone WebKit)"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3043 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'settled ArticleList text|axe scan finds no critical' --project=chromium",
+      "result": "pass: 2 tests (ArticleList contrast subgate plus structural axe gate with contrast rule intentionally excluded)"
     },
     {
       "command": "git diff --check",
