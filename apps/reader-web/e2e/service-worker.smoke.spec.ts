@@ -5,6 +5,17 @@ async function resetFixtures(page: import("@playwright/test").Page) {
   await page.request.post("/__e2e/reset");
 }
 
+async function waitForSettledArticleList(page: import("@playwright/test").Page) {
+  await expect(page.locator(".articleList")).not.toHaveClass(/articleListPaging/);
+  await expect
+    .poll(() =>
+      page.locator(".articleList > li").evaluateAll((elements) =>
+        elements.every((element) => Number(getComputedStyle(element).opacity) >= 0.99),
+      ),
+    )
+    .toBe(true);
+}
+
 function captureUnexpectedBrowserErrors(page: import("@playwright/test").Page) {
   const errors: string[] = [];
   page.on("console", (message) => {
@@ -194,6 +205,7 @@ test("settled ArticleList text meets AA contrast in both themes", async ({ page 
   await resetFixtures(page);
   await page.goto("/?module=all&sort=default&lang=zh");
   await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await waitForSettledArticleList(page);
 
   const selectors = [
     ".articleListKbdHint kbd",
@@ -336,6 +348,7 @@ test("axe scan finds no critical accessibility violations on core pages", async 
 
   await page.goto("/?module=all&sort=default&lang=zh");
   await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await waitForSettledArticleList(page);
   const workbenchResults = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa"])
     .disableRules(["color-contrast"])
