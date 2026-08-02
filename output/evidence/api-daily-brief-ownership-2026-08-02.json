@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "d3166fe",
+  "milestone": "Batch 1 / A-04",
+  "acceptance": ["A-04", "A-08"],
+  "scenario": "Two authenticated users receive only their own recommendation-derived Daily Brief even when an unowned global brief job exists and is newer.",
+  "failure_before_repair": {
+    "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_briefs.py -q",
+    "result": "failed: the endpoint returned source=jobs from an unowned global job instead of each user's recommendation edition"
+  },
+  "repair": [
+    "Removed the global latest_succeeded daily-brief job from the user-visible endpoint path.",
+    "Derived the visible brief from RecommendationStore.latest_for_user(current_user.id).",
+    "Retained payload extraction helpers as pure compatibility functions but no longer used them to establish ownership."
+  ],
+  "validation": [
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_briefs.py -q",
+      "result": "pass: 7 tests"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 220 tests, 1 skipped; 2 existing SQLite deprecation warnings"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev ruff check .",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "This is an API read-path safety stopgap. Worker global brief materialization remains a separate follow-up; no migration, real provider, staging, production, or real user data was used."
+}
