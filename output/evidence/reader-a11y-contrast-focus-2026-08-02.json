@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "recorded_at": "2026-08-02",
-  "base_revision": "a3bf15c8",
+  "base_revision": "d7955dad",
   "milestone": "Reader accessibility contrast and focus baseline",
   "acceptance": ["A-05", "A-06", "A-07", "A-13"],
   "scenario": "Light and dark Reader fixtures keep normal accent, warning, and muted text above the AA text threshold across the core paper surfaces; authentication and command-palette inputs expose visible keyboard focus indicators.",
@@ -29,6 +29,10 @@
     {
       "command": "cd apps/reader-web && READER_E2E_PORT=3034 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'muted reading|normal accent|auth and command palette|axe scan finds no critical' --project=chromium",
       "result": "pass: 4 Chromium tests"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3035 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'muted reading|normal accent|auth and command palette' --project=firefox --project=webkit --project=webkit-touch",
+      "result": "pass: 8 tests (Firefox 3, WebKit 3, iPhone WebKit 2)"
     },
     {
       "command": "cd apps/reader-web && npm test",
