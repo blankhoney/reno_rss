@@ -159,6 +159,73 @@ test("muted reading text meets AA contrast and reduced motion disables nonessent
   expect(tokens.transitionDuration).toBe("0.001s");
 });
 
+test("normal accent and warning text meet AA contrast in both themes", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+
+  const tokens = await page.evaluate(() => {
+    const values = () => {
+      const styles = getComputedStyle(document.documentElement);
+      return {
+        accent: styles.getPropertyValue("--accent").trim(),
+        muted: styles.getPropertyValue("--muted").trim(),
+        warning: styles.getPropertyValue("--warning").trim(),
+        surfaces: ["--bg", "--bg-sunken", "--panel", "--panel2"].map((name) =>
+          styles.getPropertyValue(name).trim(),
+        ),
+      };
+    };
+    const light = values();
+    document.documentElement.dataset.theme = "dark";
+    const dark = values();
+    return { light, dark };
+  });
+
+  for (const theme of [tokens.light, tokens.dark]) {
+    expect(contrastRatio(theme.accent, theme.surfaces[0])).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(theme.warning, theme.surfaces[0])).toBeGreaterThanOrEqual(4.5);
+    for (const surface of theme.surfaces) {
+      expect(contrastRatio(theme.muted, surface)).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
+test("auth and command palette inputs keep a visible keyboard focus indicator", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "unauthorized", message: "Authentication required" } }),
+    });
+  });
+  await page.goto("/?module=all&sort=default&lang=zh");
+  const authInput = page.locator(".authTextInput");
+  await expect(authInput).toBeVisible();
+  await authInput.focus();
+  const authFocus = await authInput.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, outlineColor: style.outlineColor };
+  });
+  expect(authFocus.outlineStyle).not.toBe("none");
+  expect(authFocus.outlineWidth).not.toBe("0px");
+  expect(authFocus.outlineColor.startsWith("rgba(")).toBe(false);
+
+  await page.unroute("**/api/auth/me");
+  await page.goto("/?module=all&sort=default&lang=zh");
+  const sortButton = page.getByRole("button", { name: /排序/ });
+  await sortButton.focus();
+  await page.keyboard.press("Meta+k");
+  const paletteInput = page.getByRole("dialog", { name: "命令面板" }).getByRole("textbox");
+  await expect(paletteInput).toBeFocused();
+  const paletteFocus = await paletteInput.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+  });
+  expect(paletteFocus.outlineStyle).not.toBe("none");
+  expect(paletteFocus.outlineWidth).not.toBe("0px");
+});
+
 test("registers and controls the second local page load", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/");
