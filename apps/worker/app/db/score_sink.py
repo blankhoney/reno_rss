@@ -6,6 +6,8 @@ import json
 
 from sqlalchemy import Engine, create_engine, text
 
+from app.jobs.payload_contracts import CURRENT_PAYLOAD_VERSION, DEFAULT_ALGORITHM_VERSION
+
 
 RECOMMENDATIONS_JOB_TYPE = "generate_recommendations"
 
@@ -264,7 +266,7 @@ class DatabaseScoreSink:
         return batch_id
 
     def enqueue_score_batch(self, batch_id: int) -> None:
-        payload = {"payload_version": 1, "batch_id": batch_id}
+        payload = {"payload_version": CURRENT_PAYLOAD_VERSION, "batch_id": batch_id}
         params = {
             "job_type": "score_batch",
             "payload": json.dumps(payload, ensure_ascii=False),
@@ -312,7 +314,11 @@ class DatabaseScoreSink:
             )
 
     def enqueue_recommendations(self, batch_id: object) -> None:
-        payload = {"source_batch_id": batch_id}
+        payload = {
+            "payload_version": CURRENT_PAYLOAD_VERSION,
+            "source_batch_id": batch_id,
+            "algorithm_version": DEFAULT_ALGORITHM_VERSION,
+        }
         params = {
             "job_type": RECOMMENDATIONS_JOB_TYPE,
             "payload": json.dumps(payload, ensure_ascii=False),

@@ -135,7 +135,26 @@ def test_score_sink_enqueues_deduped_recommendations_job():
     assert jobs[0]["job_type"] == "generate_recommendations"
     assert jobs[0]["status"] == "queued"
     assert jobs[0]["priority"] == 1
-    assert jobs[0]["payload"] == '{"source_batch_id": 10}'
+    assert jobs[0]["payload"] == (
+        '{"payload_version": 1, "source_batch_id": 10, '
+        '"algorithm_version": "b4.v1"}'
+    )
+
+
+def test_score_sink_enqueues_recommendations_with_explicit_null_source_batch():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    sink = DatabaseScoreSink(engine=engine)
+
+    sink.enqueue_recommendations(None)
+
+    with engine.begin() as connection:
+        job = connection.execute(text("SELECT * FROM jobs")).mappings().one()
+
+    assert job["payload"] == (
+        '{"payload_version": 1, "source_batch_id": null, '
+        '"algorithm_version": "b4.v1"}'
+    )
 
 
 def test_score_sink_counts_today_scores_including_error_rows():

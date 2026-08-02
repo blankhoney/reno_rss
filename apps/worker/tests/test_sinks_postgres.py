@@ -170,7 +170,13 @@ def test_postgres_scoring_and_recommendation_sinks_use_real_schema_types():
                         ORDER BY id;
                         """
                     ),
-                    {"payload": json.dumps({"source_batch_id": ids["batch_id"]})},
+                    {"payload": json.dumps(
+                        {
+                            "payload_version": 1,
+                            "source_batch_id": ids["batch_id"],
+                            "algorithm_version": "b4.v1",
+                        }
+                    )},
                 )
                 .mappings()
                 .all()
@@ -180,7 +186,11 @@ def test_postgres_scoring_and_recommendation_sinks_use_real_schema_types():
             {
                 "job_type": "generate_recommendations",
                 "status": "queued",
-                "payload": {"source_batch_id": ids["batch_id"]},
+                "payload": {
+                    "payload_version": 1,
+                    "source_batch_id": ids["batch_id"],
+                    "algorithm_version": "b4.v1",
+                },
                 "created_by": None,
             }
         ]
@@ -290,14 +300,24 @@ def test_postgres_enqueue_recommendations_is_idempotent_under_concurrency():
                         ORDER BY id;
                         """
                     ),
-                    {"payload": json.dumps({"source_batch_id": ids["batch_id"]})},
+                    {"payload": json.dumps(
+                        {
+                            "payload_version": 1,
+                            "source_batch_id": ids["batch_id"],
+                            "algorithm_version": "b4.v1",
+                        }
+                    )},
                 )
                 .mappings()
                 .all()
             )
 
         assert len(jobs) == 1
-        assert jobs[0]["payload"] == {"source_batch_id": ids["batch_id"]}
+        assert jobs[0]["payload"] == {
+            "payload_version": 1,
+            "source_batch_id": ids["batch_id"],
+            "algorithm_version": "b4.v1",
+        }
     finally:
         score_sink.dispose()
 

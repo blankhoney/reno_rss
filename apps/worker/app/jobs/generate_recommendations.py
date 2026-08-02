@@ -8,8 +8,11 @@ from pathlib import Path
 from types import ModuleType
 from typing import Protocol, cast
 
-
-DEFAULT_ALGORITHM_VERSION = "b4.v1"
+from app.jobs.payload_contracts import (
+    DEFAULT_ALGORITHM_VERSION,
+    PayloadGeneration,
+    validate_payload_version,
+)
 _ONLINE_RANKING_MODULE: ModuleType | None = None
 
 
@@ -53,7 +56,11 @@ def generate_recommendations(
     sink: RecommendationSink,
     ranker: RecommendationRanker,
 ) -> dict[str, object]:
-    algorithm_version = _algorithm_version(payload)
+    payload_generation = validate_payload_version(
+        payload,
+        job_type="generate_recommendations",
+    )
+    algorithm_version = _algorithm_version(payload, payload_generation=payload_generation)
 
     user_ids = _user_ids(payload, sink)
     editions_saved = 0
@@ -86,8 +93,17 @@ def _user_ids(payload: Mapping[str, object], sink: RecommendationSink) -> list[o
     return list(value)
 
 
-def _algorithm_version(payload: Mapping[str, object]) -> str:
-    value = payload.get("algorithm_version", DEFAULT_ALGORITHM_VERSION)
+def _algorithm_version(
+    payload: Mapping[str, object],
+    *,
+    payload_generation: PayloadGeneration,
+) -> str:
+    if payload_generation == "legacy":
+        value = payload.get("algorithm_version", DEFAULT_ALGORITHM_VERSION)
+    else:
+        if "algorithm_version" not in payload:
+            raise ValueError("versioned payload['algorithm_version'] is required")
+        value = payload["algorithm_version"]
     if not isinstance(value, str):
         raise TypeError("payload['algorithm_version'] must be a string")
     if value != DEFAULT_ALGORITHM_VERSION:
