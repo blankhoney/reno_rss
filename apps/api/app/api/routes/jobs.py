@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Path
+from pydantic import BaseModel
 
 from app.api.deps import ApiError, get_job_repository, require_user
 from app.db.auth_store import UserRecord
@@ -6,6 +7,18 @@ from app.db.repositories.jobs import JobRecord, JobStore
 
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+
+
+class JobResponse(BaseModel):
+    id: int
+    job_type: str
+    status: str
+    progress: dict[str, object]
+    result: dict[str, object]
+    last_error: str | None
+    created_at: str
+    updated_at: str
+    completed_at: str | None
 
 
 def job_public(job: JobRecord) -> dict[str, object]:
@@ -22,12 +35,12 @@ def job_public(job: JobRecord) -> dict[str, object]:
     }
 
 
-@router.get("/{job_id}")
+@router.get("/{job_id}", response_model=JobResponse)
 def get_job(
     job_id: int = Path(gt=0),
     current_user: UserRecord = Depends(require_user),
     job_repository: JobStore = Depends(get_job_repository),
-) -> dict[str, object]:
+) -> JobResponse:
     job = job_repository.get_visible_job(
         job_id,
         current_user_id=current_user.id,
@@ -35,4 +48,4 @@ def get_job(
     )
     if job is None:
         raise ApiError(404, "not_found", "Job not found")
-    return job_public(job)
+    return JobResponse.model_validate(job_public(job))
