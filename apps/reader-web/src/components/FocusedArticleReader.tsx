@@ -16,7 +16,12 @@ import {
   type ArticleAnnotation,
 } from "@/lib/api/articles";
 import { streamArticleAsk, type ArticleAskCitation } from "@/lib/api/client";
-import { listClusters, listThemes } from "@/lib/api/intel";
+import {
+  listClusters,
+  listThemes,
+  type ClusterItem,
+  type ThemeItem,
+} from "@/lib/api/intel";
 import { applyHighlightMarksWithResolution } from "@/lib/articles/highlights";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { readCraftPreferences } from "@/lib/craft/preferences";
@@ -113,6 +118,41 @@ function normalizedDimensionValue(value: number | null | undefined): number | nu
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+type RelatedKind = "theme" | "cluster";
+type RelatedItem = { kind: RelatedKind; label: string; href: string };
+type RelatedErrors = Record<RelatedKind, string | null>;
+type RelatedLoading = Record<RelatedKind, boolean>;
+
+function relatedItemsForArticle(articleId: number, themes: ThemeItem[], clusters: ClusterItem[]): RelatedItem[] {
+  const next: RelatedItem[] = [];
+  for (const theme of themes) {
+    if (!theme.articleIds.includes(articleId)) continue;
+    next.push({
+      kind: "theme",
+      label: theme.label,
+      href: "/?module=themes&sort=default&lang=zh",
+    });
+    for (const relatedId of theme.articleIds) {
+      if (relatedId === articleId) continue;
+      next.push({
+        kind: "theme",
+        label: `${theme.label} → #${relatedId}`,
+        href: `/read/${relatedId}?module=themes&sort=default&lang=zh`,
+      });
+      if (next.length >= 8) break;
+    }
+  }
+  for (const cluster of clusters) {
+    if (cluster.mainArticleId !== articleId && !cluster.relatedArticleIds.includes(articleId)) continue;
+    next.push({
+      kind: "cluster",
+      label: `${cluster.label} (${cluster.size})`,
+      href: `/read/${cluster.mainArticleId}?module=clusters&sort=default&lang=zh`,
+    });
+  }
+  return next.slice(0, 10);
+}
+
 export function FocusedArticleReader({
   article,
   currentLang,
@@ -131,9 +171,11 @@ export function FocusedArticleReader({
     [],
   );
   const [citations, setCitations] = useState<ArticleAskCitation[]>([]);
-  const [related, setRelated] = useState<
-    Array<{ kind: "theme" | "cluster"; label: string; href: string }>
-  >([]);
+  const [relatedThemes, setRelatedThemes] = useState<ThemeItem[]>([]);
+  const [relatedClusters, setRelatedClusters] = useState<ClusterItem[]>([]);
+  const [relatedErrors, setRelatedErrors] = useState<RelatedErrors>({ theme: null, cluster: null });
+  const [relatedLoading, setRelatedLoading] = useState<RelatedLoading>({ theme: false, cluster: false });
+  const relatedRequestSeqRef = useRef(0);
   const [dualPane, setDualPane] = useState(false);
   const [dualPaneKind, setDualPaneKind] = useState<"notes" | "article">("notes");
   const [dualArticleId, setDualArticleId] = useState<number | null>(null);
@@ -302,49 +344,47 @@ export function FocusedArticleReader({
 
   useEffect(() => reloadAnnotations(), [reloadAnnotations]);
 
+  const related = useMemo(
+    () => relatedItemsForArticle(article.id, relatedThemes, relatedClusters),
+    [article.id, relatedClusters, relatedThemes],
+  );
+
+  const loadRelatedSource = useCallback(async (source: RelatedKind, requestSeq: number) => {
+    setRelatedLoading((current) => ({ ...current, [source]: true }));
+    setRelatedErrors((current) => ({ ...current, [source]: null }));
+    try {
+      const items = source === "theme" ? await listThemes(30) : await listClusters(20);
+      if (requestSeq !== relatedRequestSeqRef.current) return;
+      if (source === "theme") setRelatedThemes(items as ThemeItem[]);
+      else setRelatedClusters(items as ClusterItem[]);
+    } catch (caught) {
+      if (requestSeq !== relatedRequestSeqRef.current) return;
+      const fallback = source === "theme" ? "主题加载失败" : "故事线加载失败";
+      setRelatedErrors((current) => ({
+        ...current,
+        [source]: caught instanceof Error ? caught.message : fallback,
+      }));
+    } finally {
+      if (requestSeq === relatedRequestSeqRef.current) {
+        setRelatedLoading((current) => ({ ...current, [source]: false }));
+      }
+    }
+  }, []);
+
+  const retryRelatedSource = useCallback((source: RelatedKind) => {
+    void loadRelatedSource(source, relatedRequestSeqRef.current);
+  }, [loadRelatedSource]);
+
   useEffect(() => {
-    let active = true;
-    Promise.allSettled([listThemes(30), listClusters(20)]).then((results) => {
-      if (!active) return;
-      const next: Array<{ kind: "theme" | "cluster"; label: string; href: string }> = [];
-      const themes = results[0].status === "fulfilled" ? results[0].value : [];
-      const clusters = results[1].status === "fulfilled" ? results[1].value : [];
-      for (const theme of themes) {
-        if (!theme.articleIds.includes(article.id)) continue;
-        next.push({
-          kind: "theme",
-          label: theme.label,
-          href: `/?module=themes&sort=default&lang=zh`,
-        });
-        for (const relatedId of theme.articleIds) {
-          if (relatedId === article.id) continue;
-          next.push({
-            kind: "theme",
-            label: `${theme.label} → #${relatedId}`,
-            href: `/read/${relatedId}?module=themes&sort=default&lang=zh`,
-          });
-          if (next.length >= 8) break;
-        }
-      }
-      for (const cluster of clusters) {
-        if (
-          cluster.mainArticleId !== article.id &&
-          !cluster.relatedArticleIds.includes(article.id)
-        ) {
-          continue;
-        }
-        next.push({
-          kind: "cluster",
-          label: `${cluster.label} (${cluster.size})`,
-          href: `/read/${cluster.mainArticleId}?module=clusters&sort=default&lang=zh`,
-        });
-      }
-      setRelated(next.slice(0, 10));
-    });
-    return () => {
-      active = false;
-    };
-  }, [article.id]);
+    const requestSeq = relatedRequestSeqRef.current + 1;
+    relatedRequestSeqRef.current = requestSeq;
+    setRelatedThemes([]);
+    setRelatedClusters([]);
+    setRelatedErrors({ theme: null, cluster: null });
+    setRelatedLoading({ theme: true, cluster: true });
+    void loadRelatedSource("theme", requestSeq);
+    void loadRelatedSource("cluster", requestSeq);
+  }, [article.id, loadRelatedSource]);
 
   useEffect(() => {
     askAbortRef.current?.abort();
@@ -1247,18 +1287,45 @@ export function FocusedArticleReader({
         </motion.div>
       </section>
 
-      {related.length > 0 ? (
+      {related.length > 0 || relatedErrors.theme != null || relatedErrors.cluster != null || relatedLoading.theme || relatedLoading.cluster ? (
         <aside className="focusRelatedRail" aria-label="相关主题与故事线">
           <h2>相关跳转</h2>
-          <ul>
-            {related.map((item) => (
-              <li key={`${item.kind}-${item.label}-${item.href}`}>
-                <Link href={item.href} prefetch={false}>
-                  <span className="workbenchRibbonMuted">{item.kind}</span> {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {related.length > 0 ? (
+            <ul>
+              {related.map((item) => (
+                <li key={`${item.kind}-${item.label}-${item.href}`}>
+                  <Link href={item.href} prefetch={false}>
+                    <span className="workbenchRibbonMuted">{item.kind}</span> {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {(["theme", "cluster"] as RelatedKind[]).map((source) => {
+            const label = source === "theme" ? "主题" : "故事线";
+            const error = relatedErrors[source];
+            const loading = relatedLoading[source];
+            if (loading) {
+              return (
+                <p key={source} className="focusRelatedStatus" aria-live="polite">
+                  {label}加载中…
+                </p>
+              );
+            }
+            if (error == null) return null;
+            return (
+              <p key={source} className="focusRelatedStatus" role="status">
+                {label}加载失败：{error}{" "}
+                <button
+                  type="button"
+                  className="readerToolbarBtn"
+                  onClick={() => retryRelatedSource(source)}
+                >
+                  重试{label}
+                </button>
+              </p>
+            );
+          })}
         </aside>
       ) : null}
     </motion.main>

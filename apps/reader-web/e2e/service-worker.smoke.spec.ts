@@ -1376,6 +1376,55 @@ test("focused reader exposes retry for an article load failure", async ({ page }
   await expect(page.getByRole("button", { name: "重试加载" })).toBeVisible();
 });
 
+test("Reader keeps related links while labeling a failed related source", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/clusters/latest?**", async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "cluster_unavailable", message: "cluster fixture failure" } }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "theme Evidence continuity", exact: true })).toBeVisible();
+  await expect(page.getByText(/故事线加载失败：/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试故事线" })).toBeVisible();
+});
+
+test("Reader retries only the failed related source", async ({ page }) => {
+  await resetFixtures(page);
+  let clusterRequests = 0;
+  let themeRequests = 0;
+  await page.route("**/api/clusters/latest?**", async (route) => {
+    clusterRequests += 1;
+    if (clusterRequests === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "cluster_unavailable", message: "cluster fixture failure" } }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route("**/api/themes/latest?**", async (route) => {
+    themeRequests += 1;
+    await route.fallback();
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("button", { name: "重试故事线" })).toBeVisible();
+  await page.getByRole("button", { name: "重试故事线" }).click();
+
+  await expect(page.getByRole("link", { name: "cluster 可恢复研究工作流 (2)", exact: true })).toBeVisible();
+  await expect(page.getByText(/故事线加载失败：/)).toHaveCount(0);
+  expect(themeRequests).toBe(1);
+  expect(clusterRequests).toBe(2);
+});
+
 test("Daily Intelligence labels failed sources instead of false empty states", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/?module=home&sort=default&lang=zh&fixture=daily-error");
