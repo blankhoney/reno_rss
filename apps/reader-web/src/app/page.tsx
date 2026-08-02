@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { redirect } from "next/navigation";
 import { AuthSessionGate } from "@/components/AuthSessionGate";
 import { AdminConsole } from "@/components/AdminConsole";
 import { DailyIntelligenceDashboard } from "@/components/DailyIntelligenceDashboard";
@@ -23,7 +24,12 @@ import {
   isModuleId,
 } from "@/lib/articles/service";
 import { isIntelligenceModule } from "@/lib/api/briefs";
-import { parseCursorTrail } from "@/lib/articles/navigation";
+import {
+  buildWorkbenchHref,
+  parseArticleId,
+  parseCursorTrail,
+  serializeCursorTrail,
+} from "@/lib/articles/navigation";
 
 function normalizeModule(raw: string | string[] | undefined): string {
   if (typeof raw === "string" && raw !== "") return raw;
@@ -135,6 +141,22 @@ export default async function HomePage({ searchParams }: PageProps) {
     );
   }
 
+  const rawCursorTrail = typeof sp.trail === "string" ? sp.trail : null;
+  const initialCursorStack = parseCursorTrail(rawCursorTrail);
+  const returnArticleId = parseArticleId(typeof sp.article === "string" ? sp.article : "");
+  if (rawCursorTrail != null && serializeCursorTrail(initialCursorStack) !== rawCursorTrail) {
+    // Bad or oversized opaque cursors must not leave a page-two UI under a page-one URL.
+    redirect(
+      buildWorkbenchHref({
+        module: currentModule,
+        sort: currentSort,
+        lang: currentLang,
+        query: currentQuery,
+        articleId: returnArticleId,
+      }),
+    );
+  }
+
   return (
     <AuthSessionGate>
       <ReaderWorkbench
@@ -142,7 +164,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         currentSort={currentSort}
         currentLang={currentLang}
         currentQuery={currentQuery}
-        initialCursorStack={parseCursorTrail(typeof sp.trail === "string" ? sp.trail : null)}
+        initialCursorStack={initialCursorStack}
       />
     </AuthSessionGate>
   );

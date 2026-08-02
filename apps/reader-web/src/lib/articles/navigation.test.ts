@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildFocusReadHref,
   buildWorkbenchHref,
+  normalizeCursorTrail,
   parseArticleId,
   parseCursorTrail,
   serializeCursorTrail,
@@ -26,6 +27,17 @@ test("cursor trails round-trip only valid opaque cursor stacks", () => {
   assert.deepEqual(parseCursorTrail('["missing-root"]'), [null]);
   assert.deepEqual(parseCursorTrail('[null,""]'), [null]);
   assert.deepEqual(parseCursorTrail("not-json"), [null]);
+});
+
+test("cursor trails reject oversized encoded URL state instead of creating an unrecoverable page", () => {
+  const oversizedTrail = [null, ...Array(23).fill("x".repeat(4096))];
+
+  assert.deepEqual(normalizeCursorTrail(oversizedTrail), [null]);
+  assert.equal(serializeCursorTrail(oversizedTrail), null);
+  const params = new URLSearchParams(
+    buildWorkbenchHref({ module: "all", sort: "default", lang: "zh", cursorStack: oversizedTrail }).slice(1),
+  );
+  assert.equal(params.get("trail"), null);
 });
 
 test("workbench links preserve query, trail, and return article without cluttering page one", () => {

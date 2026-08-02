@@ -901,6 +901,17 @@ test("later-page article return restores cursor page and its highlighted card", 
   await expect(returnedCard).toHaveClass(/articleCardReturnTarget/);
 });
 
+test("oversized cursor trails canonicalize back to the first page", async ({ page }) => {
+  await resetFixtures(page);
+  const oversizedTrail = JSON.stringify([null, ...Array(3).fill("x".repeat(2600))]);
+
+  await page.goto(`/?module=all&sort=default&lang=zh&trail=${encodeURIComponent(oversizedTrail)}`);
+
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/trail=/);
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+});
+
 test("scan mode paging failure hides stale cards and retries the current cursor", async ({ page }) => {
   await setCraftPreferences(page, { mode: "scan" });
   await resetFixtures(page);

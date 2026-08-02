@@ -26,7 +26,12 @@ import { WorkbenchRibbon } from "./WorkbenchRibbon";
 import { updateArticleState } from "@/lib/api/articles";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
 import { emitToast } from "./Toast";
-import { buildWorkbenchHref, normalizeCursorTrail, parseCursorTrail } from "@/lib/articles/navigation";
+import {
+  buildWorkbenchHref,
+  normalizeCursorTrail,
+  parseCursorTrail,
+  serializeCursorTrail,
+} from "@/lib/articles/navigation";
 
 const ARTICLE_LIST_PAGE_SIZE = 12;
 const RETURN_HIGHLIGHT_MS = 1800;
@@ -67,8 +72,9 @@ export function appendCursorForNextPage(
   cursorStack: (string | null)[],
   pageIndex: number,
   nextCursor: string,
-): (string | null)[] {
-  return [...cursorStack.slice(0, pageIndex + 1), nextCursor];
+): (string | null)[] | null {
+  const nextTrail = [...cursorStack.slice(0, pageIndex + 1), nextCursor];
+  return nextTrail.length > 1 && serializeCursorTrail(nextTrail) == null ? null : nextTrail;
 }
 
 export function cursorForPage(
@@ -232,26 +238,30 @@ export function ReaderWorkbench({
   }, []);
 
   const pushPaginationLocation = useCallback((trail: (string | null)[]) => {
-    window.history.pushState(
-      null,
-      "",
-      buildWorkbenchHref({
-        module: currentModule,
-        sort: activeSort,
-        lang: currentLang,
-        query: currentQuery,
-        cursorStack: trail,
-      }),
-    );
+    const href = buildWorkbenchHref({
+      module: currentModule,
+      sort: activeSort,
+      lang: currentLang,
+      query: currentQuery,
+      cursorStack: trail,
+    });
+    if (trail.length > 1 && new URLSearchParams(href.slice(1)).get("trail") == null) {
+      return false;
+    }
+    window.history.pushState(null, "", href);
+    return true;
   }, [activeSort, currentLang, currentModule, currentQuery]);
 
   const goNext = useCallback(() => {
     if (!hasMore || isPaging || nextCursor == null) return;
     const cursor = nextCursor;
     const trail = appendCursorForNextPage(cursorStack, pageIndex, cursor);
+    if (trail == null || !pushPaginationLocation(trail)) {
+      emitToast({ title: "分页上下文过长，无法继续翻页", variant: "error" });
+      return;
+    }
     setCursorStack(trail);
     setPageIndex(pageIndex + 1);
-    pushPaginationLocation(trail);
     void loadPage(cursor);
   }, [cursorStack, hasMore, isPaging, loadPage, nextCursor, pageIndex, pushPaginationLocation]);
 
@@ -259,9 +269,9 @@ export function ReaderWorkbench({
     if (pageIndex <= 0 || isPaging) return;
     const previousPageIndex = pageIndex - 1;
     const trail = cursorStack.slice(0, previousPageIndex + 1);
+    if (!pushPaginationLocation(trail)) return;
     setCursorStack(trail);
     setPageIndex(previousPageIndex);
-    pushPaginationLocation(trail);
     void loadPage(cursorForPage(trail, previousPageIndex));
   }, [cursorStack, isPaging, loadPage, pageIndex, pushPaginationLocation]);
 
