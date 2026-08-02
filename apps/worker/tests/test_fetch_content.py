@@ -94,6 +94,38 @@ def test_fetch_article_content_falls_back_to_external_then_snippet():
     assert snippet_sink.saved["content_quality"] == "snippet"
 
 
+@pytest.mark.parametrize(
+    "miniflux_content",
+    [RuntimeError("entry parser failed"), "<p>too short</p>"],
+)
+def test_fetch_article_content_preserves_existing_full_content_on_weak_fetch(miniflux_content):
+    now = datetime(2026, 6, 24, 12, tzinfo=UTC)
+    expiry = now + timedelta(days=3)
+    full_html = f"<article>{'verified full text ' * 40}</article>"
+    sink = RecordingContentSink(
+        _article(
+            content_html=full_html,
+            content_text="verified full text " * 40,
+            content_source="readability",
+            content_quality="full",
+            content_expires_at=expiry,
+        )
+    )
+
+    result = fetch_article_content(
+        {"article_id": 1},
+        sink=sink,
+        miniflux_client=FakeMinifluxClient(miniflux_content),
+        external_provider=FakeExternalProvider(None),
+        now=now,
+    )
+
+    assert result["outcome"] == "preserved"
+    assert result["content_source"] == "readability"
+    assert result["content_quality"] == "full"
+    assert sink.saved is None
+
+
 def test_fetch_article_content_converts_miniflux_transient_error_to_retryable():
     sink = RecordingContentSink(_article())
 
@@ -147,8 +179,8 @@ def test_fetch_article_content_converts_external_transient_error_to_retryable():
     assert sink.saved is None
 
 
-def _article(content_html: str = "<p>Short body</p>"):
-    return {
+def _article(content_html: str = "<p>Short body</p>", **overrides):
+    article = {
         "id": 1,
         "title": "Article",
         "url": "https://example.com/post",
@@ -156,3 +188,5 @@ def _article(content_html: str = "<p>Short body</p>"):
         "content_text": "Short body",
         "miniflux_entry_id": 101,
     }
+    article.update(overrides)
+    return article

@@ -10,6 +10,18 @@ def test_content_sink_loads_article_source_and_saves_content_fields():
     _create_schema(engine)
     now = datetime(2026, 6, 24, 12, tzinfo=UTC)
     sink = DatabaseContentSink(engine=engine)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE articles
+                SET content_source='readability',
+                    content_quality='full',
+                    content_expires_at='2026-06-27T12:00:00+00:00'
+                WHERE id=1
+                """
+            )
+        )
 
     article = sink.get_article_for_fetch(1)
     sink.save_content(
@@ -29,6 +41,9 @@ def test_content_sink_loads_article_source_and_saves_content_fields():
 
     assert article is not None
     assert article["miniflux_entry_id"] == 101
+    assert article["content_source"] == "readability"
+    assert article["content_quality"] == "full"
+    assert article["content_expires_at"] == "2026-06-27T12:00:00+00:00"
     assert row["content_source"] == "readability"
     assert row["content_quality"] == "full"
     assert row["content_hash"]

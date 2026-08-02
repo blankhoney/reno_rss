@@ -79,6 +79,15 @@ def fetch_article_content(
                 outcome="applied",
             )
 
+    if str(article.get("content_quality") or "") == "full" and current_html:
+        assessment = assess_article_content(current_html)
+        return {
+            "outcome": "preserved",
+            "content_source": str(article.get("content_source") or "unknown"),
+            "content_quality": "full",
+            "text_length": assessment.text_length,
+        }
+
     snippet_html = current_html or f"<p>{article['title']}</p>"
     return _save(
         sink,

@@ -24,6 +24,9 @@ class DatabaseContentSink:
                             a.url,
                             a.content_html,
                             a.content_text,
+                            a.content_source,
+                            a.content_quality,
+                            a.content_expires_at,
                             s.miniflux_entry_id
                         FROM articles a
                         LEFT JOIN article_sources s ON s.article_id = a.id
