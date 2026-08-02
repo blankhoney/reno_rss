@@ -2,8 +2,8 @@
 
 > Authoritative goal: `GOAL.md`
 > Updated: 2026-08-02 (Asia/Taipei)
-> Behavior checkpoint: `goal/m1-annotation-input-continuity @ 3490c1bd`（Daily Brief ownership evidence pushed; user-owned `GOAL.md` preserved）
-> Current state: **M1.9b Scan + Focus fixture state truth and the M1.7 stale-retry slice are locally green; Daily Brief ownership has a local API proof; whole-system optimization now starts with strict Reader route identity**
+> Behavior checkpoint: `goal/m1-annotation-input-continuity @ 92280a69`（strict Reader route identity/auth boundary evidence pushed; user-owned `GOAL.md` preserved）
+> Current state: **M1.9b Scan + Focus fixture state truth, M1.7 stale-retry, Daily Brief ownership and strict Reader route identity are locally green; cursor bounds, worker reliability, API contracts, accessibility and release safety remain open**
 
 ## Execution Contract
 
@@ -17,8 +17,8 @@
 
 | Field | Current evidence |
 | --- | --- |
-| Exact candidate | `goal/m1-annotation-input-continuity @ 3490c1bd`；Scan/Focus 状态修复、证据 harness、端口隔离、stale annotation retry 和 Daily Brief ownership 已拆分提交并 push，`GOAL.md` 仍是用户自有未提交修改。新后继策略见 `docs/superpowers/plans/2026-08-02-whole-system-optimization-plan.md`。 |
-| Milestone / acceptance | M1.9b Scan + Focus fixture list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, and article return/reload/Back; one M1.7 stale annotation retry slice and Daily Brief ownership proof are green; broader A-02/A-03/A-04/A-06/A-07 remains `IN_PROGRESS` because API semantics, native touch, screen-reader and release evidence are separate gates. |
+| Exact candidate | `goal/m1-annotation-input-continuity @ 92280a69`；Scan/Focus 状态修复、证据 harness、端口隔离、stale annotation retry、Daily Brief ownership 和 strict Reader route boundary 已拆分提交并 push，`GOAL.md` 仍是用户自有未提交修改。新后继策略见 `docs/superpowers/plans/2026-08-02-whole-system-optimization-plan.md`。 |
+| Milestone / acceptance | M1.9b Scan + Focus fixture list-state truth locally closed for loading→confirmed empty, page-2 503→retry→success, previous-page/direct Back, and article return/reload/Back; one M1.7 stale annotation retry slice, Daily Brief ownership proof and strict Reader route identity/auth slice are green; broader A-02/A-03/A-04/A-06/A-07 remains `IN_PROGRESS` because API semantics, native touch, screen-reader and release evidence are separate gates. |
 | Hypothesis | 已修复的首要缺口是分页失败保留旧 success、错误 DOM 脱离首屏、URL/cursor Back 分叉、失败后焦点丢失，以及新选区仍持有旧 annotation retry；Focus 独立矩阵未发现额外 mode-specific 缺口。当前仍需用真实 touch/跨引擎证据检验 selection lifecycle。 |
 | Initial failure | Scan 首次 Chromium/Node/截图复现 stale card、focusable empty `<ul>`、首屏外错误和焦点丢失；Focus 首次独立矩阵在共享修复上全绿。`npm run test:evidence` 首次因 3010 已占用直接失败，证明 evidence 启动端口不是可隔离的。 |
 | Minimal repair | 复用既有 `ArticleList`/`ReaderWorkbench` seam 完成 Scan/Focus 状态修复；`playwright.config.ts`、`e2e-server.mjs` 和 `package.json` 统一使用 `READER_E2E_PORT`，evidence 默认改用 3012，upstream 自动使用 proxy+1；默认 E2E 仍保持 3010。 |
@@ -115,6 +115,8 @@
 | 2026-08-01 | M1.9b Focus independently proved the shared list-state seam. | Added fixture IDs 11/12/13 under `q=focus-fixture` with `sort=score`, `lang=original`; no Focus API/module branch was added. Focus Chromium 14/14 and Firefox/WebKit/iPhone WebKit 36/36 passed; full Node 198/198, build and Playwright 244/244 passed. Direct local runtime confirmed Focus mode, stale/empty exclusion, Retry/list focus transfer, return/reload/article Back and direct pagination Back. M1.9b is locally green; broader A-02 and release evidence remain in progress. |
 | 2026-08-01 | Batch 0 isolated the Reader evidence server from the default local fixture port. | First `npm run test:evidence` failed because 3010 was already occupied; after `READER_E2E_PORT` support, fixed evidence port 3012 passed 3/3, custom port 3014 passed 1/1, and fresh full E2E on 3015 passed 244/244. `npm test`, production build and `git diff --check` also passed. Commit `57fb5a5` was pushed without staging the user-owned `GOAL.md`. |
 | 2026-08-01 | M1.7 closed one stale annotation retry invalidation slice. | Chromium red test confirmed that a 503 retry closure remained visible after Escape→new paragraph selection. `selectionRevision` plus a per-selection retry ref now clears only the obsolete retry; same-selection 503→retry remains green. Commits `d5b4833` and `b146d4e0` were pushed. Chromium pair 2/2, Reader Node 198/198 and production build passed; native touch, pending-request race, and full cross-engine annotation evidence remain open. |
+| 2026-08-02 | Daily Brief ownership and strict Reader route identity advanced. | API two-user ownership proof was committed in `d3166fea`/`3490c1bd`; malformed route IDs were then covered by Node 3/3, Chromium 2/2, Reader Node 199/199 and production build. Current route evidence is fixture-only and does not close real auth/Caddy/native touch/screen-reader boundaries. |
+| 2026-08-02 | Whole-system optimization strategy started from a fresh source audit. | Added the local ignored strategy `docs/superpowers/plans/2026-08-02-whole-system-optimization-plan.md`, refreshed `PLANS.md`, and updated local learning/handoff notes. The next slice is cursor/related-navigation or Worker reliability according to dependency and fresh worktree state; no production/provider/database action was run. |
 
 ## Evidence and Recovery Rules
 
