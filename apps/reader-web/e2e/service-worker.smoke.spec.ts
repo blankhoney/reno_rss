@@ -453,6 +453,37 @@ for (const viewport of [
   });
 }
 
+test("desktop selection toolbar stays inside the viewport near the article top", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+
+  const paragraph = page.locator(".focusContent p").first();
+  await page.evaluate(() => {
+    const element = document.querySelector<HTMLElement>(".focusContent p");
+    if (element == null) throw new Error("E2E article fixture has no selectable text");
+    const rect = element.getBoundingClientRect();
+    window.scrollTo(0, Math.max(0, rect.top + window.scrollY - 8));
+  });
+  const box = await paragraph.boundingBox();
+  if (box == null) throw new Error("E2E article fixture has no selectable text");
+  const y = box.y + Math.min(8, box.height / 2);
+  await page.mouse.move(box.x + 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + Math.max(12, box.width - 2), y, { steps: 4 });
+  await page.mouse.up();
+
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  const bounds = await toolbar.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1280);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(720);
+});
+
 test("saved selection carries a versioned text quote anchor", async ({ page }) => {
   await resetFixtures(page);
   let submitted: Record<string, unknown> | null = null;
