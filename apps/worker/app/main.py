@@ -226,6 +226,7 @@ def _score_batch(payload) -> dict[str, object]:
             sink,
             create_provider(),
             daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
+            score_budget=sink,
             webhook=webhook_client_from_env(),
             high_score_threshold=_env_non_negative_int(
                 "AI_READER_WEBHOOK_HIGH_SCORE_THRESHOLD",

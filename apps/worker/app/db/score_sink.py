@@ -58,6 +58,79 @@ class DatabaseScoreSink:
                 ).scalar_one()
             )
 
+    def reserve_score_attempt(self, *, day_start: str, daily_cap: int) -> int | None:
+        """Atomically reserve one score attempt against history and reservations.
+
+        PostgreSQL locks the per-day ledger row, so concurrent workers serialize
+        this check. Existing score rows are folded in with ``max`` for rollout
+        safety when the ledger predates the cap reservation path.
+        """
+        if daily_cap < 0:
+            raise ValueError("daily_cap must be greater than or equal to 0")
+        if daily_cap == 0:
+            return 0
+
+        day = day_start[:10]
+        with self.engine.begin() as connection:
+            if self.engine.dialect.name == "postgresql":
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO llm_daily_usage (day, account, used, updated_at)
+                        VALUES (:day, 'score', 0, CURRENT_TIMESTAMP)
+                        ON CONFLICT (day, account) DO NOTHING
+                        """
+                    ),
+                    {"day": day},
+                )
+                lock_clause = " FOR UPDATE"
+            else:
+                connection.execute(
+                    text(
+                        """
+                        INSERT OR IGNORE INTO llm_daily_usage (day, account, used, updated_at)
+                        VALUES (:day, 'score', 0, CURRENT_TIMESTAMP)
+                        """
+                    ),
+                    {"day": day},
+                )
+                lock_clause = ""
+
+            reserved = int(
+                connection.execute(
+                    text(
+                        "SELECT used FROM llm_daily_usage "
+                        "WHERE day=:day AND account='score'" + lock_clause
+                    ),
+                    {"day": day},
+                ).scalar_one()
+            )
+            historical = int(
+                connection.execute(
+                    text(
+                        "SELECT COUNT(*) FROM article_base_scores "
+                        "WHERE scored_at >= :day_start"
+                    ),
+                    {"day_start": day_start},
+                ).scalar_one()
+            )
+            effective = max(reserved, historical)
+            if effective >= daily_cap:
+                return None
+
+            next_used = effective + 1
+            connection.execute(
+                text(
+                    """
+                    UPDATE llm_daily_usage
+                    SET used=:used, updated_at=CURRENT_TIMESTAMP
+                    WHERE day=:day AND account='score'
+                    """
+                ),
+                {"day": day, "used": next_used},
+            )
+            return next_used
+
     def save_score(self, article_id: object, score: dict[str, object]) -> int:
         is_success = score.get("scoring_status") == "success"
         values = _score_values(article_id, score, is_active=is_success)

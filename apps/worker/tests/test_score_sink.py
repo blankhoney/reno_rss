@@ -157,6 +157,50 @@ def test_score_sink_counts_today_scores_including_error_rows():
     assert sink.count_scores_today("2026-07-08T00:00:00+00:00") == 2
 
 
+def test_score_sink_reserves_cap_after_historical_scores():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE llm_daily_usage (
+              day DATE NOT NULL,
+              account TEXT NOT NULL,
+              used INTEGER NOT NULL DEFAULT 0,
+              updated_at TIMESTAMP,
+              PRIMARY KEY (day, account)
+            )
+            """
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO article_base_scores (article_id, scored_at)
+                VALUES (1, '2026-07-08T10:00:00+00:00')
+                """
+            )
+        )
+
+    sink = DatabaseScoreSink(engine=engine)
+
+    assert sink.reserve_score_attempt(
+        day_start="2026-07-08T00:00:00+00:00",
+        daily_cap=2,
+    ) == 2
+    assert sink.reserve_score_attempt(
+        day_start="2026-07-08T00:00:00+00:00",
+        daily_cap=2,
+    ) is None
+
+    with engine.begin() as connection:
+        usage = connection.execute(
+            text(
+                "SELECT used FROM llm_daily_usage WHERE day='2026-07-08' AND account='score'"
+            )
+        ).scalar_one()
+    assert usage == 2
+
+
 def _create_schema(engine):
     with engine.begin() as connection:
         connection.exec_driver_sql(

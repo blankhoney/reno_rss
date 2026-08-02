@@ -398,6 +398,68 @@ def test_score_batch_daily_cap_scores_only_remaining_articles():
     assert result["scored_today_before"] == 1
 
 
+def test_score_batch_reserves_before_provider_across_batches():
+    class SharedSink:
+        def __init__(self) -> None:
+            self.saved: list[tuple[int, dict[str, object]]] = []
+            self.reservations = 0
+
+        def list_batch_articles(self, batch_id):
+            article_id = 201 if batch_id == "first" else 202
+            return [{"id": article_id, "title": "Article"}]
+
+        def count_scores_today(self, _day_start):
+            # Simulate two workers observing the same persisted count.
+            return 0
+
+        def reserve_score_attempt(self, *, day_start, daily_cap):
+            assert day_start == "2026-07-08T00:00:00+00:00"
+            assert daily_cap == 1
+            if self.reservations >= daily_cap:
+                return None
+            self.reservations += 1
+            return self.reservations
+
+        def save_score(self, article_id, score):
+            self.saved.append((article_id, dict(score)))
+
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.article_ids: list[int] = []
+
+        def score_article(self, article, _rubric):
+            self.article_ids.append(article["id"])
+            return MockProvider().score_article(article, {})
+
+    sink = SharedSink()
+    provider = RecordingProvider()
+    now = datetime(2026, 7, 8, 17, 30, tzinfo=UTC)
+
+    first = score_batch(
+        {"batch_id": "first"},
+        sink,
+        provider,
+        daily_article_cap=1,
+        now=now,
+        score_budget=sink,
+    )
+    second = score_batch(
+        {"batch_id": "second"},
+        sink,
+        provider,
+        daily_article_cap=1,
+        now=now,
+        score_budget=sink,
+    )
+
+    assert provider.article_ids == [201]
+    assert [article_id for article_id, _score in sink.saved] == [201]
+    assert first["scores_saved"] == 1
+    assert first["articles_skipped_cap"] == 0
+    assert second["scores_saved"] == 0
+    assert second["articles_skipped_cap"] == 1
+
+
 def test_score_batch_daily_cap_zero_disables_limit():
     class RecordingSink:
         def __init__(self) -> None:

@@ -302,6 +302,36 @@ def test_postgres_enqueue_recommendations_is_idempotent_under_concurrency():
         score_sink.dispose()
 
 
+def test_postgres_score_reservation_is_atomic_under_concurrency():
+    database_url = os.environ.get("WORKER_QUEUE_POSTGRES_TEST_URL")
+    if not database_url:
+        pytest.skip("set WORKER_QUEUE_POSTGRES_TEST_URL to run the real Postgres reservation test")
+
+    _run_api_command(database_url, "alembic", "upgrade", "head")
+
+    normalized_url = normalize_database_url(database_url) or database_url
+    engine = create_engine(normalized_url, pool_pre_ping=True)
+    sink = DatabaseScoreSink(engine=engine)
+    _seed_real_schema_fixture(engine)
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            reservations = list(
+                executor.map(
+                    lambda _index: sink.reserve_score_attempt(
+                        day_start="2026-06-24T00:00:00+00:00",
+                        daily_cap=3,
+                    ),
+                    range(8),
+                )
+            )
+
+        assert sorted(value for value in reservations if value is not None) == [1, 2, 3]
+        assert reservations.count(None) == 5
+    finally:
+        sink.dispose()
+
+
 def _seed_real_schema_fixture(engine):
     base_id = uuid4().int % 1_000_000_000 + 1_000_000
     user_id = str(uuid4())

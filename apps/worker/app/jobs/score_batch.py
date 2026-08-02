@@ -21,6 +21,10 @@ class ScoreSink(Protocol):
     def save_score(self, article_id: object, score: dict[str, object]) -> object: ...
 
 
+class ScoreBudget(Protocol):
+    def reserve_score_attempt(self, *, day_start: str, daily_cap: int) -> int | None: ...
+
+
 class WebhookEmitter(Protocol):
     def emit(self, event: str, payload: Mapping[str, object]) -> dict[str, object]: ...
 
@@ -32,6 +36,7 @@ def score_batch(
     *,
     daily_article_cap: int = 0,
     now: datetime | None = None,
+    score_budget: ScoreBudget | None = None,
     webhook: WebhookEmitter | None = None,
     high_score_threshold: int = 85,
 ) -> dict[str, object]:
@@ -49,12 +54,16 @@ def score_batch(
     articles_to_score = articles
     scored_today_before = 0
     articles_skipped_cap = 0
+    day_start: str | None = None
     if daily_article_cap > 0:
         day_start = _utc_day_start(now).isoformat()
         scored_today_before = sink.count_scores_today(day_start)
-        remaining = max(daily_article_cap - scored_today_before, 0)
-        articles_to_score = articles[:remaining]
-        articles_skipped_cap = len(articles) - len(articles_to_score)
+        if score_budget is None:
+            # Compatibility path for in-memory callers; production injects the
+            # database-backed reservation so this slice is not the hard limit.
+            remaining = max(daily_article_cap - scored_today_before, 0)
+            articles_to_score = articles[:remaining]
+            articles_skipped_cap = len(articles) - len(articles_to_score)
         if articles_skipped_cap > 0:
             LOGGER.warning(
                 "score_batch daily cap reached: batch_id=%s daily_cap=%s "
@@ -71,7 +80,28 @@ def score_batch(
     webhook_attempted = 0
     webhook_delivered = 0
     threshold = max(0, min(100, int(high_score_threshold)))
-    for article in articles_to_score:
+    for index, article in enumerate(articles_to_score):
+        if score_budget is not None:
+            if day_start is None:
+                raise RuntimeError("score budget requires a positive daily cap")
+            # Reserve immediately before the provider call; the reservation is
+            # the hard boundary that concurrent workers must share.
+            reserved = score_budget.reserve_score_attempt(
+                day_start=day_start,
+                daily_cap=daily_article_cap,
+            )
+            if reserved is None:
+                articles_skipped_cap += len(articles_to_score) - index
+                LOGGER.warning(
+                    "score_batch daily cap reached during reservation: "
+                    "batch_id=%s daily_cap=%s scored_today_before=%s "
+                    "articles_skipped_cap=%s",
+                    batch_id,
+                    daily_article_cap,
+                    scored_today_before,
+                    articles_skipped_cap,
+                )
+                break
         article_id = _article_id(article)
         try:
             score = dict(provider.score_article(article, rubric))
