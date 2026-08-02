@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "221df5a",
+  "milestone": "Fetch-content truth / A-02 / A-08 / A-10",
+  "acceptance": ["A-02", "A-08", "A-10"],
+  "scenario": "Missing articles fail synchronously before enqueue; existing full content is never downgraded by weak fetch results; non-full fallback content respects its expiry cooldown.",
+  "failure_before_repair": [
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_fetch_content.py tests/test_content_sink.py tests/test_article_sink.py -q -k \"preserves_existing_full_content or content_sink_loads_article_source_and_saves_content_fields or future_fallback_content_cooldown\"",
+      "result": "failed: 4 tests; full fallback returned fallback/snippet, content sink omitted quality metadata, and future snippet expiry still enqueued a fetch job"
+    },
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev python -m pytest tests/test_jobs_api.py -q",
+      "result": "the missing-article contract was added as a failure-first API test before the route precheck; final targeted result is recorded below"
+    }
+  ],
+  "repair": [
+    "Added an ArticleStore precheck to POST /api/articles/{id}/fetch-content, returning typed 404/not_found before creating a job; existing articles retain 202 queued/dedupe behavior.",
+    "Loaded content_source, content_quality, and content_expires_at into DatabaseContentSink fetch payloads.",
+    "When existing content is full and no fetched candidate improves it, fetch_article_content returns preserved without save_content, retaining the verified full metadata.",
+    "Made _needs_content_fetch honor a future expiry before evaluating non-full quality; expired fallback content remains eligible for a new fetch."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev python -m pytest tests/test_jobs_api.py -q",
+      "result": "pass: 10 tests"
+    },
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 222 tests, 1 skipped; 2 existing SQLite deprecation warnings"
+    },
+    {
+      "command": "cd apps/worker && uv run --isolated --with-editable . --extra dev python -m pytest tests/test_fetch_content.py tests/test_content_sink.py tests/test_article_sink.py -q -k \"preserves_existing_full_content or content_sink_loads_article_source_and_saves_content_fields or future_fallback_content_cooldown\"",
+      "result": "pass: 4 tests; 1 existing SQLite deprecation warning"
+    },
+    {
+      "command": "cd apps/worker && uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 134 tests, 6 skipped; 3 SQLite deprecation warnings"
+    },
+    {
+      "command": "cd apps/worker && uv run --isolated --with-editable . --extra dev ruff check .",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The 6 Worker skips include conditional PostgreSQL tests because WORKER_QUEUE_POSTGRES_TEST_URL/Docker were unavailable; no real Miniflux, external content provider, staging/production, secret, or user data was accessed. The API 404 proof uses memory repositories and the Worker preservation/cooldown proof uses SQLite/fakes."
+}

@@ -39,3 +39,4 @@ c0ee01811006d139166983c54d06dd09763af65a0e85c2f0c32b156e67247c2f  output/evidenc
 6da679f373d27a36d6188f5570008759cfd09b42add25ce6f815d7ffa28c4427  output/evidence/reader-cursor-url-boundary-2026-08-02.json
 dbbae9e324ac2a27554e5b9bfe31f1b5418225eb7c7102fbfbe62aa15c0e5d61  output/evidence/reader-related-source-failure-2026-08-02.json
 e9e973ca375921f19599adb7acf03503102b06cf1888c7acaa530490746b9217  output/evidence/worker-lease-renewal-2026-08-02.json
+d50afb3a579f98a606e71163935e2d9dc792f236971b33ceb57b0914e7e20458  output/evidence/worker-fetch-content-truth-2026-08-02.json
