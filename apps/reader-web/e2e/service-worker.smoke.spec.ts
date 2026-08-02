@@ -930,9 +930,12 @@ test("oversized cursor trails canonicalize back to the first page", async ({ pag
   await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
 });
 
-test("successful later empty page offers a previous-page escape", async ({ page }) => {
+async function assertSuccessfulLaterEmptyPageEscape(
+  page: import("@playwright/test").Page,
+  url: string,
+) {
   await resetFixtures(page);
-  await page.goto("/?module=all&sort=default&lang=zh&q=empty-page");
+  await page.goto(url);
   await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "下一页 ›" }).click();
@@ -947,6 +950,18 @@ test("successful later empty page offers a previous-page escape", async ({ page 
   await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
   await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
   await expect(page).not.toHaveURL(/trail=/);
+}
+
+test("scan mode successful later empty page offers a previous-page escape", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await assertSuccessfulLaterEmptyPageEscape(page, "/?module=all&sort=default&lang=zh&q=empty-page");
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("scan");
+});
+
+test("focus mode successful later empty page offers a previous-page escape", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "focus" });
+  await assertSuccessfulLaterEmptyPageEscape(page, "/?module=all&sort=score&lang=original&q=empty-page");
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("focus");
 });
 
 test("scan mode paging failure hides stale cards and retries the current cursor", async ({ page }) => {
