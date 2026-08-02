@@ -49,6 +49,16 @@ async def test_fetch_content_openapi_declares_not_found_response(app):
     assert responses["404"]["description"] == "Article not found"
 
 
+async def test_fetch_content_openapi_declares_typed_202_response(app):
+    response = app.openapi()["paths"]["/api/articles/{article_id}/fetch-content"]["post"]
+
+    assert "200" not in response["responses"]
+    assert (
+        response["responses"]["202"]["content"]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/FetchContentJobResponse"
+    )
+
+
 async def test_current_user_can_view_own_job(app, client):
     article = _seed_article(app)
     await client.post("/api/auth/login", json={"display_name": "Blank"})
