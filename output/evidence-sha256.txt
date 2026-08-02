@@ -44,6 +44,6 @@ f7a5d80680842525f11721f25ebd85195e2734e19d473aa3f0fd24f3dc194ccd  output/evidenc
 67e0a315cc4ae335c162a63537c777a600f29cf7678a95218f5630a6902a0fdd  output/evidence/reader-recovery-state-2026-08-02.json
 b44753fd0706a0fc8afca563d3be2858f10b81a10a341b6c07bf6d7c5440e040  output/evidence/reader-daily-brief-adapter-2026-08-02.json
 2036f12f57edeea6e47922859cc28660fd9a55b7925965dd1ae52e1e0748691e  output/evidence/reader-selection-geometry-2026-08-02.json
-b164d85686af196aefb754c96a7abb6d71e203a62dc629f04b8f76dec719d1c4  output/evidence/reader-a11y-contrast-focus-2026-08-02.json
+1ddff8fa6ef7564eb14a9bb7e5e7722ba79f3983d734de83a4160d0102772f1a  output/evidence/reader-a11y-contrast-focus-2026-08-02.json
 a0e02bddb2cf332c674093492d5b047c3dea070adb2f9a282a74fe93cf5b9086  output/evidence/reader-daily-brief-api-schema-2026-08-02.json
 2827738f3c98b5f1adcfeff1f1f687d2d63c5ff53d2ed85e4295eb715a8a4572  output/evidence/reader-article-list-contrast-2026-08-02.json

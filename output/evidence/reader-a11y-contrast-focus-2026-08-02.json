@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "recorded_at": "2026-08-02",
-  "base_revision": "d7955dad",
+  "base_revision": "39399284",
   "milestone": "Reader accessibility contrast and focus baseline",
   "acceptance": ["A-05", "A-06", "A-07", "A-13"],
   "scenario": "Light and dark Reader fixtures keep normal accent, warning, and muted text above the AA text threshold across the core paper surfaces; authentication and command-palette inputs expose visible keyboard focus indicators.",
@@ -23,7 +23,8 @@
     "Darkened the light-theme accent to #99441a, warning to #8c5a0b, and muted token to #6e604f so text remains readable on the core paper, inset, panel, and secondary-panel surfaces.",
     "Replaced the translucent authentication input focus outline with an opaque accent outline and a two-pixel offset.",
     "Added an explicit accent focus outline to the command-palette input, which previously disabled the native outline without a replacement.",
-    "Added failure-first browser baselines for both themes, the four core surfaces, and the two previously untested input focus states."
+    "Added failure-first browser baselines for both themes, the four core surfaces, and the two previously untested input focus states.",
+    "Added settled-list and settled-reader animation guards to the axe gate so opacity transitions are not misreported as contrast failures; the ArticleList index was separately moved from border-strong to muted after a settled probe identified its 1.5:1 contrast."
   ],
   "validation": [
     {
@@ -33,6 +34,14 @@
     {
       "command": "cd apps/reader-web && READER_E2E_PORT=3035 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'muted reading|normal accent|auth and command palette' --project=firefox --project=webkit --project=webkit-touch",
       "result": "pass: 8 tests (Firefox 3, WebKit 3, iPhone WebKit 2)"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3044 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'axe scan finds no critical' --project=chromium",
+      "result": "pass: 1 Chromium test with color-contrast enabled after waiting for settled list/reader opacity"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3045 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'axe scan finds no critical' --project=firefox --project=webkit --project=webkit-touch",
+      "result": "pass: 3 tests (Firefox, WebKit, iPhone WebKit) with color-contrast enabled"
     },
     {
       "command": "cd apps/reader-web && npm test",
@@ -47,5 +56,5 @@
       "result": "pass"
     }
   ],
-  "known_limit": "The existing axe gate still excludes color-contrast because the broader core-page probe reports additional serious violations that were not safely reducible to this token/focus slice; those remaining card/status and non-text-border findings are not claimed as fixed. This fixture-only Chromium evidence does not prove screen-reader output, native iPhone selection, Firefox/WebKit selection lifecycle, real production proxy behavior, or staging/production auth and theme persistence."
+  "known_limit": "The core-page axe gate now includes color-contrast and passes after animation settlement; this fixture evidence still does not prove native iPhone text selection, screen-reader output, real production proxy behavior, or staging/production auth and theme persistence. Dark-theme full-page axe is represented by the dedicated token and ArticleList subgates rather than the default-theme core-page axe path."
 }
