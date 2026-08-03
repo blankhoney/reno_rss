@@ -333,13 +333,22 @@ def test_postgres_score_reservation_is_atomic_under_concurrency():
     engine = create_engine(normalized_url, pool_pre_ping=True)
     sink = DatabaseScoreSink(engine=engine)
     _seed_real_schema_fixture(engine)
+    isolated_day = "2099-01-01T00:00:00+00:00"
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM llm_daily_usage "
+                "WHERE day = DATE '2099-01-01' AND account = 'score'"
+            )
+        )
 
     try:
         with ThreadPoolExecutor(max_workers=8) as executor:
             reservations = list(
                 executor.map(
                     lambda _index: sink.reserve_score_attempt(
-                        day_start="2026-06-24T00:00:00+00:00",
+                        day_start=isolated_day,
                         daily_cap=3,
                     ),
                     range(8),
@@ -349,6 +358,13 @@ def test_postgres_score_reservation_is_atomic_under_concurrency():
         assert sorted(value for value in reservations if value is not None) == [1, 2, 3]
         assert reservations.count(None) == 5
     finally:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM llm_daily_usage "
+                    "WHERE day = DATE '2099-01-01' AND account = 'score'"
+                )
+            )
         sink.dispose()
 
 
