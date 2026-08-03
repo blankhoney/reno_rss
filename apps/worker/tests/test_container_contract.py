@@ -14,7 +14,11 @@ def test_worker_image_copies_ranking_rule_dependencies():
 def test_translation_budget_reaches_api_and_worker_services():
     compose = (REPOSITORY_ROOT / "infra/compose/docker-compose.base.yml").read_text()
 
-    assert compose.count("TRANSLATION_DAILY_CALL_BUDGET:") == 2
+    configured_services = sum(
+        line.strip().startswith("TRANSLATION_DAILY_CALL_BUDGET:")
+        for line in compose.splitlines()
+    )
+    assert configured_services == 2
 
 
 def test_translation_budget_is_documented_in_example_environment():

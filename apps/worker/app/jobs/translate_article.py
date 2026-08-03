@@ -47,7 +47,16 @@ def translate_article(
     if budget is not None:
         # Reserve immediately before the provider attempt; cached translations
         # are free and exhausted budgets must not start a provider call.
-        budget.charge("translate", 1, limit=max(0, int(daily_limit)))
+        try:
+            budget.charge("translate", 1, limit=max(0, int(daily_limit)))
+        except Exception:
+            sink.save_translation(
+                article_id,
+                content_zh=None,
+                status="failed",
+                translated_at=None,
+            )
+            raise
 
     sink.save_translation(article_id, content_zh=None, status="running", translated_at=None)
     try:
