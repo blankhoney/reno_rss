@@ -303,6 +303,37 @@ test("pollJobUntilTerminal returns the first terminal job", async () => {
   }
 });
 
+test("pollJobUntilTerminal rejects when the job never becomes terminal", async () => {
+  const requests: string[] = [];
+  const restoreFetch = withMockFetch((input) => {
+    requests.push(String(input));
+    return new Response(
+      JSON.stringify({
+        id: 9,
+        job_type: "fetch_article_content",
+        status: "running",
+        progress: {},
+        result: {},
+        last_error: null,
+        created_at: "2026-06-25T00:00:00Z",
+        updated_at: "2026-06-25T00:00:01Z",
+        completed_at: null,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  try {
+    await assert.rejects(
+      pollJobUntilTerminal(9, { intervalMs: 0, maxAttempts: 2 }),
+      /Job 9 did not reach a terminal status after 2 attempts/,
+    );
+    assert.deepEqual(requests, ["/api/jobs/9", "/api/jobs/9"]);
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("pollJobUntilTerminal stops when aborted", async () => {
   const controller = new AbortController();
   controller.abort();
