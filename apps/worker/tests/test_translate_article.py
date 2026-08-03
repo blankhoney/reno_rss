@@ -135,7 +135,9 @@ def test_translate_article_does_not_call_provider_when_budget_is_exhausted():
         )
 
     assert provider.calls == []
-    assert sink.saved == []
+    assert sink.saved == [
+        {"content_zh": None, "status": "failed", "translated_at": None},
+    ]
 
 
 def test_translate_article_marks_failed_before_reraising():
