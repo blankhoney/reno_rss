@@ -53,6 +53,9 @@ jobs:
           cache: "npm"
           cache-dependency-path: apps/reader-web/package-lock.json
 
+      - name: Validate native project Skill metadata
+        run: node .claude/skills/validate-project-skills.mjs
+
       - name: Prepare PostgreSQL schema for API integration tests
         working-directory: apps/api
         env:

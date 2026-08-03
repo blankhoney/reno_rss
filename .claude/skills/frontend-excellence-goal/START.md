@@ -14,12 +14,25 @@ The neighboring Markdown files are project-defined support contracts that the Sk
 
 Use Claude Code v2.1.139 or newer, because `/goal` requires that version or later.
 
-## Safe default start
+## Native discovery proof
 
-From the repository root:
+Project skill discovery is a Claude Code runtime behavior, not a repository-side static registry. The maintained project packages live under `.claude/skills/<directory>/SKILL.md`; the directory names provide `/frontend-excellence-goal` and `/reader-web-audit`.
+
+Run the repository-only structural check before testing discovery:
 
 ```bash
-claude -n frontend-excellence
+node .claude/skills/validate-project-skills.mjs
+```
+
+Then open a fresh native Claude Code session from the repository root and confirm each command appears in the slash-command picker. Cancel the command rather than running it when only discovery is being tested. `/reload-skills` can refresh an already-open native session after editing an existing skill, but it is not proof that a fresh session discovered the package. An API harness with a separate static Skill registry may report these commands as unknown; that result is not evidence against native Claude Code discovery.
+
+## Safe default start
+
+From the repository root, start a fresh native Claude Code session:
+
+```bash
+cd /path/to/my_rss
+claude
 ```
 
 Then invoke the manually gated Skill:

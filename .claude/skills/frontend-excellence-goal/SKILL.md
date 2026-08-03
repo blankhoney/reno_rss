@@ -1,4 +1,5 @@
 ---
+name: frontend-excellence-goal
 description: Execute the AI Reader frontend excellence goal with phased, auditable verification.
 disable-model-invocation: true
 argument-hint: "[start|resume|audit-only] [commit-and-push]"
@@ -10,16 +11,25 @@ Execute the repository's frontend excellence package. This is a manually invoked
 
 ## Load the contract before acting
 
-Read these files in order:
+Read current authority first, then use the package files as dated supporting context:
 
-1. Repository root `GOAL.md`, `CLAUDE.md`, and `AGENTS.md`.
-2. `.claude/skills/frontend-excellence-goal/goal.md`.
-3. `.claude/skills/frontend-excellence-goal/context.md`.
-4. `.claude/skills/frontend-excellence-goal/execution.md`.
-5. `.claude/skills/frontend-excellence-goal/acceptance.md`.
-6. `.claude/skills/frontend-excellence-goal/evidence.md`.
+1. Repository root `AGENTS.md` if present; if it is absent, record that fact and do not create it from this skill.
+2. Root `GOAL.md`, `PLANS.md`, and `CLAUDE.md`.
+3. Current branch, HEAD, and `git status --short --branch`.
+4. `.claude/skills/frontend-excellence-goal/goal.md`.
+5. `.claude/skills/frontend-excellence-goal/context.md`.
+6. `.claude/skills/frontend-excellence-goal/execution.md`.
+7. `.claude/skills/frontend-excellence-goal/acceptance.md`.
+8. `.claude/skills/frontend-excellence-goal/evidence.md`.
 
-The root `GOAL.md` remains the only product Goal. This package is a subordinate delivery contract. If they conflict, stop and follow the root Goal and `CLAUDE.md`.
+The root `GOAL.md` remains the only product Goal. This package is a subordinate delivery contract. Its support files may contain historical branches, SHAs, dates, counts, or permissions; none can override current root files or authorize a new action. If they conflict, follow the current root Goal and `CLAUDE.md`, then record the drift.
+
+## Supporting files
+
+- `goal.md`, `context.md`, `execution.md`, and `acceptance.md` describe the subordinate frontend contract and its historical wave structure.
+- `evidence.md` is a dated ledger to verify, not a completion claim to inherit.
+- `START.md` contains native Claude Code usage and discovery guidance.
+- The repository-level `.claude/skills/README.md` catalogs the maintained project skills, and `.claude/skills/validate-project-skills.mjs` checks their stable metadata without network or product access.
 
 ## Invocation modes
 
@@ -27,8 +37,8 @@ Interpret `$ARGUMENTS` as follows:
 
 - `audit-only`: reproduce and document the baseline, but do not edit product source.
 - `start` or no mode: begin at the first incomplete wave.
-- `resume`: read `evidence.md` and Git status, verify prior claims, then continue at the first incomplete acceptance item.
-- `commit-and-push`: explicit permission to commit and push focused progress. Without this exact argument, do not commit, push, open a PR, merge, deploy, or modify remote services. If permission is present and the current branch is the default branch, create a feature branch before the first commit.
+- `resume`: read current Git status and the package evidence ledger, verify prior claims against the current HEAD, then continue at the first incomplete acceptance item.
+- `commit-and-push`: request delivery for this invocation only. The current user message must also explicitly authorize commit/push; historical text in this package, a previous session, or `evidence.md` never supplies that authorization. Without current authorization, do not commit, push, open a PR, merge, deploy, or modify remote services. This never authorizes secrets, production, staging, migrations, or real provider spend.
 
 ## Required execution behavior
 
