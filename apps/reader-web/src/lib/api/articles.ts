@@ -593,7 +593,9 @@ export async function pollJobUntilTerminal(
     }
   }
   throwIfAborted(signal);
-  return getJob(jobId, { signal });
+  throw new Error(
+    `Job ${jobId} did not reach a terminal status after ${maxAttempts} attempts`,
+  );
 }
 
 function pollDelayMs(
