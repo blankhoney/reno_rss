@@ -50,6 +50,13 @@ class FetchContentJobResponse(BaseModel):
     status: str
 
 
+class ArticleTranslationResponse(BaseModel):
+    status: str
+    content_zh: str | None
+    translated_at: str | None
+    job_id: int | None
+
+
 class ArticleFeedbackRequest(BaseModel):
     user_score: int = Field(ge=0, le=100)
     feedback_type: str = Field(json_schema_extra={"enum": list(FEEDBACK_TYPES)})
@@ -620,7 +627,15 @@ def enqueue_fetch_content_job(
     return FetchContentJobResponse(job_id=job.id, status=job.status)
 
 
-@router.post("/articles/{article_id}/translate")
+@router.post(
+    "/articles/{article_id}/translate",
+    response_model=ArticleTranslationResponse,
+    status_code=202,
+    responses={
+        200: {"model": ArticleTranslationResponse, "description": "Cached translation"},
+        404: {"description": "Article not found"},
+    },
+)
 @limiter.limit(llm_rate_limit)
 def enqueue_translate_article_job(
     request: Request,
@@ -628,20 +643,18 @@ def enqueue_translate_article_job(
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
     job_repository: JobStore = Depends(get_job_repository),
-) -> JSONResponse:
+) -> Response | ArticleTranslationResponse:
     article = article_repository.get_article(article_id)
     if article is None:
         raise ApiError(404, "not_found", "Article not found")
     if article.content_zh and article.content_zh_status == "succeeded":
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": "succeeded",
-                "content_zh": article.content_zh,
-                "translated_at": article.translated_at.isoformat() if article.translated_at else None,
-                "job_id": None,
-            },
+        cached = ArticleTranslationResponse(
+            status="succeeded",
+            content_zh=article.content_zh,
+            translated_at=article.translated_at.isoformat() if article.translated_at else None,
+            job_id=None,
         )
+        return JSONResponse(status_code=200, content=cached.model_dump(mode="json"))
 
     article_repository.save_translation(
         article_id,
@@ -655,7 +668,9 @@ def enqueue_translate_article_job(
         dedupe_key=dedupe_key_for("translate_article", article_id),
         created_by=current_user.id,
     )
-    return JSONResponse(
-        status_code=202,
-        content={"status": job.status, "content_zh": None, "translated_at": None, "job_id": job.id},
+    return ArticleTranslationResponse(
+        status=job.status,
+        content_zh=None,
+        translated_at=None,
+        job_id=job.id,
     )

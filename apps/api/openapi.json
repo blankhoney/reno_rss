@@ -861,13 +861,28 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleTranslationResponse"
+                }
               }
             }
+          },
+          "200": {
+            "description": "Cached translation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleTranslationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Article not found"
           },
           "422": {
             "description": "Validation Error",
@@ -2410,6 +2425,55 @@
         },
         "type": "object",
         "title": "ArticleStateRequest"
+      },
+      "ArticleTranslationResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "content_zh": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Zh"
+          },
+          "translated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translated At"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "content_zh",
+          "translated_at",
+          "job_id"
+        ],
+        "title": "ArticleTranslationResponse"
       },
       "AskHistoryTurn": {
         "properties": {
