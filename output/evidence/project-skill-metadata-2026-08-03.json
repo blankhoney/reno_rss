@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-03",
+  "base_revision": "98dfd918",
+  "milestone": "Native project skill package validation",
+  "acceptance": ["A-13"],
+  "scenario": "The two tracked project skills have explicit, bounded metadata and required supporting files that can be validated without network, product startup, secrets, or a Claude runtime registry.",
+  "failure_before_repair": [
+    {
+      "source": ".claude/skills/frontend-excellence-goal/SKILL.md",
+      "result": "The package had no explicit frontmatter name and loaded dated package context before current root authority; reader-web-audit already had the desired explicit name and read-only boundary."
+    },
+    {
+      "source": "API harness Skill tool",
+      "result": "Both user-invoked names were reported unknown by the session's static registry; this is a host/runtime boundary and not treated as native Claude Code discovery evidence."
+    }
+  ],
+  "repair": [
+    "Added name: frontend-excellence-goal and current-authority-first instructions with historical-support-file boundaries.",
+    "Updated START.md with native discovery guidance and kept the existing manual /goal workflow separate from discovery.",
+    "Added .claude/skills/README.md catalog and .claude/skills/validate-project-skills.mjs fixed-manifest structural validator.",
+    "Added the validator immediately after Node setup in .github/workflows/ci.yml."
+  ],
+  "validation": [
+    {
+      "command": "node --check .claude/skills/validate-project-skills.mjs",
+      "result": "pass"
+    },
+    {
+      "command": "node .claude/skills/validate-project-skills.mjs",
+      "result": "pass: Validated 2 native project skills and their required supporting files."
+    },
+    {
+      "command": "claude --version",
+      "result": "2.1.220 (Claude Code)"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass before the skill documentation commit"
+    }
+  ],
+  "commits": [
+    "98dfd918 docs(skills): align project skill authority and discovery"
+  ],
+  "known_limit": "This API session did not open a fresh interactive native Claude Code slash-command picker, so runtime discovery remains NEEDS_BASELINE. The validator proves repository structure only; it does not emulate Claude Code, install skills globally, or validate the unrelated .agents/skills tree."
+}

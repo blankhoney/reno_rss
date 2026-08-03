@@ -49,3 +49,5 @@ a0e02bddb2cf332c674093492d5b047c3dea070adb2f9a282a74fe93cf5b9086  output/evidenc
 2827738f3c98b5f1adcfeff1f1f687d2d63c5ff53d2ed85e4295eb715a8a4572  output/evidence/reader-article-list-contrast-2026-08-02.json
 52b2d5cdd1454cbf157fba9eea60f28c5c65991f9779f697f996e2f8bcd6c848  output/evidence/worker-job-payload-contract-2026-08-03.json
 aa4190712226ebec2170457a86044c9eb736a0f39da82057111c942f10db4457  output/evidence/reader-dark-core-axe-2026-08-03.json
+701e00398eaaf4f4329c0648259b4b74580823b6d0e5840f194fa02d1fb615ce  output/evidence/project-skill-metadata-2026-08-03.json
+089f1f779df4f26bde59b63de4bf1b377b20d418ac80073ba8cc49ed6ffc8a1f  output/evidence/reader-annotation-save-race-2026-08-03.json

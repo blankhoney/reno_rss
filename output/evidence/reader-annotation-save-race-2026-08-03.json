@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-03",
+  "base_revision": "ad0b0990",
+  "milestone": "Reader in-flight annotation save ownership",
+  "acceptance": ["A-03", "A-05", "A-06"],
+  "scenario": "A delayed annotation response from selection A cannot clear, re-render over, or install retry/error UI on newer selection B; same-selection retry remains available and succeeds.",
+  "failure_before_repair": [
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3072 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'in-flight annotation save success' --project=chromium",
+      "result": "failed: delayed old success detached the newer toolbar and the test timed out while trying to save selection B"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3074 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'annotation save 503|new selection invalidates|in-flight annotation save' --project=chromium",
+      "result": "initial repair attempt still failed both in-flight tests; revision instrumentation showed selection A=1, selection B=3 and the stale response was reaching the callback, so the rendered annotation update also had to be revision-gated"
+    }
+  ],
+  "repair": [
+    "FocusedArticleReader now keeps a current selectionRevision ref and captures the revision when each annotation save/retry begins.",
+    "Success and failure side effects—including rendered annotation update, selection clearing, error/retry state and toasts—run only when the captured revision is still current.",
+    "A stale successful response remains persisted server-side and is reloaded on a later article refresh; it cannot replace the active selection DOM.",
+    "The race tests use a real deferred route response and mouse selection for the newer paragraph; the existing same-selection 503→retry test remains in the targeted suite."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3082 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'annotation save 503|new selection invalidates|in-flight annotation save' --project=chromium",
+      "result": "pass: 4 Chromium tests"
+    },
+    {
+      "command": "cd apps/reader-web && npm test",
+      "result": "pass: 204 Node tests"
+    },
+    {
+      "command": "cd apps/reader-web && npm run build",
+      "result": "pass: Next.js production build and TypeScript check"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass before the behavior commit"
+    }
+  ],
+  "commits": [
+    "ad0b0990 fix(reader): preserve newer selection during annotation save"
+  ],
+  "known_limit": "This proves Chromium fixture pointer selection and asynchronous UI ownership only. Native iPhone selection, screen-reader output, full cross-engine annotation selection, real API/provider behavior, and production auth/cache remain unproved."
+}
