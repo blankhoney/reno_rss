@@ -59,6 +59,20 @@ async def test_fetch_content_openapi_declares_typed_202_response(app):
     )
 
 
+async def test_translate_openapi_declares_cached_and_queued_responses(app):
+    responses = app.openapi()["paths"]["/api/articles/{article_id}/translate"]["post"][
+        "responses"
+    ]
+
+    assert responses["200"]["content"]["application/json"]["schema"]["$ref"] == (
+        "#/components/schemas/ArticleTranslationResponse"
+    )
+    assert responses["202"]["content"]["application/json"]["schema"]["$ref"] == (
+        "#/components/schemas/ArticleTranslationResponse"
+    )
+    assert responses["404"]["description"] == "Article not found"
+
+
 async def test_job_polling_openapi_declares_typed_response(app):
     response = app.openapi()["paths"]["/api/jobs/{job_id}"]["get"]
 

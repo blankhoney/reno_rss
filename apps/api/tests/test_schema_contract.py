@@ -77,6 +77,13 @@ def load_initial_migration():
     return load_migration("0001_initial.py")
 
 
+def test_ci_snapshot_restore_checks_current_migration_head():
+    ci_workflow = (Path(__file__).parents[3] / ".github/workflows/ci.yml").read_text()
+
+    assert "grep -qx '0012_translation_daily_usage_account'" in ci_workflow
+    assert '"migration": "0012_translation_daily_usage_account"' in ci_workflow
+
+
 def test_initial_migration_defines_required_tables():
     from app.db.models import metadata
 
