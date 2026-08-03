@@ -217,7 +217,7 @@ jobs:
           docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
             psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
             --tuples-only --no-align --command "SELECT version_num FROM alembic_version" \
-            | grep -qx '0012_translation_daily_usage_account'
+            | grep -qx '0012_translation_usage'
           docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
             psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
             --tuples-only --no-align --command "SELECT title FROM articles WHERE id = 990001" \
@@ -235,7 +235,7 @@ jobs:
                   {
                       "database": "snapshot_restore_verify",
                       "fixture": "performance-fixture",
-                      "migration": "0012_translation_daily_usage_account",
+                      "migration": "0012_translation_usage",
                       "status": "restored",
                   },
                   indent=2,

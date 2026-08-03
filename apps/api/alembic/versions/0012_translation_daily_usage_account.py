@@ -3,7 +3,7 @@
 from alembic import op
 
 
-revision = "0012_translation_daily_usage_account"
+revision = "0012_translation_usage"
 down_revision = "0011_project_requires_saved"
 branch_labels = None
 depends_on = None
