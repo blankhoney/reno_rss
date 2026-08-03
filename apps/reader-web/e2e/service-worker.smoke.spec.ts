@@ -106,14 +106,6 @@ test("authenticated invalid read route keeps session chrome without fetching an 
 
 test("article 404 envelope renders not-found copy instead of generic load failure", async ({ page }) => {
   await resetFixtures(page);
-  await page.route("**/api/articles/999", async (route) => {
-    await route.fulfill({
-      status: 404,
-      contentType: "application/json",
-      body: JSON.stringify({ error: { code: "not_found", message: "Article not found" } }),
-    });
-  });
-
   await page.goto("/read/999?module=all&sort=default&lang=zh");
 
   await expect(page.getByText("文章不存在", { exact: true })).toBeVisible();
@@ -477,7 +469,8 @@ test("keeps job polling on the network after service worker control", async ({ p
   expect(statuses).toEqual(["queued", "succeeded"]);
 });
 
-test("never serves the previous user's cached article when the authenticated user changes", async ({ context, page }) => {
+test("never serves the previous user's cached article when the authenticated user changes", async ({ browserName, context, page }) => {
+  test.skip(browserName === "firefox", "Playwright Firefox registers the worker but does not attach a controller in an isolated context");
   await resetFixtures(page);
   await page.goto("/");
   await expect(page.getByText("Ada", { exact: true })).toBeVisible();
@@ -626,21 +619,9 @@ test("desktop selection toolbar stays inside the viewport near the article top",
   await resetFixtures(page);
   await page.goto("/read/7?module=all&sort=default&lang=zh");
   await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
 
-  const paragraph = page.locator(".focusContent p").first();
-  await page.evaluate(() => {
-    const element = document.querySelector<HTMLElement>(".focusContent p");
-    if (element == null) throw new Error("E2E article fixture has no selectable text");
-    const rect = element.getBoundingClientRect();
-    window.scrollTo(0, Math.max(0, rect.top + window.scrollY - 8));
-  });
-  const box = await paragraph.boundingBox();
-  if (box == null) throw new Error("E2E article fixture has no selectable text");
-  const y = box.y + Math.min(8, box.height / 2);
-  await page.mouse.move(box.x + 2, y);
-  await page.mouse.down();
-  await page.mouse.move(box.x + Math.max(12, box.width - 2), y, { steps: 4 });
-  await page.mouse.up();
+  await selectReaderText(page);
 
   const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
   await expect(toolbar).toBeVisible();
@@ -1750,7 +1731,7 @@ test("export panel downloads project markdown", async ({ page }) => {
 
 test("focused reader exposes retry for an article load failure", async ({ page }) => {
   await resetFixtures(page);
-  await page.goto("/read/999?module=all&sort=default&lang=zh");
+  await page.goto("/read/998?module=all&sort=default&lang=zh");
 
   await expect(page.getByText("文章加载失败", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "重试加载" })).toBeVisible();

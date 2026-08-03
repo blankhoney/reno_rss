@@ -796,6 +796,14 @@ const proxy = createServer(async (request, response) => {
     sendJson(response, 201, { annotation });
     return;
   }
+  if (url.pathname === "/api/articles/999" && request.method === "GET") {
+    sendJson(response, 404, { error: { code: "not_found", message: "Article not found" } });
+    return;
+  }
+  if (url.pathname === "/api/articles/998" && request.method === "GET") {
+    sendJson(response, 503, { error: { code: "article_unavailable", message: "Article fixture unavailable" } });
+    return;
+  }
   if (
     (url.pathname === "/api/articles/7" ||
       url.pathname === "/api/articles/9" ||
