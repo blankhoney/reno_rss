@@ -945,6 +945,17 @@ export interface components {
             /** Read Progress */
             read_progress?: number | null;
         };
+        /** ArticleTranslationResponse */
+        ArticleTranslationResponse: {
+            /** Status */
+            status: string;
+            /** Content Zh */
+            content_zh: string | null;
+            /** Translated At */
+            translated_at: string | null;
+            /** Job Id */
+            job_id: number | null;
+        };
         /** AskHistoryTurn */
         AskHistoryTurn: {
             /**
@@ -1843,14 +1854,30 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Cached translation */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ArticleTranslationResponse"];
                 };
+            };
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArticleTranslationResponse"];
+                };
+            };
+            /** @description Article not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

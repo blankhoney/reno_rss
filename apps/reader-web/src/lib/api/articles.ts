@@ -540,12 +540,11 @@ export async function requestArticleTranslation(
   articleId: number,
   init?: ApiRequestInit,
 ): Promise<ArticleTranslationResult> {
-  const payload = await apiPost<{
-    status: string;
-    content_zh?: string | null;
-    translated_at?: string | null;
-    job_id?: number | null;
-  }, undefined>(`/api/articles/${articleId}/translate`, undefined, init);
+  const payload = await apiPost<components["schemas"]["ArticleTranslationResponse"], undefined>(
+    `/api/articles/${articleId}/translate`,
+    undefined,
+    init,
+  );
   return {
     status: payload.status,
     contentZh: payload.content_zh ? sanitizeArticleHtml(payload.content_zh) : null,
