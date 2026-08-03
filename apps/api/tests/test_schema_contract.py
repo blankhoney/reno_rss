@@ -77,6 +77,19 @@ def load_initial_migration():
     return load_migration("0001_initial.py")
 
 
+def test_alembic_revision_ids_fit_version_table_column():
+    versions = Path(__file__).parents[1] / "alembic" / "versions"
+
+    oversized = []
+    for migration_path in sorted(versions.glob("*.py")):
+        migration = load_migration(migration_path.name)
+        revision = str(migration.revision)
+        if len(revision) > 32:
+            oversized.append(f"{migration_path.name}: {revision}")
+
+    assert oversized == []
+
+
 def test_ci_snapshot_restore_checks_current_migration_head():
     ci_workflow = (Path(__file__).parents[3] / ".github/workflows/ci.yml").read_text()
 
