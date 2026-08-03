@@ -141,6 +141,19 @@ async function selectReaderParagraph(page: import("@playwright/test").Page, text
   await paragraph.click({ clickCount: 3, position: { x: 8, y: 12 } });
 }
 
+async function selectReaderParagraphWithMouse(page: import("@playwright/test").Page, text: string) {
+  const paragraph = page.locator(".focusContent p").nth(1);
+  await expect(paragraph).toHaveText(text, { exact: true });
+  await paragraph.scrollIntoViewIfNeeded();
+  const box = await paragraph.boundingBox();
+  if (box == null) throw new Error("E2E article fixture has no second paragraph bounds");
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 1, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 1, y, { steps: 4 });
+  await page.mouse.up();
+}
+
 function contrastRatio(foreground: string, background: string): number {
   const luminance = (color: string) => {
     const hex = color.match(/^#([0-9a-f]{6})$/i)?.[1];
@@ -879,13 +892,142 @@ test("new selection invalidates a stale annotation retry after save failure", as
 
   await page.keyboard.press("Escape");
   await expect(toolbar).toBeHidden();
-  await selectReaderParagraph(page, "Evidence should survive navigation.");
+  await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
   await expect(toolbar).toBeVisible();
   await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
   await expect(page.getByRole("button", { name: "重试保存" })).toHaveCount(0);
 
   expect(postCount).toBe(1);
   expect(submitted?.selected_text).toBe("Evidence persists.");
+});
+
+test("in-flight annotation save success cannot clear a newer selection", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  let releaseFirst: (() => void) | null = null;
+  const firstResponseHeld = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (postCount === 1) await firstResponseHeld;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: postCount === 1 ? 62 : 63,
+          article_id: 7,
+          type: "annotation",
+          selected_text: body.selected_text,
+          content: body.content,
+          color: body.color,
+          tags: [],
+          anchor: body.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postCount).toBe(1);
+
+  await page.keyboard.press("Escape");
+  await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
+  await expect(toolbar).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
+
+  releaseFirst?.();
+  releaseFirst = null;
+  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postCount).toBe(2);
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(toolbar).toBeHidden();
+});
+
+test("in-flight annotation save failure cannot install stale retry on a newer selection", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  let releaseFirst: (() => void) | null = null;
+  const firstResponseHeld = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (postCount === 1) {
+      await firstResponseHeld;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "旧请求失败" } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 64,
+          article_id: 7,
+          type: "annotation",
+          selected_text: body.selected_text,
+          content: body.content,
+          color: body.color,
+          tags: [],
+          anchor: body.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postCount).toBe(1);
+
+  await page.keyboard.press("Escape");
+  await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
+  await expect(toolbar).toBeVisible();
+  releaseFirst?.();
+  releaseFirst = null;
+
+  await expect(page.getByText("划线保存失败", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "重试保存" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postCount).toBe(2);
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(toolbar).toBeHidden();
 });
 
 test("selection save round-trips the anchor through POST and renders the highlight", async ({ page }) => {

@@ -225,6 +225,8 @@ export function FocusedArticleReader({
     selectionRevision,
     clearSelection,
   } = useArticleSelection(articleRef, focusContentRef);
+  const selectionRevisionRef = useRef(selectionRevision);
+  selectionRevisionRef.current = selectionRevision;
   useEffect(() => {
     if (
       retryAnnotationSelectionRevisionRef.current != null &&
@@ -1135,6 +1137,7 @@ export function FocusedArticleReader({
                 .split(",")
                 .map((item) => item.trim())
                 .filter(Boolean);
+              const saveRevision = selectionRevision;
               const save = () => {
                 void createArticleAnnotation(article.id, {
                   content: text,
@@ -1145,6 +1148,10 @@ export function FocusedArticleReader({
                   anchor: settledAnchor ?? undefined,
                 })
                   .then((created) => {
+                    // A server response can outlive the selection that created it;
+                    // only the still-current revision may update the rendered article
+                    // and selection-owned UI; the persisted result returns on reload.
+                    if (selectionRevisionRef.current !== saveRevision) return;
                     setAnnotations((current) => [created, ...current]);
                     setAnnotationSaveError(null);
                     retryAnnotationSaveRef.current = null;
@@ -1153,10 +1160,11 @@ export function FocusedArticleReader({
                     clearSelection();
                   })
                   .catch((error: unknown) => {
+                    if (selectionRevisionRef.current !== saveRevision) return;
                     const message = error instanceof Error ? error.message : "划线保存失败";
                     setAnnotationSaveError(message);
                     retryAnnotationSaveRef.current = save;
-                    retryAnnotationSelectionRevisionRef.current = selectionRevision;
+                    retryAnnotationSelectionRevisionRef.current = saveRevision;
                     emitToast({ title: "划线保存失败", body: message, variant: "error" });
                   });
               };
