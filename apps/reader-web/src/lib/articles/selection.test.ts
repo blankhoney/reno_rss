@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  isSelectionDismissKey,
+  isSelectionDismissEvent,
+  selectionAnchorWithinContainer,
   selectionPreview,
   selectionRectWithinContainer,
   selectionTextWithinContainer,
@@ -89,8 +90,24 @@ test("selectionPreview truncates long selected text", () => {
   assert.equal(selectionPreview("abcdefghijklmnopqrstuvwxyz", 8), "abcdefgh...");
 });
 
-test("isSelectionDismissKey only treats Escape as a popover dismiss key", () => {
-  assert.equal(isSelectionDismissKey("Escape"), true);
-  assert.equal(isSelectionDismissKey("Enter"), false);
-  assert.equal(isSelectionDismissKey(" "), false);
+test("isSelectionDismissEvent treats Escape outside IME composition as dismiss", () => {
+  assert.equal(isSelectionDismissEvent({ key: "Escape", isComposing: false }), true);
+  assert.equal(isSelectionDismissEvent({ key: "Enter", isComposing: false }), false);
+  assert.equal(isSelectionDismissEvent({ key: " ", isComposing: false }), false);
+});
+
+test("isSelectionDismissEvent keeps the pending selection when Escape cancels IME composition", () => {
+  assert.equal(isSelectionDismissEvent({ key: "Escape", isComposing: true }), false);
+});
+
+test("selectionAnchorWithinContainer returns null for null inputs", () => {
+  assert.equal(selectionAnchorWithinContainer(null, null), null);
+  assert.equal(selectionAnchorWithinContainer({} as HTMLElement, null), null);
+  assert.equal(selectionAnchorWithinContainer(null, {} as Range), null);
+});
+
+test("selectionAnchorWithinContainer returns null when range is outside container", () => {
+  const container = { contains: () => false } as unknown as HTMLElement;
+  const range = {} as Range;
+  assert.equal(selectionAnchorWithinContainer(container, range), null);
 });

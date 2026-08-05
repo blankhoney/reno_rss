@@ -209,10 +209,18 @@ def _translate_article(payload) -> dict[str, object]:
     if not database_url:
         raise RuntimeError("SCORING_DATABASE_URL is required for translate_article")
     sink = DatabaseContentSink(database_url)
+    ledger = DatabaseDailyUsageLedger(database_url)
     try:
-        return translate_article(dict(payload), sink=sink, provider=create_provider())
+        return translate_article(
+            dict(payload),
+            sink=sink,
+            provider=create_provider(),
+            budget=ledger,
+            daily_limit=_env_non_negative_int("TRANSLATION_DAILY_CALL_BUDGET", 60),
+        )
     finally:
         sink.dispose()
+        ledger.dispose()
 
 
 def _score_batch(payload) -> dict[str, object]:
@@ -226,6 +234,7 @@ def _score_batch(payload) -> dict[str, object]:
             sink,
             create_provider(),
             daily_article_cap=_env_non_negative_int("SCHEDULE_SCORE_DAILY_ARTICLE_CAP", 60),
+            score_budget=sink,
             webhook=webhook_client_from_env(),
             high_score_threshold=_env_non_negative_int(
                 "AI_READER_WEBHOOK_HIGH_SCORE_THRESHOLD",

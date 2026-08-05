@@ -1,7 +1,27 @@
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 async function resetFixtures(page: import("@playwright/test").Page) {
   await page.request.post("/__e2e/reset");
+}
+
+async function waitForSettledArticleList(page: import("@playwright/test").Page) {
+  await expect(page.locator(".articleList")).not.toHaveClass(/articleListPaging/);
+  await expect
+    .poll(() =>
+      page.locator(".articleList > li").evaluateAll((elements) =>
+        elements.every((element) => Number(getComputedStyle(element).opacity) >= 0.99),
+      ),
+    )
+    .toBe(true);
+}
+
+async function waitForSettledFocusReader(page: import("@playwright/test").Page) {
+  await expect
+    .poll(() =>
+      page.locator("main.focusReader").evaluate((element) => Number(getComputedStyle(element).opacity) >= 0.99),
+    )
+    .toBe(true);
 }
 
 function captureUnexpectedBrowserErrors(page: import("@playwright/test").Page) {
@@ -44,11 +64,81 @@ async function enableNotesDualPane(page: import("@playwright/test").Page) {
   await setCraftPreferences(page, { mode: "focus", dualPane: true, dualPaneKind: "notes" });
 }
 
+test("invalid read route waits for the auth gate before showing its error", async ({ page }) => {
+  await resetFixtures(page);
+  let authRequests = 0;
+  let articleRequests = 0;
+  await page.route("**/api/auth/me", async (route) => {
+    authRequests += 1;
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "unauthorized", message: "Authentication required" } }),
+    });
+  });
+  await page.route("**/api/articles/**", async (route) => {
+    articleRequests += 1;
+    await route.abort();
+  });
+
+  await page.goto("/read/abc?module=all&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "登录 AI Reader" })).toBeVisible();
+  await expect(page.getByText("文章不存在", { exact: true })).toHaveCount(0);
+  expect(authRequests).toBeGreaterThan(0);
+  expect(articleRequests).toBe(0);
+});
+
+test("authenticated invalid read route keeps session chrome without fetching an article", async ({ page }) => {
+  await resetFixtures(page);
+  let articleRequests = 0;
+  await page.route("**/api/articles/**", async (route) => {
+    articleRequests += 1;
+    await route.abort();
+  });
+
+  await page.goto("/read/7.9?module=all&sort=default&lang=zh");
+
+  await expect(page.getByLabel("当前会话")).toBeVisible();
+  await expect(page.getByText("文章不存在", { exact: true })).toBeVisible();
+  expect(articleRequests).toBe(0);
+});
+
+test("article 404 envelope renders not-found copy instead of generic load failure", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/read/999?module=all&sort=default&lang=zh");
+
+  await expect(page.getByText("文章不存在", { exact: true })).toBeVisible();
+  await expect(page.getByText("文章加载失败", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Article not found", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试加载" })).toBeVisible();
+});
+
 async function selectReaderText(page: import("@playwright/test").Page) {
   const paragraph = page.locator(".focusContent p").first();
   await paragraph.scrollIntoViewIfNeeded();
   const box = await paragraph.boundingBox();
   if (box == null) throw new Error("E2E article fixture has no selectable text");
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 1, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 1, y, { steps: 4 });
+  await page.mouse.up();
+}
+
+async function selectReaderParagraph(page: import("@playwright/test").Page, text: string) {
+  const paragraph = page.locator(".focusContent p").nth(1);
+  await expect(paragraph).toHaveText(text, { exact: true });
+  await paragraph.scrollIntoViewIfNeeded();
+  await paragraph.click({ clickCount: 3, position: { x: 8, y: 12 } });
+}
+
+async function selectReaderParagraphWithMouse(page: import("@playwright/test").Page, text: string) {
+  const paragraph = page.locator(".focusContent p").nth(1);
+  await expect(paragraph).toHaveText(text, { exact: true });
+  await paragraph.scrollIntoViewIfNeeded();
+  const box = await paragraph.boundingBox();
+  if (box == null) throw new Error("E2E article fixture has no second paragraph bounds");
   const y = box.y + box.height / 2;
   await page.mouse.move(box.x + 1, y);
   await page.mouse.down();
@@ -93,6 +183,105 @@ test("muted reading text meets AA contrast and reduced motion disables nonessent
   expect(tokens.transitionDuration).toBe("0.001s");
 });
 
+test("normal accent and warning text meet AA contrast in both themes", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+
+  const tokens = await page.evaluate(() => {
+    const values = () => {
+      const styles = getComputedStyle(document.documentElement);
+      return {
+        accent: styles.getPropertyValue("--accent").trim(),
+        muted: styles.getPropertyValue("--muted").trim(),
+        warning: styles.getPropertyValue("--warning").trim(),
+        surfaces: ["--bg", "--bg-sunken", "--panel", "--panel2"].map((name) =>
+          styles.getPropertyValue(name).trim(),
+        ),
+      };
+    };
+    const light = values();
+    document.documentElement.dataset.theme = "dark";
+    const dark = values();
+    return { light, dark };
+  });
+
+  for (const theme of [tokens.light, tokens.dark]) {
+    expect(contrastRatio(theme.accent, theme.surfaces[0])).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(theme.warning, theme.surfaces[0])).toBeGreaterThanOrEqual(4.5);
+    for (const surface of theme.surfaces) {
+      expect(contrastRatio(theme.muted, surface)).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
+test("settled ArticleList text meets AA contrast in both themes", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await waitForSettledArticleList(page);
+
+  const selectors = [
+    ".articleListKbdHint kbd",
+    ".articleCardMeta",
+    ".articleCardTitle",
+    ".articleCardSummary",
+    ".articleCardTier",
+    ".articleReadLink",
+  ];
+  for (const theme of ["light", "dark"] as const) {
+    await page.evaluate((nextTheme) => {
+      document.documentElement.dataset.theme = nextTheme;
+    }, theme);
+    const results = await new AxeBuilder({ page })
+      .include(selectors)
+      .withRules(["color-contrast"])
+      .analyze();
+    const contrastViolations = results.violations.filter(
+      (violation) => violation.impact === "critical" || violation.impact === "serious",
+    );
+    expect(
+      contrastViolations,
+      `${theme} ArticleList contrast: ${JSON.stringify(contrastViolations.map((item) => item.id))}`,
+    ).toEqual([]);
+  }
+});
+
+test("auth and command palette inputs keep a visible keyboard focus indicator", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "unauthorized", message: "Authentication required" } }),
+    });
+  });
+  await page.goto("/?module=all&sort=default&lang=zh");
+  const authInput = page.locator(".authTextInput");
+  await expect(authInput).toBeVisible();
+  await authInput.focus();
+  const authFocus = await authInput.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, outlineColor: style.outlineColor };
+  });
+  expect(authFocus.outlineStyle).not.toBe("none");
+  expect(authFocus.outlineWidth).not.toBe("0px");
+  expect(authFocus.outlineColor.startsWith("rgba(")).toBe(false);
+
+  await page.unroute("**/api/auth/me");
+  await page.goto("/?module=all&sort=default&lang=zh");
+  const sortButton = page.getByRole("button", { name: /排序/ });
+  await sortButton.focus();
+  await page.keyboard.press("Meta+k");
+  const paletteInput = page.getByRole("dialog", { name: "命令面板" }).getByRole("textbox");
+  await expect(paletteInput).toBeFocused();
+  const paletteFocus = await paletteInput.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+  });
+  expect(paletteFocus.outlineStyle).not.toBe("none");
+  expect(paletteFocus.outlineWidth).not.toBe("0px");
+});
+
 test("registers and controls the second local page load", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/");
@@ -106,6 +295,128 @@ test("registers and controls the second local page load", async ({ page }) => {
 
   await page.reload();
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller != null)).toBe(true);
+});
+
+test("core pages expose semantic landmarks, headings, and named controls", async ({ page }) => {
+  await resetFixtures(page);
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.locator("main")).toBeVisible();
+  await expect(page.locator("nav").first()).toBeVisible();
+  await expect(page.getByRole("heading").first()).toBeVisible();
+  await expect(page.getByRole("button").first()).toBeVisible();
+  await expect(page.getByRole("link").first()).toBeVisible();
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.locator("main")).toBeVisible();
+  await expect(page.getByRole("toolbar", { name: "文章操作" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "翻译全文" })).toBeVisible();
+
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText(/文章加载失败/)).toBeVisible();
+  await expect(page.locator('[aria-live="polite"]').first()).toBeVisible();
+});
+
+test("keyboard Tab reaches interactive elements with visible focus", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+
+  await page.keyboard.press("Tab");
+  const firstFocused = await page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return null;
+    const style = getComputedStyle(el);
+    return {
+      tag: el.tagName.toLowerCase(),
+      hasOutline: style.outlineStyle !== "none" && style.outlineWidth !== "0px",
+      hasBoxShadow: style.boxShadow !== "none",
+    };
+  });
+  expect(firstFocused).not.toBeNull();
+  expect(firstFocused!.hasOutline || firstFocused!.hasBoxShadow).toBe(true);
+
+  for (let i = 0; i < 5; i++) await page.keyboard.press("Tab");
+  const laterFocused = await page.evaluate(() => {
+    const el = document.activeElement;
+    return el && el !== document.body ? el.tagName.toLowerCase() : null;
+  });
+  expect(laterFocused).not.toBeNull();
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await page.keyboard.press("Tab");
+  const readerFocused = await page.evaluate(() => {
+    const el = document.activeElement;
+    return el && el !== document.body ? el.getAttribute("aria-label") ?? el.tagName.toLowerCase() : null;
+  });
+  expect(readerFocused).not.toBeNull();
+});
+
+test("axe scan finds no critical accessibility violations on core pages", async ({ page }) => {
+  await resetFixtures(page);
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await waitForSettledArticleList(page);
+  const workbenchResults = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .analyze();
+  const workbenchCritical = workbenchResults.violations.filter(
+    (v) => v.impact === "critical" || v.impact === "serious",
+  );
+  expect(workbenchCritical, `Workbench a11y: ${JSON.stringify(workbenchCritical.map((v) => v.id))}`).toEqual([]);
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await waitForSettledFocusReader(page);
+  const readerResults = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .analyze();
+  const readerCritical = readerResults.violations.filter(
+    (v) => v.impact === "critical" || v.impact === "serious",
+  );
+  expect(readerCritical, `Reader a11y: ${JSON.stringify(readerCritical.map((v) => v.id))}`).toEqual([]);
+});
+
+test("dark theme axe scan finds no critical accessibility violations on core pages", async ({ page }) => {
+  await resetFixtures(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("ai-reader.theme", "dark");
+  });
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe("dark");
+  await waitForSettledArticleList(page);
+  const workbenchResults = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .analyze();
+  const workbenchCritical = workbenchResults.violations.filter(
+    (v) => v.impact === "critical" || v.impact === "serious",
+  );
+  expect(
+    workbenchCritical,
+    `Dark Workbench a11y: ${JSON.stringify(workbenchCritical.map((v) => v.id))}`,
+  ).toEqual([]);
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe("dark");
+  await waitForSettledFocusReader(page);
+  const readerResults = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .analyze();
+  const readerCritical = readerResults.violations.filter(
+    (v) => v.impact === "critical" || v.impact === "serious",
+  );
+  expect(
+    readerCritical,
+    `Dark Reader a11y: ${JSON.stringify(readerCritical.map((v) => v.id))}`,
+  ).toEqual([]);
 });
 
 test("principal success fixtures render without unexpected browser errors", async ({ page }) => {
@@ -158,7 +469,8 @@ test("keeps job polling on the network after service worker control", async ({ p
   expect(statuses).toEqual(["queued", "succeeded"]);
 });
 
-test("never serves the previous user's cached article when the authenticated user changes", async ({ context, page }) => {
+test("never serves the previous user's cached article when the authenticated user changes", async ({ browserName, context, page }) => {
+  test.skip(browserName === "firefox", "Playwright Firefox registers the worker but does not attach a controller in an isolated context");
   await resetFixtures(page);
   await page.goto("/");
   await expect(page.getByText("Ada", { exact: true })).toBeVisible();
@@ -302,6 +614,25 @@ for (const viewport of [
   });
 }
 
+test("desktop selection toolbar stays inside the viewport near the article top", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+
+  await selectReaderText(page);
+
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  const bounds = await toolbar.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(1280);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(720);
+});
+
 test("saved selection carries a versioned text quote anchor", async ({ page }) => {
   await resetFixtures(page);
   let submitted: Record<string, unknown> | null = null;
@@ -394,6 +725,381 @@ test("selection anchor survives note editor focus before save", async ({ page })
   expect(anchor.kind).toBe("text-quote");
 });
 
+test("selection anchor survives Escape pressed during IME composition", async ({ page }) => {
+  await resetFixtures(page);
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 44,
+          article_id: 7,
+          type: "annotation",
+          selected_text: submitted.selected_text,
+          content: submitted.content,
+          color: submitted.color,
+          tags: [],
+          anchor: submitted.anchor,
+          created_at: "2026-07-26T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+
+  // Escape during IME composition cancels the composition, not the selection.
+  await page.evaluate(() => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true }),
+    );
+  });
+  await expect(toolbar).toBeVisible();
+
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  const anchor = (submitted?.anchor ?? null) as Record<string, unknown> | null;
+  expect(anchor).not.toBeNull();
+  expect(anchor?.kind).toBe("text-quote");
+  expect(anchor?.exact).toBe("Evidence persists.");
+});
+
+test("annotation save 503 shows explicit retry and recovers without losing the selection", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  let lastAnchor: unknown = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    lastAnchor = body.anchor;
+    if (postCount === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 60,
+          article_id: 7,
+          type: "annotation",
+          selected_text: body.selected_text,
+          content: body.content,
+          color: body.color,
+          tags: [],
+          anchor: body.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+
+  await expect(page.getByText("划线保存失败")).toBeVisible();
+  const retryButton = page.getByRole("button", { name: "重试保存" });
+  await expect(retryButton).toBeVisible();
+  await expect(toolbar).toBeVisible();
+
+  await retryButton.click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  expect(postCount).toBe(2);
+  const anchor = lastAnchor as Record<string, unknown> | null;
+  expect(anchor).not.toBeNull();
+  expect(anchor?.kind).toBe("text-quote");
+  expect(anchor?.exact).toBe("Evidence persists.");
+  await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
+});
+
+test("new selection invalidates a stale annotation retry after save failure", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("划线保存失败")).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试保存" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(toolbar).toBeHidden();
+  await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
+  await expect(toolbar).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试保存" })).toHaveCount(0);
+
+  expect(postCount).toBe(1);
+  expect(submitted?.selected_text).toBe("Evidence persists.");
+});
+
+test("in-flight annotation save success cannot clear a newer selection", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  let releaseFirst: (() => void) | null = null;
+  const firstResponseHeld = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (postCount === 1) await firstResponseHeld;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: postCount === 1 ? 62 : 63,
+          article_id: 7,
+          type: "annotation",
+          selected_text: body.selected_text,
+          content: body.content,
+          color: body.color,
+          tags: [],
+          anchor: body.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postCount).toBe(1);
+
+  await page.keyboard.press("Escape");
+  await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
+  await expect(toolbar).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
+
+  releaseFirst?.();
+  releaseFirst = null;
+  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postCount).toBe(2);
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(toolbar).toBeHidden();
+});
+
+test("in-flight annotation save failure cannot install stale retry on a newer selection", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  let releaseFirst: (() => void) | null = null;
+  const firstResponseHeld = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (postCount === 1) {
+      await firstResponseHeld;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "旧请求失败" } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 64,
+          article_id: 7,
+          type: "annotation",
+          selected_text: body.selected_text,
+          content: body.content,
+          color: body.color,
+          tags: [],
+          anchor: body.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postCount).toBe(1);
+
+  await page.keyboard.press("Escape");
+  await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
+  await expect(toolbar).toBeVisible();
+  releaseFirst?.();
+  releaseFirst = null;
+
+  await expect(page.getByText("划线保存失败", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "重试保存" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postCount).toBe(2);
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(toolbar).toBeHidden();
+});
+
+test("selection save round-trips the anchor through POST and renders the highlight", async ({ page }) => {
+  await resetFixtures(page);
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 61,
+          article_id: 7,
+          type: "annotation",
+          selected_text: submitted.selected_text,
+          content: submitted.content,
+          color: submitted.color,
+          tags: [],
+          anchor: submitted.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+
+  expect(submitted?.selected_text).toBe("Evidence persists.");
+  const anchor = submitted?.anchor as Record<string, unknown>;
+  expect(anchor.exact).toBe("Evidence persists.");
+  expect(anchor.kind).toBe("text-quote");
+  await expect(page.locator('mark[data-annotation-id="61"]')).toBeVisible();
+});
+
+test("session switch isolates annotations between users", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+
+  await selectReaderText(page);
+  await expect(page.getByRole("toolbar", { name: "选中文字操作" })).toBeVisible();
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
+
+  await page.request.post("/api/auth/login");
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Babbage", { exact: true })).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="60"]')).toHaveCount(0);
+});
+
+test("two browser contexts isolate annotations without cross-context leakage", async ({ browser }) => {
+  const contextA = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const contextB = await browser.newContext();
+  const pageB = await contextB.newPage();
+
+  await resetFixtures(pageA);
+  await pageA.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(pageA.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(pageA);
+  await expect(pageA.getByRole("toolbar", { name: "选中文字操作" })).toBeVisible();
+  await pageA.getByRole("button", { name: "保存划线" }).click();
+  await expect(pageA.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(pageA.locator('mark[data-annotation-id="60"]')).toBeVisible();
+
+  await pageA.request.post("/api/auth/login");
+  await pageB.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(pageB.getByText("Babbage", { exact: true })).toBeVisible();
+  await expect(pageB.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await expect(pageB.locator('mark[data-annotation-id="60"]')).toHaveCount(0);
+
+  await contextA.close();
+  await contextB.close();
+});
+
 test("refreshed repeated annotations restore only the context-proven quote and surface ambiguity", async ({ page }) => {
   await resetFixtures(page);
   await page.goto("/read/7?module=all&sort=default&lang=zh&fixture=annotation-repeated");
@@ -471,6 +1177,8 @@ test("article shortcuts only apply when the article list owns focus", async ({ p
   await page.keyboard.press("Enter");
   await expect(page.getByRole("listbox", { name: "排序方式" })).toBeVisible();
   await expect(page).toHaveURL(/\?module=all/);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox", { name: "排序方式" })).toHaveCount(0);
 
   const list = page.locator(".articleList");
   await list.focus();
@@ -518,6 +1226,322 @@ test("later-page article return restores cursor page and its highlighted card", 
   await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
   const returnedCard = page.getByRole("link", { name: /Cursor article two/ });
   await expect(returnedCard).toHaveClass(/articleCardReturnTarget/);
+});
+
+test("oversized cursor trails canonicalize back to the first page", async ({ page }) => {
+  await resetFixtures(page);
+  const oversizedTrail = JSON.stringify([null, ...Array(3).fill("x".repeat(2600))]);
+
+  await page.goto(`/?module=all&sort=default&lang=zh&trail=${encodeURIComponent(oversizedTrail)}`);
+
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/trail=/);
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+});
+
+async function assertSuccessfulLaterEmptyPageEscape(
+  page: import("@playwright/test").Page,
+  url: string,
+) {
+  await resetFixtures(page);
+  await page.goto(url);
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "‹ 上一页" })).toBeEnabled();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page.getByText("Keyboard article one", { exact: true })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "‹ 上一页" }).click();
+
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/trail=/);
+}
+
+test("scan mode successful later empty page offers a previous-page escape", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await assertSuccessfulLaterEmptyPageEscape(page, "/?module=all&sort=default&lang=zh&q=empty-page");
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("scan");
+});
+
+test("focus mode successful later empty page offers a previous-page escape", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "focus" });
+  await assertSuccessfulLaterEmptyPageEscape(page, "/?module=all&sort=score&lang=original&q=empty-page");
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("focus");
+});
+
+test("scan mode paging failure hides stale cards and retries the current cursor", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  let pageTwoRequests = 0;
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/articles" && url.searchParams.get("cursor") === "cursor-page-2") {
+      pageTwoRequests += 1;
+    }
+  });
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.request.post("/__e2e/article-list/fail-once");
+  const nextPage = page.getByRole("button", { name: "下一页 ›" });
+  await nextPage.focus();
+  await nextPage.press("Enter");
+
+  const errorStatus = page.getByText("文章加载失败", { exact: true });
+  const retryButton = page.getByRole("button", { name: "重试" });
+  await expect(errorStatus).toBeVisible();
+  await expect(retryButton).toBeFocused();
+  await expect(page.getByText("Keyboard article one", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Keyboard article two", { exact: true })).toHaveCount(0);
+  const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  for (const target of [errorStatus, retryButton]) {
+    const bounds = await target.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height);
+  }
+  await expect(page).toHaveURL(/trail=/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("scan");
+
+  await retryButton.click();
+  const articleList = page.locator("ul.articleList");
+  await expect(page.getByText("Cursor article two", { exact: true })).toBeVisible();
+  await expect(articleList).toBeFocused();
+  await expect(page.getByText("文章加载失败", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  expect(pageTwoRequests).toBe(2);
+});
+
+test("scan mode error offers a previous-page escape", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+
+  await expect(page.getByText("文章加载失败", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "‹ 上一页" }).click();
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/trail=/);
+});
+
+test("scan mode shows empty only after a successful empty response", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  let releaseEmptyResponse: (() => void) | null = null;
+  const emptyResponseGate = new Promise<void>((resolve) => {
+    releaseEmptyResponse = resolve;
+  });
+  await page.route("**/api/articles?**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("module") !== "all" || url.searchParams.has("cursor")) {
+      await route.fallback();
+      return;
+    }
+    await emptyResponseGate;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], next_cursor: null, has_more: false }),
+    });
+  });
+
+  const navigation = page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByLabel("文章加载中")).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("文章加载失败", { exact: true })).toHaveCount(0);
+  releaseEmptyResponse!();
+  await navigation;
+
+  await expect(page.getByLabel("文章加载中")).toHaveCount(0);
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前模块没有可显示的文章。", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("scan");
+});
+
+test("scan mode restores direct pagination Back from the URL", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+  await expect(page.getByText("Cursor article two", { exact: true })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/?module=all&sort=default&lang=zh$/);
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("Cursor article two", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+});
+
+test("scan mode restores later-page context after return reload and browser Back", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "scan" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=latest&lang=original&q=fixture");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+  await expect(page.getByText("Cursor article two", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: /Cursor article two/ }).click();
+  await expect(page).toHaveURL(/\/read\/9\?.*module=all.*sort=latest.*lang=original.*q=fixture.*trail=/);
+
+  await page.getByRole("link", { name: "返回工作台" }).click();
+  await expect(page).toHaveURL(/module=all.*sort=latest.*lang=original.*q=fixture.*trail=.*article=9/);
+  const returnedCard = page.getByRole("link", { name: /Cursor article two/ });
+  await expect(returnedCard).toHaveClass(/articleCardReturnTarget/);
+
+  await page.reload();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Cursor article two/ })).toHaveClass(/articleCardReturnTarget/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("scan");
+
+  await page.getByRole("link", { name: /Cursor article two/ }).click();
+  await expect(page).toHaveURL(/\/read\/9\?/);
+  await page.goBack();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Cursor article two/ })).toBeVisible();
+  await expect(page).toHaveURL(/module=all.*sort=latest.*lang=original.*q=fixture.*trail=.*article=9/);
+});
+
+test("focus mode paging failure hides stale cards and retries the current cursor", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "focus" });
+  await resetFixtures(page);
+  let pageTwoRequests = 0;
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/articles" && url.searchParams.get("cursor") === "focus-cursor-page-2") {
+      pageTwoRequests += 1;
+    }
+  });
+
+  await page.goto("/?module=all&sort=score&lang=original&q=focus-fixture");
+  await expect(page.getByText("Focus article one", { exact: true })).toBeVisible();
+  await page.request.post("/__e2e/article-list/fail-once");
+  const nextPage = page.getByRole("button", { name: "下一页 ›" });
+  await nextPage.focus();
+  await nextPage.press("Enter");
+
+  const errorStatus = page.getByText("文章加载失败", { exact: true });
+  const retryButton = page.getByRole("button", { name: "重试" });
+  await expect(errorStatus).toBeVisible();
+  await expect(retryButton).toBeFocused();
+  await expect(page.getByText("Focus article one", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Focus article two", { exact: true })).toHaveCount(0);
+  await expect(page).toHaveURL(/module=all.*sort=score.*lang=original.*q=focus-fixture.*trail=/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("focus");
+
+  await retryButton.click();
+  const articleList = page.locator("ul.articleList");
+  await expect(page.getByText("Focus cursor article", { exact: true })).toBeVisible();
+  await expect(articleList).toBeFocused();
+  await expect(page.getByText("文章加载失败", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  expect(pageTwoRequests).toBe(2);
+});
+
+test("focus mode error offers a previous-page escape", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "focus" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=score&lang=original&q=focus-fixture");
+  await expect(page.getByText("Focus article one", { exact: true })).toBeVisible();
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+
+  await expect(page.getByText("文章加载失败", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "‹ 上一页" }).click();
+  await expect(page.getByText("Focus article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/module=all.*sort=score.*lang=original.*q=focus-fixture$/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("focus");
+});
+
+test("focus mode shows empty only after a successful empty response", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "focus" });
+  await resetFixtures(page);
+  let releaseEmptyResponse: (() => void) | null = null;
+  const emptyResponseGate = new Promise<void>((resolve) => {
+    releaseEmptyResponse = resolve;
+  });
+  await page.route("**/api/articles?**", async (route) => {
+    const url = new URL(route.request().url());
+    if (
+      url.searchParams.get("module") !== "all" ||
+      url.searchParams.has("cursor") ||
+      url.searchParams.get("q") !== "focus-empty"
+    ) {
+      await route.fallback();
+      return;
+    }
+    await emptyResponseGate;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], next_cursor: null, has_more: false }),
+    });
+  });
+
+  const navigation = page.goto("/?module=all&sort=score&lang=original&q=focus-empty");
+  await expect(page.getByLabel("文章加载中")).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("文章加载失败", { exact: true })).toHaveCount(0);
+  releaseEmptyResponse!();
+  await navigation;
+
+  await expect(page.getByLabel("文章加载中")).toHaveCount(0);
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前模块没有可显示的文章。", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("focus");
+});
+
+test("focus mode restores direct pagination Back from the URL", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "focus" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=score&lang=original&q=focus-fixture");
+  await expect(page.getByText("Focus article one", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+  await expect(page.getByText("Focus cursor article", { exact: true })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/module=all.*sort=score.*lang=original.*q=focus-fixture$/);
+  await expect(page.getByText("Focus article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("Focus cursor article", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("第 1 页", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("focus");
+});
+
+test("focus mode restores later-page context after return reload and browser Back", async ({ page }) => {
+  await setCraftPreferences(page, { mode: "focus" });
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=score&lang=original&q=focus-fixture");
+  await expect(page.getByText("Focus article one", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一页 ›" }).click();
+  await expect(page.getByText("Focus cursor article", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: /Focus cursor article/ }).click();
+  await expect(page).toHaveURL(/\/read\/13\?.*module=all.*sort=score.*lang=original.*q=focus-fixture.*trail=/);
+
+  await page.getByRole("link", { name: "返回工作台" }).click();
+  await expect(page).toHaveURL(/module=all.*sort=score.*lang=original.*q=focus-fixture.*trail=.*article=13/);
+  const returnedCard = page.getByRole("link", { name: /Focus cursor article/ });
+  await expect(returnedCard).toHaveClass(/articleCardReturnTarget/);
+
+  await page.reload();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Focus cursor article/ })).toHaveClass(/articleCardReturnTarget/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.readerMode)).toBe("focus");
+
+  await page.getByRole("link", { name: /Focus cursor article/ }).click();
+  await expect(page).toHaveURL(/\/read\/13\?/);
+  await page.goBack();
+  await expect(page.getByText("第 2 页", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Focus cursor article/ })).toBeVisible();
+  await expect(page).toHaveURL(/module=all.*sort=score.*lang=original.*q=focus-fixture.*trail=.*article=13/);
 });
 
 test("search URL state ignores slow results after a newer query", async ({ page }) => {
@@ -602,12 +1626,164 @@ test("workbench failure does not render a contradictory empty state", async ({ p
   await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
 });
 
+test("starred module shows empty state when no articles are saved", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await page.goto("/?module=starred&sort=default&lang=zh");
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前模块没有可显示的文章。", { exact: true })).toBeVisible();
+});
+
+test("starred module renders saved articles from the server", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/articles?**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("module") !== "starred") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          id: 7,
+          title: "Keyboard article one",
+          url: "https://example.com/one",
+          feed: { id: 1, title: "Fixture feed" },
+          category: null,
+          published_at: "2026-07-21T00:00:00Z",
+          content_quality: "full",
+          summary_zh: "第一篇测试文章。",
+          score: null,
+          state: { status: "unread", saved: true, project: false, read_progress: 0 },
+        }],
+        next_cursor: null,
+        has_more: false,
+      }),
+    });
+  });
+  await page.goto("/?module=starred&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+});
+
+test("article list failure shows error with retry and recovers", async ({ page }) => {
+  await resetFixtures(page);
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.goto("/?module=all&sort=default&lang=zh");
+
+  await expect(page.getByText(/文章加载失败/)).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "重试" }).click();
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText(/文章加载失败/)).toHaveCount(0);
+});
+
+test("state language never contradicts itself across modules", async ({ page }) => {
+  await resetFixtures(page);
+
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+  await expect(page.getByText(/文章加载失败/)).toHaveCount(0);
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+
+  await page.request.post("/__e2e/article-list/fail-once");
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText(/文章加载失败/)).toBeVisible();
+  await expect(page.getByText("暂无文章", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Keyboard article one", { exact: true })).toHaveCount(0);
+
+  await page.goto("/?module=starred&sort=default&lang=zh");
+  await expect(page.getByText("暂无文章", { exact: true })).toBeVisible();
+  await expect(page.getByText(/文章加载失败/)).toHaveCount(0);
+
+  await page.goto("/?module=review&sort=default&lang=zh");
+  await expect(page.getByText("A durable note returns when it matters.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/复习队列暂不可用/)).toHaveCount(0);
+  await expect(page.getByText("今天没有到期划线", { exact: true })).toHaveCount(0);
+});
+
+test("review queue failure shows error with retry and recovers", async ({ page }) => {
+  await resetFixtures(page);
+  await page.request.post("/__e2e/review/fail-once");
+  await page.goto("/?module=review&sort=default&lang=zh");
+
+  await expect(page.getByText(/复习队列暂不可用/)).toBeVisible();
+  await page.getByRole("button", { name: "重试" }).click();
+  await expect(page.getByText("A durable note returns when it matters.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/复习队列暂不可用/)).toHaveCount(0);
+});
+
+test("export panel downloads project markdown", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=export&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "立项导出" })).toBeVisible();
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Markdown" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toContain("project-export");
+  await expect(page.getByText(/已下载/)).toBeVisible();
+});
+
 test("focused reader exposes retry for an article load failure", async ({ page }) => {
   await resetFixtures(page);
-  await page.goto("/read/999?module=all&sort=default&lang=zh");
+  await page.goto("/read/998?module=all&sort=default&lang=zh");
 
   await expect(page.getByText("文章加载失败", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "重试加载" })).toBeVisible();
+});
+
+test("Reader keeps related links while labeling a failed related source", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/clusters/latest?**", async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "cluster_unavailable", message: "cluster fixture failure" } }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "theme Evidence continuity", exact: true })).toBeVisible();
+  await expect(page.getByText(/故事线加载失败：/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试故事线" })).toBeVisible();
+});
+
+test("Reader retries only the failed related source", async ({ page }) => {
+  await resetFixtures(page);
+  let clusterRequests = 0;
+  let themeRequests = 0;
+  await page.route("**/api/clusters/latest?**", async (route) => {
+    clusterRequests += 1;
+    if (clusterRequests === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "cluster_unavailable", message: "cluster fixture failure" } }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.route("**/api/themes/latest?**", async (route) => {
+    themeRequests += 1;
+    await route.fallback();
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("button", { name: "重试故事线" })).toBeVisible();
+  await page.getByRole("button", { name: "重试故事线" }).click();
+
+  await expect(page.getByRole("link", { name: "cluster 可恢复研究工作流 (2)", exact: true })).toBeVisible();
+  await expect(page.getByText(/故事线加载失败：/)).toHaveCount(0);
+  expect(themeRequests).toBe(1);
+  expect(clusterRequests).toBe(2);
 });
 
 test("Daily Intelligence labels failed sources instead of false empty states", async ({ page }) => {
@@ -617,6 +1793,16 @@ test("Daily Intelligence labels failed sources instead of false empty states", a
   await expect(page.getByRole("button", { name: "刷新情报" })).toBeVisible();
   await expect(page.getByText(/加载失败：/).first()).toBeVisible();
   await expect(page.getByText("暂无条目", { exact: true })).toHaveCount(0);
+});
+
+test("Daily Intelligence preserves canonical brief metadata in its cards", async ({ page }) => {
+  await resetFixtures(page);
+  await page.goto("/?module=home&sort=default&lang=zh");
+
+  await expect(page.getByRole("heading", { name: "今日研究简报" })).toBeVisible();
+  await expect(page.getByText("风险 reposted", { exact: true })).toBeVisible();
+  await expect(page.getByText("源可信 88", { exact: true })).toBeVisible();
+  await expect(page.getByText("full", { exact: true })).toBeVisible();
 });
 
 test("Daily Intelligence preserves usable research context through a secondary-source retry", async ({ page }) => {
@@ -666,6 +1852,30 @@ test("Reader keeps article context when Ask fails once and then retries", async 
   expect(errors).toEqual([
     "console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
   ]);
+});
+
+test("Ask abort via 停止 returns to a clean state without error", async ({ page }) => {
+  await resetFixtures(page);
+  await page.route("**/api/articles/7/ask", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: 'data: {"type":"answer","content":"Late answer"}\n\ndata: {"type":"done"}\n\n',
+    });
+  });
+
+  await page.goto("/read/7?module=home&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await page.getByRole("button", { name: /文章助手/ }).click();
+  await page.getByRole("button", { name: "总结", exact: true }).click();
+
+  await expect(page.getByRole("button", { name: "停止" })).toBeVisible();
+  await page.getByRole("button", { name: "停止" }).click();
+
+  await expect(page.getByRole("button", { name: "停止" })).toHaveCount(0);
+  await expect(page.getByText("Late answer")).toHaveCount(0);
+  await expect(page.getByText(/文章助手暂不可用/)).toHaveCount(0);
 });
 
 test("Reader preserves article context through a failed candidate write and retries to server-confirmed state", async ({ page }) => {

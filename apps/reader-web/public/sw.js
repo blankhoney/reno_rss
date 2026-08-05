@@ -5,10 +5,10 @@
  * client maps cached JSON into its render model; this worker never renders HTML.
  */
 const CACHE_PREFIX = "ai-reader-";
-const SHELL_CACHE = `${CACHE_PREFIX}shell-v2`;
+const SHELL_CACHE = `${CACHE_PREFIX}shell-v3`;
 const ARTICLE_DETAIL_CACHE = `${CACHE_PREFIX}article-details-v2`;
 const OWNED_CACHES = new Set([SHELL_CACHE, ARTICLE_DETAIL_CACHE]);
-const SHELL_URLS = ["/", "/manifest.webmanifest", "/brand/ai-reader-icon.png"];
+const SHELL_URLS = ["/manifest.webmanifest", "/brand/ai-reader-icon.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

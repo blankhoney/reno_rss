@@ -33,8 +33,12 @@ export function selectionPreview(text: string, limit = 36): string {
   return `${normalized.slice(0, limit)}...`;
 }
 
-export function isSelectionDismissKey(key: string): boolean {
-  return key === "Escape";
+export function isSelectionDismissEvent(
+  event: Pick<KeyboardEvent, "key" | "isComposing">,
+): boolean {
+  // Escape during IME composition cancels the composition, not the selection:
+  // clearing here would silently drop the pending annotation anchor.
+  return event.key === "Escape" && !event.isComposing;
 }
 
 export function selectionAnchorWithinContainer(
@@ -56,10 +60,14 @@ export function selectionAnchorWithinContainer(
   );
 }
 
-export function useArticleSelection(containerRef: RefObject<HTMLElement | null>) {
+export function useArticleSelection(
+  containerRef: RefObject<HTMLElement | null>,
+  anchorContentRef?: RefObject<HTMLElement | null>,
+) {
   const [selectedText, setSelectedText] = useState("");
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [settledAnchor, setSettledAnchor] = useState<ArticleAnnotationAnchor | null>(null);
+  const [selectionRevision, setSelectionRevision] = useState(0);
 
   useEffect(() => {
     // While dragging, keep the captured text current but never show or reposition
@@ -83,8 +91,10 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
       if (text == null) return;
       const range = selection.getRangeAt(0).cloneRange();
       setSelectedText(text);
-      setSettledAnchor(selectionAnchorWithinContainer(containerRef.current, range));
+      const anchorSource = anchorContentRef?.current ?? containerRef.current;
+      setSettledAnchor(selectionAnchorWithinContainer(anchorSource, range));
       setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
+      setSelectionRevision((revision) => revision + 1);
     }
 
     function hidePopover() {
@@ -92,7 +102,7 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
     }
 
     function dismissSelection(event: KeyboardEvent) {
-      if (!isSelectionDismissKey(event.key)) return;
+      if (!isSelectionDismissEvent(event)) return;
       setSelectedText("");
       setSettledAnchor(null);
       setSelectionRect(null);
@@ -115,13 +125,14 @@ export function useArticleSelection(containerRef: RefObject<HTMLElement | null>)
       document.removeEventListener("keydown", dismissSelection);
       window.removeEventListener("resize", hidePopover);
     };
-  }, [containerRef]);
+  }, [containerRef, anchorContentRef]);
 
   return {
     selectedText,
     hasSelection: selectedText.trim().length > 0,
     selectionRect,
     settledAnchor,
+    selectionRevision,
     clearSelection: () => {
       setSelectedText("");
       setSettledAnchor(null);

@@ -3,8 +3,17 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-const proxyPort = 3010;
-const appPort = 3011;
+function resolvePort(value, fallback) {
+  const port = Number(value ?? fallback);
+  if (!Number.isInteger(port) || port < 1 || port > 65534) {
+    throw new Error("READER_E2E_PORT must be an integer between 1 and 65534");
+  }
+  return port;
+}
+
+const evidenceRun = process.env.PLAYWRIGHT_EVIDENCE === "1";
+const proxyPort = resolvePort(process.env.READER_E2E_PORT, evidenceRun ? 3012 : 3010);
+const appPort = proxyPort + 1;
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const users = {
   ada: {
@@ -37,8 +46,12 @@ let dailyClusterFailuresRemaining = 0;
 let articleAskFailuresRemaining = 0;
 let articleStateFailuresRemaining = 0;
 let researchFailuresRemaining = 0;
+let annotationFailuresRemaining = 0;
+let articleListFailuresRemaining = 0;
+let reviewFailuresRemaining = 0;
 let adminSyncCompleted = false;
 const articleStates = new Map();
+const userAnnotations = new Map();
 const completedResearchJob = {
   id: 88,
   job_type: "research",
@@ -93,8 +106,12 @@ function resetFixtures() {
   articleAskFailuresRemaining = 0;
   articleStateFailuresRemaining = 0;
   researchFailuresRemaining = 0;
+  annotationFailuresRemaining = 0;
+  articleListFailuresRemaining = 0;
+  reviewFailuresRemaining = 0;
   adminSyncCompleted = false;
   articleStates.clear();
+  userAnnotations.clear();
 }
 
 function articleStateFor(id) {
@@ -185,6 +202,21 @@ const proxy = createServer(async (request, response) => {
     sendJson(response, 200, { ok: true });
     return;
   }
+  if (url.pathname === "/__e2e/annotation/fail-once" && request.method === "POST") {
+    annotationFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/article-list/fail-once" && request.method === "POST") {
+    articleListFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+  if (url.pathname === "/__e2e/review/fail-once" && request.method === "POST") {
+    reviewFailuresRemaining = 1;
+    sendJson(response, 200, { ok: true });
+    return;
+  }
   if (url.pathname === "/api/auth/me" && request.method === "GET") {
     sendJson(response, 200, { user: currentUser });
     return;
@@ -199,7 +231,48 @@ const proxy = createServer(async (request, response) => {
     return;
   }
   if (url.pathname === "/api/articles" && request.method === "GET") {
+    if (articleListFailuresRemaining > 0) {
+      articleListFailuresRemaining -= 1;
+      sendJson(response, 503, { error: { code: "list_unavailable", message: "文章列表暂不可用，请重试。" } });
+      return;
+    }
     const searchQuery = url.searchParams.get("q");
+    if (searchQuery === "empty-page") {
+      const emptyPage = url.searchParams.get("cursor") === "empty-page-cursor";
+      sendJson(response, 200, {
+        items: emptyPage
+          ? []
+          : [
+              {
+                id: 7,
+                title: "Keyboard article one",
+                url: "https://example.com/one",
+                feed: { id: 1, title: "Fixture feed" },
+                category: null,
+                published_at: "2026-07-21T00:00:00Z",
+                content_quality: "full",
+                summary_zh: "第一篇测试文章。",
+                score: null,
+                state: { status: "unread", saved: false, project: false, read_progress: 0 },
+              },
+              {
+                id: 8,
+                title: "Keyboard article two",
+                url: "https://example.com/two",
+                feed: { id: 1, title: "Fixture feed" },
+                category: null,
+                published_at: "2026-07-20T00:00:00Z",
+                content_quality: "full",
+                summary_zh: "第二篇测试文章。",
+                score: null,
+                state: { status: "unread", saved: false, project: false, read_progress: 0 },
+              },
+            ],
+        next_cursor: emptyPage ? null : "empty-page-cursor",
+        has_more: !emptyPage,
+      });
+      return;
+    }
     if (searchQuery === "workbench-error") {
       sendJson(response, 500, { error: { message: "workbench fixture failure" } });
       return;
@@ -262,6 +335,53 @@ const proxy = createServer(async (request, response) => {
         }],
         next_cursor: null,
         has_more: false,
+      });
+      return;
+    }
+    if (searchQuery === "focus-fixture") {
+      const focusPageTwo = url.searchParams.get("cursor") === "focus-cursor-page-2";
+      sendJson(response, 200, {
+        items: focusPageTwo
+          ? [{
+              id: 13,
+              title: "Focus cursor article",
+              url: "https://example.com/focus-two",
+              feed: { id: 2, title: "Focus fixture feed" },
+              category: null,
+              published_at: "2026-07-18T00:00:00Z",
+              content_quality: "full",
+              summary_zh: "Focus 第二页测试文章。",
+              score: null,
+              state: { status: "unread", saved: false, project: false, read_progress: 0 },
+            }]
+          : [
+              {
+                id: 11,
+                title: "Focus article one",
+                url: "https://example.com/focus-one",
+                feed: { id: 2, title: "Focus fixture feed" },
+                category: null,
+                published_at: "2026-07-21T00:00:00Z",
+                content_quality: "full",
+                summary_zh: "Focus 第一篇测试文章。",
+                score: null,
+                state: { status: "unread", saved: false, project: false, read_progress: 0 },
+              },
+              {
+                id: 12,
+                title: "Focus article two",
+                url: "https://example.com/focus-two",
+                feed: { id: 2, title: "Focus fixture feed" },
+                category: null,
+                published_at: "2026-07-20T00:00:00Z",
+                content_quality: "full",
+                summary_zh: "Focus 第二篇首页文章。",
+                score: null,
+                state: { status: "unread", saved: false, project: false, read_progress: 0 },
+              },
+            ],
+        next_cursor: focusPageTwo ? null : "focus-cursor-page-2",
+        has_more: !focusPageTwo,
       });
       return;
     }
@@ -357,6 +477,9 @@ const proxy = createServer(async (request, response) => {
           reason: "可恢复证据链直接影响研究可信度。",
           summary_zh: "让浏览、标注与研究任务在导航后保持连续。",
           overall_score: 91,
+          risk_flags: ["reposted"],
+          source_quality: 88,
+          content_quality: "full",
         }],
         worth_scan: [{
           article_id: 8,
@@ -374,6 +497,11 @@ const proxy = createServer(async (request, response) => {
     return;
   }
   if (url.pathname === "/api/annotations/review" && request.method === "GET") {
+    if (reviewFailuresRemaining > 0) {
+      reviewFailuresRemaining -= 1;
+      sendJson(response, 503, { error: { code: "review_unavailable", message: "复习队列暂不可用，请重试。" } });
+      return;
+    }
     if (fixtureMode(request) === "daily-error") {
       sendJson(response, 500, { error: { message: "review fixture failure" } });
       return;
@@ -620,27 +748,69 @@ const proxy = createServer(async (request, response) => {
       });
       return;
     }
-    sendJson(response, 200, {
-      items: articleId === 7
-        ? [{
-            id: 41,
-            article_id: 7,
-            type: "annotation",
-            selected_text: "A durable note returns when it matters.",
-            content: "Keep evidence attached to its source.",
-            color: "yellow",
-            tags: ["evidence"],
-            created_at: "2026-07-24T08:00:00Z",
-            next_review_at: "2026-07-26T08:00:00Z",
-            interval_days: 3,
-            review_count: 1,
-          }]
-        : [],
-    });
+    const fixtureItems = articleId === 7
+      ? [{
+          id: 41,
+          article_id: 7,
+          type: "annotation",
+          selected_text: "A durable note returns when it matters.",
+          content: "Keep evidence attached to its source.",
+          color: "yellow",
+          tags: ["evidence"],
+          created_at: "2026-07-24T08:00:00Z",
+          next_review_at: "2026-07-26T08:00:00Z",
+          interval_days: 3,
+          review_count: 1,
+        }]
+      : [];
+    const userItems = userAnnotations.get(`${currentUser.id}:${articleId}`) ?? [];
+    sendJson(response, 200, { items: [...userItems, ...fixtureItems] });
     return;
   }
-  if ((url.pathname === "/api/articles/7" || url.pathname === "/api/articles/9") && request.method === "GET") {
-    const id = url.pathname.endsWith("/9") ? 9 : 7;
+  if ((url.pathname === "/api/articles/7/annotations" || url.pathname === "/api/articles/9/annotations") && request.method === "POST") {
+    if (annotationFailuresRemaining > 0) {
+      annotationFailuresRemaining -= 1;
+      sendJson(response, 503, { error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } });
+      return;
+    }
+    const articleId = url.pathname.includes("/9/") ? 9 : 7;
+    const payload = await readJsonBody(request);
+    const key = `${currentUser.id}:${articleId}`;
+    const existing = userAnnotations.get(key) ?? [];
+    const annotation = {
+      id: 60 + existing.length,
+      article_id: articleId,
+      type: payload.type ?? "annotation",
+      selected_text: payload.selected_text ?? null,
+      content: payload.content ?? "",
+      color: payload.color ?? "yellow",
+      tags: payload.tags ?? [],
+      anchor: payload.anchor ?? null,
+      created_at: "2026-07-27T00:00:00Z",
+      next_review_at: null,
+      interval_days: 1,
+      review_count: 0,
+    };
+    existing.push(annotation);
+    userAnnotations.set(key, existing);
+    sendJson(response, 201, { annotation });
+    return;
+  }
+  if (url.pathname === "/api/articles/999" && request.method === "GET") {
+    sendJson(response, 404, { error: { code: "not_found", message: "Article not found" } });
+    return;
+  }
+  if (url.pathname === "/api/articles/998" && request.method === "GET") {
+    sendJson(response, 503, { error: { code: "article_unavailable", message: "Article fixture unavailable" } });
+    return;
+  }
+  if (
+    (url.pathname === "/api/articles/7" ||
+      url.pathname === "/api/articles/9" ||
+      url.pathname === "/api/articles/13") &&
+    request.method === "GET"
+  ) {
+    const id = url.pathname.endsWith("/13") ? 13 : url.pathname.endsWith("/9") ? 9 : 7;
     const mode = fixtureMode(request);
     const repeatedAnnotationFixture = id === 7 && mode === "annotation-repeated";
     const ambiguousAnnotationFixture = id === 7 && mode === "annotation-ambiguous";
@@ -662,8 +832,14 @@ const proxy = createServer(async (request, response) => {
     sendJson(response, 200, {
       id,
       owner: currentUser.id,
-      title: id === 7 ? "Durable research workflows" : "Fast search result",
-      url: id === 7 ? "https://example.com/durable-research" : "https://example.com/search",
+      title:
+        id === 7 ? "Durable research workflows" : id === 13 ? "Focus cursor article" : "Fast search result",
+      url:
+        id === 7
+          ? "https://example.com/durable-research"
+          : id === 13
+            ? "https://example.com/focus-two"
+            : "https://example.com/search",
       feed: { id: 1, title: "Fixture Research" },
       category: { id: 2, title: "Research systems" },
       published_at: "2026-07-24T08:00:00Z",
@@ -727,6 +903,18 @@ const proxy = createServer(async (request, response) => {
   if (url.pathname === "/api/jobs/7" && request.method === "GET") {
     jobRequestCount += 1;
     sendJson(response, 200, { status: jobRequestCount === 1 ? "queued" : "succeeded" });
+    return;
+  }
+  if (url.pathname === "/api/export/project" && request.method === "GET") {
+    const format = url.searchParams.get("format") ?? "markdown";
+    const body = format === "json"
+      ? JSON.stringify({ articles: [{ id: 7, title: "Keyboard article one" }] })
+      : "# Keyboard article one\n\nExported fixture content.";
+    response.writeHead(200, {
+      "content-type": format === "json" ? "application/json" : "text/markdown",
+      "content-disposition": `attachment; filename="project-export.${format === "json" ? "json" : "md"}"`,
+    });
+    response.end(body);
     return;
   }
 

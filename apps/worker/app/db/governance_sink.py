@@ -51,11 +51,10 @@ class DatabaseGovernanceSink:
                 text(
                     """
                     UPDATE user_feed_subscriptions
-                    SET hidden = TRUE,
-                        user_priority = CASE
-                          WHEN user_priority > -20 THEN -20
-                          ELSE user_priority
-                        END
+                    SET user_priority = CASE
+                      WHEN user_priority IS NULL OR user_priority > -20 THEN -20
+                      ELSE user_priority
+                    END
                     WHERE feed_id = :feed_id
                     """
                 ),

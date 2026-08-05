@@ -26,7 +26,12 @@ import { WorkbenchRibbon } from "./WorkbenchRibbon";
 import { updateArticleState } from "@/lib/api/articles";
 import { ARTICLE_DATA_CHANGED_EVENT } from "./useArticleActions";
 import { emitToast } from "./Toast";
-import { buildWorkbenchHref, normalizeCursorTrail } from "@/lib/articles/navigation";
+import {
+  buildWorkbenchHref,
+  normalizeCursorTrail,
+  parseCursorTrail,
+  serializeCursorTrail,
+} from "@/lib/articles/navigation";
 
 const ARTICLE_LIST_PAGE_SIZE = 12;
 const RETURN_HIGHLIGHT_MS = 1800;
@@ -67,8 +72,9 @@ export function appendCursorForNextPage(
   cursorStack: (string | null)[],
   pageIndex: number,
   nextCursor: string,
-): (string | null)[] {
-  return [...cursorStack.slice(0, pageIndex + 1), nextCursor];
+): (string | null)[] | null {
+  const nextTrail = [...cursorStack.slice(0, pageIndex + 1), nextCursor];
+  return nextTrail.length > 1 && serializeCursorTrail(nextTrail) == null ? null : nextTrail;
 }
 
 export function cursorForPage(
@@ -141,12 +147,17 @@ export function ReaderWorkbench({
       }),
     [activeSort, currentModule, rawArticles],
   );
-  const loadPage = useCallback(async (cursor: string | null, initial = false) => {
+  const loadPage = useCallback(async (
+    cursor: string | null,
+    initial = false,
+    sort: ArticleSortId = activeSort,
+  ) => {
     const requestSeq = pageSeqRef.current + 1;
     pageSeqRef.current = requestSeq;
     const isCurrent = () => isCurrentWorkbenchRequest(requestSeq, pageSeqRef.current);
     if (initial) {
       setIsLoading(true);
+      setIsPaging(false);
     } else {
       setIsPaging(true);
     }
@@ -157,7 +168,7 @@ export function ReaderWorkbench({
         cursor,
         module: currentModule,
         q: currentQuery,
-        sort: activeSort,
+        sort,
       });
       if (!isCurrent()) return;
       setRawArticles(page.articles);
@@ -166,7 +177,7 @@ export function ReaderWorkbench({
       if (!initial) window.scrollTo({ top: 0 });
     } catch (loadError) {
       if (!isCurrent()) return;
-      if (initial) setRawArticles([]);
+      setRawArticles([]);
       setNextCursor(null);
       setHasMore(false);
       setError(loadError instanceof Error ? loadError.message : "文章加载失败");
@@ -227,26 +238,30 @@ export function ReaderWorkbench({
   }, []);
 
   const pushPaginationLocation = useCallback((trail: (string | null)[]) => {
-    window.history.pushState(
-      null,
-      "",
-      buildWorkbenchHref({
-        module: currentModule,
-        sort: activeSort,
-        lang: currentLang,
-        query: currentQuery,
-        cursorStack: trail,
-      }),
-    );
+    const href = buildWorkbenchHref({
+      module: currentModule,
+      sort: activeSort,
+      lang: currentLang,
+      query: currentQuery,
+      cursorStack: trail,
+    });
+    if (trail.length > 1 && new URLSearchParams(href.slice(1)).get("trail") == null) {
+      return false;
+    }
+    window.history.pushState(null, "", href);
+    return true;
   }, [activeSort, currentLang, currentModule, currentQuery]);
 
   const goNext = useCallback(() => {
     if (!hasMore || isPaging || nextCursor == null) return;
     const cursor = nextCursor;
     const trail = appendCursorForNextPage(cursorStack, pageIndex, cursor);
+    if (trail == null || !pushPaginationLocation(trail)) {
+      emitToast({ title: "分页上下文过长，无法继续翻页", variant: "error" });
+      return;
+    }
     setCursorStack(trail);
     setPageIndex(pageIndex + 1);
-    pushPaginationLocation(trail);
     void loadPage(cursor);
   }, [cursorStack, hasMore, isPaging, loadPage, nextCursor, pageIndex, pushPaginationLocation]);
 
@@ -254,15 +269,15 @@ export function ReaderWorkbench({
     if (pageIndex <= 0 || isPaging) return;
     const previousPageIndex = pageIndex - 1;
     const trail = cursorStack.slice(0, previousPageIndex + 1);
+    if (!pushPaginationLocation(trail)) return;
     setCursorStack(trail);
     setPageIndex(previousPageIndex);
-    pushPaginationLocation(trail);
     void loadPage(cursorForPage(trail, previousPageIndex));
   }, [cursorStack, isPaging, loadPage, pageIndex, pushPaginationLocation]);
 
   const retryArticleList = useCallback(() => {
-    void loadPage(cursorForPage(cursorStack, pageIndex), rawArticles.length === 0);
-  }, [cursorStack, loadPage, pageIndex, rawArticles.length]);
+    void loadPage(cursorForPage(cursorStack, pageIndex), pageIndex === 0);
+  }, [cursorStack, loadPage, pageIndex]);
 
   useEffect(() => {
     const moduleResolution = resolveArticlesListModuleId(true, currentModule);
@@ -297,15 +312,21 @@ export function ReaderWorkbench({
   }, [currentSort]);
 
   useEffect(() => {
-    const syncSortFromLocation = () => {
+    const syncPageFromLocation = () => {
       const params = new URLSearchParams(window.location.search);
       const rawSort = params.get("sort");
       const resolution = resolveArticleSortId(rawSort != null, rawSort);
-      setActiveSort(resolution.ok ? resolution.sortId : "default");
+      const nextSort = resolution.ok ? resolution.sortId : "default";
+      const trail = parseCursorTrail(params.get("trail"));
+      const nextPageIndex = trail.length - 1;
+      setActiveSort(nextSort);
+      setCursorStack(trail);
+      setPageIndex(nextPageIndex);
+      void loadPage(cursorForPage(trail, nextPageIndex), true, nextSort);
     };
-    window.addEventListener("popstate", syncSortFromLocation);
-    return () => window.removeEventListener("popstate", syncSortFromLocation);
-  }, []);
+    window.addEventListener("popstate", syncPageFromLocation);
+    return () => window.removeEventListener("popstate", syncPageFromLocation);
+  }, [loadPage]);
 
   const updateSort = useCallback((nextSort: ArticleSortId) => {
     setActiveSort(nextSort);
@@ -452,18 +473,10 @@ export function ReaderWorkbench({
           isLoading={isLoading}
           onPrev={goPrev}
           onNext={goNext}
+          onRetry={retryArticleList}
           onSortChange={updateSort}
         />
       </div>
-      {error != null ? (
-        <section className="workbenchStatus" aria-live="polite">
-          <p className="readerEmptyTitle">文章加载失败</p>
-          <p className="readerEmptyHint">{error}</p>
-          <button type="button" className="readerToolbarBtn" onClick={retryArticleList}>
-            重试
-          </button>
-        </section>
-      ) : null}
     </main>
   );
 }

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-01",
+  "base_revision": "57fb5a5",
+  "milestone": "Batch 0 / A-01",
+  "acceptance": ["A-01", "A-02", "A-06", "A-13"],
+  "scenario": "Reader Web fixture evidence starts on an isolated configurable port even when the normal local fixture port is already occupied.",
+  "failure_before_repair": {
+    "command": "npm run test:evidence",
+    "result": "failed before any browser test: http://127.0.0.1:3010 was already used by the repository fixture server"
+  },
+  "repair": [
+    "Added READER_E2E_PORT parsing and validation to Playwright config.",
+    "Made the fixture proxy and standalone upstream derive their ports from the same variable.",
+    "Moved the evidence script default to port 3012 while retaining port 3010 for normal E2E."
+  ],
+  "validation": [
+    {
+      "command": "npm test",
+      "result": "pass: Reader Web Node test suite"
+    },
+    {
+      "command": "npm run build",
+      "result": "pass: Next.js production build"
+    },
+    {
+      "command": "npm run test:evidence",
+      "result": "pass: 3 evidence scenarios on isolated port 3012"
+    },
+    {
+      "command": "READER_E2E_PORT=3014 PLAYWRIGHT_EVIDENCE=1 PLAYWRIGHT_REUSE_SERVER=false npx playwright test --project=chromium-evidence --grep 'Scan workbench desktop light baseline'",
+      "result": "pass: 1 custom-port evidence scenario"
+    },
+    {
+      "command": "READER_E2E_PORT=3015 PLAYWRIGHT_REUSE_SERVER=false npm run test:e2e",
+      "result": "pass: 244 scenarios; Chromium 90, Firefox 57, WebKit 57, iPhone WebKit 40"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The browser evidence uses deterministic local fixtures and mock responses. It does not prove real API/database semantics, native iPhone text selection, screen-reader behavior, provider cost, staging, or production behavior."
+}

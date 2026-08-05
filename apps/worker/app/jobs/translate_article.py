@@ -22,12 +22,18 @@ class TranslationSink(Protocol):
     ) -> None: ...
 
 
+class TranslationBudget(Protocol):
+    def charge(self, account: str, units: int = 1, *, limit: int = 0) -> int: ...
+
+
 def translate_article(
     payload: dict[str, object],
     *,
     sink: TranslationSink,
     provider: LLMProvider,
     now: datetime | None = None,
+    budget: TranslationBudget | None = None,
+    daily_limit: int = 0,
 ) -> dict[str, object]:
     article_id = _required_int(payload, "article_id")
     article = sink.get_article_for_translation(article_id)
@@ -37,6 +43,20 @@ def translate_article(
     existing_translation = str(article.get("content_zh") or "").strip()
     if existing_translation and article.get("content_zh_status") == "succeeded":
         return {"outcome": "cached", "content_zh_status": "succeeded"}
+
+    if budget is not None:
+        # Reserve immediately before the provider attempt; cached translations
+        # are free and exhausted budgets must not start a provider call.
+        try:
+            budget.charge("translate", 1, limit=max(0, int(daily_limit)))
+        except Exception:
+            sink.save_translation(
+                article_id,
+                content_zh=None,
+                status="failed",
+                translated_at=None,
+            )
+            raise
 
     sink.save_translation(article_id, content_zh=None, status="running", translated_at=None)
     try:

@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
             "score": settings.score_daily_call_budget,
             "ask": settings.llm_daily_call_budget,
             "agent": settings.agent_daily_call_budget,
+            "translate": settings.translation_daily_call_budget,
         },
     )
     app.state.scheduler_enabled = settings.scheduler_enabled
@@ -182,7 +183,7 @@ def create_app() -> FastAPI:
                 "# TYPE ai_reader_llm_calls_used gauge",
             ]
         )
-        for account in ("score", "ask", "agent"):
+        for account in ("score", "ask", "agent", "translate"):
             values = accounts.get(account, {})
             lines.append(
                 f'ai_reader_llm_calls_used{{account="{account}"}} {int(values.get("used", 0) or 0)}'
@@ -193,7 +194,7 @@ def create_app() -> FastAPI:
                 "# TYPE ai_reader_llm_calls_limit gauge",
             ]
         )
-        for account in ("score", "ask", "agent"):
+        for account in ("score", "ask", "agent", "translate"):
             values = accounts.get(account, {})
             lines.append(
                 f'ai_reader_llm_calls_limit{{account="{account}"}} {int(values.get("limit", 0) or 0)}'

@@ -26,6 +26,7 @@ type ArticleListProps = {
   loadError?: string | null;
   onPrev?: () => void;
   onNext?: () => void;
+  onRetry?: () => void;
   onSortChange?: (nextSort: ArticleSortId) => void;
   onToggleRead?: (article: Article) => void;
   onToggleCandidate?: (article: Article) => void;
@@ -90,6 +91,7 @@ export function ArticleList({
   loadError = null,
   onPrev,
   onNext,
+  onRetry,
   onSortChange,
   onToggleRead,
   onToggleCandidate,
@@ -99,6 +101,8 @@ export function ArticleList({
   const isEmpty = articles.length === 0;
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLUListElement | null>(null);
+  const retryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const shouldRestoreListFocusRef = useRef(false);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -111,6 +115,18 @@ export function ArticleList({
     window.addEventListener(FOCUS_ARTICLE_LIST_EVENT, onFocusList);
     return () => window.removeEventListener(FOCUS_ARTICLE_LIST_EVENT, onFocusList);
   }, []);
+
+  useEffect(() => {
+    if (loadError != null) {
+      shouldRestoreListFocusRef.current = true;
+      retryButtonRef.current?.focus();
+      return;
+    }
+    if (!isLoading && !isPaging && shouldRestoreListFocusRef.current) {
+      listRef.current?.focus();
+      shouldRestoreListFocusRef.current = false;
+    }
+  }, [isLoading, isPaging, loadError]);
 
   function onListKeyDown(event: KeyboardEvent<HTMLUListElement>) {
     if (isInteractiveKeyboardTarget(event.target)) return;
@@ -204,6 +220,26 @@ export function ArticleList({
           </p>
         </div>
       ) : null}
+      {loadError != null ? (
+        <section className="workbenchStatus" aria-live="polite">
+          <p className="readerEmptyTitle">文章加载失败</p>
+          <p className="readerEmptyHint">{loadError}</p>
+          <button
+            ref={retryButtonRef}
+            type="button"
+            className="readerToolbarBtn"
+            onClick={onRetry}
+            disabled={!onRetry}
+          >
+            重试
+          </button>
+          {hasPrev && onPrev ? (
+            <button type="button" className="readerToolbarBtn" onClick={onPrev}>
+              ‹ 上一页
+            </button>
+          ) : null}
+        </section>
+      ) : null}
       {isLoading ? <ArticleListSkeleton count={12} /> : null}
       {!isLoading && loadError == null && isEmpty ? (
         <div className="articleListEmpty">
@@ -211,7 +247,7 @@ export function ArticleList({
           <p className="articleListEmptyHint">当前模块没有可显示的文章。</p>
         </div>
       ) : null}
-      {!isLoading ? (
+      {!isLoading && loadError == null ? (
         <ul
           ref={listRef}
           className={isPaging ? "articleList articleListPaging" : "articleList"}
@@ -283,7 +319,7 @@ export function ArticleList({
           })}
         </ul>
       ) : null}
-      {!isLoading && !isEmpty ? (
+      {!isLoading && loadError == null && (!isEmpty || hasPrev) ? (
         <nav className="articleListPager" aria-label="翻页">
           <button
             type="button"

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Article } from "@/lib/articles/types";
 import type { SummaryLangId } from "@/lib/articles/service";
+import { ApiError } from "@/lib/api/client";
 import { getArticle, updateArticleState } from "@/lib/api/articles";
 import { FocusedArticleReader } from "./FocusedArticleReader";
 import { FocusedArticleSkeleton } from "./Skeleton";
@@ -16,6 +17,23 @@ export function shouldReloadForArticleChange(detail: unknown, articleId: number)
       ? (detail as { articleId?: unknown }).articleId
       : undefined;
   return changedArticleId == null || changedArticleId === articleId;
+}
+
+type ArticleLoadError = {
+  message: string;
+  status?: number;
+  code?: string;
+};
+
+export function articleLoadErrorFromUnknown(error: unknown): ArticleLoadError {
+  if (error instanceof ApiError) {
+    return { message: error.message, status: error.status, code: error.code };
+  }
+  return { message: error instanceof Error ? error.message : "文章加载失败" };
+}
+
+export function isArticleNotFoundError(error: ArticleLoadError): boolean {
+  return error.status === 404 || error.code === "not_found";
 }
 
 export function FocusedArticleScreen({
@@ -31,7 +49,7 @@ export function FocusedArticleScreen({
 }) {
   const [article, setArticle] = useState<Article | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ArticleLoadError | null>(null);
   const articleRef = useRef<Article | null>(null);
   const requestSeqRef = useRef(0);
 
@@ -57,7 +75,7 @@ export function FocusedArticleScreen({
       }
       articleRef.current = null;
       setArticle(null);
-      setError(loadError instanceof Error ? loadError.message : "文章加载失败");
+      setError(articleLoadErrorFromUnknown(loadError));
     } finally {
       if (requestSeqRef.current === requestSeq && !silent) {
         setIsLoading(false);
@@ -117,8 +135,10 @@ export function FocusedArticleScreen({
           返回工作台
         </Link>
         <div className="readerEmpty">
-          <p className="readerEmptyTitle">{error?.includes("404") ? "文章不存在" : "文章加载失败"}</p>
-          <p className="readerEmptyHint">{error ?? "API 没有返回这篇文章。"}</p>
+          <p className="readerEmptyTitle">
+            {error != null && isArticleNotFoundError(error) ? "文章不存在" : "文章加载失败"}
+          </p>
+          <p className="readerEmptyHint">{error?.message ?? "API 没有返回这篇文章。"}</p>
           {error != null ? (
             <button type="button" className="readerToolbarBtn" onClick={() => void loadArticle("initial")}>
               重试加载

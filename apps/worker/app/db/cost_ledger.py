@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import Engine, create_engine, text
 
 
-ACCOUNTS = frozenset({"score", "ask", "agent"})
+ACCOUNTS = frozenset({"score", "ask", "agent", "translate"})
 
 
 class DatabaseDailyUsageLedger:

@@ -343,19 +343,22 @@ def _dedupe_key_for(job_type: str, value: object) -> str:
 
 
 def _needs_content_fetch(row: dict[str, object], *, now: datetime) -> bool:
+    expires_at = row.get("content_expires_at")
+    if expires_at is not None:
+        expires = (
+            expires_at
+            if isinstance(expires_at, datetime)
+            else datetime.fromisoformat(str(expires_at))
+        )
+        normalized = expires.astimezone(UTC) if expires.tzinfo else expires.replace(tzinfo=UTC)
+        # A fallback expiry is a retry cooldown, even while the content is not full.
+        if normalized > now:
+            return False
+
     current = str(row.get("content_html") or row.get("content_text") or "").strip()
     if not current or str(row.get("content_quality") or "") != "full":
         return True
-    expires_at = row.get("content_expires_at")
-    if expires_at is None:
-        return False
-    expires = (
-        expires_at
-        if isinstance(expires_at, datetime)
-        else datetime.fromisoformat(str(expires_at))
-    )
-    normalized = expires.astimezone(UTC) if expires.tzinfo else expires.replace(tzinfo=UTC)
-    return normalized <= now
+    return expires_at is not None
 
 
 def _optional_str(value: object) -> str | None:

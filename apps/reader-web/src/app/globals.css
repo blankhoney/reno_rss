@@ -9,19 +9,19 @@
   --panel-translucent: rgba(251, 246, 238, 0.78);
   --text: #2b2620; /* warm ink */
   --text-soft: #4f473b; /* secondary ink */
-  --muted: #746755; /* AA-safe warm muted */
+  --muted: #6e604f; /* AA-safe warm muted across paper surfaces */
   --border: #e4d9c5; /* warm hairline */
   --border-strong: #d3c4a9; /* stronger divider / hover */
 
-  --accent: #b4541f; /* terracotta */
-  --accent-strong: #99441a; /* hover / pressed */
+  --accent: #99441a; /* AA-safe terracotta for text and controls */
+  --accent-strong: #843915; /* hover / pressed */
   --accent-muted: rgba(180, 84, 31, 0.12);
   --accent-contrast: #fdf7ef; /* text on accent */
   --accent-glow: rgba(180, 84, 31, 0.16);
 
   --success: #2f7d4f;
   --danger: #b3402f;
-  --warning: #a96712;
+  --warning: #8c5a0b; /* AA-safe warning text on warm paper */
 
   /* Soft, warm elevation; alpha varies per token */
   --shadow-color: 38, 28, 16;
@@ -189,7 +189,8 @@ button {
 
 .authTextInput:focus {
   border-color: var(--accent);
-  outline: 2px solid var(--accent-muted);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .authActions {
@@ -1007,7 +1008,7 @@ button {
 .articleCardIndex {
   grid-column: 1;
   grid-row: 1 / span 3;
-  color: var(--border-strong);
+  color: var(--muted);
   font-family: var(--serif);
   font-size: 1.4rem;
   font-variant-numeric: tabular-nums;
@@ -2885,6 +2886,12 @@ body:has(.focusReader) .toastHost {
   color: var(--text);
   font: inherit;
   font-size: 1rem;
+}
+
+.commandPaletteInput:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .commandPaletteInput::placeholder {

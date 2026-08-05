@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { FocusedArticleScreen, shouldReloadForArticleChange } from "./FocusedArticleScreen";
+import {
+  articleLoadErrorFromUnknown,
+  FocusedArticleScreen,
+  isArticleNotFoundError,
+  shouldReloadForArticleChange,
+} from "./FocusedArticleScreen";
+import { ApiError } from "@/lib/api/client";
 
 test("FocusedArticleScreen starts with the reading skeleton", () => {
   const html = renderToStaticMarkup(
@@ -16,6 +22,17 @@ test("FocusedArticleScreen starts with the reading skeleton", () => {
   assert.match(html, /focusArticleSkeleton/);
   assert.match(html, /返回工作台/);
   assert.doesNotMatch(html, /正在加载文章/);
+});
+
+test("article load errors retain typed not-found metadata", () => {
+  const notFound = articleLoadErrorFromUnknown(
+    new ApiError({ status: 404, code: "not_found", message: "Article not found" }),
+  );
+  const misleadingServerError = articleLoadErrorFromUnknown(new Error("upstream 404 wording"));
+
+  assert.deepEqual(notFound, { status: 404, code: "not_found", message: "Article not found" });
+  assert.equal(isArticleNotFoundError(notFound), true);
+  assert.equal(isArticleNotFoundError(misleadingServerError), false);
 });
 
 test("shouldReloadForArticleChange keeps null broadcast semantics", () => {

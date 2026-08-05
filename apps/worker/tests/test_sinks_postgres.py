@@ -170,7 +170,13 @@ def test_postgres_scoring_and_recommendation_sinks_use_real_schema_types():
                         ORDER BY id;
                         """
                     ),
-                    {"payload": json.dumps({"source_batch_id": ids["batch_id"]})},
+                    {"payload": json.dumps(
+                        {
+                            "payload_version": 1,
+                            "source_batch_id": ids["batch_id"],
+                            "algorithm_version": "b4.v1",
+                        }
+                    )},
                 )
                 .mappings()
                 .all()
@@ -180,7 +186,11 @@ def test_postgres_scoring_and_recommendation_sinks_use_real_schema_types():
             {
                 "job_type": "generate_recommendations",
                 "status": "queued",
-                "payload": {"source_batch_id": ids["batch_id"]},
+                "payload": {
+                    "payload_version": 1,
+                    "source_batch_id": ids["batch_id"],
+                    "algorithm_version": "b4.v1",
+                },
                 "created_by": None,
             }
         ]
@@ -290,16 +300,72 @@ def test_postgres_enqueue_recommendations_is_idempotent_under_concurrency():
                         ORDER BY id;
                         """
                     ),
-                    {"payload": json.dumps({"source_batch_id": ids["batch_id"]})},
+                    {"payload": json.dumps(
+                        {
+                            "payload_version": 1,
+                            "source_batch_id": ids["batch_id"],
+                            "algorithm_version": "b4.v1",
+                        }
+                    )},
                 )
                 .mappings()
                 .all()
             )
 
         assert len(jobs) == 1
-        assert jobs[0]["payload"] == {"source_batch_id": ids["batch_id"]}
+        assert jobs[0]["payload"] == {
+            "payload_version": 1,
+            "source_batch_id": ids["batch_id"],
+            "algorithm_version": "b4.v1",
+        }
     finally:
         score_sink.dispose()
+
+
+def test_postgres_score_reservation_is_atomic_under_concurrency():
+    database_url = os.environ.get("WORKER_QUEUE_POSTGRES_TEST_URL")
+    if not database_url:
+        pytest.skip("set WORKER_QUEUE_POSTGRES_TEST_URL to run the real Postgres reservation test")
+
+    _run_api_command(database_url, "alembic", "upgrade", "head")
+
+    normalized_url = normalize_database_url(database_url) or database_url
+    engine = create_engine(normalized_url, pool_pre_ping=True)
+    sink = DatabaseScoreSink(engine=engine)
+    _seed_real_schema_fixture(engine)
+    isolated_day = "2099-01-01T00:00:00+00:00"
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM llm_daily_usage "
+                "WHERE day = DATE '2099-01-01' AND account = 'score'"
+            )
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            reservations = list(
+                executor.map(
+                    lambda _index: sink.reserve_score_attempt(
+                        day_start=isolated_day,
+                        daily_cap=3,
+                    ),
+                    range(8),
+                )
+            )
+
+        assert sorted(value for value in reservations if value is not None) == [1, 2, 3]
+        assert reservations.count(None) == 5
+    finally:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM llm_daily_usage "
+                    "WHERE day = DATE '2099-01-01' AND account = 'score'"
+                )
+            )
+        sink.dispose()
 
 
 def _seed_real_schema_fixture(engine):

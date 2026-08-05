@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "ef7fa7a",
+  "milestone": "Worker governance subscription schema / A-08 / A-10",
+  "acceptance": ["A-08", "A-10"],
+  "scenario": "Source governance demotes all subscriptions for a feed through the existing user_priority soft-hide contract without referencing a nonexistent hidden column.",
+  "failure_before_repair": {
+    "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_governance_sink.py -q",
+    "result": "failed: SQLite four-column user_feed_subscriptions schema raised OperationalError no such column: hidden"
+  },
+  "repair": [
+    "Removed the nonexistent hidden assignment from DatabaseGovernanceSink.demote_feed.",
+    "Kept the existing priority sentinel semantics: NULL or priority above -20 becomes -20, while an existing lower value remains unchanged.",
+    "Added a SQLite schema contract covering two subscribers of the target feed and an unrelated feed; API hidden representation remains derived from user_priority <= -20."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/worker && uv run --isolated --with-editable . --extra dev python -m pytest tests/test_governance_sink.py tests/test_govern_sources.py -q",
+      "result": "pass: 3 tests"
+    },
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev python -m pytest tests/test_feeds.py -q",
+      "result": "pass: 9 tests"
+    },
+    {
+      "command": "cd apps/worker && uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 137 tests, 6 skipped; 5 existing SQLite deprecation warnings"
+    },
+    {
+      "command": "cd apps/api && uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 222 tests, 1 skipped; 4 existing SQLite deprecation warnings"
+    },
+    {
+      "command": "cd apps/worker && uv run --isolated --with-editable . --extra dev ruff check .",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The real PostgreSQL governance write was not run because Docker/WORKER_QUEUE_POSTGRES_TEST_URL was unavailable; the SQLite fixture mirrors the existing four-column subscription schema. No migration, staging/production, secret, provider, or real subscription data was touched."
+}

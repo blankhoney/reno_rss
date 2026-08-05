@@ -106,6 +106,20 @@ def test_score_sink_writes_success_and_error_rows_with_active_history():
     ]
 
 
+def test_score_sink_enqueues_versioned_score_batch_job():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    sink = DatabaseScoreSink(engine=engine)
+
+    sink.enqueue_score_batch(10)
+
+    with engine.begin() as connection:
+        job = connection.execute(text("SELECT * FROM jobs")).mappings().one()
+
+    assert job["job_type"] == "score_batch"
+    assert job["payload"] == '{"payload_version": 1, "batch_id": 10}'
+
+
 def test_score_sink_enqueues_deduped_recommendations_job():
     engine = create_engine("sqlite:///:memory:")
     _create_schema(engine)
@@ -121,7 +135,26 @@ def test_score_sink_enqueues_deduped_recommendations_job():
     assert jobs[0]["job_type"] == "generate_recommendations"
     assert jobs[0]["status"] == "queued"
     assert jobs[0]["priority"] == 1
-    assert jobs[0]["payload"] == '{"source_batch_id": 10}'
+    assert jobs[0]["payload"] == (
+        '{"payload_version": 1, "source_batch_id": 10, '
+        '"algorithm_version": "b4.v1"}'
+    )
+
+
+def test_score_sink_enqueues_recommendations_with_explicit_null_source_batch():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    sink = DatabaseScoreSink(engine=engine)
+
+    sink.enqueue_recommendations(None)
+
+    with engine.begin() as connection:
+        job = connection.execute(text("SELECT * FROM jobs")).mappings().one()
+
+    assert job["payload"] == (
+        '{"payload_version": 1, "source_batch_id": null, '
+        '"algorithm_version": "b4.v1"}'
+    )
 
 
 def test_score_sink_counts_today_scores_including_error_rows():
@@ -155,6 +188,50 @@ def test_score_sink_counts_today_scores_including_error_rows():
         )
 
     assert sink.count_scores_today("2026-07-08T00:00:00+00:00") == 2
+
+
+def test_score_sink_reserves_cap_after_historical_scores():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE llm_daily_usage (
+              day DATE NOT NULL,
+              account TEXT NOT NULL,
+              used INTEGER NOT NULL DEFAULT 0,
+              updated_at TIMESTAMP,
+              PRIMARY KEY (day, account)
+            )
+            """
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO article_base_scores (article_id, scored_at)
+                VALUES (1, '2026-07-08T10:00:00+00:00')
+                """
+            )
+        )
+
+    sink = DatabaseScoreSink(engine=engine)
+
+    assert sink.reserve_score_attempt(
+        day_start="2026-07-08T00:00:00+00:00",
+        daily_cap=2,
+    ) == 2
+    assert sink.reserve_score_attempt(
+        day_start="2026-07-08T00:00:00+00:00",
+        daily_cap=2,
+    ) is None
+
+    with engine.begin() as connection:
+        usage = connection.execute(
+            text(
+                "SELECT used FROM llm_daily_usage WHERE day='2026-07-08' AND account='score'"
+            )
+        ).scalar_one()
+    assert usage == 2
 
 
 def _create_schema(engine):

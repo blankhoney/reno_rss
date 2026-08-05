@@ -79,6 +79,12 @@ test("cursor helpers append next cursors and resolve previous pages", () => {
   assert.equal(cursorForPage(firstStack, 99), null);
 });
 
+test("cursor helper refuses a page that cannot retain a bounded URL trail", () => {
+  const maxTrail = [null, ...Array(23).fill("x".repeat(4096))];
+
+  assert.equal(appendCursorForNextPage(maxTrail, 23, "next-cursor"), null);
+});
+
 test("return article helpers parse valid ids and build the list selector", () => {
   assert.equal(parseReturnArticleId("?module=all&article=42"), 42);
   assert.equal(parseReturnArticleId("article=7"), 7);

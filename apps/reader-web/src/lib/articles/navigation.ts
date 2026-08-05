@@ -1,5 +1,17 @@
 const MAX_CURSOR_TRAIL_LENGTH = 24;
 const MAX_CURSOR_LENGTH = 4096;
+const MAX_WORKBENCH_HREF_LENGTH = 8192;
+const MAX_CURSOR_TRAIL_QUERY_LENGTH = MAX_WORKBENCH_HREF_LENGTH - 512;
+
+/**
+ * Accept only the complete decimal route segment; parseInt would silently
+ * alias malformed paths such as `/read/7abc` to article 7.
+ */
+export function parseArticleId(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const articleId = Number(raw);
+  return Number.isSafeInteger(articleId) && articleId > 0 ? articleId : null;
+}
 
 export type WorkbenchNavigationContext = {
   module: string;
@@ -9,6 +21,10 @@ export type WorkbenchNavigationContext = {
   cursorStack?: (string | null)[];
   articleId?: number | null;
 };
+
+function encodedCursorTrailLength(trail: (string | null)[]): number {
+  return new URLSearchParams({ trail: JSON.stringify(trail) }).toString().length;
+}
 
 export function normalizeCursorTrail(value: unknown): (string | null)[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_CURSOR_TRAIL_LENGTH) {
@@ -23,11 +39,11 @@ export function normalizeCursorTrail(value: unknown): (string | null)[] {
     }
     trail.push(cursor);
   }
-  return trail;
+  return encodedCursorTrailLength(trail) <= MAX_CURSOR_TRAIL_QUERY_LENGTH ? trail : [null];
 }
 
 export function parseCursorTrail(raw: string | null | undefined): (string | null)[] {
-  if (raw == null || raw === "") return [null];
+  if (raw == null || raw === "" || raw.length > MAX_WORKBENCH_HREF_LENGTH) return [null];
   try {
     return normalizeCursorTrail(JSON.parse(raw));
   } catch {
@@ -56,6 +72,10 @@ export function buildWorkbenchHref({
   if (trail != null) params.set("trail", trail);
   if (articleId != null && Number.isSafeInteger(articleId) && articleId > 0) {
     params.set("article", String(articleId));
+  }
+  if (trail != null && `?${params.toString()}`.length > MAX_WORKBENCH_HREF_LENGTH) {
+    // Never emit a page-two link that silently serializes as page one.
+    params.delete("trail");
   }
   return `?${params.toString()}`;
 }

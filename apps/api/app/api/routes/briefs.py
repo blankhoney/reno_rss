@@ -5,23 +5,50 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from app.api.deps import (
     get_article_repository,
-    get_job_repository,
     get_recommendation_repository,
     get_scoring_repository,
     require_user,
 )
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import ArticleRecord, ArticleStore
-from app.db.repositories.jobs import JobRecord, JobStore
+from app.db.repositories.jobs import JobRecord
 from app.db.repositories.recommendations import RecommendationStore
 from app.db.repositories.scoring import ScoreRecord, ScoringStore
 
 router = APIRouter(prefix="/api/briefs", tags=["briefs"])
 
 BRIEF_TIER_KEYS = ("must_read", "worth_scan", "can_skip")
+
+
+class BriefItemResponse(BaseModel):
+    article_id: int
+    title: str
+    rank: int | None
+    tier: str
+    rank_score: float | None
+    reason: str
+    summary_zh: str | None
+    overall_score: float | None
+    risk_flags: list[str]
+    source_quality: float | None
+    content_quality: str | None
+
+
+class DailyBriefResponse(BaseModel):
+    generated_at: str | None
+    title: str
+    source: str | None
+    must_read: list[BriefItemResponse]
+    worth_scan: list[BriefItemResponse]
+    can_skip: list[BriefItemResponse]
+
+
+class BriefResponse(BaseModel):
+    brief: DailyBriefResponse | None
 
 
 def extract_brief_payload(result: object) -> dict[str, object] | None:
@@ -76,7 +103,7 @@ def brief_item_public(
     reason = raw.get("reason")
     if not isinstance(reason, str):
         reason = str(reason) if reason is not None else ""
-    risk_flags = list(score.risk_flags) if score is not None else []
+    risk_flags = [str(flag) for flag in score.risk_flags] if score is not None else []
     if not risk_flags:
         raw_flags = raw.get("risk_flags")
         if isinstance(raw_flags, list):
@@ -92,6 +119,10 @@ def brief_item_public(
     if source_quality is None:
         source_quality = _optional_float(raw.get("source_quality"))
 
+    content_quality = article.content_quality if article is not None else raw.get("content_quality")
+    if not isinstance(content_quality, str) or not content_quality.strip():
+        content_quality = None
+
     return {
         "article_id": article_id,
         "title": title,
@@ -103,9 +134,7 @@ def brief_item_public(
         "overall_score": overall_score,
         "risk_flags": risk_flags,
         "source_quality": source_quality,
-        "content_quality": (
-            article.content_quality if article is not None else raw.get("content_quality")
-        ),
+        "content_quality": content_quality,
     }
 
 
@@ -117,42 +146,52 @@ def latest_brief_from_jobs(jobs: list[JobRecord]) -> dict[str, object] | None:
     return None
 
 
-@router.get("/latest")
+@router.get("/latest", response_model=BriefResponse)
 def latest_brief(
     current_user: UserRecord = Depends(require_user),
-    job_repository: JobStore = Depends(get_job_repository),
     article_repository: ArticleStore = Depends(get_article_repository),
     scoring_repository: ScoringStore = Depends(get_scoring_repository),
     recommendation_repository: RecommendationStore = Depends(get_recommendation_repository),
-) -> dict[str, object]:
-    jobs = job_repository.latest_succeeded("generate_daily_brief", limit=10)
-    raw_brief = latest_brief_from_jobs(jobs)
+) -> BriefResponse:
+    # A brief is private research output: global "latest" jobs cannot establish ownership.
+    # Derive the visible payload from the current user's recommendation edition instead.
+    raw_brief = brief_from_recommendations(
+        current_user.id,
+        recommendation_repository,
+        article_repository,
+        scoring_repository,
+    )
     if raw_brief is None:
-        raw_brief = brief_from_recommendations(
-            current_user.id,
-            recommendation_repository,
-            article_repository,
-            scoring_repository,
-        )
-    if raw_brief is None:
-        return {"brief": None}
+        return BriefResponse(brief=None)
 
     article_ids = _collect_article_ids(raw_brief)
     articles_by_id = article_repository.get_articles(article_ids) if article_ids else {}
     scores_by_id = (
         scoring_repository.active_scores_for_articles(article_ids) if article_ids else {}
     )
+    generated_at = raw_brief.get("generated_at")
+    title = raw_brief.get("title")
+    source = raw_brief.get("source")
 
-    return {
-        "brief": {
-            "generated_at": raw_brief.get("generated_at"),
-            "title": raw_brief.get("title") or "今日情报",
-            "source": raw_brief.get("source") or "jobs",
-            "must_read": _map_tier(raw_brief.get("must_read"), articles_by_id, scores_by_id),
-            "worth_scan": _map_tier(raw_brief.get("worth_scan"), articles_by_id, scores_by_id),
-            "can_skip": _map_tier(raw_brief.get("can_skip"), articles_by_id, scores_by_id),
-        }
-    }
+    return BriefResponse(
+        brief=DailyBriefResponse(
+            generated_at=generated_at if isinstance(generated_at, str) else None,
+            title=title if isinstance(title, str) and title.strip() else "今日情报",
+            source=source if isinstance(source, str) and source.strip() else "jobs",
+            must_read=[
+                BriefItemResponse.model_validate(item)
+                for item in _map_tier(raw_brief.get("must_read"), articles_by_id, scores_by_id)
+            ],
+            worth_scan=[
+                BriefItemResponse.model_validate(item)
+                for item in _map_tier(raw_brief.get("worth_scan"), articles_by_id, scores_by_id)
+            ],
+            can_skip=[
+                BriefItemResponse.model_validate(item)
+                for item in _map_tier(raw_brief.get("can_skip"), articles_by_id, scores_by_id)
+            ],
+        )
+    )
 
 
 def brief_from_recommendations(

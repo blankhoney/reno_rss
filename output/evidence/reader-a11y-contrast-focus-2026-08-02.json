@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "39399284",
+  "milestone": "Reader accessibility contrast and focus baseline",
+  "acceptance": ["A-05", "A-06", "A-07", "A-13"],
+  "scenario": "Light and dark Reader fixtures keep normal accent, warning, and muted text above the AA text threshold across the core paper surfaces; authentication and command-palette inputs expose visible keyboard focus indicators.",
+  "failure_before_repair": [
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3030 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'normal accent|auth and command palette' --project=chromium",
+      "result": "failed: light accent measured 4.2297:1 against the warm paper background and the auth focus outline resolved to an alpha rgba color; the command-palette focus assertion was not reached after the auth assertion failed"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3033 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'normal accent' --project=chromium",
+      "result": "failed: the expanded muted-surface baseline measured 4.2937:1 on --bg-sunken, below the 4.5:1 normal-text threshold"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3032 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'axe scan finds no critical' --project=chromium",
+      "result": "contrast-inclusive axe probe remained red with serious color-contrast violations across fixture card metadata and status states; this was not counted as a release pass"
+    }
+  ],
+  "repair": [
+    "Darkened the light-theme accent to #99441a, warning to #8c5a0b, and muted token to #6e604f so text remains readable on the core paper, inset, panel, and secondary-panel surfaces.",
+    "Replaced the translucent authentication input focus outline with an opaque accent outline and a two-pixel offset.",
+    "Added an explicit accent focus outline to the command-palette input, which previously disabled the native outline without a replacement.",
+    "Added failure-first browser baselines for both themes, the four core surfaces, and the two previously untested input focus states.",
+    "Added settled-list and settled-reader animation guards to the axe gate so opacity transitions are not misreported as contrast failures; the ArticleList index was separately moved from border-strong to muted after a settled probe identified its 1.5:1 contrast."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3034 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'muted reading|normal accent|auth and command palette|axe scan finds no critical' --project=chromium",
+      "result": "pass: 4 Chromium tests"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3035 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'muted reading|normal accent|auth and command palette' --project=firefox --project=webkit --project=webkit-touch",
+      "result": "pass: 8 tests (Firefox 3, WebKit 3, iPhone WebKit 2)"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3044 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'axe scan finds no critical' --project=chromium",
+      "result": "pass: 1 Chromium test with color-contrast enabled after waiting for settled list/reader opacity"
+    },
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3045 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'axe scan finds no critical' --project=firefox --project=webkit --project=webkit-touch",
+      "result": "pass: 3 tests (Firefox, WebKit, iPhone WebKit) with color-contrast enabled"
+    },
+    {
+      "command": "cd apps/reader-web && npm test",
+      "result": "pass"
+    },
+    {
+      "command": "cd apps/reader-web && npm run build",
+      "result": "pass: Next.js production build and TypeScript check"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The core-page axe gate now includes color-contrast and passes after animation settlement; this fixture evidence still does not prove native iPhone text selection, screen-reader output, real production proxy behavior, or staging/production auth and theme persistence. Dark-theme full-page axe is represented by the dedicated token and ArticleList subgates rather than the default-theme core-page axe path."
+}

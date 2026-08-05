@@ -364,7 +364,7 @@ def start_scoring_batch(
 
     job = job_repository.enqueue(
         "score_batch",
-        {"batch_id": batch_id},
+        {"payload_version": 1, "batch_id": batch_id},
         dedupe_key=dedupe_key_for("score_batch", batch_id),
         created_by=current_user.id,
     )

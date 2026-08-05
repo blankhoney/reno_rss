@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
 
-ACCOUNTS = ("score", "ask", "agent")
+ACCOUNTS = ("score", "ask", "agent", "translate")
 
 
 @dataclass

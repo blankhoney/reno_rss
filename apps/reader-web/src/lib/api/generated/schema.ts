@@ -945,6 +945,17 @@ export interface components {
             /** Read Progress */
             read_progress?: number | null;
         };
+        /** ArticleTranslationResponse */
+        ArticleTranslationResponse: {
+            /** Status */
+            status: string;
+            /** Content Zh */
+            content_zh: string | null;
+            /** Translated At */
+            translated_at: string | null;
+            /** Job Id */
+            job_id: number | null;
+        };
         /** AskHistoryTurn */
         AskHistoryTurn: {
             /**
@@ -963,6 +974,35 @@ export interface components {
             selected_text?: string | null;
             /** History */
             history?: components["schemas"]["AskHistoryTurn"][];
+        };
+        /** BriefItemResponse */
+        BriefItemResponse: {
+            /** Article Id */
+            article_id: number;
+            /** Title */
+            title: string;
+            /** Rank */
+            rank: number | null;
+            /** Tier */
+            tier: string;
+            /** Rank Score */
+            rank_score: number | null;
+            /** Reason */
+            reason: string;
+            /** Summary Zh */
+            summary_zh: string | null;
+            /** Overall Score */
+            overall_score: number | null;
+            /** Risk Flags */
+            risk_flags: string[];
+            /** Source Quality */
+            source_quality: number | null;
+            /** Content Quality */
+            content_quality: string | null;
+        };
+        /** BriefResponse */
+        BriefResponse: {
+            brief: components["schemas"]["DailyBriefResponse"] | null;
         };
         /** CreateBenchmarkRequest */
         CreateBenchmarkRequest: {
@@ -1009,6 +1049,28 @@ export interface components {
             /** Article Ids */
             article_ids: number[];
         };
+        /** DailyBriefResponse */
+        DailyBriefResponse: {
+            /** Generated At */
+            generated_at: string | null;
+            /** Title */
+            title: string;
+            /** Source */
+            source: string | null;
+            /** Must Read */
+            must_read: components["schemas"]["BriefItemResponse"][];
+            /** Worth Scan */
+            worth_scan: components["schemas"]["BriefItemResponse"][];
+            /** Can Skip */
+            can_skip: components["schemas"]["BriefItemResponse"][];
+        };
+        /** FetchContentJobResponse */
+        FetchContentJobResponse: {
+            /** Job Id */
+            job_id: number;
+            /** Status */
+            status: string;
+        };
         /** GrantRequest */
         GrantRequest: {
             /**
@@ -1023,6 +1085,31 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** JobResponse */
+        JobResponse: {
+            /** Id */
+            id: number;
+            /** Job Type */
+            job_type: string;
+            /** Status */
+            status: string;
+            /** Progress */
+            progress: {
+                [key: string]: unknown;
+            };
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Last Error */
+            last_error: string | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Completed At */
+            completed_at: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1730,13 +1817,20 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["FetchContentJobResponse"];
                 };
+            };
+            /** @description Article not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -1760,14 +1854,30 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Cached translation */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ArticleTranslationResponse"];
                 };
+            };
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArticleTranslationResponse"];
+                };
+            };
+            /** @description Article not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2368,9 +2478,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JobResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2421,9 +2529,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["BriefResponse"];
                 };
             };
         };

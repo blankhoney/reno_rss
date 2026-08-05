@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "743a924",
+  "milestone": "Worker owner-bound lease renewal / A-10 / A-15",
+  "acceptance": ["A-10", "A-15"],
+  "scenario": "A running job renews its existing lease only for the current owner; a stale reclaim cannot steal a renewed job, and renewal stops before terminal queue writes.",
+  "failure_before_repair": [
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_queue.py -q -k \"renew_lease\"",
+      "result": "failed: InMemoryJobQueue had no renew_lease method; 2 renewal tests failed"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_runner.py -q -k \"renews_a_running_job\"",
+      "result": "failed: run_once had no lease_renew_interval_seconds contract and the blocked handler never reached the renewal proof"
+    }
+  ],
+  "repair": [
+    "Added owner-bound InMemory and PostgreSQL renew_lease implementations that update only locked_at/updated_at when status is running and locked_by matches.",
+    "Added a runner Protocol renewal contract and a per-job stoppable daemon renewer; cadence defaults to one third of the existing lease and is injectable only for deterministic tests, not a new deployment env.",
+    "Stopped and joined renewal before terminal success/failure/retry writes; renewal ownership loss stops the renewer and terminal writes retain their existing owner guard.",
+    "Added InMemory owner/stale tests, PostgreSQL SQL-shape and conditional integration assertions, and an Event-barrier slow-handler runner test."
+  ],
+  "validation": [
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_queue.py tests/test_runner.py -q",
+      "result": "pass: 25 tests"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests/test_queue_postgres.py -q -rs",
+      "result": "pass: 0 executed, 2 skipped because WORKER_QUEUE_POSTGRES_TEST_URL was unavailable"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev python -m pytest tests -q",
+      "result": "pass: 131 tests, 6 skipped; 2 existing SQLite deprecation warnings"
+    },
+    {
+      "command": "uv run --isolated --with-editable . --extra dev ruff check .",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The real PostgreSQL renewal/reclaim path was defined and conditionally asserted but not executed locally because Docker and WORKER_QUEUE_POSTGRES_TEST_URL were unavailable. No migration, real provider, staging/production service, or production job data was used. Renewal protects queue ownership; external handler side effects remain at-least-once and require existing job idempotency."
+}

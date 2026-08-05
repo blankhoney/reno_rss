@@ -9,6 +9,7 @@ test("Daily Intelligence tier sections expose product labels", () => {
   const brief: DailyBrief = {
     generatedAt: "2026-07-18T08:00:00+00:00",
     title: "今日情报 2026-07-18",
+    source: "fixture",
     mustRead: [
       {
         articleId: 1,
@@ -19,6 +20,9 @@ test("Daily Intelligence tier sections expose product labels", () => {
         reason: "because",
         summaryZh: "摘要",
         overallScore: 88,
+        riskFlags: [],
+        sourceQuality: null,
+        contentQuality: null,
       },
     ],
     worthScan: [],

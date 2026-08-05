@@ -34,3 +34,7 @@ def test_database_daily_usage_ledger_is_shared_and_atomic():
     assert first.charge("agent", limit=1, day=day) == 1
     with pytest.raises(RuntimeError, match="agent"):
         second.charge("agent", limit=1, day=day)
+
+    assert first.charge("translate", limit=1, day=day) == 1
+    with pytest.raises(RuntimeError, match="translate"):
+        second.charge("translate", limit=1, day=day)

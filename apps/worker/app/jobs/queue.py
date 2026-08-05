@@ -124,6 +124,14 @@ class InMemoryJobQueue:
         self._jobs[job.id] = claimed
         return claimed
 
+    def renew_lease(self, job_id: int, *, worker_id: str) -> QueueJob | None:
+        job = self._jobs.get(job_id)
+        if not self._is_running_owner(job, worker_id):
+            return None
+        renewed = replace(job, locked_at=datetime.now(UTC))
+        self._jobs[job_id] = renewed
+        return renewed
+
     def reclaim_stale(
         self,
         *,
@@ -379,6 +387,21 @@ class PostgresJobQueue:
                 .mappings()
                 .one_or_none()
             )
+        return _queue_job_from_row(row) if row is not None else None
+
+    def renew_lease(self, job_id: int, *, worker_id: str) -> QueueJob | None:
+        row = self._execute_update(
+            """
+            UPDATE jobs
+            SET locked_at=NOW(),
+                updated_at=NOW()
+            WHERE id=:job_id
+              AND status='running'
+              AND locked_by=:worker_id
+            RETURNING *;
+            """,
+            {"job_id": job_id, "worker_id": worker_id},
+        )
         return _queue_job_from_row(row) if row is not None else None
 
     def reclaim_stale(

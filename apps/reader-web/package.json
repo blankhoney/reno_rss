@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "prepare:standalone": "rm -rf .next/standalone/public .next/standalone/.next/static && cp -R public .next/standalone/public && mkdir -p .next/standalone/.next && cp -R .next/static .next/standalone/.next/static",
+    "prestart": "npm run prepare:standalone",
     "start": "node .next/standalone/server.js",
-    "prepare:e2e": "npm run build && rm -rf .next/standalone/public .next/standalone/.next/static && cp -R public .next/standalone/public && mkdir -p .next/standalone/.next && cp -R .next/static .next/standalone/.next/static",
+    "prepare:e2e": "npm run build && npm run prepare:standalone",
     "start:e2e": "npm run prepare:e2e && node scripts/e2e-server.mjs",
     "baseline:web": "node scripts/web-performance-baseline.mjs",
     "test": "node --test --import tsx 'src/**/*.test.ts'",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:evidence": "READER_E2E_PORT=3012 PLAYWRIGHT_EVIDENCE=1 PLAYWRIGHT_REUSE_SERVER=false playwright test --project=chromium-evidence --project=webkit-touch-evidence"
   },
   "dependencies": {
     "motion": "^12.38.0",
@@ -21,6 +24,7 @@
     "sanitize-html": "^2.17.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.61.1",
     "@types/node": "25.7.0",
     "@types/react": "19.2.14",

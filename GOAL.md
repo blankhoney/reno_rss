@@ -125,19 +125,19 @@
 | 数据可靠性门：PostgreSQL 条件测试、migration replay、恢复脚本。 | High | High | High | Medium | CI postgres 服务 + 本地脚本 | API/worker 不能只依赖 memory 变体。 |
 | Staging 回滚/恢复链条与证据固定。 | High | Medium | Medium | Medium | deploy/rollback/workflow | 发布成功不等于可恢复成功。 |
 
-### 当前最高优先级 — M2.1：320px 可达性、muted-text AA 与 reduced-motion 最小门
+### 当前最高优先级 — M1.9b：Scan / Focus 列表状态与返回上下文的服务端真相
 
-- **优先级与关系**：P0；承接已通过 Chromium 的 M1.5 inline-markup 安全恢复，不重开其已验证行为。它为 A-05/A-06 建立第一个可重复门，并在闭环后移交给原子文章状态 P0。
-- **优化目的**：在最窄 320px 视口中证明阅读核心控制、错误/恢复信息和内容不发生水平溢出、不可达或层叠遮挡；同时确保实际阅读使用的 muted text 在 light/dark 下达到 AA，并且 reduced-motion 不隐藏状态或动作。
-- **执行范围**：扩展既有 Chromium viewport loop 至 320px，复用现有 CSS token、geometry assertion 和 `prefers-reduced-motion` 合同；仅调整被失败测试证明的 token 或布局规则。保留 warm editorial 方向、现有导航/toolbar/Agent/Toast 层级及 375px 以上行为；不得借机重做视觉系统、改用新 CSS 框架或把桌面提示强塞入窄屏。
-- **验收标准**：角色化 muted reading text 在 light/dark 对应背景的对比至少为 4.5:1；在 normal 与 reduced-motion 两种模式下，当前测试覆盖的关键 reader/workbench 路径在 320px 无 `scrollWidth > clientWidth`、无被 fixed layer 遮挡的必要操作、无减少动效后丢失的 loading/error/retry 信息；现有 375/768/1440 行为继续通过。
-- **验证方法**：先让新增 320px 或 token 断言在旧候选上失败；运行 focused contrast/motion/reflow 浏览器场景、Reader Node suite、production build 与完整 Chromium suite。当前已将最小核心路径扩至 Firefox、WebKit 与 iPhone WebKit，并将 Scan/Focus/Keep 的重排断言扩至 1024/1280；记录 viewport、theme、motion、命令 exit、截图或几何结果。全量跨引擎与屏幕阅读器仍明确为后续缺口，不得以当前子集替代。
-- **方案取舍**：优先收紧单个 token 或单个 responsive rule；若一个修复会影响多个角色，拆为 token 与布局两个可回滚 slice。通过静态色值测试不足以宣称 reflow 已通过，必须保留浏览器几何断言。
-- **风险与回滚**：低到中等 CSS/fixture 风险；每个 token/geometry slice 独立回退，不能因修复对比度而降低既有控件可见性或点击面积。
+- **优先级与关系**：P0；承接 M1.9a 已提交并在 Chromium 证明的 Keep/`starred` empty、saved success、503→retry（`70f03234`）及 Review retry / Export download（`68ea97c8`），继续直接推进 A-02。当前只把已验证模块记为部分完成；Scan / Focus 的 loading、empty、error、retry、server-confirmed 与返回上下文仍未闭环。M1.7 的跨引擎文本选区仍为 A-06 `NEEDS_BASELINE`，不得倒推为完成。
+- **优化目的**：使 Scan 与 Focus 用户能区分“服务器确认的有数据”“服务器确认的空集”“加载失败/可重试”，并在 retry、进入文章、浏览器返回或刷新后只呈现最新服务器结果与原始模块上下文；绝不把失败、旧数据或未加载伪装成“暂无文章”。
+- **执行范围**：为 Scan 与 Focus 各建立最小、独立的 loading、empty、一次性失败→retry、success 和 article-return/refresh 状态路径；复用 Keep 的局部资源状态和 `ArticleList` error seam，不改变 URL、cursor、search、读进度、Miniflux/API 所有权或会话/PWA 缓存边界。fixture 仅用于客户端解释与恢复路径；若 Scan/Focus 的模块筛选语义、响应 shape 或状态写入需要变更，必须以 API 契约测试补证，不能由 fixture 代替。
+- **验收标准**：Scan 与 Focus 每一目标状态均有互斥 UI；服务器失败时无空状态、过时 success 或跨模块内容冒充当前结果；retry 仅重试失败资源并成功清除错误；empty 仅在成功空响应时出现；文章进入后 Back/refresh 恢复正确的 `module/sort/lang/cursor` 与可见列表结果。已验证的 Keep/Review/Export slice 保留为 A-02 部分证据，不因扩展 Scan/Focus 而回归。
+- **验证方法**：先失败的 Node/Playwright 场景分别覆盖 Scan 和 Focus 的 empty、503→retry、server success 与 article-return/refresh；运行相关 Reader Node 测试、完整 Chromium suite、production build、`git diff --check`。随后在 Firefox/WebKit/iPhone WebKit 最小核心矩阵复跑共享的列表恢复路径；记录 module、服务器响应、URL、可见状态、retry 次数、恢复后的 article ID 和命令 exit。发生 API 形状/筛选变更时追加 API pytest、Ruff、OpenAPI/生成类型漂移门。
+- **方案取舍**：一次只增加一个模块与一个失败维度，不引入全局状态框架、不以空数组复用 loading/error、不用乐观本地过滤伪造服务端结果；先在既有确定性 fixture 上锁定状态解释，再在 API 层确认证明需要的语义。
+- **风险与回滚**：低到中等的 fixture/URL 状态竞争风险。Scan 与 Focus 独立提交、独立回退；任何只在 fixture 中成立的结论保持 `IN_PROGRESS`，直至相应 API 契约与跨引擎恢复证据补齐。
 
-### P0 后继任务（M2.1 验证后）— 原子文章状态与候选不变量
+### P0 后继任务（M1.9 验证后）— 原子文章状态与候选不变量
 
-- **优先级与关系**：P0；在 M2.1 的窄屏/可达性门收口后开始。它将 M1.4 已验证的“服务端确认状态”延伸到 A-08/A-10 的数据层真实并发语义，保护 A-02 的 Keep/candidate 主循环。
+- **优先级与关系**：P0；在 M1.9 的列表状态矩阵收口后开始。它将 M1.4 已验证的“服务端确认状态”延伸到 A-08/A-10 的数据层真实并发语义，保护 A-02 的 Keep/candidate 主循环；A-05/A-06 的窄屏、对比度与 motion 自动门持续保留在 MUST 验收，后续按影响/证据重新排序，不因本次状态矩阵切片被取消。
 - **优化目的**：消除 PATCH 风格 article-state 写入的 read-modify-write 丢更新，并让 `project ⇒ saved` 成为所有写入者都无法绕过的存储层不变量。
 - **执行范围**：将 repository 写入变为单一原子操作，只更新请求明确携带的字段；在同一操作内处理 `saved=false → project=false` 与 `project=true` 的合法性。增加可回退 migration，先检测历史无效行并可见失败，绝不静默修复或删除数据；添加等价于 `NOT project OR saved` 的数据库约束。保留既有 request/response/OpenAPI 形状与 Miniflux 边界。
 - **方案取舍**：允许使用行锁加局部更新，或使用经测试的条件式 PostgreSQL upsert；选择更小、可审计且能证明无丢更新的方案。不得用前端重试、乐观更新或仅 memory 测试替代原子性。
@@ -291,22 +291,22 @@
 
 `PLANS.md` 当前建议字段（与该合同一致）：
 
-- **Current candidate**：`main @ 39422aee`，PR #40 已合并；staging 已验证其不可变镜像 `sha-db574ab`。
-- **Current milestone**：`M3.1（deployment-like performance/resilience）` 的 PostgreSQL 租约恢复时间预算已建立；A-10 继续补齐数据库故障、锁竞争、超时与重试耗尽矩阵。
-- **Last green checkpoint**：PR #40 CI `30284291417` 在 `db574ab4` 完成质量、三镜像发布和 staging runtime proof；其中 PostgreSQL 竞争回归、五次恢复测量、Reader/browser/Compose/Trivy 全部通过。
-- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery、竞争任务隔离、五样本恢复预算和 content-free 运行时日志；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
+- **Current candidate**：`goal/m1-annotation-input-continuity @ f8feeeca`（base `origin/main @ 97cd28e1`）；M1.7、M1.9a、A-03、A-05/A-07/A-15 与 A-10 的增量 slice 均已提交，尚待合并。
+- **Current milestone**：M1.7（annotation/input continuity）已完成。M1.9a 已完成 Keep/`starred` empty、saved success、503→retry 和 Review/Export 的可见恢复 slice；当前进入 M1.9b，收口 Scan / Focus 列表状态及文章返回上下文。并行证据新增 A-03 selection-boundary/longer-quote precedence 与 A-10 transient queue-outage survival，但两者均未替代其余 MUST 矩阵。
+- **Last green checkpoint**：M1.7 的完整 gate 为 Reader Node 194/194、production build、fresh-server Chromium 70 passed。其后 M1.9a 记录 Chromium 73/75，A-05 语义/键盘记录 Chromium 77，A-15 Ask abort 记录 Chromium 78，A-07 state-language 记录 Chromium 79；跨引擎 grep 已到 Firefox 45/45、WebKit 44/44、iPhone WebKit 29/29。当前没有与 `f8feeeca` 对应的完整 Node/build/Chromium gate，且工作树另有未验证的 cross-engine grep 扩展，故不得外推为全量通过。
+- **Current validation**：A-08 已有 PostgreSQL CI 合约、latest downgrade/replay 和隔离逻辑快照恢复；A-09 已有 Web、DB、比较器和 CI 阈值门；A-10 已有真实 PostgreSQL lease recovery、竞争任务隔离、五样本恢复预算、content-free 日志，并新增 `run_forever` 遇 transient queue outage 后记录并进入下一周期的 TDD 证明及 permanent-failure observability assertion；A-12 已通过 staging rollback-forward 与 cleanup rehearsal。A-02/A-03/A-04/A-05/A-06/A-08/A-09/A-10/A-13/A-15 仍持续进行中。
 - **Before/after metrics**：
   - Web：冷启动资源中位数 home/all 为 627852/624866 B；HTTP-cache warm 为 5081/2095 B；Service Worker controlled 均为 true（本机 E2E fixture，非真实网络 SLA）
   - DB：CI PostgreSQL fixture 的 latest/search/ready-job/due-review p95 分别为 0.510/0.496/0.484/0.506 ms；每项 5 个非空样本（CI run `30181950027`）
   - Queue recovery：CI PostgreSQL 五样本 median 5.614 ms、p95 7.956 ms、min 5.516 ms、max 7.956 ms；各样本均完成 `running → queued → running → succeeded`（CI `30284291417`）
-  - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 193
-  - e2e：Chromium 55/55；Firefox 21/21；WebKit 21/21；iPhone WebKit 20/20（最小核心矩阵，非各引擎全量）
+  - baseline 入口：`apps/api` 219/0，`apps/worker` 121+4skipped，`reader-web` 194
+  - e2e：Chromium 79/79；Firefox 44/44；WebKit 43/43；iPhone WebKit 29/29（cross-engine grep 扩展后，非各引擎全量）
   - 漏洞：生产依赖高危=0（本地），`npm audit --omit=dev`
-- **Current experiment**：队列恢复基线以 synthetic 最高优先级隔离 CI 中的普通 ready job，同时仍通过生产 `claim_next`/`reclaim_stale` 路径；下一轮转向 A-02 核心状态矩阵。
-- **Recovery point**：主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
-- **Missing external evidence**：Firefox/WebKit 全量、跨引擎文本选区、真实 PostgreSQL 写入/route 性能，以及数据库暂不可用/锁竞争/超时/重试耗尽故障矩阵。
-- **Known risks**：核心状态矩阵仍未闭环；跨引擎选区自动化尚不稳定；恢复预算仅覆盖过期租约；GHCR 真实删除未演练并继续采用显式非破坏性 dry-run 策略。
-- **Next action**：为 A-02 建立版本化核心流程状态矩阵，优先补齐 Daily/Scan → Reader/Ask → Keep 的 loading/empty/error/retry/server-confirmed 路径。
+- **Current experiment**：M1.9a 已在 Chromium 75 完成并入提交：Keep/`starred` empty、saved success、503→retry，及 Review retry / Export download；A-05 语义+Tab、A-07 状态语言、A-15 Ask abort 已有后续小型 Chromium 证据。A-03 新增 container-boundary 拒绝与 longer-quote-first markup-nesting 单测；A-10 新增 transient queue outage 后 runner 存活、永久失败可观测性断言。M1.9b（Scan / Focus）仍未开始验证，保持 `IN_PROGRESS`。
+- **Recovery point**：当前提交 checkpoint 为 `f8feeeca`；完整 Reader Node/build checkpoint 仍为 `a6df7919`；主线 `39422aee25f21adaaa2682e8ada15badc82df57c`；应用回滚点仍为已验证的 `sha-98d06a4`，最近 staging 候选为 `sha-db574ab`。
+- **Missing external evidence**：与当前 HEAD 对应的完整 Node/build/Chromium gate、Firefox/WebKit 全量、跨引擎文本选区和列表恢复、真实 PostgreSQL transient outage/lock/timeout/retry-exhaustion 故障矩阵、真实 PostgreSQL 写入/route 性能。
+- **Known risks**：核心状态矩阵仍未闭环；fixture 成功不等价于 API 模块筛选语义已验证；新 A-03/A-05/A-07/A-10/A-15 场景仅有增量证据而非完整 gate；未提交的 cross-engine grep 扩展尚未执行；跨引擎选区自动化尚不稳定；恢复预算仍未覆盖真实数据库锁/超时/重试耗尽；GHCR 真实删除继续采用显式非破坏性 dry-run 策略。
+- **Next action**：为 Scan / Focus 先建立并验证 empty、503→retry、server success、article-return/refresh 的最小状态矩阵；随后在当前候选上合并并验证现有 cross-engine grep 扩展，重跑 Reader Node、production build 和完整 Chromium gate，再扩展跨引擎列表恢复矩阵。
 
 ## 12. Decision and Change Log
 
@@ -332,6 +332,12 @@
 | 2026-07-26 | 状态写入失败必须显式可重试，并以服务端返回状态收敛界面。 | M1.4 Chromium fixture 证明 503 不丢 Reader 上下文，重试后候选状态通过详情刷新确认。 |
 | 2026-07-26 | 用最小跨引擎核心矩阵替代 Chromium 单引擎断言，并让 CI 安装 Chromium、Firefox、WebKit。 | Chromium 55/55、Firefox 21/21、WebKit 21/21、iPhone WebKit 20/20；跨引擎选区与 1024/1280 不在该子集内，仍为 `IN_PROGRESS`。 |
 | 2026-07-26 | 将 Scan/Focus/Keep 重排门扩展至 390、1024、1280px。 | Chromium、Firefox、WebKit 各 21/21；断言覆盖无水平溢出、文章可进入和关键操作可见，跨引擎选区仍为 `IN_PROGRESS`。 |
+| 2026-07-27 | M1.7：IME composition 期间 Escape 仅取消输入法组合，不清除选区锚点。 | `isSelectionDismissEvent` 检查 `event.isComposing`；Node test-first failure + stash-reverted e2e failure 证明缺陷；修复后 focused 6/6、Reader 194/194、build、Chromium 65 passed。证据：`output/evidence/m1-ime-selection-continuity-2026-07-27.json`。 |
+| 2026-07-27 | M1.7：标注保存 503 必须显式可重试，且锚点必须从文章内容文本构建。 | 内联错误横幅 + retry 闭包保留选区；`anchorContentRef` 使锚点从 `.focusContent` 构建而非含 UI 标签的 `<article>`；e2e 先失败（prefix 含 UI 文本，start 158）后通过。Chromium 67 passed。证据：`output/evidence/m1-annotation-save-retry-2026-07-27.json`。 |
+| 2026-07-27 | M1.7：会话切换后标注必须按用户隔离。 | e2e server 新增 per-user annotation storage（`userAnnotations` Map）；用户 A 创建标注后切换到用户 B，B 只见 fixture 标注不见 A 的创建；Chromium 69 passed。证据：`output/evidence/m1-session-switch-isolation-2026-07-27.json`。 |
+| 2026-07-27 | M1.8：触控保存与触控选区必须分开取证。 | 工作树的 `touch selection save` 仅以程序化 range + `mouseup` 建立选区，再用 `tap()` 保存；它可证明保存按钮的 touch-equivalent 路径，不可证明原生触控文本选择。A-03/A-06 维持 Pending，最高优先级调整为建立或明确限定真实 `touchend → settled anchor → save` 事件链。 |
+| 2026-07-27 | M1.9a：M1.7 证据收口后，核心列表状态矩阵优先于新增视觉优化。 | `70f03234` 的 Keep/`starred` empty、saved success、503→retry 以及 `68ea97c8` 的 Review retry / Export download 已在 Chromium 73/75 验证，并写入哈希 evidence。fixture 结论仍须在需要时由 API 契约补证，不能外推为全模块或服务端完成。 |
+| 2026-07-27 | M1.9b：收口 Scan / Focus 的状态和返回上下文，再扩大已验证边界。 | 当前提交 `f8feeeca` 已把 A-05 semantic/Tab、A-07 state-language、A-15 abort 扩至 Chromium 79，并将 cross-engine grep 扩至 Firefox 45/WebKit 44；A-03 新增 selection boundary 与 longer-quote nesting 单测，A-10 新增 transient queue-outage survival 和 permanent-failure observability。上述均为增量证据，当前 HEAD 尚无完整 Node/build/Chromium gate，且工作树仍有未运行的 grep 扩展。最高优先级保持 A-02，先以 Scan / Focus 的 empty、503→retry、success、article-return/refresh 建立最小可回退矩阵。 |
 
 ## 13. Stop and Escalation Conditions
 

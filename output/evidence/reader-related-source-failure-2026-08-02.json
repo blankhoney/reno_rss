@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "0efff08",
+  "milestone": "Reader related-source failure visibility / A-02 / A-06",
+  "acceptance": ["A-02", "A-06"],
+  "scenario": "A related themes or clusters source may fail independently without hiding fulfilled links; only the failed source is retryable.",
+  "failure_before_repair": {
+    "command": "npx playwright test e2e/service-worker.smoke.spec.ts --project=chromium -g \"Reader keeps related links\"",
+    "result": "failed: cluster request was forced to HTTP 500, theme link remained available, but no related-source failure message or retry control was rendered"
+  },
+  "repair": [
+    "Split related themes and clusters into independent data, loading, and error state owned by FocusedArticleReader.",
+    "Preserved fulfilled source links while rendering source-specific loading/error status in the related rail.",
+    "Added per-source retry callbacks with a request sequence guard so an article change cannot let an older response overwrite the current article.",
+    "Added fixture tests for partial failure and for retrying clusters without re-requesting themes."
+  ],
+  "validation": [
+    {
+      "command": "npx playwright test e2e/service-worker.smoke.spec.ts --project=chromium -g \"Reader keeps related links\"",
+      "result": "pass: 1 test"
+    },
+    {
+      "command": "READER_E2E_PORT=3014 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts --project=chromium -g \"Reader retries only the failed related source\"",
+      "result": "pass: 1 test; themes request count=1, clusters request count=2"
+    },
+    {
+      "command": "npm test",
+      "result": "pass: 201 tests"
+    },
+    {
+      "command": "npm run build",
+      "result": "pass: Next.js production build and TypeScript validation"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "The browser proof uses local E2E fixtures and forced route responses; it does not prove real themes/clusters API availability, production auth/cache behavior, screen-reader behavior, staging/production, database, or provider behavior. No external service was accessed."
+}

@@ -1,10 +1,56 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import logging
-from threading import Event
+from threading import Event, Thread
+from typing import cast
 
 from app.jobs.queue import InMemoryJobQueue
-from app.runner import RetryableJobError, run_forever, run_once
+from app.runner import JobQueue, RetryableJobError, run_forever, run_once
+
+
+def test_run_once_renews_a_running_job_until_the_handler_finishes():
+    started = Event()
+    release = Event()
+    renewed = Event()
+    errors: list[BaseException] = []
+
+    class RenewalProbeQueue(InMemoryJobQueue):
+        def renew_lease(self, job_id: int, *, worker_id: str):
+            renewed.set()
+            return super().renew_lease(job_id, worker_id=worker_id)
+
+    queue = RenewalProbeQueue()
+    job = queue.enqueue("slow", {}, dedupe_key="slow:renew")
+
+    def handler(_payload):
+        started.set()
+        assert release.wait(timeout=2)
+        return {"ok": True}
+
+    def execute():
+        try:
+            run_once(
+                queue,
+                {"slow": handler},
+                worker_id="worker-1",
+                job_lease_seconds=1,
+                lease_renew_interval_seconds=0.01,
+            )
+        except BaseException as caught:  # keep the test thread from hiding a contract error
+            errors.append(caught)
+
+    thread = Thread(target=execute)
+    thread.start()
+    try:
+        assert started.wait(timeout=1)
+        assert renewed.wait(timeout=1)
+    finally:
+        release.set()
+        thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert queue._jobs[job.id].status == "succeeded"
 
 
 def test_run_once_marks_job_succeeded_with_result():
@@ -135,6 +181,65 @@ def test_run_once_logs_stale_lease_recovery(caplog):
 
     assert handled is False
     assert "worker stale lease recovery: worker_id=worker-after-restart recovered_count=1 lease_seconds=1" in caplog.text
+
+
+def test_run_forever_survives_transient_queue_outage_and_processes_jobs_after_recovery():
+    queue = InMemoryJobQueue()
+    outage_active = True
+
+    class OutageQueue:
+        def __getattr__(self, name):
+            return getattr(queue, name)
+
+        def reclaim_stale(self, **kwargs):
+            if outage_active:
+                raise RuntimeError("connection refused")
+            return queue.reclaim_stale(**kwargs)
+
+        def claim_next(self, worker_id):
+            if outage_active:
+                raise RuntimeError("connection refused")
+            return queue.claim_next(worker_id)
+
+    job = queue.enqueue("worker_echo", {"message": "after-outage"}, dedupe_key="outage:1")
+    stop = Event()
+    ticks = []
+
+    def on_tick():
+        ticks.append(1)
+        if len(ticks) >= 3:
+            nonlocal outage_active
+            outage_active = False
+        if len(ticks) >= 5:
+            stop.set()
+
+    run_forever(
+        cast(JobQueue, OutageQueue()),
+        {"worker_echo": lambda payload: {"echo": payload["message"]}},
+        worker_id="worker-resilient",
+        poll_seconds=0.01,
+        stop_event=stop,
+        on_tick=on_tick,
+    )
+
+    stored = queue._jobs[job.id]
+    assert stored.status == "succeeded"
+    assert stored.result == {"echo": "after-outage"}
+
+
+def test_run_once_logs_permanent_failure_for_observability(caplog):
+    queue = InMemoryJobQueue()
+    queue.enqueue("doomed", {"attempt": 1}, dedupe_key="doomed:1", max_attempts=1)
+
+    def handler(_payload):
+        raise RetryableJobError("service gone")
+
+    caplog.set_level(logging.ERROR, logger="app.runner")
+    run_once(queue, {"doomed": handler}, worker_id="worker-obs")
+
+    stored = list(queue._jobs.values())[0]
+    assert stored.status == "failed"
+    assert stored.last_error == "service gone"
 
 
 def test_run_forever_emits_heartbeat_while_idle():

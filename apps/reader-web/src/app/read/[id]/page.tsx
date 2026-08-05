@@ -6,7 +6,7 @@ import {
   type ArticleSortId,
   type SummaryLangId,
 } from "@/lib/articles/service";
-import { buildWorkbenchHref, parseCursorTrail } from "@/lib/articles/navigation";
+import { buildWorkbenchHref, parseArticleId, parseCursorTrail } from "@/lib/articles/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +14,6 @@ type PageProps = {
   params: Promise<{ id: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
-
-function parseArticleId(raw: string): number | null {
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
 
 function normalizeModule(raw: string | string[] | undefined): string {
   return typeof raw === "string" && raw !== "" ? raw : "all";
@@ -67,30 +62,28 @@ export default async function FocusReadPage({ params, searchParams }: PageProps)
   const initialCitation =
     typeof sp.quote === "string" ? sp.quote.trim().slice(0, 500) : "";
 
-  if (articleId == null) {
-    return (
-      <main className="focusReader">
-        <a className="readerToolbarBtn" href={workbenchHref(null, currentModule, currentSort, currentLang, currentQuery, cursorStack, researchJobId)}>
-          返回工作台
-        </a>
-        <div className="readerEmpty">
-          <p className="readerEmptyTitle">文章不存在</p>
-          <p className="readerEmptyHint">当前文章 ID 无效。</p>
-        </div>
-      </main>
-    );
-  }
-
   const returnHref = workbenchHref(articleId, currentModule, currentSort, currentLang, currentQuery, cursorStack, researchJobId);
 
   return (
     <AuthSessionGate>
-      <FocusedArticleScreen
-        articleId={articleId}
-        currentLang={currentLang}
-        returnHref={returnHref}
-        initialCitation={initialCitation || undefined}
-      />
+      {articleId == null ? (
+        <main className="focusReader">
+          <a className="readerToolbarBtn" href={returnHref}>
+            返回工作台
+          </a>
+          <div className="readerEmpty">
+            <p className="readerEmptyTitle">文章不存在</p>
+            <p className="readerEmptyHint">当前文章 ID 无效。</p>
+          </div>
+        </main>
+      ) : (
+        <FocusedArticleScreen
+          articleId={articleId}
+          currentLang={currentLang}
+          returnHref={returnHref}
+          initialCitation={initialCitation || undefined}
+        />
+      )}
     </AuthSessionGate>
   );
 }

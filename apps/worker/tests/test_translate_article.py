@@ -49,6 +49,18 @@ class TranslationProvider:
         return self.result
 
 
+class TranslationBudget:
+    def __init__(self, error: Exception | None = None):
+        self.error = error
+        self.calls: list[tuple[str, int, int]] = []
+
+    def charge(self, account: str, units: int = 1, *, limit: int = 0) -> int:
+        self.calls.append((account, units, limit))
+        if self.error is not None:
+            raise self.error
+        return units
+
+
 def test_translate_article_saves_translated_html():
     now = datetime(2026, 6, 25, 12, tzinfo=UTC)
     sink = RecordingTranslationSink(_article())
@@ -74,12 +86,58 @@ def test_translate_article_uses_cached_translation():
         _article(content_zh="<p>缓存译文</p>", content_zh_status="succeeded")
     )
     provider = TranslationProvider("<p>不会调用</p>")
+    budget = TranslationBudget()
 
-    result = translate_article({"article_id": 1}, sink=sink, provider=provider)
+    result = translate_article(
+        {"article_id": 1},
+        sink=sink,
+        provider=provider,
+        budget=budget,
+        daily_limit=5,
+    )
 
     assert result == {"outcome": "cached", "content_zh_status": "succeeded"}
     assert provider.calls == []
+    assert budget.calls == []
     assert sink.saved == []
+
+
+def test_translate_article_reserves_translation_budget_before_provider_call():
+    sink = RecordingTranslationSink(_article())
+    provider = TranslationProvider("<p>中文正文</p>")
+    budget = TranslationBudget()
+
+    result = translate_article(
+        {"article_id": 1},
+        sink=sink,
+        provider=provider,
+        budget=budget,
+        daily_limit=5,
+    )
+
+    assert result["outcome"] == "translated"
+    assert budget.calls == [("translate", 1, 5)]
+    assert len(provider.calls) == 1
+
+
+def test_translate_article_does_not_call_provider_when_budget_is_exhausted():
+    sink = RecordingTranslationSink(_article())
+    provider = TranslationProvider("<p>不会调用</p>")
+    budget = TranslationBudget(RuntimeError("daily budget exceeded for translate"))
+
+    with pytest.raises(RuntimeError, match="daily budget exceeded for translate"):
+        translate_article(
+            {"article_id": 1},
+            sink=sink,
+            provider=provider,
+            budget=budget,
+            daily_limit=5,
+        )
+
+    assert provider.calls == []
+    assert sink.saved == [
+        {"content_zh": None, "status": "failed", "translated_at": None},
+    ]
 
 
 def test_translate_article_marks_failed_before_reraising():

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import create_engine, text
 
 from app.db.article_sink import DatabaseArticleSink
@@ -192,6 +194,53 @@ def test_article_sink_enqueues_partial_content_then_completion_barrier():
     barrier_payload = json.loads(jobs[1]["payload"])
     assert barrier_payload["fetch_job_ids"] == [jobs[0]["id"]]
     assert result["content_fetches"] == 1
+
+
+def test_article_sink_respects_future_fallback_content_cooldown():
+    engine = create_engine("sqlite:///:memory:")
+    _create_schema(engine)
+    _seed_feeds(engine, 1)
+    sink = DatabaseArticleSink(engine=engine)
+    article_id = sink.upsert_article(
+        {
+            "primary_feed_id": 1,
+            "title": "Cooling down",
+            "url": "https://example.com/cooldown",
+            "canonical_url": "https://example.com/cooldown",
+            "content_text": "short fragment",
+            "content_quality": "snippet",
+            "content_source": "snippet_only",
+            "content_expires_at": datetime.now(UTC) + timedelta(days=1),
+        }
+    )
+
+    result = sink.enqueue_ingest_followups(
+        [article_id],
+        pipeline_cycle="2026-07-18T14:00:00+00:00",
+        auto_score_payload={"lookback_hours": 72, "max_articles": 30},
+    )
+
+    with engine.begin() as connection:
+        fetch_jobs = connection.execute(
+            text("SELECT * FROM jobs WHERE job_type='fetch_article_content'")
+        ).mappings().all()
+    assert fetch_jobs == []
+    assert result["content_fetches"] == 0
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE articles SET content_expires_at=:expires_at WHERE id=:article_id"),
+            {
+                "article_id": article_id,
+                "expires_at": datetime.now(UTC) - timedelta(minutes=1),
+            },
+        )
+    expired = sink.enqueue_ingest_followups(
+        [article_id],
+        pipeline_cycle="2026-07-18T15:00:00+00:00",
+        auto_score_payload={"lookback_hours": 72, "max_articles": 30},
+    )
+    assert expired["content_fetches"] == 1
 
 
 def test_ingest_barrier_enqueues_auto_score_after_fetch_completion():

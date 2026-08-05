@@ -51,6 +51,9 @@ class MigrationOpRecorder:
     def create_check_constraint(self, *_args, **_kwargs):
         return None
 
+    def drop_constraint(self, *_args, **_kwargs):
+        return None
+
     def add_column(self, table_name, column):
         self.tables[table_name][column.name] = column
 
@@ -72,6 +75,26 @@ def load_migration(filename: str):
 
 def load_initial_migration():
     return load_migration("0001_initial.py")
+
+
+def test_alembic_revision_ids_fit_version_table_column():
+    versions = Path(__file__).parents[1] / "alembic" / "versions"
+
+    oversized = []
+    for migration_path in sorted(versions.glob("*.py")):
+        migration = load_migration(migration_path.name)
+        revision = str(migration.revision)
+        if len(revision) > 32:
+            oversized.append(f"{migration_path.name}: {revision}")
+
+    assert oversized == []
+
+
+def test_ci_snapshot_restore_checks_current_migration_head():
+    ci_workflow = (Path(__file__).parents[3] / ".github/workflows/ci.yml").read_text()
+
+    assert "grep -qx '0012_translation_usage'" in ci_workflow
+    assert '"migration": "0012_translation_usage"' in ci_workflow
 
 
 def test_initial_migration_defines_required_tables():
@@ -175,6 +198,7 @@ def test_migration_column_nullability_matches_model():
         load_migration("0009_project_acl.py"),
         load_migration("0010_llm_daily_usage.py"),
         load_migration("0011_project_requires_saved.py"),
+        load_migration("0012_translation_daily_usage_account.py"),
     ]
     recorder = MigrationOpRecorder()
     for migration in migrations:

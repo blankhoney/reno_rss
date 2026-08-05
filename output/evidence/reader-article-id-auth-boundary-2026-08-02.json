@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "2c92d8c",
+  "milestone": "Reader route boundary / A-02 / A-04 / A-06",
+  "acceptance": ["A-02", "A-04", "A-06"],
+  "scenario": "Malformed or non-numeric article route segments stay behind the auth gate and cannot mount the article loader, while valid numeric routes retain the existing reader path.",
+  "failure_before_repair": [
+    {
+      "command": "npx playwright test e2e/service-worker.smoke.spec.ts --project=chromium -g \"invalid read route|authenticated invalid read route\"",
+      "result": "failed: unauthenticated invalid route did not render the login gate, and authenticated invalid route did not render session chrome"
+    },
+    {
+      "command": "npm test",
+      "result": "failed: navigation.test.ts imported parseArticleId but navigation.ts did not export it"
+    }
+  ],
+  "repair": [
+    "Moved positive-safe-integer article route parsing to the shared navigation boundary; complete decimal segments are accepted and malformed segments such as 7abc or 7.9 are rejected without parseInt truncation.",
+    "Kept invalid-route presentation inside AuthSessionGate so unauthenticated users see the login boundary and authenticated users retain session chrome.",
+    "Mounted FocusedArticleScreen only for a validated numeric ID, so invalid routes cannot issue an article detail request.",
+    "Added unit and fixture Playwright contracts for parser rejection, auth gating, and zero article requests."
+  ],
+  "validation": [
+    {
+      "command": "npx playwright test e2e/service-worker.smoke.spec.ts --project=chromium -g \"invalid read route|authenticated invalid read route\"",
+      "result": "pass: 2 tests"
+    },
+    {
+      "command": "npm test",
+      "result": "pass: 199 tests"
+    },
+    {
+      "command": "npm run build",
+      "result": "pass: Next.js production build and TypeScript validation"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "Browser coverage uses the local E2E fixture with its process-level demo user; it does not prove production cookie/session isolation, FastAPI route validation, Caddy/Authelia behavior, or a real database. No staging/production service or real provider was accessed."
+}

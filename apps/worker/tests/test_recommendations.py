@@ -7,6 +7,8 @@ from app.jobs.generate_recommendations import (
     _ranking_module_path,
     generate_recommendations,
 )
+from app.jobs.queue import InMemoryJobQueue
+from app.runner import run_once
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,15 @@ def test_generate_recommendations_ranks_and_saves_one_edition_per_requested_user
             )
         ]
 
-    result = generate_recommendations({"user_ids": ["user-1", "user-2"]}, sink, ranker)
+    result = generate_recommendations(
+        {
+            "payload_version": 1,
+            "algorithm_version": "b4.v1",
+            "user_ids": ["user-1", "user-2"],
+        },
+        sink,
+        ranker,
+    )
 
     assert sink.context_requests == ["user-1", "user-2"]
     assert sink.list_target_users_calls == 0
@@ -216,7 +226,73 @@ def test_generate_recommendations_rejects_non_b4_algorithm_version():
     sink = RecordingSink({})
 
     with pytest.raises(ValueError, match="algorithm_version"):
-        generate_recommendations({"algorithm_version": "b4.experiment"}, sink, lambda context: [])
+        generate_recommendations(
+            {
+                "payload_version": 1,
+                "algorithm_version": "b4.experiment",
+            },
+            sink,
+            lambda context: [],
+        )
+
+
+def test_generate_recommendations_requires_algorithm_for_v1_before_sink_work():
+    sink = RecordingSink({})
+
+    with pytest.raises(ValueError, match="algorithm_version"):
+        generate_recommendations(
+            {"payload_version": 1, "user_ids": ["user-1"]},
+            sink,
+            lambda context: [],
+        )
+
+    assert sink.list_target_users_calls == 0
+    assert sink.context_requests == []
+    assert sink.saved_editions == []
+    assert sink.daily_brief_enqueues == 0
+
+
+def test_generate_recommendations_keeps_legacy_algorithm_default_with_warning(caplog):
+    sink = RecordingSink({})
+
+    with caplog.at_level("WARNING"):
+        result = generate_recommendations({}, sink, lambda context: [])
+
+    assert result["algorithm_version"] == "b4.v1"
+    assert "legacy" in caplog.text
+    assert "generate_recommendations" in caplog.text
+
+
+def test_runner_marks_unsupported_recommendation_payload_failed_without_sink_work():
+    sink = RecordingSink({})
+    queue = InMemoryJobQueue()
+    job = queue.enqueue(
+        "generate_recommendations",
+        {"payload_version": 2, "algorithm_version": "b4.v1"},
+        dedupe_key="recommendations-contract:1",
+    )
+
+    handled = run_once(
+        queue,
+        {
+            "generate_recommendations": lambda payload: generate_recommendations(
+                payload,
+                sink,
+                lambda context: [],
+            )
+        },
+        worker_id="worker-contract",
+    )
+
+    stored = queue._jobs[job.id]
+    assert handled is True
+    assert stored.status == "failed"
+    assert stored.last_error is not None
+    assert "payload_version" in stored.last_error
+    assert sink.list_target_users_calls == 0
+    assert sink.context_requests == []
+    assert sink.saved_editions == []
+    assert sink.daily_brief_enqueues == 0
 
 
 def test_ranking_module_path_scans_parent_roots_for_container_layout(tmp_path):

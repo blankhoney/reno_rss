@@ -127,17 +127,7 @@ type ApiListResponse = {
   has_more?: boolean;
 };
 
-type ApiJobResponse = {
-  id: number;
-  job_type: string;
-  status: string;
-  progress: unknown;
-  result: unknown;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-  completed_at: string | null;
-};
+type ApiJobResponse = components["schemas"]["JobResponse"];
 
 type PollOptions = {
   intervalMs?: number;
@@ -535,7 +525,7 @@ export async function enqueueFetchContentJob(
   articleId: number,
   init?: ApiRequestInit,
 ): Promise<EnqueuedJob> {
-  const payload = await apiPost<{ job_id: number; status: string }, undefined>(
+  const payload = await apiPost<components["schemas"]["FetchContentJobResponse"], undefined>(
     `/api/articles/${articleId}/fetch-content`,
     undefined,
     init,
@@ -550,12 +540,11 @@ export async function requestArticleTranslation(
   articleId: number,
   init?: ApiRequestInit,
 ): Promise<ArticleTranslationResult> {
-  const payload = await apiPost<{
-    status: string;
-    content_zh?: string | null;
-    translated_at?: string | null;
-    job_id?: number | null;
-  }, undefined>(`/api/articles/${articleId}/translate`, undefined, init);
+  const payload = await apiPost<components["schemas"]["ArticleTranslationResponse"], undefined>(
+    `/api/articles/${articleId}/translate`,
+    undefined,
+    init,
+  );
   return {
     status: payload.status,
     contentZh: payload.content_zh ? sanitizeArticleHtml(payload.content_zh) : null,
@@ -603,7 +592,9 @@ export async function pollJobUntilTerminal(
     }
   }
   throwIfAborted(signal);
-  return getJob(jobId, { signal });
+  throw new Error(
+    `Job ${jobId} did not reach a terminal status after ${maxAttempts} attempts`,
+  );
 }
 
 function pollDelayMs(

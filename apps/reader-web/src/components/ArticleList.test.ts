@@ -37,6 +37,37 @@ test("ArticleList renders an explicit empty state", () => {
   assert.match(html, /当前模块没有可显示的文章/);
 });
 
+test("ArticleList keeps a previous-page escape for a successful later empty page", () => {
+  const firstPage = renderArticleList({
+    articles: [],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+    pageIndex: 0,
+    hasPrev: false,
+    hasNext: false,
+    onPrev: () => {},
+    onNext: () => {},
+  });
+  const laterPage = renderArticleList({
+    articles: [],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+    pageIndex: 1,
+    hasPrev: true,
+    hasNext: false,
+    onPrev: () => {},
+    onNext: () => {},
+  });
+
+  assert.doesNotMatch(firstPage, /articleListPager/);
+  assert.match(laterPage, /暂无文章/);
+  assert.match(laterPage, /articleListPager/);
+  assert.match(laterPage, />‹ 上一页<\/button>/);
+  assert.match(laterPage, /第 2 页/);
+});
+
 test("ArticleList renders skeleton cards while loading instead of empty copy", () => {
   const html = renderArticleList({
       articles: [],
@@ -50,6 +81,27 @@ test("ArticleList renders skeleton cards while loading instead of empty copy", (
   assert.equal((html.match(/articleCardSkeleton/g) ?? []).length, 12);
   assert.match(html, /articleCardHeadline/);
   assert.doesNotMatch(html, /暂无文章/);
+});
+
+test("ArticleList does not render empty copy or a focusable list while loading failed", () => {
+  const html = renderArticleList({
+    articles: [],
+    currentModule: "all",
+    currentSort: "default",
+    currentLang: "zh",
+    loadError: "文章列表暂不可用",
+    hasPrev: true,
+    onPrev: () => {},
+    onRetry: () => {},
+  });
+
+  assert.match(html, /文章加载失败/);
+  assert.match(html, /文章列表暂不可用/);
+  assert.match(html, />重试<\/button>/);
+  assert.match(html, />‹ 上一页<\/button>/);
+  assert.doesNotMatch(html, /暂无文章/);
+  assert.doesNotMatch(html, /<ul/);
+  assert.doesNotMatch(html, /articleListPager/);
 });
 
 test("ArticleList renders pager controls with disabled state", () => {

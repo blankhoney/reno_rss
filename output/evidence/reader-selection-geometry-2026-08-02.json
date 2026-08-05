@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-02",
+  "base_revision": "630ed06",
+  "milestone": "Reader desktop selection popover geometry proof",
+  "acceptance": ["A-03", "A-05", "A-06"],
+  "scenario": "A real Chromium mouse selection near the article top leaves the selection toolbar fully inside the desktop viewport; existing mobile geometry and Agent-drawer contracts remain green.",
+  "failure_before_repair": {
+    "result": "No product placement failure was observed. The first test draft used Playwright's nonexistent left/top/right/bottom bounding-box fields; that harness assertion was corrected before counting the geometry result. A separate 901px horizontal drag draft did not create a valid selection and was discarded rather than treated as a product failure."
+  },
+  "repair": [
+    "Added a desktop Chromium mouse-selection geometry assertion at 1280x720 after positioning the first article paragraph near the viewport top.",
+    "The assertion checks x/y and width/height bounds for the real selection toolbar; no React or CSS placement change was made because the observed desktop geometry stayed inside the viewport.",
+    "Kept the existing mobile 320/375/390/768 geometry checks and Agent drawer selection-context assertions unchanged."
+  ],
+  "validation": [
+    {
+      "command": "cd apps/reader-web && READER_E2E_PORT=3029 PLAYWRIGHT_REUSE_SERVER=false npx playwright test e2e/service-worker.smoke.spec.ts -g 'desktop selection toolbar|mobile selection toolbar stays' --project=chromium",
+      "result": "pass: 5 tests (1 desktop, 4 mobile viewports)"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "known_limit": "This proves desktop Chromium pointer selection and the existing fixture mobile geometry only; it does not prove native iPhone text selection, Firefox/WebKit selection lifecycle, screen-reader semantics, real production viewport/proxy behavior, or a placement implementation change."
+}
