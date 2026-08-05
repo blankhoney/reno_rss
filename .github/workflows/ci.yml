@@ -3,14 +3,23 @@ name: ci
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - PLANS.md
+      - docs/**
   push:
     branches:
       - main
+    paths-ignore:
+      - PLANS.md
+      - docs/**
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   actions: read
   contents: read
-  packages: write
 
 jobs:
   checks:
@@ -427,8 +436,11 @@ jobs:
   images:
     name: build / push GHCR images
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     needs: checks
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     outputs:
       deploy_ref: ${{ steps.meta.outputs.deploy_ref }}
       deploy_sha: ${{ steps.meta.outputs.deploy_sha }}
@@ -539,7 +551,7 @@ jobs:
     name: deploy staging
     runs-on: ubuntu-latest
     needs: images
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: staging
       url: https://staging-ai-reader.blankhoney.xyz
