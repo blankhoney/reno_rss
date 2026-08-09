@@ -22,6 +22,10 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 CI_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/ci.yml"
 REMOTE_DEPLOY_SCRIPT = REPOSITORY_ROOT / ".github/scripts/remote-deploy.sh"
 VALIDATE_DEPLOY_ENV_SCRIPT = REPOSITORY_ROOT / ".github/scripts/validate-deploy-env.sh"
+MAIN_1_SHA = "1" * 40
+MAIN_2_SHA = "2" * 40
+FORK_SHA = "f" * 40
+MISSING_SHA = "9" * 40
 
 
 def _load_workflow(path: Path) -> dict[str, Any]:
@@ -57,20 +61,31 @@ def _remote_deploy_harness(
     tmp_path: Path,
     *,
     deploy_ref: str = "main",
-    deploy_sha: str = "a" * 40,
-    fetched_sha: str | None = None,
+    deploy_sha: str = MAIN_2_SHA,
+    main_tip: str = MAIN_2_SHA,
+    shallow_repository: str = "false",
+    dirty_output: str = "",
+    merge_base_exit: int | None = None,
+    fetch_exit: int = 0,
+    fetch_creates_grafts: bool = False,
     docker_exit: int = 0,
     chmod_exit: int = 0,
-) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
-    case_dir = tmp_path / f"remote-{docker_exit}-{chmod_exit}"
+    image_tag: str | None = None,
+    grafts_content: str = "",
+) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path, list[str]]:
+    case_dir = tmp_path / f"remote-{docker_exit}-{chmod_exit}-{fetch_exit}"
     case_dir.mkdir()
     fake_bin = case_dir / "bin"
     fake_bin.mkdir()
     docker_log = case_dir / "docker-log"
     gate_log = case_dir / "gate-log"
+    git_log = case_dir / "git-log"
     mktemp_log = case_dir / "mktemp-log"
     app_dir = case_dir / "app"
-    (app_dir / ".git").mkdir(parents=True)
+    grafts_path = app_dir / ".git/info/grafts"
+    grafts_path.parent.mkdir(parents=True)
+    if grafts_content:
+        grafts_path.write_text(grafts_content, encoding="utf-8")
     (app_dir / "infra/scripts").mkdir(parents=True)
     _write_executable(
         app_dir / "infra/scripts/deploy.sh",
@@ -108,9 +123,14 @@ exec \"$REAL_CHMOD\" \"$@\"
         fake_bin / "docker",
         """#!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${GHCR_TOKEN_B64+x}" || -n "${ghcr_token_b64+x}" ]]; then
+    exit 97
+fi
 mode="$(python3 -c 'import os,sys; print(format(os.stat(sys.argv[1]).st_mode & 0o777, "03o"))' "$DOCKER_CONFIG")"
+token="$(cat)"
+[[ "$token" == "$EXPECTED_DOCKER_TOKEN" ]] || exit 98
 printf '%s\\n%s\\n' "$DOCKER_CONFIG" "$mode" > "$DOCKER_LOG"
-cat >/dev/null
+printf '{"auths":{}}\\n' > "$DOCKER_CONFIG/config.json"
 exit "${DOCKER_EXIT:-0}"
 """,
     )
@@ -118,11 +138,74 @@ exit "${DOCKER_EXIT:-0}"
         fake_bin / "git",
         """#!/usr/bin/env bash
 set -euo pipefail
+token_state=absent
+docker_auth_state=absent
+if [[ -n "${GHCR_TOKEN_B64+x}" || -n "${ghcr_token_b64+x}" ]]; then
+    token_state=present
+fi
+if [[ -e "$DOCKER_CONFIG/config.json" ]]; then
+    docker_auth_state=present
+fi
+[[ "$token_state" == absent ]]
+[[ "$docker_auth_state" == absent ]]
+[[ "${GIT_NO_REPLACE_OBJECTS:-}" == 1 ]]
+printf 'token=%s docker-auth=%s no-replace=%s | %s\\n' \
+    "$token_state" "$docker_auth_state" "${GIT_NO_REPLACE_OBJECTS:-unset}" "$*" >> "$GIT_LOG"
+if [[ "${1:-}" == "--no-replace-objects" ]]; then
+    shift
+fi
 case "$1" in
-    status|fetch|checkout|check-ref-format) exit 0 ;;
+    status)
+        printf '%s' "$DIRTY_OUTPUT"
+        ;;
+    fetch)
+        if [[ "$FETCH_EXIT" != 0 ]]; then
+            exit "$FETCH_EXIT"
+        fi
+        if [[ "$FETCH_CREATES_GRAFTS" == 1 ]]; then
+            printf '%s %s\\n' "$MAIN_TIP" "$FORK_SHA" > "$GRAFTS_PATH"
+        fi
+        ;;
     rev-parse)
-        [[ "${2:-}" == "FETCH_HEAD^{commit}" ]] || exit 1
-        printf '%s\\n' "$FETCHED_SHA"
+        case "${2:-}" in
+            --git-path)
+                [[ "${3:-}" == "info/grafts" ]] || exit 1
+                printf '%s\\n' "$GRAFTS_PATH"
+                ;;
+            --is-shallow-repository) printf '%s\\n' "$SHALLOW_REPOSITORY" ;;
+            --verify)
+                [[ "${3:-}" == "refs/remotes/origin/main^{commit}" ]] || exit 1
+                printf '%s\\n' "$MAIN_TIP"
+                ;;
+            *) exit 1 ;;
+        esac
+        ;;
+    cat-file)
+        [[ "${2:-}" == "-e" ]] || exit 1
+        requested="${3:0:40}"
+        [[ "${3:-}" == "$requested^{commit}" ]] || exit 1
+        case "$requested" in
+            "$MAIN_1_SHA"|"$MAIN_2_SHA"|"$FORK_SHA") exit 0 ;;
+            *) exit 1 ;;
+        esac
+        ;;
+    merge-base)
+        if [[ -n "$MERGE_BASE_EXIT" ]]; then
+            exit "$MERGE_BASE_EXIT"
+        fi
+        if [[ "${3:-}" == "${4:-}" ]]; then
+            exit 0
+        fi
+        if [[ "${3:-}" == "$MAIN_1_SHA" && "${4:-}" == "$MAIN_2_SHA" ]]; then
+            exit 0
+        fi
+        exit 1
+        ;;
+    checkout)
+        case "${3:-}" in
+            "$MAIN_1_SHA"|"$MAIN_2_SHA"|"$FORK_SHA") exit 0 ;;
+            *) exit 1 ;;
+        esac
         ;;
     *) exit 1 ;;
 esac
@@ -138,17 +221,29 @@ esac
             "MKTEMP_LOG": str(mktemp_log),
             "DOCKER_LOG": str(docker_log),
             "DOCKER_EXIT": str(docker_exit),
+            "EXPECTED_DOCKER_TOKEN": "test-ghcr-token",
             "FAKE_CHMOD_EXIT": str(chmod_exit),
             "DEPLOY_ENV": "staging",
             "DEPLOY_REF": deploy_ref,
             "DEPLOY_SHA": deploy_sha,
-            "FETCHED_SHA": fetched_sha or deploy_sha,
+            "MAIN_TIP": main_tip,
+            "MAIN_1_SHA": MAIN_1_SHA,
+            "MAIN_2_SHA": MAIN_2_SHA,
+            "FORK_SHA": FORK_SHA,
+            "MERGE_BASE_EXIT": "" if merge_base_exit is None else str(merge_base_exit),
+            "SHALLOW_REPOSITORY": shallow_repository,
+            "DIRTY_OUTPUT": dirty_output,
+            "FETCH_EXIT": str(fetch_exit),
+            "FETCH_CREATES_GRAFTS": "1" if fetch_creates_grafts else "0",
+            "GRAFTS_PATH": str(grafts_path),
+            "GIT_LOG": str(git_log),
             "GATE_LOG": str(gate_log),
             "IMAGE_REGISTRY": "ghcr.io/example/project",
-            "IMAGE_TAG": "sha-test",
+            "IMAGE_TAG": image_tag or f"sha-{deploy_sha[:7]}",
             "VPS_APP_DIR": str(app_dir),
             "GHCR_USERNAME": "ghcr-user",
             "GHCR_TOKEN_B64": base64.b64encode(b"test-ghcr-token").decode("ascii"),
+            "ghcr_token_b64": "must-not-remain-exported",
         }
     )
     result = subprocess.run(
@@ -160,7 +255,7 @@ esac
         check=False,
     )
     config_paths = mktemp_log.read_text(encoding="utf-8").splitlines()
-    return result, docker_log, gate_log, config_paths
+    return result, docker_log, gate_log, git_log, config_paths
 
 
 def _workflow_source() -> str:
@@ -394,12 +489,15 @@ def test_request_jobs_do_not_gate_or_execute_target_branch_code():
         ]
 
 
-def test_remote_deploy_decodes_stdin_token_and_clears_it():
+def test_remote_deploy_preserves_credential_and_git_boundary_contracts():
     source = REMOTE_DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
     assert 'GHCR_TOKEN_B64:?GHCR_TOKEN_B64 is required' in source
-    assert 'base64 --decode | docker login ghcr.io' in source
+    assert 'ghcr_token_b64="$GHCR_TOKEN_B64"' in source
     assert 'unset GHCR_TOKEN_B64' in source
+    assert 'export -n ghcr_token_b64' in source
+    assert 'printf \'%s\' "$ghcr_token_b64" | base64 --decode | docker login ghcr.io' in source
+    assert 'unset ghcr_token_b64' in source
     assert 'GHCR_TOKEN"' not in source
     assert 'docker_config_dir=""' in source
     assert 'docker_config_dir="$(mktemp -d)"' in source
@@ -410,13 +508,32 @@ def test_remote_deploy_decodes_stdin_token_and_clears_it():
     assert "trap 'exit 130' INT" in source
     assert "trap 'exit 143' TERM" in source
     assert 'trap - EXIT HUP INT TERM' in source
-    assert 'case "$DEPLOY_REF" in' in source
-    assert 'refs/tags/release-?*)' in source
-    assert 'git check-ref-format "$DEPLOY_REF"' in source
+    assert 'readonly DEPLOY_REF="refs/heads/main"' in source
+    assert 'readonly DEPLOY_REMOTE_REF="refs/remotes/origin/main"' in source
+    assert 'export GIT_NO_REPLACE_OBJECTS=1' in source
+    assert 'git --no-replace-objects rev-parse --git-path info/grafts' in source
+    assert '[[ -s "$grafts_path" ]]' in source
+    assert 'git --no-replace-objects fetch --no-tags origin "$DEPLOY_REF:$DEPLOY_REMOTE_REF"' in source
+    assert 'main_tip="$(git --no-replace-objects rev-parse --verify "$DEPLOY_REMOTE_REF^{commit}")"' in source
+    assert 'git --no-replace-objects cat-file -e "$DEPLOY_SHA^{commit}"' in source
+    assert 'git --no-replace-objects merge-base --is-ancestor "$DEPLOY_SHA" "$main_tip"' in source
+    assert 'git --no-replace-objects checkout --detach "$DEPLOY_SHA"' in source
+    assert "git rev-parse 'FETCH_HEAD^{commit}'" not in source
+    assert "refs/tags/release-" not in source
     assert '[[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]' in source
-    assert 'fetched_sha="$(git rev-parse \'FETCH_HEAD^{commit}\')"' in source
-    assert '[[ "$fetched_sha" != "$DEPLOY_SHA" ]]' in source
-    assert source.index('[[ "$fetched_sha" != "$DEPLOY_SHA" ]]') < source.index('run_gate "deploy')
+    assert '[[ ! "$IMAGE_TAG" =~ ^sha-[0-9a-f]{7}$ ]]' in source
+    assert 'expected_image_tag="sha-${DEPLOY_SHA:0:7}"' in source
+    assert '[[ "$IMAGE_TAG" != "$expected_image_tag" ]]' in source
+    assert source.index('unset GHCR_TOKEN_B64') < source.index(
+        'git --no-replace-objects status --porcelain'
+    )
+    assert source.index('git --no-replace-objects merge-base --is-ancestor') < source.index(
+        'git --no-replace-objects checkout --detach'
+    )
+    assert source.index('git --no-replace-objects checkout --detach') < source.index(
+        'docker login ghcr.io'
+    )
+    assert source.index('docker login ghcr.io') < source.index('run_gate "deploy')
 
 
 @pytest.mark.parametrize(
@@ -426,7 +543,7 @@ def test_remote_deploy_decodes_stdin_token_and_clears_it():
 def test_remote_deploy_cleans_docker_config_on_success_and_failures(
     tmp_path, docker_exit, chmod_exit, expected_returncode
 ):
-    result, docker_log, gate_log, config_paths = _remote_deploy_harness(
+    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
         tmp_path,
         docker_exit=docker_exit,
         chmod_exit=chmod_exit,
@@ -438,8 +555,15 @@ def test_remote_deploy_cleans_docker_config_on_success_and_failures(
     if chmod_exit == 0:
         docker_log_lines = docker_log.read_text(encoding="utf-8").splitlines()
         assert docker_log_lines == [config_paths[0], "700"]
+        git_log_lines = git_log.read_text(encoding="utf-8").splitlines()
+        assert git_log_lines[-1].endswith(f"checkout --detach {MAIN_2_SHA}")
+        assert all(
+            line.startswith("token=absent docker-auth=absent no-replace=1 | ")
+            for line in git_log_lines
+        )
     else:
         assert not docker_log.exists()
+        assert not git_log.exists()
 
     if docker_exit == 0 and chmod_exit == 0:
         assert gate_log.read_text(encoding="utf-8").splitlines() == ["deploy", "smoke"]
@@ -447,43 +571,208 @@ def test_remote_deploy_cleans_docker_config_on_success_and_failures(
         assert not gate_log.exists()
 
 
-def test_remote_deploy_accepts_only_main_or_release_tag(tmp_path):
-    result, docker_log, gate_log, config_paths = _remote_deploy_harness(
+def test_remote_deploy_uses_canonical_main_ref_and_accepts_main_tip(tmp_path):
+    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
         tmp_path,
-        deploy_ref="refs/tags/release-2026.08.09",
+        deploy_ref="refs/tags/release-attacker-selected",
+        deploy_sha=MAIN_2_SHA,
+        main_tip=MAIN_2_SHA,
     )
 
     assert result.returncode == 0
     assert docker_log.exists()
     assert gate_log.read_text(encoding="utf-8").splitlines() == ["deploy", "smoke"]
+    security_prefix = "token=absent docker-auth=absent no-replace=1 | "
+    git_prefix = "--no-replace-objects "
+    assert git_log.read_text(encoding="utf-8").splitlines() == [
+        security_prefix + git_prefix + "status --porcelain --untracked-files=all",
+        security_prefix + git_prefix + "rev-parse --git-path info/grafts",
+        security_prefix + git_prefix + "rev-parse --is-shallow-repository",
+        security_prefix
+        + git_prefix
+        + "fetch --no-tags origin refs/heads/main:refs/remotes/origin/main",
+        security_prefix + git_prefix + "rev-parse --git-path info/grafts",
+        security_prefix
+        + git_prefix
+        + "rev-parse --verify refs/remotes/origin/main^{commit}",
+        security_prefix + git_prefix + f"cat-file -e {MAIN_2_SHA}^{{commit}}",
+        security_prefix
+        + git_prefix
+        + f"merge-base --is-ancestor {MAIN_2_SHA} {MAIN_2_SHA}",
+        security_prefix + git_prefix + f"checkout --detach {MAIN_2_SHA}",
+    ]
     assert all(not Path(path).exists() for path in config_paths)
 
 
-@pytest.mark.parametrize("deploy_ref", ["feature/attacker", "main; touch /tmp/ci-contract-pwned"])
-def test_remote_deploy_rejects_untrusted_ref_before_login(tmp_path, deploy_ref):
-    result, docker_log, gate_log, config_paths = _remote_deploy_harness(
+def test_remote_deploy_accepts_an_old_main_ancestor_for_rollback(tmp_path):
+    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
         tmp_path,
-        deploy_ref=deploy_ref,
+        deploy_sha=MAIN_1_SHA,
+        main_tip=MAIN_2_SHA,
+    )
+
+    assert result.returncode == 0
+    assert docker_log.exists()
+    assert gate_log.read_text(encoding="utf-8").splitlines() == ["deploy", "smoke"]
+    git_commands = git_log.read_text(encoding="utf-8").splitlines()
+    assert any(
+        command.endswith(f"merge-base --is-ancestor {MAIN_1_SHA} {MAIN_2_SHA}")
+        for command in git_commands
+    )
+    assert any(command.endswith(f"checkout --detach {MAIN_1_SHA}") for command in git_commands)
+    assert all(not Path(path).exists() for path in config_paths)
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    (
+        ({"dirty_output": " M infra/scripts/deploy.sh\\n"}, "worktree is dirty"),
+        ({"shallow_repository": "true"}, "shallow VPS repository"),
+        ({"deploy_sha": MISSING_SHA}, "commit object is missing"),
+        ({"deploy_sha": FORK_SHA}, "not an ancestor"),
+        (
+            {"deploy_sha": FORK_SHA, "merge_base_exit": 128},
+            "unable to verify DEPLOY_SHA ancestry",
+        ),
+        ({"fetch_exit": 23}, ""),
+        (
+            {"grafts_content": f"{MAIN_2_SHA} {FORK_SHA}\\n"},
+            "legacy Git grafts are not allowed",
+        ),
+        (
+            {"fetch_creates_grafts": True},
+            "legacy Git grafts are not allowed",
+        ),
+    ),
+)
+def test_remote_deploy_rejects_untrusted_git_states_before_login_or_deploy(
+    tmp_path, options, message
+):
+    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
+        tmp_path,
+        main_tip=MAIN_2_SHA,
+        **options,
     )
 
     assert result.returncode != 0
-    assert "must be main or refs/tags/release-*" in result.stdout
+    if message:
+        assert message in result.stdout
     assert not docker_log.exists()
     assert not gate_log.exists()
+    assert "checkout --detach" not in git_log.read_text(encoding="utf-8")
     assert all(not Path(path).exists() for path in config_paths)
 
 
-def test_remote_deploy_rejects_fetch_sha_mismatch_before_deploy_gate(tmp_path):
-    result, docker_log, gate_log, config_paths = _remote_deploy_harness(
+def test_git_replace_and_legacy_grafts_can_rewrite_ancestry_without_remote_gates(
+    tmp_path,
+):
+    repository = tmp_path / "git-history"
+    repository.mkdir()
+
+    def git(*args: str, env: dict[str, str] | None = None, check: bool = True):
+        return subprocess.run(
+            ["git", *args],
+            cwd=repository,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=check,
+        )
+
+    git("init", "-q", ".")
+    git("config", "user.name", "CI contract test")
+    git("config", "user.email", "ci-contract@example.invalid")
+    history_file = repository / "history.txt"
+    history_file.write_text("main-1\n", encoding="utf-8")
+    git("add", "history.txt")
+    git("commit", "-q", "-m", "main 1")
+    git("branch", "-M", "main")
+    main_1 = git("rev-parse", "HEAD").stdout.strip()
+
+    history_file.write_text("main-2\n", encoding="utf-8")
+    git("commit", "-q", "-am", "main 2")
+    main_2 = git("rev-parse", "HEAD").stdout.strip()
+
+    git("checkout", "-q", "--orphan", "fork")
+    git("rm", "-q", "-rf", ".")
+    history_file.write_text("fork\n", encoding="utf-8")
+    git("add", "history.txt")
+    git("commit", "-q", "-m", "fork")
+    fork = git("rev-parse", "HEAD").stdout.strip()
+
+    assert git("merge-base", "--is-ancestor", main_1, main_2, check=False).returncode == 0
+    assert git("merge-base", "--is-ancestor", fork, main_2, check=False).returncode == 1
+
+    git("replace", "--graft", main_2, fork)
+    assert git("merge-base", "--is-ancestor", fork, main_2, check=False).returncode == 0
+    no_replace_env = os.environ.copy()
+    no_replace_env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    assert (
+        git(
+            "merge-base",
+            "--is-ancestor",
+            fork,
+            main_2,
+            env=no_replace_env,
+            check=False,
+        ).returncode
+        == 1
+    )
+    git("replace", "-d", main_2)
+
+    grafts_path = Path(git("rev-parse", "--git-path", "info/grafts").stdout.strip())
+    if not grafts_path.is_absolute():
+        grafts_path = repository / grafts_path
+    grafts_path.parent.mkdir(parents=True, exist_ok=True)
+    grafts_path.write_text(f"{main_2} {fork}\n", encoding="utf-8")
+    assert git("merge-base", "--is-ancestor", fork, main_2, check=False).returncode == 0
+    assert (
+        git(
+            "merge-base",
+            "--is-ancestor",
+            fork,
+            main_2,
+            env=no_replace_env,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+@pytest.mark.parametrize(
+    "image_tag",
+    ("latest", "prod-current", "sha-bbbbbbb", "main-aaaaaaa"),
+)
+def test_remote_deploy_rejects_mutable_or_mismatched_image_tags_before_git_or_login(
+    tmp_path, image_tag
+):
+    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
         tmp_path,
         deploy_sha="a" * 40,
-        fetched_sha="b" * 40,
+        image_tag=image_tag,
     )
 
     assert result.returncode != 0
-    assert "fetched commit does not match DEPLOY_SHA" in result.stdout
-    assert docker_log.exists()
+    assert "IMAGE_TAG" in result.stdout
+    assert not docker_log.exists()
     assert not gate_log.exists()
+    assert not git_log.exists()
+    assert all(not Path(path).exists() for path in config_paths)
+
+
+@pytest.mark.parametrize("deploy_sha", ("a" * 39, "A" * 40, "g" * 40))
+def test_remote_deploy_rejects_invalid_deploy_sha_before_git_or_login(tmp_path, deploy_sha):
+    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
+        tmp_path,
+        deploy_sha=deploy_sha,
+        image_tag="sha-aaaaaaa",
+    )
+
+    assert result.returncode != 0
+    assert "40-character lowercase commit SHA" in result.stdout
+    assert not docker_log.exists()
+    assert not gate_log.exists()
+    assert not git_log.exists()
     assert all(not Path(path).exists() for path in config_paths)
 
 
