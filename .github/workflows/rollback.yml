@@ -11,72 +11,71 @@ on:
           - staging
           - prod
       image_tag:
-        description: "Previous GHCR image tag to deploy"
+        description: "Immutable previous GHCR image tag, for example sha-abc1234"
         required: true
         type: string
-      git_ref:
-        description: "Git ref containing compatible deploy scripts"
-        required: false
-        default: "main"
+      deploy_sha:
+        description: "Full 40-character lowercase commit SHA for the image"
+        required: true
         type: string
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  rollback:
-    name: Rollback ${{ inputs.env }}
+  request:
+    name: Create rollback request
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ inputs.env == 'prod' && 'production' || 'staging' }}
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.git_ref }}
-
-      - name: Compute image metadata
-        id: meta
-        run: |
-          set -euo pipefail
-          repo_lc="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
-          {
-            echo "deploy_ref=${{ inputs.git_ref }}"
-            echo "deploy_sha=$(git rev-parse HEAD)"
-            echo "image_registry=ghcr.io/${repo_lc}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Roll back on VPS
+      - name: Validate request inputs
         env:
-          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          REQUEST_TYPE: rollback
           DEPLOY_ENV: ${{ inputs.env }}
-          DEPLOY_REF: ${{ steps.meta.outputs.deploy_ref }}
-          DEPLOY_SHA: ${{ steps.meta.outputs.deploy_sha }}
-          IMAGE_REGISTRY: ${{ steps.meta.outputs.image_registry }}
           IMAGE_TAG: ${{ inputs.image_tag }}
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
         run: |
           set -euo pipefail
-          bash .github/scripts/validate-deploy-env.sh
 
-          key_file="$(mktemp)"
-          trap 'rm -f "$key_file"' EXIT
-          bash .github/scripts/write-ssh-key.sh "$key_file"
+          case "$DEPLOY_ENV" in
+            staging|prod) ;;
+            *)
+              echo "env must be staging or prod" >&2
+              exit 1
+              ;;
+          esac
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "deploy_sha must be a full 40-character lowercase commit SHA" >&2
+            exit 1
+          }
+          [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{7}$ ]] || {
+            echo "image_tag must match the immutable sha-<7 lowercase hex> format" >&2
+            exit 1
+          }
+          expected_tag="sha-${DEPLOY_SHA:0:7}"
+          [[ "$IMAGE_TAG" == "$expected_tag" ]] || {
+            echo "image_tag must match the first seven characters of deploy_sha" >&2
+            exit 1
+          }
 
-          quote() { printf '%q' "$1"; }
-          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN")"
+          request_file="trusted-rollback-request.json"
+          jq -n \
+            --arg schema_version "trusted-deploy-request/v1" \
+            --arg request_type "$REQUEST_TYPE" \
+            --arg environment "$DEPLOY_ENV" \
+            --arg image_tag "$IMAGE_TAG" \
+            --arg deploy_sha "$DEPLOY_SHA" \
+            '{
+              schema_version: $schema_version,
+              request_type: $request_type,
+              environment: $environment,
+              image_tag: $image_tag,
+              deploy_sha: $deploy_sha
+            }' > "$request_file"
 
-          ssh -i "$key_file" -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
-            "$remote_env bash -s" < .github/scripts/remote-deploy.sh
-
-          {
-            echo "### Rollback"
-            echo "- env: \`${DEPLOY_ENV}\`"
-            echo "- code ref: \`${DEPLOY_REF}@${DEPLOY_SHA}\`"
-            echo "- image tag: \`${IMAGE_TAG}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload trusted rollback request
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusted-rollback-request
+          path: trusted-rollback-request.json
+          if-no-files-found: error
+          retention-days: 7

@@ -568,6 +568,7 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           DEPLOY_ENV: staging
@@ -578,17 +579,32 @@ jobs:
           RUN_STAGING_RUNTIME_PROOF: "1"
         run: |
           set -euo pipefail
+          umask 077
           bash .github/scripts/validate-deploy-env.sh
 
+          [[ -n "$VPS_KNOWN_HOSTS" ]] || { echo "VPS_KNOWN_HOSTS is required" >&2; exit 1; }
           key_file="$(mktemp)"
-          trap 'rm -f "$key_file"' EXIT
+          known_hosts_file="$(mktemp)"
+          token_file="$(mktemp)"
+          trap 'rm -f "$key_file" "$known_hosts_file" "$token_file"' EXIT
           bash .github/scripts/write-ssh-key.sh "$key_file"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$known_hosts_file"
+          chmod 600 "$known_hosts_file"
+          printf '%s' "$GHCR_TOKEN" | base64 -w0 > "$token_file"
+          unset GHCR_TOKEN
 
           quote() { printf '%q' "$1"; }
-          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN") RUN_STAGING_RUNTIME_PROOF=$(quote "$RUN_STAGING_RUNTIME_PROOF")"
+          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") RUN_STAGING_RUNTIME_PROOF=$(quote "$RUN_STAGING_RUNTIME_PROOF")"
 
-          ssh -i "$key_file" -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
-            "$remote_env bash -s" < .github/scripts/remote-deploy.sh
+          {
+            printf '%s\n' 'IFS= read -r GHCR_TOKEN_B64'
+            cat "$token_file"
+            printf '\n'
+            cat .github/scripts/remote-deploy.sh
+          } | ssh -i "$key_file" \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts_file" \
+            "$VPS_USER@$VPS_HOST" "$remote_env bash -s"
 
           {
             echo "### Staging deploy"

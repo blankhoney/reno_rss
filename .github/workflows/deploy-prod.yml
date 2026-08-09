@@ -4,88 +4,64 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "GHCR image tag to deploy, for example sha-abc1234"
+        description: "Immutable GHCR image tag, for example sha-abc1234"
+        required: true
+        type: string
+      deploy_sha:
+        description: "Full 40-character lowercase commit SHA for the image"
         required: true
         type: string
 
-permissions:
-  contents: read
-  packages: write
+permissions: {}
 
 jobs:
-  deploy:
-    name: Deploy to production
+  request:
+    name: Create production deploy request
     runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://ai-reader.blankhoney.xyz
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Compute image metadata
-        id: meta
-        run: |
-          set -euo pipefail
-          repo_lc="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
-          {
-            echo "deploy_ref=${GITHUB_REF_NAME}"
-            echo "deploy_sha=${GITHUB_SHA}"
-            echo "image_registry=ghcr.io/${repo_lc}"
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Tag current production images
+      - name: Validate request inputs
         env:
-          IMAGE_REGISTRY: ${{ steps.meta.outputs.image_registry }}
-          IMAGE_TAG: ${{ inputs.image_tag }}
-        run: |
-          set -euo pipefail
-          for image in ai-reader-web ai-reader-api ai-reader-worker; do
-            docker buildx imagetools create \
-              -t "${IMAGE_REGISTRY}/${image}:prod-current" \
-              "${IMAGE_REGISTRY}/${image}:${IMAGE_TAG}"
-          done
-
-      - name: Deploy production on VPS
-        env:
-          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          REQUEST_TYPE: deploy
           DEPLOY_ENV: prod
-          DEPLOY_REF: ${{ steps.meta.outputs.deploy_ref }}
-          DEPLOY_SHA: ${{ steps.meta.outputs.deploy_sha }}
-          IMAGE_REGISTRY: ${{ steps.meta.outputs.image_registry }}
           IMAGE_TAG: ${{ inputs.image_tag }}
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
         run: |
           set -euo pipefail
-          bash .github/scripts/validate-deploy-env.sh
 
-          key_file="$(mktemp)"
-          trap 'rm -f "$key_file"' EXIT
-          bash .github/scripts/write-ssh-key.sh "$key_file"
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "deploy_sha must be a full 40-character lowercase commit SHA" >&2
+            exit 1
+          }
+          [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{7}$ ]] || {
+            echo "image_tag must match the immutable sha-<7 lowercase hex> format" >&2
+            exit 1
+          }
+          expected_tag="sha-${DEPLOY_SHA:0:7}"
+          [[ "$IMAGE_TAG" == "$expected_tag" ]] || {
+            echo "image_tag must match the first seven characters of deploy_sha" >&2
+            exit 1
+          }
 
-          quote() { printf '%q' "$1"; }
-          remote_env="DEPLOY_ENV=$(quote "$DEPLOY_ENV") DEPLOY_REF=$(quote "$DEPLOY_REF") DEPLOY_SHA=$(quote "$DEPLOY_SHA") IMAGE_REGISTRY=$(quote "$IMAGE_REGISTRY") IMAGE_TAG=$(quote "$IMAGE_TAG") VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME") GHCR_TOKEN=$(quote "$GHCR_TOKEN")"
+          request_file="trusted-deploy-request.json"
+          jq -n \
+            --arg schema_version "trusted-deploy-request/v1" \
+            --arg request_type "$REQUEST_TYPE" \
+            --arg environment "$DEPLOY_ENV" \
+            --arg image_tag "$IMAGE_TAG" \
+            --arg deploy_sha "$DEPLOY_SHA" \
+            '{
+              schema_version: $schema_version,
+              request_type: $request_type,
+              environment: $environment,
+              image_tag: $image_tag,
+              deploy_sha: $deploy_sha
+            }' > "$request_file"
 
-          ssh -i "$key_file" -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
-            "$remote_env bash -s" < .github/scripts/remote-deploy.sh
-
-          {
-            echo "### Production deploy"
-            echo "- code ref: \`${DEPLOY_REF}@${DEPLOY_SHA}\`"
-            echo "- image tag: \`${IMAGE_TAG}\`"
-            echo "- url: https://ai-reader.blankhoney.xyz"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload trusted deploy request
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusted-production-deploy-request
+          path: trusted-deploy-request.json
+          if-no-files-found: error
+          retention-days: 7
