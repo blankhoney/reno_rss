@@ -1,13 +1,19 @@
 """Static regression locks for the GitHub Actions CI delivery boundary."""
 
 import base64
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
+import struct
 import subprocess
+import sys
 from typing import Any
+import zipfile
 
 import pytest
 
@@ -485,3 +491,464 @@ def test_deploy_validation_requires_known_hosts_secret():
     source = VALIDATE_DEPLOY_ENV_SCRIPT.read_text(encoding="utf-8")
 
     assert '"VPS_KNOWN_HOSTS:VPS_KNOWN_HOSTS"' in source
+
+
+VALIDATE_TRUSTED_REQUEST_SCRIPT = (
+    REPOSITORY_ROOT / ".github/scripts/validate-trusted-deploy-request.py"
+)
+_VALIDATOR_SPEC = importlib.util.spec_from_file_location(
+    "validate_trusted_deploy_request", VALIDATE_TRUSTED_REQUEST_SCRIPT
+)
+if _VALIDATOR_SPEC is None or _VALIDATOR_SPEC.loader is None:
+    raise RuntimeError("unable to load trusted request validator")
+trusted_request_validator = importlib.util.module_from_spec(_VALIDATOR_SPEC)
+_VALIDATOR_SPEC.loader.exec_module(trusted_request_validator)
+
+
+def _valid_trusted_request(
+    *, request_type: str = "deploy", environment: str | None = None
+) -> dict[str, str]:
+    deploy_sha = "a" * 40
+    return {
+        "schema_version": "trusted-deploy-request/v1",
+        "request_type": request_type,
+        "environment": environment or ("staging" if request_type == "deploy" else "prod"),
+        "image_tag": "sha-aaaaaaa",
+        "deploy_sha": deploy_sha,
+    }
+
+
+def _trusted_request_zip(
+    request: dict[str, str],
+    *,
+    member_name: str = "trusted-deploy-request.json",
+    extra_member: bool = False,
+    symlink: bool = False,
+    oversized: bool = False,
+    corrupt_crc: bool = False,
+    encrypted: bool = False,
+    dos_directory: bool = False,
+    extra_entries: int = 0,
+    central_extra_bytes: int = 0,
+    central_file_size: int | None = None,
+    central_compress_size: int | None = None,
+    compression: int = zipfile.ZIP_DEFLATED,
+    corrupt_deflate: bool = False,
+) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        info = zipfile.ZipInfo(member_name)
+        info.compress_type = compression
+        if symlink:
+            info.create_system = 3
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        if dos_directory:
+            info.external_attr |= 0x10
+        if central_extra_bytes:
+            info.extra = b"x" * central_extra_bytes
+        payload = (
+            b"x" * (64 * 1024 + 1)
+            if oversized
+            else json.dumps(request).encode("utf-8")
+        )
+        archive.writestr(info, payload)
+        if extra_member:
+            archive.writestr("extra.txt", b"ignored")
+        for index in range(extra_entries):
+            extra_info = zipfile.ZipInfo(f"extra-{index}.txt")
+            extra_info.compress_type = zipfile.ZIP_DEFLATED
+            if central_extra_bytes:
+                extra_info.extra = b"x" * central_extra_bytes
+            archive.writestr(extra_info, b"ignored")
+
+    archive_bytes = bytearray(output.getvalue())
+    central_directory = archive_bytes.index(bytes.fromhex("504b0102"))
+    local_header = archive_bytes.index(bytes.fromhex("504b0304"))
+    if corrupt_deflate:
+        filename_size, extra_size = struct.unpack_from("<HH", archive_bytes, local_header + 26)
+        data_offset = local_header + 30 + filename_size + extra_size
+        archive_bytes[data_offset] ^= 0xFF
+    if corrupt_crc:
+        archive_bytes[central_directory + 16] ^= 0x01
+    if central_file_size is not None:
+        struct.pack_into("<L", archive_bytes, central_directory + 24, central_file_size)
+    if central_compress_size is not None:
+        struct.pack_into("<L", archive_bytes, central_directory + 20, central_compress_size)
+    if encrypted:
+        struct.pack_into("<H", archive_bytes, central_directory + 8, 0x1)
+        struct.pack_into("<H", archive_bytes, local_header + 6, 0x1)
+    return bytes(archive_bytes)
+
+
+def test_trusted_request_validator_accepts_deploy_and_rollback_and_normalizes_output(
+    tmp_path, capsys
+):
+    for request_type, filename in (
+        ("deploy", "trusted-deploy-request.json"),
+        ("rollback", "trusted-rollback-request.json"),
+    ):
+        request = _valid_trusted_request(request_type=request_type, environment="staging")
+        json_path = tmp_path / filename
+        json_path.write_text(json.dumps(dict(reversed(list(request.items())))), encoding="utf-8")
+
+        assert trusted_request_validator.validate_request_file(json_path) == request
+        assert trusted_request_validator.main([str(json_path)]) == 0
+        assert capsys.readouterr().out == (
+            json.dumps(request, ensure_ascii=True, separators=(",", ":")) + "\n"
+        )
+
+        zip_path = tmp_path / f"{request_type}.zip"
+        zip_path.write_bytes(_trusted_request_zip(request, member_name=filename))
+        assert trusted_request_validator.validate_request_zip(zip_path) == request
+        assert trusted_request_validator.main(["--artifact-zip", str(zip_path)]) == 0
+        assert capsys.readouterr().out == (
+            json.dumps(request, ensure_ascii=True, separators=(",", ":")) + "\n"
+        )
+
+
+@pytest.mark.parametrize(
+    ("label", "payload", "message"),
+    (
+        (
+            "extra-key",
+            {**_valid_trusted_request(), "unexpected": "value"},
+            "request JSON keys do not match the trusted request schema",
+        ),
+        (
+            "wrong-type",
+            {**_valid_trusted_request(), "image_tag": 123},
+            "request fields must be non-empty strings",
+        ),
+        (
+            "unsupported-schema",
+            {**_valid_trusted_request(), "schema_version": "trusted-deploy-request/v2"},
+            "unsupported trusted request schema",
+        ),
+        (
+            "invalid-request-type",
+            {**_valid_trusted_request(), "request_type": "promote"},
+            "request_type must be deploy or rollback",
+        ),
+        (
+            "invalid-environment",
+            {**_valid_trusted_request(), "environment": "qa"},
+            "environment must be staging or prod",
+        ),
+        (
+            "bad-sha",
+            {**_valid_trusted_request(), "deploy_sha": "A" * 40},
+            "deploy_sha must be a 40-character lowercase hexadecimal SHA",
+        ),
+        (
+            "bad-tag",
+            {**_valid_trusted_request(), "image_tag": "sha-zzzzzzz"},
+            "image_tag must use the sha-<7 lowercase hexadecimal> format",
+        ),
+        (
+            "mismatch",
+            {**_valid_trusted_request(), "deploy_sha": "b" * 40},
+            "image_tag must match the deploy_sha prefix",
+        ),
+        (
+            "control-character",
+            {**_valid_trusted_request(), "schema_version": "trusted-deploy-request/v1\n"},
+            "request fields must not contain control characters",
+        ),
+        (
+            "empty-value",
+            {**_valid_trusted_request(), "environment": ""},
+            "request fields must be non-empty strings",
+        ),
+    ),
+)
+def test_trusted_request_validator_rejects_invalid_json_contract(
+    label, payload, message
+):
+    del label
+    with pytest.raises(trusted_request_validator.RequestValidationError, match=message):
+        trusted_request_validator.validate_request_bytes(json.dumps(payload).encode("utf-8"))
+
+
+@pytest.mark.parametrize(
+    ("label", "payload", "message"),
+    (
+        (
+            "duplicate-key",
+            b'{"schema_version":"trusted-deploy-request/v1","schema_version":"trusted-deploy-request/v1"}',
+            "request JSON contains duplicate keys",
+        ),
+        (
+            "nonstandard-number",
+            b'{"schema_version":"trusted-deploy-request/v1","request_type":"deploy","environment":"staging","image_tag":NaN,"deploy_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}',
+            "request JSON contains a non-standard number",
+        ),
+        ("invalid-utf8", b"\xff", "request JSON must be UTF-8"),
+        ("non-object", b"[]", "request JSON must be an object"),
+    ),
+)
+def test_trusted_request_validator_rejects_invalid_json_encoding(
+    label, payload, message
+):
+    del label
+    with pytest.raises(trusted_request_validator.RequestValidationError, match=message):
+        trusted_request_validator.validate_request_bytes(payload)
+
+
+@pytest.mark.parametrize(
+    ("label", "member_name", "extra_member", "symlink", "oversized", "corrupt_crc", "message"),
+    (
+        (
+            "extra",
+            "trusted-deploy-request.json",
+            True,
+            False,
+            False,
+            False,
+            "request artifact must contain exactly one file",
+        ),
+        (
+            "traversal",
+            "../trusted-deploy-request.json",
+            False,
+            False,
+            False,
+            False,
+            "archive member path must not contain parent traversal",
+        ),
+        (
+            "absolute",
+            "/trusted-deploy-request.json",
+            False,
+            False,
+            False,
+            False,
+            "archive member path must not be absolute",
+        ),
+        (
+            "backslash",
+            "trusted-deploy-request.json\\nested",
+            False,
+            False,
+            False,
+            False,
+            "archive member path must not contain backslashes",
+        ),
+        (
+            "directory",
+            "trusted-deploy-request.json/",
+            False,
+            False,
+            False,
+            False,
+            "request artifact must not contain a directory",
+        ),
+        (
+            "symlink",
+            "trusted-deploy-request.json",
+            False,
+            True,
+            False,
+            False,
+            "request artifact must contain a regular file",
+        ),
+        (
+            "size",
+            "trusted-deploy-request.json",
+            False,
+            False,
+            True,
+            False,
+            "archive member has an invalid uncompressed size",
+        ),
+        (
+            "crc",
+            "trusted-deploy-request.json",
+            False,
+            False,
+            False,
+            True,
+            "archive member failed integrity checks",
+        ),
+    ),
+)
+def test_trusted_request_validator_rejects_unsafe_zip_artifacts(
+    tmp_path,
+    label,
+    member_name,
+    extra_member,
+    symlink,
+    oversized,
+    corrupt_crc,
+    message,
+):
+    zip_path = tmp_path / f"{label}.zip"
+    zip_path.write_bytes(
+        _trusted_request_zip(
+            _valid_trusted_request(),
+            member_name=member_name,
+            extra_member=extra_member,
+            symlink=symlink,
+            oversized=oversized,
+            corrupt_crc=corrupt_crc,
+        )
+    )
+
+    with pytest.raises(trusted_request_validator.RequestValidationError, match=message):
+        trusted_request_validator.validate_request_zip(zip_path)
+
+
+# zipfile enforces ZipInfo.file_size while reading; oversized declarations fail before
+# the defensive post-read expansion check, so this suite does not claim that branch.
+@pytest.mark.parametrize(
+    ("label", "options", "message"),
+    (
+        (
+            "dos-directory",
+            {"dos_directory": True},
+            "request artifact must not contain a directory",
+        ),
+        (
+            "encrypted",
+            {"encrypted": True},
+            "request artifact must not contain an encrypted file",
+        ),
+        (
+            "corrupt-deflate",
+            {"corrupt_deflate": True},
+            "archive member failed integrity checks",
+        ),
+        (
+            "unsupported-lzma",
+            {"compression": zipfile.ZIP_LZMA},
+            "archive member uses an unsupported compression method",
+        ),
+        (
+            "compressed-size-mismatch",
+            {"central_compress_size": 0},
+            "archive member failed integrity checks",
+        ),
+        (
+            "uncompressed-size-mismatch",
+            {"central_file_size": 1},
+            "archive member failed integrity checks",
+        ),
+        (
+            "filename-type-mismatch",
+            {"member_name": "trusted-rollback-request.json"},
+            "request filename does not match request_type",
+        ),
+    ),
+)
+def test_trusted_request_validator_rejects_zip_metadata_and_type_mismatches(
+    tmp_path, label, options, message
+):
+    zip_path = tmp_path / f"{label}.zip"
+    zip_path.write_bytes(_trusted_request_zip(_valid_trusted_request(), **options))
+
+    with pytest.raises(trusted_request_validator.RequestValidationError, match=message):
+        trusted_request_validator.validate_request_zip(zip_path)
+
+
+def test_trusted_request_validator_rejects_archive_resource_limits():
+    with pytest.raises(
+        trusted_request_validator.RequestValidationError,
+        match="request artifact exceeds the archive size limit",
+    ):
+        trusted_request_validator.validate_request_zip_bytes(b"x" * (1024 * 1024 + 1))
+
+    too_many_entries = _trusted_request_zip(_valid_trusted_request(), extra_entries=17)
+    with pytest.raises(
+        trusted_request_validator.RequestValidationError,
+        match="request artifact has too many entries",
+    ):
+        trusted_request_validator.validate_request_zip_bytes(too_many_entries)
+
+    oversized_central_directory = _trusted_request_zip(
+        _valid_trusted_request(), extra_entries=15, central_extra_bytes=5000
+    )
+    with pytest.raises(
+        trusted_request_validator.RequestValidationError,
+        match="central directory exceeds the size limit",
+    ):
+        trusted_request_validator.validate_request_zip_bytes(oversized_central_directory)
+
+
+def test_trusted_request_validator_rejects_invalid_zip_bytes_and_supports_stdin(
+    monkeypatch, capsys
+):
+    with pytest.raises(
+        trusted_request_validator.RequestValidationError,
+        match="request artifact is not a valid ZIP archive",
+    ):
+        trusted_request_validator.validate_request_zip_bytes(b"not a ZIP")
+
+    request = _valid_trusted_request()
+    stdin = type("BinaryStdin", (), {"buffer": io.BytesIO(json.dumps(request).encode())})()
+    monkeypatch.setattr(trusted_request_validator.sys, "stdin", stdin)
+    assert trusted_request_validator.main([]) == 0
+    assert json.loads(capsys.readouterr().out) == request
+
+
+def test_trusted_request_validator_bounds_plain_json_file_reads(tmp_path):
+    request_path = tmp_path / "oversized.json"
+    request_path.write_bytes(b"x" * (64 * 1024 + 1))
+
+    with pytest.raises(
+        trusted_request_validator.RequestValidationError,
+        match="request JSON exceeds the size limit or cannot be read",
+    ):
+        trusted_request_validator.validate_request_file(request_path)
+
+
+def test_trusted_request_validator_rejects_unsafe_path_inputs_without_blocking(
+    tmp_path,
+):
+    if not all(hasattr(os, attribute) for attribute in ("O_NOFOLLOW", "mkfifo", "symlink")):
+        pytest.skip("safe path primitives are unavailable on this platform")
+
+    request = _valid_trusted_request()
+    json_target = tmp_path / "request.json"
+    json_target.write_text(json.dumps(request), encoding="utf-8")
+    zip_target = tmp_path / "request.zip"
+    zip_target.write_bytes(_trusted_request_zip(request))
+
+    symlink_json = tmp_path / "request-link.json"
+    symlink_json.symlink_to(json_target)
+    symlink_zip = tmp_path / "request-link.zip"
+    symlink_zip.symlink_to(zip_target)
+    fifo_json = tmp_path / "request.pipe"
+    os.mkfifo(fifo_json)
+    directory = tmp_path / "request-directory"
+    directory.mkdir()
+
+    def assert_rejected_without_traceback(args: list[str], path: Path) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(VALIDATE_TRUSTED_REQUEST_SCRIPT),
+                *args,
+                str(path),
+            ],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+        assert result.returncode != 0
+        assert result.stdout == ""
+        assert result.stderr.startswith("error:")
+        assert "Traceback" not in result.stderr
+
+    try:
+        for args, path in (
+            ([], symlink_json),
+            (["--artifact-zip"], symlink_zip),
+            ([], fifo_json),
+            (["--artifact-zip"], fifo_json),
+            ([], directory),
+            (["--artifact-zip"], directory),
+        ):
+            assert_rejected_without_traceback(args, path)
+    finally:
+        fifo_json.unlink()
