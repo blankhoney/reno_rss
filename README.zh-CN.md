@@ -102,7 +102,7 @@ infra/
   scripts/         GitHub Actions 远程部署辅助脚本
 ```
 
-公开架构和交付说明见 [TECHNICAL.zh-CN.md](TECHNICAL.zh-CN.md) 与 [SPEC-CICD.zh-CN.md](SPEC-CICD.zh-CN.md)。`docs/` 下的本地学习笔记和运行手册刻意不进入 Git。
+公开架构和交付说明见 [TECHNICAL.zh-CN.md](TECHNICAL.zh-CN.md) 与 [SPEC-CICD.zh-CN.md](SPEC-CICD.zh-CN.md)。`docs/` 下的本地学习笔记和其他本地运营材料继续被忽略；active operator runbook [`docs/runbooks/deploy.md`](docs/runbooks/deploy.md) 和 [`docs/runbooks/rollback.md`](docs/runbooks/rollback.md) 已 tracked，并是当前 request-only 指引。
 
 ## 快速开始
 
@@ -203,16 +203,19 @@ git diff --check
 
 ## 部署
 
-部署脚本支持 `staging` 和 `prod`：
+当前三个手工部署 workflow 是 request-only。GitHub 仍从用户选定的 dispatch ref 加载 workflow YAML，但 request job 不 checkout 或执行目标 repository code、不读取部署 secret、不申请 environment 审批、不 SSH 到 VPS，也不执行 `infra/scripts/deploy.sh` / `rollback.sh`。负责消费 artifact 并执行携带 secret 部署的 trusted orchestrator 尚未启用，因此创建 request 不会自动部署或回滚环境；未来 orchestrator 必须先校验 workflow-run/ref/artifact provenance。
 
-```bash
-bash infra/scripts/deploy.sh staging sha-xxxxxxx
-bash infra/scripts/deploy.sh prod sha-xxxxxxx
-```
+常规 staging 路径仍是 `ci.yml` 在检查和镜像发布后的 `main` push 路径。不要把直接 SSH 或 `infra/scripts/deploy.sh` / `rollback.sh` 命令当作 request 的常规替代；这些命令只作为归档的授权 break-glass 知识，必须另有事故授权。
 
-production 部署是手动且受保护的。生产路径必须在 migration 前完成备份 gate；除非故障明确是 schema/data 损坏，否则先回滚镜像，再考虑数据库恢复。
+手工 request 输入：
 
-部署后 smoke：
+- `deploy-staging.yml` 和 `deploy-prod.yml`：`image_tag` 加匹配的完整 40 位小写 `deploy_sha`。
+- `rollback.yml`：`env`（`staging` 或 `prod`）、`image_tag` 和匹配的完整 `deploy_sha`。
+- `image_tag` 必须是 `sha-<7 位小写十六进制>`，并匹配 `deploy_sha` 前七位。不接受 `git_ref`。
+
+每个 request artifact 使用固定的 `trusted-deploy-request/v1` schema，且只含 `schema_version`、`request_type`、`environment`、`image_tag` 和 `deploy_sha`。固定 artifact 名称为 `trusted-staging-deploy-request`、`trusted-production-deploy-request` 和 `trusted-rollback-request`。artifact 是数据，不能执行其内容。
+
+只有在独立的 trusted path 报告部署确实完成后，才运行 smoke 检查；这些命令不会部署：
 
 ```bash
 bash infra/scripts/smoke-test.sh staging
@@ -221,10 +224,10 @@ bash infra/scripts/smoke-test.sh prod
 
 GitHub Actions 提供：
 
-- `ci.yml`：API 测试/lint、worker 测试/lint、OpenAPI 导出和 typed-client drift 检查、Alembic upgrade、reader-web 测试/构建、Compose 校验、部署脚本检查、Docker build、显式 Trivy 漏洞/secret 扫描、GHCR 镜像发布，以及同仓库 PR 和 `main` push 的 staging 部署。
-- `deploy-staging.yml`：按镜像 tag 手动部署 staging。
-- `deploy-prod.yml`：通过 `production` environment 手动部署 production。
-- `rollback.yml`：按旧 GHCR image tag 回滚 staging/prod。
+- `ci.yml`：API 测试/lint、worker 测试/lint、OpenAPI 导出和 typed-client drift 检查、Alembic upgrade、reader-web 测试/构建、Compose 校验、部署脚本检查、Docker build、显式 Trivy 漏洞/secret 扫描、GHCR 镜像发布，以及常规 staging 部署路径。
+- `deploy-staging.yml`：按 immutable image tag 和完整 deploy SHA 创建 staging request。
+- `deploy-prod.yml`：创建 production request；只有 trusted orchestrator 启用并应用 `production` 审批后才会部署。
+- `rollback.yml`：按 immutable image tag 和完整 deploy SHA 创建 staging/prod rollback request。
 
 完整交付行为见 [SPEC-CICD.zh-CN.md](SPEC-CICD.zh-CN.md)。
 

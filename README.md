@@ -102,7 +102,7 @@ infra/
   scripts/         GitHub Actions remote deploy helpers
 ```
 
-Public architecture and delivery notes live in [TECHNICAL.md](TECHNICAL.md) and [SPEC-CICD.md](SPEC-CICD.md). Local learning notes and operator runbooks under `docs/` are intentionally kept outside Git.
+Public architecture and delivery notes live in [TECHNICAL.md](TECHNICAL.md) and [SPEC-CICD.md](SPEC-CICD.md). Local learning notes and other local operations material under `docs/` remain ignored; the active operator runbooks [`docs/runbooks/deploy.md`](docs/runbooks/deploy.md) and [`docs/runbooks/rollback.md`](docs/runbooks/rollback.md) are tracked current request-only guides.
 
 ## Quick Start
 
@@ -203,16 +203,19 @@ git diff --check
 
 ## Deployment
 
-Deploy scripts support `staging` and `prod`:
+The current manual deployment workflows are request-only. GitHub loads their workflow YAML from the user-selected dispatch ref, but the request job does not checkout or execute target repository code, read deployment secrets, request an environment approval, SSH to a VPS, or execute `infra/scripts/deploy.sh` / `rollback.sh`. The trusted orchestrator that would consume these artifacts and perform secret-bearing deployment is not enabled, so creating a request does not deploy or roll back an environment; any future orchestrator must verify workflow-run/ref/artifact provenance first.
 
-```bash
-bash infra/scripts/deploy.sh staging sha-xxxxxxx
-bash infra/scripts/deploy.sh prod sha-xxxxxxx
-```
+The normal staging path remains the `ci.yml` main-push path after checks and image publication. Do not use direct SSH or `infra/scripts/deploy.sh` / `rollback.sh` commands as a routine substitute for a request. Those commands are archived break-glass knowledge only and require separate incident authorization.
 
-Production deploys are manual and protected. The production path must run the backup gate before migrations and should roll back the image before restoring a database backup unless the failure is schema or data damage.
+Manual request inputs:
 
-Post-deploy smoke:
+- `deploy-staging.yml` and `deploy-prod.yml`: `image_tag` plus the matching full 40-character lowercase `deploy_sha`.
+- `rollback.yml`: `env` (`staging` or `prod`), `image_tag`, and the matching full `deploy_sha`.
+- `image_tag` must be `sha-<7 lowercase hexadecimal characters>` and match the first seven characters of `deploy_sha`. `git_ref` is not accepted.
+
+Each request artifact uses the fixed `trusted-deploy-request/v1` schema with exactly `schema_version`, `request_type`, `environment`, `image_tag`, and `deploy_sha`. Fixed artifact names are `trusted-staging-deploy-request`, `trusted-production-deploy-request`, and `trusted-rollback-request`. The artifact is data and must not be executed.
+
+Run smoke checks only after an independent trusted path reports that deployment actually completed; these commands do not deploy:
 
 ```bash
 bash infra/scripts/smoke-test.sh staging
@@ -221,10 +224,10 @@ bash infra/scripts/smoke-test.sh prod
 
 GitHub Actions provide:
 
-- `ci.yml`: API tests/lint, worker tests/lint, OpenAPI export and typed-client drift check, Alembic upgrade, reader-web tests/build, Compose validation, deploy-script checks, Docker builds, explicit Trivy vulnerability/secret scanning, GHCR image publish, and staging deploy for same-repository PRs and `main` pushes.
-- `deploy-staging.yml`: manual staging deploy by image tag.
-- `deploy-prod.yml`: manual production deploy through the `production` environment.
-- `rollback.yml`: staging/prod rollback to a previous GHCR image tag.
+- `ci.yml`: API tests/lint, worker tests/lint, OpenAPI export and typed-client drift check, Alembic upgrade, reader-web tests/build, Compose validation, deploy-script checks, Docker builds, explicit Trivy vulnerability/secret scanning, GHCR image publication, and the normal staging deployment path.
+- `deploy-staging.yml`: manual staging request by immutable image tag and full deploy SHA.
+- `deploy-prod.yml`: manual production request; no deployment occurs until a trusted orchestrator is enabled and applies the `production` approval.
+- `rollback.yml`: staging/prod rollback request by immutable image tag and full deploy SHA.
 
 Full delivery behavior is specified in [SPEC-CICD.md](SPEC-CICD.md).
 
