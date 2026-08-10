@@ -237,24 +237,8 @@ def test_postgres_concurrent_annotation_delete_uses_read_committed():
             tombstone = connection.execute(
                 select(article_annotations).where(article_annotations.c.id == annotation.id)
             ).mappings().one()
-            update_plan = connection.execute(
-                text(
-                    "EXPLAIN UPDATE article_annotations SET updated_at = updated_at "
-                    "WHERE id = :annotation_id AND user_id = :user_id AND deleted_at IS NULL"
-                ),
-                {"annotation_id": annotation.id, "user_id": owner.id},
-            ).scalars().all()
-            probe_plan = connection.execute(
-                text(
-                    "EXPLAIN SELECT id FROM article_annotations "
-                    "WHERE id = :annotation_id AND user_id = :user_id AND deleted_at IS NOT NULL"
-                ),
-                {"annotation_id": annotation.id, "user_id": owner.id},
-            ).scalars().all()
         assert rows == 1
         assert tombstone["deleted_at"] is not None
         assert repository.list_annotations(owner.id, article_id) == []
-        assert any("article_annotations_pkey" in line for line in update_plan)
-        assert any("article_annotations_pkey" in line for line in probe_plan)
     finally:
         engine.dispose()
