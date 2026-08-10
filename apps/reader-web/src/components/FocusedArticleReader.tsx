@@ -23,6 +23,7 @@ import {
   type ThemeItem,
 } from "@/lib/api/intel";
 import { applyHighlightMarksWithResolution } from "@/lib/articles/highlights";
+import type { ArticleAnnotationAnchor } from "@/lib/articles/annotationAnchor";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
 import { readCraftPreferences } from "@/lib/craft/preferences";
 import { moveCommandIndex } from "@/lib/commandPalette";
@@ -123,6 +124,20 @@ type RelatedItem = { kind: RelatedKind; label: string; href: string };
 type RelatedErrors = Record<RelatedKind, string | null>;
 type RelatedLoading = Record<RelatedKind, boolean>;
 
+type NoteSubmissionSnapshot = {
+  articleId: number;
+  selectionRevision: number;
+  draftRevision: number;
+  rawDraft: string;
+  payload: {
+    content: string;
+    selectedText: string | null;
+    color: string | null;
+    tags: string[];
+    anchor?: ArticleAnnotationAnchor;
+  };
+};
+
 function relatedItemsForArticle(articleId: number, themes: ThemeItem[], clusters: ClusterItem[]): RelatedItem[] {
   const next: RelatedItem[] = [];
   for (const theme of themes) {
@@ -182,14 +197,23 @@ export function FocusedArticleReader({
   const [dualArticle, setDualArticle] = useState<Article | null>(null);
   const [dualArticleError, setDualArticleError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
+  const [pendingNoteRequestSeq, setPendingNoteRequestSeq] = useState<number | null>(null);
+  const [retryNoteSubmission, setRetryNoteSubmission] = useState<NoteSubmissionSnapshot | null>(null);
   const [highlightColor, setHighlightColor] = useState("yellow");
   const [highlightTags, setHighlightTags] = useState("");
   const [bilingual, setBilingual] = useState(false);
   const [annotations, setAnnotations] = useState<ArticleAnnotation[]>([]);
   const [annotationsError, setAnnotationsError] = useState<string | null>(null);
   const [annotationSaveError, setAnnotationSaveError] = useState<string | null>(null);
+  const noteRequestSeqRef = useRef(0);
+  const pendingNoteRequestRef = useRef<{ seq: number; snapshot: NoteSubmissionSnapshot } | null>(null);
+  const noteDraftRevisionRef = useRef(0);
+  const noteOwnerMountedRef = useRef(false);
   const retryAnnotationSaveRef = useRef<(() => void) | null>(null);
   const retryAnnotationSelectionRevisionRef = useRef<number | null>(null);
+  const annotationArticleIdRef = useRef(article.id);
+  annotationArticleIdRef.current = article.id;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -226,7 +250,17 @@ export function FocusedArticleReader({
     clearSelection,
   } = useArticleSelection(articleRef, focusContentRef);
   const selectionRevisionRef = useRef(selectionRevision);
+  const noteDraftRef = useRef(noteDraft);
+  const highlightColorRef = useRef(highlightColor);
+  const highlightTagsRef = useRef(highlightTags);
+  const selectedTextRef = useRef(selectedText);
+  const settledAnchorRef = useRef<typeof settledAnchor>(settledAnchor);
   selectionRevisionRef.current = selectionRevision;
+  noteDraftRef.current = noteDraft;
+  highlightColorRef.current = highlightColor;
+  highlightTagsRef.current = highlightTags;
+  selectedTextRef.current = selectedText;
+  settledAnchorRef.current = settledAnchor;
   useEffect(() => {
     if (
       retryAnnotationSelectionRevisionRef.current != null &&
@@ -236,6 +270,9 @@ export function FocusedArticleReader({
       retryAnnotationSaveRef.current = null;
       setAnnotationSaveError(null);
     }
+    setRetryNoteSubmission((current) =>
+      current != null && current.selectionRevision !== selectionRevision ? null : current,
+    );
   }, [selectionRevision]);
   const revealedAnswer = typewriter.revealed;
   const answerVisible = revealedAnswer.trim().length > 0 || typewriter.isRevealing;
@@ -346,6 +383,99 @@ export function FocusedArticleReader({
 
   useEffect(() => reloadAnnotations(), [reloadAnnotations]);
 
+  function ownsNoteAttempt(seq: number, snapshot: NoteSubmissionSnapshot): boolean {
+    return (
+      noteOwnerMountedRef.current &&
+      annotationArticleIdRef.current === snapshot.articleId &&
+      pendingNoteRequestRef.current?.seq === seq
+    );
+  }
+
+  async function submitNoteSnapshot(snapshot: NoteSubmissionSnapshot) {
+    if (!noteOwnerMountedRef.current || pendingNoteRequestRef.current != null) return;
+    if (
+      annotationArticleIdRef.current !== snapshot.articleId ||
+      selectionRevisionRef.current !== snapshot.selectionRevision
+    ) {
+      return;
+    }
+
+    const seq = noteRequestSeqRef.current + 1;
+    noteRequestSeqRef.current = seq;
+    pendingNoteRequestRef.current = { seq, snapshot };
+    setPendingNoteRequestSeq(seq);
+
+    try {
+      const created = await createArticleAnnotation(snapshot.articleId, snapshot.payload);
+      if (!ownsNoteAttempt(seq, snapshot)) return;
+      setAnnotations((current) => [created, ...current]);
+      setNoteSaveError(null);
+      setRetryNoteSubmission(null);
+      if (noteDraftRevisionRef.current === snapshot.draftRevision) {
+        setNoteDraft("");
+        noteDraftRef.current = "";
+      }
+      emitToast({ title: "笔记已保存", variant: "success" });
+    } catch (error) {
+      if (!ownsNoteAttempt(seq, snapshot)) return;
+      const message = error instanceof Error ? error.message : "笔记保存失败";
+      setNoteSaveError(message);
+      if (selectionRevisionRef.current === snapshot.selectionRevision) {
+        setRetryNoteSubmission(snapshot);
+      } else {
+        setRetryNoteSubmission(null);
+      }
+      emitToast({ title: message, variant: "error" });
+    } finally {
+      if (!ownsNoteAttempt(seq, snapshot)) return;
+      pendingNoteRequestRef.current = null;
+      setPendingNoteRequestSeq(null);
+    }
+  }
+
+  function saveNoteAnnotation() {
+    if (!noteOwnerMountedRef.current || pendingNoteRequestRef.current != null) return;
+    const rawDraft = noteDraftRef.current;
+    const content = rawDraft.trim();
+    if (!content) {
+      setNoteSaveError("笔记内容不能为空");
+      setRetryNoteSubmission(null);
+      return;
+    }
+    const anchor = settledAnchorRef.current;
+    const snapshot: NoteSubmissionSnapshot = {
+      articleId: article.id,
+      selectionRevision: selectionRevisionRef.current,
+      draftRevision: noteDraftRevisionRef.current,
+      rawDraft,
+      payload: {
+        content,
+        selectedText: selectedTextRef.current.trim() || null,
+        color: highlightColorRef.current || null,
+        tags: highlightTagsRef.current
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        anchor: anchor == null ? undefined : { ...anchor },
+      },
+    };
+    setNoteSaveError(null);
+    setRetryNoteSubmission(null);
+    void submitNoteSnapshot(snapshot);
+  }
+
+  function retryNoteAnnotation(snapshot: NoteSubmissionSnapshot) {
+    if (
+      !noteOwnerMountedRef.current ||
+      pendingNoteRequestRef.current != null ||
+      annotationArticleIdRef.current !== snapshot.articleId ||
+      selectionRevisionRef.current !== snapshot.selectionRevision
+    ) {
+      return;
+    }
+    void submitNoteSnapshot(snapshot);
+  }
+
   const related = useMemo(
     () => relatedItemsForArticle(article.id, relatedThemes, relatedClusters),
     [article.id, relatedClusters, relatedThemes],
@@ -390,6 +520,14 @@ export function FocusedArticleReader({
 
   useEffect(() => {
     askAbortRef.current?.abort();
+    noteRequestSeqRef.current += 1;
+    pendingNoteRequestRef.current = null;
+    setPendingNoteRequestSeq(null);
+    setRetryNoteSubmission(null);
+    setNoteSaveError(null);
+    setNoteDraft("");
+    noteDraftRef.current = "";
+    noteDraftRevisionRef.current += 1;
     setTranslatedHtml(article.contentZh ?? null);
     setShowTranslation(false);
     showTranslationWhenReadyRef.current = false;
@@ -416,7 +554,11 @@ export function FocusedArticleReader({
   }, [article.contentZh]);
 
   useEffect(() => {
+    noteOwnerMountedRef.current = true;
     return () => {
+      noteOwnerMountedRef.current = false;
+      noteRequestSeqRef.current += 1;
+      pendingNoteRequestRef.current = null;
       askAbortRef.current?.abort();
     };
   }, []);
@@ -1007,52 +1149,35 @@ export function FocusedArticleReader({
               className="agentQuestion"
               rows={12}
               value={noteDraft}
-              onChange={(event) => setNoteDraft(event.target.value)}
+              onChange={(event) => {
+                const nextDraft = event.target.value;
+                noteDraftRevisionRef.current += 1;
+                noteDraftRef.current = nextDraft;
+                setNoteDraft(nextDraft);
+              }}
               placeholder="边读边记…"
             />
             <button
               type="button"
               className="readerToolbarBtn readerToolbarBtnPrimary"
-              disabled={noteDraft.trim().length === 0}
-              onClick={() => {
-                const save = () => {
-                  void createArticleAnnotation(article.id, {
-                    content: noteDraft.trim(),
-                    selectedText: selectedText || null,
-                    color: highlightColor,
-                    anchor: settledAnchor ?? undefined,
-                  })
-                    .then((created) => {
-                      setAnnotations((current) => [created, ...current]);
-                      setNoteDraft("");
-                      setAnnotationSaveError(null);
-                      retryAnnotationSaveRef.current = null;
-                      retryAnnotationSelectionRevisionRef.current = null;
-                      emitToast({ title: "笔记已保存", variant: "success" });
-                    })
-                    .catch((error) => {
-                      const message = error instanceof Error ? error.message : "笔记保存失败";
-                      setAnnotationSaveError(message);
-                      retryAnnotationSaveRef.current = save;
-                      retryAnnotationSelectionRevisionRef.current = null;
-                      emitToast({ title: message, variant: "error" });
-                    });
-                };
-                save();
-              }}
+              disabled={noteDraft.trim().length === 0 || pendingNoteRequestSeq != null}
+              onClick={saveNoteAnnotation}
             >
-              保存笔记
+              {pendingNoteRequestSeq != null ? "保存中…" : "保存笔记"}
             </button>
-            {annotationSaveError ? (
+            {noteSaveError ? (
               <p className="adminConsoleError" role="alert">
-                {annotationSaveError}
-                <button
-                  type="button"
-                  className="readerToolbarBtn"
-                  onClick={() => retryAnnotationSaveRef.current?.()}
-                >
-                  重试保存
-                </button>
+                {noteSaveError}
+                {retryNoteSubmission ? (
+                  <button
+                    type="button"
+                    className="readerToolbarBtn"
+                    disabled={pendingNoteRequestSeq != null}
+                    onClick={() => retryNoteAnnotation(retryNoteSubmission)}
+                  >
+                    {pendingNoteRequestSeq != null ? "保存中…" : "重试原提交"}
+                  </button>
+                ) : null}
               </p>
             ) : null}
           </aside>

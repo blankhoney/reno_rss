@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -196,4 +197,37 @@ test("FocusedArticleReader renders a pending translation alert", () => {
   assert.match(html, /译文：生成中/);
   assert.match(html, /focusTranslationAlertPending/);
   assert.match(html, /focusTranslationSpinner/);
+});
+
+test("FocusedArticleReader note submission uses immutable ownership snapshots", () => {
+  const source = readFileSync(new URL("./FocusedArticleReader.tsx", import.meta.url), "utf8");
+  const submitStart = source.indexOf("async function submitNoteSnapshot");
+  const saveStart = source.indexOf("function saveNoteAnnotation", submitStart);
+  const retryStart = source.indexOf("function retryNoteAnnotation", saveStart);
+  const retryEnd = source.indexOf("const related = useMemo", retryStart);
+  assert.ok(submitStart >= 0 && saveStart > submitStart && retryStart > saveStart && retryEnd > retryStart);
+  const submitSource = source.slice(submitStart, saveStart);
+  const retrySource = source.slice(retryStart, retryEnd);
+
+  assert.match(source, /type NoteSubmissionSnapshot = \{[\s\S]*articleId: number;[\s\S]*selectionRevision: number;[\s\S]*draftRevision: number;[\s\S]*rawDraft: string;[\s\S]*payload:/);
+  assert.match(source, /const snapshot: NoteSubmissionSnapshot = \{[\s\S]*articleId: article\.id,[\s\S]*selectionRevision: selectionRevisionRef\.current,[\s\S]*draftRevision: noteDraftRevisionRef\.current,[\s\S]*rawDraft,[\s\S]*content,[\s\S]*selectedText: selectedTextRef\.current\.trim\(\) \|\| null,[\s\S]*tags: highlightTagsRef\.current/);
+  assert.doesNotMatch(submitSource, /noteDraftRef\.current\.trim|selectedTextRef|highlightColorRef|highlightTagsRef|settledAnchorRef/);
+  assert.match(source, /pendingNoteRequestRef\.current = \{ seq, snapshot \};\s+setPendingNoteRequestSeq\(seq\);/);
+  assert.match(source, /if \(!noteOwnerMountedRef\.current \|\| pendingNoteRequestRef\.current != null\) return;/);
+  assert.equal((source.match(/if \(!ownsNoteAttempt\(seq, snapshot\)\) return;/g) ?? []).length, 3);
+  assert.match(source, /noteOwnerMountedRef\.current &&[\s\S]*annotationArticleIdRef\.current === snapshot\.articleId &&[\s\S]*pendingNoteRequestRef\.current\?\.seq === seq/);
+  assert.match(source, /noteDraftRevisionRef\.current === snapshot\.draftRevision/);
+  assert.match(source, /setRetryNoteSubmission\(snapshot\)/);
+  assert.match(source, /selectionRevisionRef\.current === snapshot\.selectionRevision/);
+  assert.doesNotMatch(retrySource, /setNoteSaveError\(null\)|setRetryNoteSubmission\(null\)/);
+  assert.match(source, /retryNoteSubmission \? \([\s\S]*disabled=\{pendingNoteRequestSeq != null\}[\s\S]*pendingNoteRequestSeq != null \? "保存中…" : "重试原提交"/);
+  assert.match(source, /noteDraftRevisionRef\.current \+= 1;\s+noteDraftRef\.current = nextDraft;/);
+});
+
+test("FocusedArticleReader invalidates note ownership on selection, article change, and unmount", () => {
+  const source = readFileSync(new URL("./FocusedArticleReader.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /setRetryNoteSubmission\(\(current\) =>[\s\S]*current\.selectionRevision !== selectionRevision \? null : current/);
+  assert.match(source, /noteRequestSeqRef\.current \+= 1;\s+pendingNoteRequestRef\.current = null;\s+setPendingNoteRequestSeq\(null\);\s+setRetryNoteSubmission\(null\);\s+setNoteSaveError\(null\);\s+setNoteDraft\(""\);/);
+  assert.match(source, /noteOwnerMountedRef\.current = true;\s+return \(\) => \{\s+noteOwnerMountedRef\.current = false;\s+noteRequestSeqRef\.current \+= 1;\s+pendingNoteRequestRef\.current = null;/);
 });

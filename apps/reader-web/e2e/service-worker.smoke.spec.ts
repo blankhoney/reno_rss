@@ -843,6 +843,306 @@ test("annotation save 503 shows explicit retry and recovers without losing the s
   await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
 });
 
+test("dual-pane note submission prevents duplicate POST and preserves an ABA-edited draft", async ({ page }) => {
+  await resetFixtures(page);
+  await enableNotesDualPane(page);
+  let postCount = 0;
+  const submitted: Record<string, unknown>[] = [];
+  let releaseFirst!: () => void;
+  const firstResponseHeld = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    submitted.push(route.request().postDataJSON() as Record<string, unknown>);
+    if (postCount === 1) await firstResponseHeld;
+    await route.fallback();
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  const notes = page.locator('aside[aria-label="笔记双栏"]');
+  const textarea = notes.getByPlaceholder("边读边记…");
+  const saveButton = notes.getByRole("button", { name: "保存笔记" });
+  await textarea.fill("ABA 笔记");
+  await saveButton.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+
+  await expect.poll(() => postCount).toBe(1);
+  await expect(notes.getByRole("button", { name: "保存中…" })).toBeDisabled();
+  await page.waitForTimeout(100);
+  expect(postCount).toBe(1);
+
+  await textarea.fill("中间草稿");
+  await textarea.fill("ABA 笔记");
+  releaseFirst();
+
+  await expect(page.getByText("笔记已保存", { exact: true })).toBeVisible();
+  await expect(textarea).toHaveValue("ABA 笔记");
+  await expect(notes.getByRole("button", { name: "保存笔记" })).toBeEnabled();
+  expect(submitted[0]?.content).toBe("ABA 笔记");
+
+  await notes.getByRole("button", { name: "保存笔记" }).click();
+  await expect.poll(() => postCount).toBe(2);
+  await expect(textarea).toHaveValue("");
+  expect(submitted[1]?.content).toBe("ABA 笔记");
+
+  const persistedResponse = await page.request.get("/api/articles/7/annotations");
+  expect(persistedResponse.ok()).toBe(true);
+  const persisted = (await persistedResponse.json()) as {
+    items: Array<{ id: number; content: string }>;
+  };
+  expect(
+    persisted.items
+      .filter((item) => item.content === "ABA 笔记")
+      .map((item) => item.id),
+  ).toEqual([60, 61]);
+});
+
+test("dual-pane note retry resubmits the immutable failed snapshot", async ({ page }) => {
+  await resetFixtures(page);
+  await enableNotesDualPane(page);
+  const submitted: Record<string, unknown>[] = [];
+  let releaseRetry!: () => void;
+  const retryResponseHeld = new Promise<void>((resolve) => {
+    releaseRetry = resolve;
+  });
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    submitted.push(route.request().postDataJSON() as Record<string, unknown>);
+    if (submitted.length === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } }),
+      });
+      return;
+    }
+    await retryResponseHeld;
+    await route.fallback();
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  const notes = page.locator('aside[aria-label="笔记双栏"]');
+  const textarea = notes.getByPlaceholder("边读边记…");
+  await textarea.fill("原提交笔记");
+  await notes.getByRole("button", { name: "保存笔记" }).click();
+  await expect(notes.getByRole("button", { name: "重试原提交" })).toBeVisible();
+
+  await textarea.fill("失败后新笔记");
+  await notes.getByRole("button", { name: "重试原提交" }).click();
+
+  await expect.poll(() => submitted.length).toBe(2);
+  const retryAlert = notes.getByRole("alert");
+  const pendingRetryButton = retryAlert.getByRole("button", { name: "保存中…" });
+  await expect(pendingRetryButton).toBeVisible();
+  await expect(pendingRetryButton).toBeDisabled();
+  await expect(retryAlert).toContainText("标注保存暂不可用，请重试。");
+  expect(submitted[1]).toEqual(submitted[0]);
+  expect(submitted[0]?.content).toBe("原提交笔记");
+  expect(submitted[0]?.selected_text).toBeNull();
+  expect(submitted[0]?.color).toBe("yellow");
+  expect(submitted[0]?.tags).toEqual([]);
+  expect(submitted[0]?.anchor).toBeUndefined();
+  await expect(textarea).toHaveValue("失败后新笔记");
+
+  releaseRetry();
+  await expect(page.getByText("笔记已保存", { exact: true })).toBeVisible();
+  await expect(notes.getByRole("alert")).toHaveCount(0);
+  await expect(notes.getByRole("button", { name: "重试原提交" })).toHaveCount(0);
+
+  const persistedResponse = await page.request.get("/api/articles/7/annotations");
+  expect(persistedResponse.ok()).toBe(true);
+  const persisted = (await persistedResponse.json()) as {
+    items: Array<{ id: number; content: string }>;
+  };
+  expect(
+    persisted.items
+      .filter((item) => item.content === "原提交笔记")
+      .map((item) => item.id),
+  ).toEqual([60]);
+});
+
+test("new selection reactively removes a failed dual-pane note retry but keeps its error", async ({ page }) => {
+  await resetFixtures(page);
+  await enableNotesDualPane(page);
+  let postCount = 0;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    if (postCount === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await waitForSettledFocusReader(page);
+  await selectReaderText(page);
+  const notes = page.locator('aside[aria-label="笔记双栏"]');
+  const textarea = notes.getByPlaceholder("边读边记…");
+  await textarea.fill("selection-bound retry");
+  await notes.getByRole("button", { name: "保存笔记" }).click();
+  await expect(notes.getByRole("button", { name: "重试原提交" })).toBeVisible();
+  const error = notes.getByRole("alert");
+  await expect(error).toContainText("标注保存暂不可用，请重试。");
+
+  await page.keyboard.press("Escape");
+  await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
+  await expect(notes.getByRole("button", { name: "重试原提交" })).toHaveCount(0);
+  await expect(error).toContainText("标注保存暂不可用，请重试。");
+  expect(postCount).toBe(1);
+  await expect(textarea).toHaveValue("selection-bound retry");
+
+  await notes.getByRole("button", { name: "保存笔记" }).click();
+  await expect.poll(() => postCount).toBe(2);
+  await expect(textarea).toHaveValue("");
+});
+
+test("a delayed dual-pane note failure cannot install retry after selection revision changes", async ({ page }) => {
+  await resetFixtures(page);
+  await enableNotesDualPane(page);
+  let postCount = 0;
+  let releaseFailure!: () => void;
+  const failureHeld = new Promise<void>((resolve) => {
+    releaseFailure = resolve;
+  });
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    await failureHeld;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "annotation_unavailable", message: "延迟失败" } }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await waitForSettledFocusReader(page);
+  await selectReaderText(page);
+  const notes = page.locator('aside[aria-label="笔记双栏"]');
+  const textarea = notes.getByPlaceholder("边读边记…");
+  await textarea.fill("delayed failure note");
+  await notes.getByRole("button", { name: "保存笔记" }).click();
+  await expect.poll(() => postCount).toBe(1);
+
+  await page.keyboard.press("Escape");
+  await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
+  releaseFailure();
+
+  await expect(notes.getByRole("alert")).toContainText("延迟失败");
+  await expect(notes.getByRole("button", { name: "重试原提交" })).toHaveCount(0);
+  await expect(textarea).toHaveValue("delayed failure note");
+  expect(postCount).toBe(1);
+});
+
+test("client navigation unmounts the old note owner without hiding its persisted server result", async ({ page }) => {
+  await resetFixtures(page);
+  await enableNotesDualPane(page);
+  let postCount = 0;
+  let firstPostCompleted = false;
+  let releaseArticleSeven!: () => void;
+  const articleSevenPostHeld = new Promise<void>((resolve) => {
+    releaseArticleSeven = resolve;
+  });
+
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    await articleSevenPostHeld;
+    await route.fallback();
+    firstPostCompleted = true;
+  });
+
+  await page.goto("/read/7?module=search&filter=all&sort=default&lang=zh&q=fast");
+  const articleSevenNotes = page.locator('aside[aria-label="笔记双栏"]');
+  await articleSevenNotes.getByPlaceholder("边读边记…").fill("held A7 note");
+  await articleSevenNotes.getByRole("button", { name: "保存笔记" }).click();
+  await expect.poll(() => postCount).toBe(1);
+
+  await page.getByRole("link", { name: "返回工作台" }).click();
+  await expect(page).toHaveURL(/module=search.*q=fast/);
+  await expect(page.locator('aside[aria-label="笔记双栏"]')).toHaveCount(0);
+  await page.evaluate(() => {
+    const state = window as Window & { __sawFocusArticleSkeleton?: boolean };
+    state.__sawFocusArticleSkeleton = document.querySelector(".focusArticleSkeleton") != null;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector(".focusArticleSkeleton") != null) {
+        state.__sawFocusArticleSkeleton = true;
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  });
+  const fastResult = page.getByRole("link", { name: "Fast search result" }).first();
+  await expect(fastResult).toBeVisible();
+  await fastResult.click();
+  await expect(page).toHaveURL(/\/read\/9\?/);
+  await expect(page.getByRole("heading", { name: "Fast search result" })).toBeVisible();
+  await expect.poll(() =>
+    page.evaluate(() =>
+      Boolean((window as Window & { __sawFocusArticleSkeleton?: boolean }).__sawFocusArticleSkeleton),
+    ),
+  ).toBe(true);
+  const articleNineNotes = page.locator('aside[aria-label="笔记双栏"]');
+  const articleNineDraft = articleNineNotes.getByPlaceholder("边读边记…");
+  await expect(articleNineDraft).toHaveValue("");
+  await articleNineDraft.fill("article 9 local draft");
+
+  releaseArticleSeven();
+  await expect.poll(() => firstPostCompleted).toBe(true);
+  await expect(articleNineDraft).toHaveValue("article 9 local draft");
+  await expect(articleNineNotes.getByText("held A7 note", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("笔记已保存", { exact: true })).toHaveCount(0);
+  await expect(articleNineNotes.getByRole("alert")).toHaveCount(0);
+  await expect(articleNineNotes.getByRole("button", { name: "重试原提交" })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "返回工作台" }).click();
+  await page.getByRole("link", { name: "最新", exact: true }).click();
+  const articleSevenLink = page.getByRole("link", { name: /Keyboard article one/ }).first();
+  await expect(articleSevenLink).toBeVisible();
+  await articleSevenLink.click();
+  const returnedNotes = page.locator('aside[aria-label="笔记双栏"]');
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect(returnedNotes.getByPlaceholder("边读边记…")).toHaveValue("");
+
+  const persistedResponse = await page.request.get("/api/articles/7/annotations");
+  expect(persistedResponse.ok()).toBe(true);
+  const persisted = (await persistedResponse.json()) as {
+    items: Array<{ id: number; content: string }>;
+  };
+  expect(
+    persisted.items
+      .filter((item) => item.content === "held A7 note")
+      .map((item) => item.id),
+  ).toEqual([60]);
+});
+
 test("new selection invalidates a stale annotation retry after save failure", async ({ page }) => {
   await resetFixtures(page);
   let postCount = 0;
