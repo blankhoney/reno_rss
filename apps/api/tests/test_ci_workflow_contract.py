@@ -2023,6 +2023,108 @@ def test_trusted_provenance_rejects_provenance_and_publication_failures(mutation
         )
 
 
+def test_postgres_performance_artifacts_separate_main_baseline_from_pr_candidate():
+    workflow = _load_workflow(CI_WORKFLOW)
+    steps = workflow["jobs"]["checks"]["steps"]
+    baseline = next(step for step in steps if step.get("name") == "Upload canonical-main PostgreSQL performance baseline")
+    candidate = next(step for step in steps if step.get("name") == "Upload PR PostgreSQL performance candidate")
+
+    assert baseline["uses"] == "actions/upload-artifact@v4"
+    assert baseline["with"] == {
+        "name": "db-postgres-performance-baseline-main",
+        "path": "output/performance/db-postgres-ci.json",
+        "if-no-files-found": "error",
+        "retention-days": 90,
+    }
+    assert "github.event_name == 'push'" in baseline["if"]
+    assert "github.ref == 'refs/heads/main'" in baseline["if"]
+    assert "github.repository == 'blankhoney/reno_rss'" in baseline["if"]
+    assert candidate["with"]["name"] == "db-postgres-performance-candidate"
+    assert candidate["with"]["retention-days"] == 14
+    assert candidate["if"] == "${{ github.event_name == 'pull_request' && !cancelled() }}"
+
+
+def test_postgres_performance_resolver_replaces_run_only_download_selector():
+    workflow = _load_workflow(CI_WORKFLOW)
+    steps = workflow["jobs"]["checks"]["steps"]
+    resolver_step = next(
+        step for step in steps if step.get("name") == "Resolve trusted canonical-main PostgreSQL baseline"
+    )
+    compare = next(step for step in steps if step.get("name") == "Compare PostgreSQL performance baseline")
+    source = _workflow_source()
+
+    assert resolver_step["env"] == {
+        "GITHUB_TOKEN": "${{ github.token }}",
+        "GITHUB_API_URL": "${{ github.api_url }}",
+    }
+    command = resolver_step["run"]
+    assert ".github/scripts/resolve-performance-baseline.py" in command
+    assert "--repository \"$GITHUB_REPOSITORY\"" in command
+    assert "--repository-id \"$GITHUB_REPOSITORY_ID\"" in command
+    assert "--trust-config .github/scripts/trusted-workflow-ids.json" in command
+    assert "--artifact-name db-postgres-performance-baseline-main" in command
+    assert "--github-output \"$GITHUB_OUTPUT\"" in command
+    assert "actions/download-artifact" not in source
+    assert "per_page: 1" not in source
+    assert compare["if"] == "${{ steps.performance_baseline.outputs.mode == 'comparison' }}"
+    assert "--max-regression 3" in compare["run"]
+
+
+def test_postgres_performance_producer_receives_attempt_scoped_identity():
+    workflow = _load_workflow(CI_WORKFLOW)
+    producer_step = next(
+        step
+        for step in workflow["jobs"]["checks"]["steps"]
+        if step.get("name") == "Run PostgreSQL performance baseline"
+    )
+    assert producer_step["env"] == {
+        "DB_PERF_DATABASE_URL": "postgres://postgres:postgres@localhost:5432/postgres",
+        "GITHUB_RUN_ID": "${{ github.run_id }}",
+        "GITHUB_RUN_ATTEMPT": "${{ github.run_attempt }}",
+        "GITHUB_SHA": "${{ github.sha }}",
+    }
+
+
+def test_postgres_comparison_and_bootstrap_outputs_cannot_be_confused():
+    workflow = _load_workflow(CI_WORKFLOW)
+    steps = workflow["jobs"]["checks"]["steps"]
+    comparison = next(step for step in steps if step.get("name") == "Upload PostgreSQL performance comparison")
+    bootstrap = next(step for step in steps if step.get("name") == "Upload PostgreSQL performance bootstrap status")
+    summary = next(step for step in steps if step.get("name") == "Summarize PostgreSQL performance baseline")
+
+    assert comparison["if"] == "${{ steps.performance_baseline.outputs.mode == 'comparison' && !cancelled() }}"
+    assert comparison["with"]["retention-days"] == 90
+    assert "db-postgres-comparison.json" in comparison["with"]["path"]
+    assert "provenance.json" in comparison["with"]["path"]
+    assert bootstrap["if"] == "${{ steps.performance_baseline.outputs.mode == 'bootstrap' && !cancelled() }}"
+    assert bootstrap["with"]["name"] == "db-postgres-performance-bootstrap-status"
+    assert bootstrap["with"]["path"] == "output/performance/main-baseline/provenance.json"
+    assert "no regression comparison was possible" in summary["run"]
+
+
+def test_performance_freshness_workflow_is_read_only_and_uses_expires_at_resolver():
+    path = REPOSITORY_ROOT / ".github/workflows/performance-baseline-freshness.yml"
+    workflow = _load_workflow(path)
+    assert workflow["permissions"] == {"actions": "read", "contents": "read"}
+    assert "schedule" in workflow["on"]
+    steps = workflow["jobs"]["freshness"]["steps"]
+    checkout = steps[0]
+    assert checkout["uses"] == "actions/checkout@v4"
+    assert checkout["with"] == {
+        "ref": "refs/heads/main",
+        "persist-credentials": False,
+        "fetch-depth": 1,
+    }
+    command = steps[1]["run"]
+    assert "--freshness-threshold-days 14" in command
+    source = path.read_text(encoding="utf-8")
+    assert "upload-artifact" not in source
+    assert "download-artifact" not in source
+    assert "issues: write" not in source
+    assert "actions: write" not in source
+    assert "contents: write" not in source
+
+
 def test_checked_in_trust_config_registers_canonical_workflow_ids():
     trust = json.loads(
         (REPOSITORY_ROOT / ".github/scripts/trusted-workflow-ids.json").read_text(encoding="utf-8")
@@ -2052,3 +2154,7 @@ def test_checked_in_trust_config_registers_canonical_workflow_ids():
         "name": "ci",
         "id": 274785172,
     }
+    resolver_source = (
+        REPOSITORY_ROOT / ".github/scripts/resolve-performance-baseline.py"
+    ).read_text(encoding="utf-8")
+    assert "trust config ci_workflow.id is not registered" in resolver_source

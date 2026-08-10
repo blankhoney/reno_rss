@@ -7,13 +7,11 @@ import math
 import os
 from pathlib import Path
 import platform
-import subprocess
 from time import perf_counter_ns
 
 from sqlalchemy import create_engine, text
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 QUERIES = [
     (
         "latest-articles",
@@ -83,19 +81,6 @@ def summarize(values: list[float]) -> dict[str, float]:
     }
 
 
-def current_revision() -> str:
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=REPOSITORY_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "UNKNOWN"
-
-
 def normalize_database_url(value: str) -> str:
     if value.startswith("postgres://"):
         return f"postgresql+psycopg://{value.removeprefix('postgres://')}"
@@ -104,12 +89,30 @@ def normalize_database_url(value: str) -> str:
     return value
 
 
+def github_producer_identity() -> tuple[int, int, str]:
+    run_id_raw = os.environ.get("GITHUB_RUN_ID", "")
+    run_attempt_raw = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    head_sha = os.environ.get("GITHUB_SHA", "")
+    if not run_id_raw.isdigit() or int(run_id_raw) < 1:
+        raise ValueError("GITHUB_RUN_ID must be a positive integer")
+    if not run_attempt_raw.isdigit() or int(run_attempt_raw) < 1:
+        raise ValueError("GITHUB_RUN_ATTEMPT must be a positive integer")
+    if len(head_sha) != 40 or any(character not in "0123456789abcdef" for character in head_sha):
+        raise ValueError("GITHUB_SHA must be a 40-character lowercase commit SHA")
+    return int(run_id_raw), int(run_attempt_raw), head_sha
+
+
 def base_report(arguments: argparse.Namespace) -> dict[str, object]:
+    run_id, run_attempt, head_sha = github_producer_identity()
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "generatedAt": datetime.now(UTC).isoformat(),
+        "producer": {
+            "runId": run_id,
+            "runAttempt": run_attempt,
+        },
         "candidate": {
-            "localGitRevision": current_revision(),
+            "localGitRevision": head_sha,
             "runtime": "read-only PostgreSQL",
         },
         "environment": {

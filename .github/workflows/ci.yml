@@ -150,49 +150,56 @@ jobs:
         working-directory: apps/worker
         env:
           DB_PERF_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_SHA: ${{ github.sha }}
         run: >-
           uv run --isolated --with-editable . --extra dev
           python scripts/db-performance-baseline.py
           --iterations 5 --warmups 1
           --output ../../output/performance/db-postgres-ci.json
 
-      - name: Upload PostgreSQL performance baseline
-        if: ${{ !cancelled() }}
+      - name: Upload canonical-main PostgreSQL performance baseline
+        if: >-
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          github.repository == 'blankhoney/reno_rss' &&
+          !cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: db-postgres-performance-baseline
+          name: db-postgres-performance-baseline-main
           path: output/performance/db-postgres-ci.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload PR PostgreSQL performance candidate
+        if: ${{ github.event_name == 'pull_request' && !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-postgres-performance-candidate
+          path: output/performance/db-postgres-ci.json
+          if-no-files-found: error
           retention-days: 14
 
-      - name: Find latest successful main baseline
-        id: main_baseline
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { data } = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: "ci.yml",
-              branch: "main",
-              status: "success",
-              per_page: 1,
-            });
-            const run = data.workflow_runs[0];
-            if (!run) {
-              core.setFailed("no successful main CI run is available for the PostgreSQL baseline comparison");
-              return;
-            }
-            core.setOutput("run-id", String(run.id));
-
-      - name: Download latest successful main baseline
-        uses: actions/download-artifact@v4
-        with:
-          name: db-postgres-performance-baseline
-          path: output/performance/main-baseline
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.main_baseline.outputs.run-id }}
+      - name: Resolve trusted canonical-main PostgreSQL baseline
+        id: performance_baseline
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+        run: >-
+          python .github/scripts/resolve-performance-baseline.py
+          --repository "$GITHUB_REPOSITORY"
+          --repository-id "$GITHUB_REPOSITORY_ID"
+          --trust-config .github/scripts/trusted-workflow-ids.json
+          --artifact-name db-postgres-performance-baseline-main
+          --output output/performance/main-baseline/db-postgres-ci.json
+          --provenance-output output/performance/main-baseline/provenance.json
+          --event-name "$GITHUB_EVENT_NAME"
+          --ref "$GITHUB_REF"
+          --github-output "$GITHUB_OUTPUT"
 
       - name: Compare PostgreSQL performance baseline
+        if: ${{ steps.performance_baseline.outputs.mode == 'comparison' }}
         run: >-
           python infra/scripts/check-performance-baseline.py
           --baseline output/performance/main-baseline/db-postgres-ci.json
@@ -201,12 +208,49 @@ jobs:
           --output output/performance/db-postgres-comparison.json
 
       - name: Upload PostgreSQL performance comparison
-        if: ${{ !cancelled() }}
+        if: ${{ steps.performance_baseline.outputs.mode == 'comparison' && !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: db-postgres-performance-comparison
-          path: output/performance/db-postgres-comparison.json
-          retention-days: 14
+          path: |
+            output/performance/db-postgres-comparison.json
+            output/performance/main-baseline/provenance.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload PostgreSQL performance bootstrap status
+        if: ${{ steps.performance_baseline.outputs.mode == 'bootstrap' && !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-postgres-performance-bootstrap-status
+          path: output/performance/main-baseline/provenance.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Summarize PostgreSQL performance baseline
+        if: ${{ !cancelled() }}
+        env:
+          BASELINE_MODE: ${{ steps.performance_baseline.outputs.mode }}
+          BASELINE_RUN_ID: ${{ steps.performance_baseline.outputs.run_id }}
+          BASELINE_RUN_ATTEMPT: ${{ steps.performance_baseline.outputs.run_attempt }}
+          BASELINE_HEAD_SHA: ${{ steps.performance_baseline.outputs.head_sha }}
+          BASELINE_ARTIFACT_ID: ${{ steps.performance_baseline.outputs.artifact_id }}
+          BASELINE_EXPIRES_AT: ${{ steps.performance_baseline.outputs.expires_at }}
+          BASELINE_DIGEST: ${{ steps.performance_baseline.outputs.digest }}
+        run: |
+          {
+            echo "### PostgreSQL performance baseline"
+            echo "- mode: \`${BASELINE_MODE}\`"
+            if [[ "$BASELINE_MODE" == "bootstrap" ]]; then
+              echo "- BOOTSTRAP: two complete stable enumerations found no trusted baseline; no regression comparison was possible"
+            else
+              echo "- run: \`${BASELINE_RUN_ID}\` attempt \`${BASELINE_RUN_ATTEMPT}\`"
+              echo "- head SHA: \`${BASELINE_HEAD_SHA}\`"
+              echo "- artifact: \`${BASELINE_ARTIFACT_ID}\`"
+              echo "- expires_at: \`${BASELINE_EXPIRES_AT}\`"
+              echo "- digest: \`${BASELINE_DIGEST}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify disposable PostgreSQL snapshot restore
         run: |

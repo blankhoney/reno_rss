@@ -1,0 +1,33 @@
+name: performance-baseline-freshness
+
+on:
+  schedule:
+    - cron: "17 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  freshness:
+    name: check canonical-main PostgreSQL baseline freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check trusted baseline expires_at
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+        run: >-
+          python .github/scripts/resolve-performance-baseline.py
+          --repository "$GITHUB_REPOSITORY"
+          --repository-id "$GITHUB_REPOSITORY_ID"
+          --trust-config .github/scripts/trusted-workflow-ids.json
+          --artifact-name db-postgres-performance-baseline-main
+          --freshness-threshold-days 14
