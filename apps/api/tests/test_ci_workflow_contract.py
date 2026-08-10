@@ -2021,3 +2021,34 @@ def test_trusted_provenance_rejects_provenance_and_publication_failures(mutation
             orchestrator_ref="refs/heads/main",
             api=api,
         )
+
+
+def test_checked_in_trust_config_registers_canonical_workflow_ids():
+    trust = json.loads(
+        (REPOSITORY_ROOT / ".github/scripts/trusted-workflow-ids.json").read_text(encoding="utf-8")
+    )
+    assert {
+        key: {field: config[field] for field in ("path", "name", "id")}
+        for key, config in trust["request_workflows"].items()
+    } == {
+        "deploy-staging": {
+            "path": ".github/workflows/deploy-staging.yml",
+            "name": "deploy-staging",
+            "id": 274785175,
+        },
+        "deploy-prod": {
+            "path": ".github/workflows/deploy-prod.yml",
+            "name": "deploy-prod",
+            "id": 274785174,
+        },
+        "rollback": {
+            "path": ".github/workflows/rollback.yml",
+            "name": "rollback",
+            "id": 274785177,
+        },
+    }
+    assert trust["ci_workflow"] == {
+        "path": ".github/workflows/ci.yml",
+        "name": "ci",
+        "id": 274785172,
+    }

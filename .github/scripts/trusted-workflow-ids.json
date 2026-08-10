@@ -5,7 +5,7 @@
     "deploy-staging": {
       "path": ".github/workflows/deploy-staging.yml",
       "name": "deploy-staging",
-      "id": null,
+      "id": 274785175,
       "artifact": "trusted-staging-deploy-request",
       "request_type": "deploy",
       "environment": "staging"
@@ -13,7 +13,7 @@
     "deploy-prod": {
       "path": ".github/workflows/deploy-prod.yml",
       "name": "deploy-prod",
-      "id": null,
+      "id": 274785174,
       "artifact": "trusted-production-deploy-request",
       "request_type": "deploy",
       "environment": "prod"
@@ -21,7 +21,7 @@
     "rollback": {
       "path": ".github/workflows/rollback.yml",
       "name": "rollback",
-      "id": null,
+      "id": 274785177,
       "artifact": "trusted-rollback-request",
       "request_type": "rollback",
       "environment": "from-request-after-validation"
@@ -30,6 +30,6 @@
   "ci_workflow": {
     "path": ".github/workflows/ci.yml",
     "name": "ci",
-    "id": null
+    "id": 274785172
   }
 }
