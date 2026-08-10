@@ -1,6 +1,5 @@
-import { mkdir } from "node:fs/promises";
-import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
+import { attachViewportScreenshot } from "./support/evidence";
 
 async function resetFixtures(page: import("@playwright/test").Page) {
   const response = await page.request.post("/__e2e/reset");
@@ -43,19 +42,7 @@ async function setFixtureAppearance(
   }, options);
 }
 
-async function attachViewportScreenshot(
-  page: import("@playwright/test").Page,
-  testInfo: import("@playwright/test").TestInfo,
-  name: string,
-) {
-  const evidenceDir = resolve("test-results/evidence");
-  await mkdir(evidenceDir, { recursive: true });
-  const path = resolve(evidenceDir, `${name}.png`);
-  await page.screenshot({ animations: "disabled", fullPage: false, path });
-  await testInfo.attach(name, { path, contentType: "image/png" });
-}
-
-test("@evidence @desktop Scan workbench desktop light baseline", async ({ page }, testInfo) => {
+test("@reader-a11y @harness @evidence @desktop @desktop-chromium Scan workbench desktop light baseline", async ({ page }, testInfo) => {
   await resetFixtures(page);
   await setFixtureAppearance(page, { theme: "light", mode: "scan" });
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -70,7 +57,7 @@ test("@evidence @desktop Scan workbench desktop light baseline", async ({ page }
   await attachViewportScreenshot(page, testInfo, "scan-workbench-desktop-light");
 });
 
-test("@evidence @touch focused reader mobile dark keyboard baseline", async ({ page }, testInfo) => {
+test("@reader-a11y @harness @evidence @touch @mobile-chromium focused reader mobile dark keyboard baseline", async ({ page }, testInfo) => {
   await resetFixtures(page);
   await setFixtureAppearance(page, { theme: "dark", mode: "focus" });
   await page.goto("/read/7?module=all&sort=default&lang=zh");
@@ -97,7 +84,7 @@ test("@evidence @touch focused reader mobile dark keyboard baseline", async ({ p
   await attachViewportScreenshot(page, testInfo, "focused-reader-mobile-dark-focus");
 });
 
-test("@evidence @desktop article-list error and recovered success", async ({ page }, testInfo) => {
+test("@reader-a11y @harness @evidence @desktop @desktop-chromium article-list error and recovered success", async ({ page }, testInfo) => {
   await resetFixtures(page);
   await setFixtureAppearance(page, { theme: "light", mode: "scan" });
   await page.setViewportSize({ width: 1440, height: 1000 });

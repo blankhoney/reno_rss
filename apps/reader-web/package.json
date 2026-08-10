@@ -14,7 +14,7 @@
     "baseline:web": "node scripts/web-performance-baseline.mjs",
     "test": "node --test --import tsx 'src/**/*.test.ts'",
     "test:e2e": "playwright test",
-    "test:evidence": "READER_E2E_PORT=3012 PLAYWRIGHT_EVIDENCE=1 PLAYWRIGHT_REUSE_SERVER=false playwright test --project=chromium-evidence --project=webkit-touch-evidence"
+    "test:evidence": "READER_E2E_PORT=3012 PLAYWRIGHT_EVIDENCE=1 PLAYWRIGHT_REUSE_SERVER=false playwright test --project=chromium-evidence --project=chromium-mobile-evidence"
   },
   "dependencies": {
     "motion": "^12.38.0",
