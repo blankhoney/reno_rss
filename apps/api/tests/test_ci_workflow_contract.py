@@ -1241,3 +1241,317 @@ def test_trusted_request_validator_rejects_unsafe_path_inputs_without_blocking(
             assert_rejected_without_traceback(args, path)
     finally:
         fifo_json.unlink()
+
+
+TRUSTED_IMAGE_PUBLICATION_SCRIPT = (
+    REPOSITORY_ROOT / ".github/scripts/validate-trusted-image-publication.py"
+)
+_TRUSTED_IMAGE_PUBLICATION_SPEC = importlib.util.spec_from_file_location(
+    "validate_trusted_image_publication", TRUSTED_IMAGE_PUBLICATION_SCRIPT
+)
+if (
+    _TRUSTED_IMAGE_PUBLICATION_SPEC is None
+    or _TRUSTED_IMAGE_PUBLICATION_SPEC.loader is None
+):
+    raise RuntimeError("unable to load trusted image publication validator")
+trusted_image_publication_validator = importlib.util.module_from_spec(
+    _TRUSTED_IMAGE_PUBLICATION_SPEC
+)
+_TRUSTED_IMAGE_PUBLICATION_SPEC.loader.exec_module(trusted_image_publication_validator)
+
+PUBLICATION_REPOSITORY = "Example/Project"
+PUBLICATION_SHA = "c" * 40
+PUBLICATION_DIGESTS = {
+    "web": f"sha256:{'1' * 64}",
+    "api": f"sha256:{'2' * 64}",
+    "worker": f"sha256:{'3' * 64}",
+}
+
+
+def _valid_image_publication(*, run_attempt: str = "1") -> dict[str, Any]:
+    registry = "ghcr.io/example/project"
+    return {
+        "schema_version": "trusted-image-publication/v1",
+        "repository": PUBLICATION_REPOSITORY,
+        "workflow_id": "7001",
+        "run_id": "8001",
+        "run_attempt": run_attempt,
+        "deploy_sha": PUBLICATION_SHA,
+        "image_tag": f"sha-{PUBLICATION_SHA}",
+        "images": {
+            "web": {
+                "repository": f"{registry}/ai-reader-web",
+                "digest": PUBLICATION_DIGESTS["web"],
+            },
+            "api": {
+                "repository": f"{registry}/ai-reader-api",
+                "digest": PUBLICATION_DIGESTS["api"],
+            },
+            "worker": {
+                "repository": f"{registry}/ai-reader-worker",
+                "digest": PUBLICATION_DIGESTS["worker"],
+            },
+        },
+    }
+
+
+def test_ci_publishes_full_sha_and_legacy_alias_without_switching_staging():
+    workflow = _load_workflow(CI_WORKFLOW)
+    images = workflow["jobs"]["images"]
+    meta = next(step for step in images["steps"] if step.get("id") == "meta")
+    meta_script = meta["run"]
+
+    assert '[[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]' in meta_script
+    assert 'canonical_image_tag="sha-${DEPLOY_SHA}"' in meta_script
+    assert 'legacy_image_tag="sha-${short_sha}"' in meta_script
+    assert 'echo "image_tag=${legacy_image_tag}"' in meta_script
+    assert 'echo "canonical_image_tag=${canonical_image_tag}"' in meta_script
+    for image_name in ("web", "api", "worker"):
+        assert f'echo "${{image_registry}}/ai-reader-{image_name}:${{canonical_image_tag}}"' in meta_script
+        assert f'echo "${{image_registry}}/ai-reader-{image_name}:${{legacy_image_tag}}"' in meta_script
+
+    assert images["outputs"]["image_tag"] == "${{ steps.meta.outputs.image_tag }}"
+    assert images["outputs"]["canonical_image_tag"] == (
+        "${{ steps.meta.outputs.canonical_image_tag }}"
+    )
+    deploy = workflow["jobs"]["deploy-staging"]
+    deploy_step = next(step for step in deploy["steps"] if step.get("name") == "Deploy staging on VPS")
+    assert deploy_step["env"]["IMAGE_TAG"] == "${{ needs.images.outputs.image_tag }}"
+    assert "canonical_image_tag" not in deploy_step["env"]
+    assert not any(key.endswith("DIGEST") for key in deploy_step["env"])
+
+
+def test_ci_publication_uses_push_digests_and_checks_oci_revision_before_upload():
+    workflow = _load_workflow(CI_WORKFLOW)
+    images = workflow["jobs"]["images"]
+    steps = images["steps"]
+    build_ids = {
+        step["name"]: step.get("id")
+        for step in steps
+        if step.get("uses") == "docker/build-push-action@v6"
+    }
+    assert build_ids == {
+        "Build and push ai-reader-web": "web_build",
+        "Build and push ai-reader-api": "api_build",
+        "Build and push ai-reader-worker": "worker_build",
+    }
+    for step in steps:
+        if step.get("uses") == "docker/build-push-action@v6":
+            assert "org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}" in step[
+                "with"
+            ]["labels"]
+
+    publication = next(
+        step for step in steps if step.get("name") == "Validate and write image publication evidence"
+    )
+    assert publication["env"] == {
+        "DEPLOY_SHA": "${{ steps.meta.outputs.deploy_sha }}",
+        "IMAGE_REGISTRY": "${{ steps.meta.outputs.image_registry }}",
+        "CANONICAL_IMAGE_TAG": "${{ steps.meta.outputs.canonical_image_tag }}",
+        "WEB_DIGEST": "${{ steps.web_build.outputs.digest }}",
+        "API_DIGEST": "${{ steps.api_build.outputs.digest }}",
+        "WORKER_DIGEST": "${{ steps.worker_build.outputs.digest }}",
+        "WORKFLOW_ID": "${{ steps.run_identity.outputs.workflow_id }}",
+        "RUN_ID": "${{ github.run_id }}",
+        "RUN_ATTEMPT": "${{ github.run_attempt }}",
+    }
+    script = publication["run"]
+    assert "set -euo pipefail" in script
+    assert "^sha256:[0-9a-f]{64}$" in script
+    assert '[[ "$pushed_digest" =~ $digest_pattern ]]' in script
+    assert "docker buildx imagetools inspect" in script
+    assert '--raw > "$raw_manifest"' in script
+    assert 'inspected_digest="sha256:$(sha256sum' in script
+    assert "expected exactly one runnable Linux image manifest" in script
+    assert '.["org.opencontainers.image.revision"]' in script
+    assert '[[ "$inspected_digest" == "$pushed_digest" ]]' in script
+    assert '[[ "$inspected_revision" == "$DEPLOY_SHA" ]]' in script
+    for digest in ("WEB_DIGEST", "API_DIGEST", "WORKER_DIGEST"):
+        assert f'"${digest}"' in script
+    assert "trusted-image-publication/v1" in script
+    assert "validate-trusted-image-publication.py" in script
+
+
+def test_ci_publication_artifact_is_exact_attempt_scoped_and_non_overwriting():
+    workflow = _load_workflow(CI_WORKFLOW)
+    steps = workflow["jobs"]["images"]["steps"]
+    identity = next(step for step in steps if step.get("id") == "run_identity")
+    assert identity["uses"] == "actions/github-script@v7"
+    assert identity["env"]["EXPECTED_RUN_ID"] == "${{ github.run_id }}"
+    assert identity["env"]["EXPECTED_RUN_ATTEMPT"] == "${{ github.run_attempt }}"
+    assert identity["env"]["EXPECTED_HEAD_SHA"] == "${{ steps.meta.outputs.deploy_sha }}"
+    assert "getWorkflowRun" in identity["with"]["script"]
+    assert "run.run_attempt !== expectedAttempt" in identity["with"]["script"]
+    assert "run.head_sha !== process.env.EXPECTED_HEAD_SHA" in identity["with"]["script"]
+
+    upload = next(
+        step
+        for step in steps
+        if step.get("name") == "Upload trusted image publication evidence"
+    )
+    assert upload["uses"] == "actions/upload-artifact@v4"
+    assert upload["with"] == {
+        "name": "trusted-image-publication-${{ github.run_id }}-attempt-${{ github.run_attempt }}",
+        "path": "output/evidence/trusted-image-publication/trusted-image-publication.json",
+        "if-no-files-found": "error",
+        "retention-days": 90,
+        "overwrite": False,
+    }
+
+
+def test_trusted_image_publication_validator_accepts_initial_and_rerun_attempts(
+    tmp_path, capsys
+):
+    for attempt in ("1", "2", "19"):
+        publication = _valid_image_publication(run_attempt=attempt)
+        json_path = tmp_path / f"publication-{attempt}.json"
+        json_path.write_text(json.dumps(publication), encoding="utf-8")
+        assert trusted_image_publication_validator.validate_publication_file(
+            json_path, expected_repository=PUBLICATION_REPOSITORY
+        ) == publication
+
+        zip_path = tmp_path / f"publication-{attempt}.zip"
+        zip_path.write_bytes(
+            _trusted_request_zip(
+                publication, member_name="trusted-image-publication.json"
+            )
+        )
+        assert trusted_image_publication_validator.validate_publication_zip(
+            zip_path, expected_repository=PUBLICATION_REPOSITORY
+        ) == publication
+        assert (
+            trusted_image_publication_validator.main(
+                [
+                    "--expected-repository",
+                    PUBLICATION_REPOSITORY,
+                    "--artifact-zip",
+                    str(zip_path),
+                ]
+            )
+            == 0
+        )
+        assert json.loads(capsys.readouterr().out) == publication
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("extra-field", "publication JSON keys do not match"),
+        ("missing-digest", "images.web keys do not match"),
+        ("wrong-repository", "images.api.repository mismatch"),
+        ("short-digest", "images.worker.digest must be a lowercase sha256 digest"),
+        ("uppercase-digest", "images.web.digest must be a lowercase sha256 digest"),
+        ("bad-tag", "image_tag must equal"),
+        ("bad-attempt", "run_attempt must be a canonical positive integer string"),
+    ),
+)
+def test_trusted_image_publication_validator_rejects_schema_mismatches(mutation, message):
+    publication = _valid_image_publication()
+    if mutation == "extra-field":
+        publication["unexpected"] = "value"
+    elif mutation == "missing-digest":
+        del publication["images"]["web"]["digest"]
+    elif mutation == "wrong-repository":
+        publication["images"]["api"]["repository"] = (
+            "ghcr.io/example/project/ai-reader-worker"
+        )
+    elif mutation == "short-digest":
+        publication["images"]["worker"]["digest"] = "sha256:1234"
+    elif mutation == "uppercase-digest":
+        publication["images"]["web"]["digest"] = f"sha256:{'A' * 64}"
+    elif mutation == "bad-tag":
+        publication["image_tag"] = f"sha-{PUBLICATION_SHA[:7]}"
+    elif mutation == "bad-attempt":
+        publication["run_attempt"] = "02"
+    with pytest.raises(
+        trusted_image_publication_validator.PublicationValidationError, match=message
+    ):
+        trusted_image_publication_validator.validate_publication(
+            publication, expected_repository=PUBLICATION_REPOSITORY
+        )
+
+
+def test_trusted_image_publication_validator_rejects_duplicate_keys():
+    payload = json.dumps(_valid_image_publication(), separators=(",", ":"))
+    payload = payload.replace(
+        '"workflow_id":"7001"', '"workflow_id":"7001","workflow_id":"7002"'
+    )
+    with pytest.raises(
+        trusted_image_publication_validator.PublicationValidationError,
+        match="publication JSON contains duplicate keys",
+    ):
+        trusted_image_publication_validator.validate_publication_bytes(
+            payload.encode("utf-8"), expected_repository=PUBLICATION_REPOSITORY
+        )
+
+
+@pytest.mark.parametrize(
+    ("label", "options", "message"),
+    (
+        (
+            "extra-member",
+            {"extra_member": True},
+            "publication artifact must contain exactly one file",
+        ),
+        (
+            "traversal",
+            {"member_name": "../trusted-image-publication.json"},
+            "archive member path must not contain parent traversal",
+        ),
+        (
+            "symlink",
+            {"symlink": True},
+            "publication artifact must contain a regular file",
+        ),
+        (
+            "oversized",
+            {"oversized": True},
+            "archive member has an invalid uncompressed size",
+        ),
+        (
+            "encrypted",
+            {"encrypted": True},
+            "publication artifact must not contain an encrypted file",
+        ),
+        (
+            "compression",
+            {"compression": zipfile.ZIP_LZMA},
+            "archive member uses an unsupported compression method",
+        ),
+    ),
+)
+def test_trusted_image_publication_validator_rejects_unsafe_zip(
+    tmp_path, label, options, message
+):
+    options = {"member_name": "trusted-image-publication.json", **options}
+    zip_path = tmp_path / f"{label}.zip"
+    zip_path.write_bytes(_trusted_request_zip(_valid_image_publication(), **options))
+    with pytest.raises(
+        trusted_image_publication_validator.PublicationValidationError, match=message
+    ):
+        trusted_image_publication_validator.validate_publication_zip(
+            zip_path, expected_repository=PUBLICATION_REPOSITORY
+        )
+
+
+def test_trusted_image_publication_validator_rejects_archive_resource_limits():
+    with pytest.raises(
+        trusted_image_publication_validator.PublicationValidationError,
+        match="publication artifact exceeds the archive size limit",
+    ):
+        trusted_image_publication_validator.validate_publication_zip_bytes(
+            b"x" * (1024 * 1024 + 1), expected_repository=PUBLICATION_REPOSITORY
+        )
+
+    archive = _trusted_request_zip(
+        _valid_image_publication(),
+        member_name="trusted-image-publication.json",
+        extra_entries=17,
+    )
+    with pytest.raises(
+        trusted_image_publication_validator.PublicationValidationError,
+        match="publication artifact has too many entries",
+    ):
+        trusted_image_publication_validator.validate_publication_zip_bytes(
+            archive, expected_repository=PUBLICATION_REPOSITORY
+        )

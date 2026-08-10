@@ -452,6 +452,7 @@ jobs:
     name: build / push GHCR images
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       packages: write
     needs: checks
@@ -461,9 +462,13 @@ jobs:
       deploy_sha: ${{ steps.meta.outputs.deploy_sha }}
       image_registry: ${{ steps.meta.outputs.image_registry }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
+      canonical_image_tag: ${{ steps.meta.outputs.canonical_image_tag }}
       web_image: ${{ steps.meta.outputs.web_image }}
       api_image: ${{ steps.meta.outputs.api_image }}
       worker_image: ${{ steps.meta.outputs.worker_image }}
+      web_digest: ${{ steps.web_build.outputs.digest }}
+      api_digest: ${{ steps.api_build.outputs.digest }}
+      worker_digest: ${{ steps.worker_build.outputs.digest }}
 
     steps:
       - uses: actions/checkout@v4
@@ -488,10 +493,15 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || '' }}
         run: |
           set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "DEPLOY_SHA must be a 40-character lowercase commit SHA" >&2
+            exit 1
+          }
           repo_lc="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
           image_registry="ghcr.io/${repo_lc}"
           short_sha="${DEPLOY_SHA:0:7}"
-          image_tag="sha-${short_sha}"
+          canonical_image_tag="sha-${DEPLOY_SHA}"
+          legacy_image_tag="sha-${short_sha}"
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
             extra_tag="pr-${PR_NUMBER}-${short_sha}"
           else
@@ -502,25 +512,32 @@ jobs:
             echo "deploy_ref=${DEPLOY_REF}"
             echo "deploy_sha=${DEPLOY_SHA}"
             echo "image_registry=${image_registry}"
-            echo "image_tag=${image_tag}"
-            echo "web_image=${image_registry}/ai-reader-web:${image_tag}"
-            echo "api_image=${image_registry}/ai-reader-api:${image_tag}"
-            echo "worker_image=${image_registry}/ai-reader-worker:${image_tag}"
+            # Slice A compatibility: deploy-staging still consumes this legacy alias.
+            echo "image_tag=${legacy_image_tag}"
+            echo "canonical_image_tag=${canonical_image_tag}"
+            echo "legacy_image_tag=${legacy_image_tag}"
+            echo "web_image=${image_registry}/ai-reader-web:${legacy_image_tag}"
+            echo "api_image=${image_registry}/ai-reader-api:${legacy_image_tag}"
+            echo "worker_image=${image_registry}/ai-reader-worker:${legacy_image_tag}"
             echo "web_tags<<EOF"
-            echo "${image_registry}/ai-reader-web:${image_tag}"
+            echo "${image_registry}/ai-reader-web:${canonical_image_tag}"
+            echo "${image_registry}/ai-reader-web:${legacy_image_tag}"
             echo "${image_registry}/ai-reader-web:${extra_tag}"
             echo "EOF"
             echo "api_tags<<EOF"
-            echo "${image_registry}/ai-reader-api:${image_tag}"
+            echo "${image_registry}/ai-reader-api:${canonical_image_tag}"
+            echo "${image_registry}/ai-reader-api:${legacy_image_tag}"
             echo "${image_registry}/ai-reader-api:${extra_tag}"
             echo "EOF"
             echo "worker_tags<<EOF"
-            echo "${image_registry}/ai-reader-worker:${image_tag}"
+            echo "${image_registry}/ai-reader-worker:${canonical_image_tag}"
+            echo "${image_registry}/ai-reader-worker:${legacy_image_tag}"
             echo "${image_registry}/ai-reader-worker:${extra_tag}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and push ai-reader-web
+        id: web_build
         uses: docker/build-push-action@v6
         with:
           context: apps/reader-web
@@ -532,6 +549,7 @@ jobs:
             org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
 
       - name: Build and push ai-reader-api
+        id: api_build
         uses: docker/build-push-action@v6
         with:
           context: apps/api
@@ -543,6 +561,7 @@ jobs:
             org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
 
       - name: Build and push ai-reader-worker
+        id: worker_build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -553,13 +572,158 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.meta.outputs.deploy_sha }}
 
+      - name: Resolve exact workflow run identity
+        id: run_identity
+        uses: actions/github-script@v7
+        env:
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_HEAD_SHA: ${{ steps.meta.outputs.deploy_sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        with:
+          script: |
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(process.env.EXPECTED_RUN_ID),
+            });
+            const expectedAttempt = Number(process.env.EXPECTED_RUN_ATTEMPT);
+            if (
+              String(run.id) !== process.env.EXPECTED_RUN_ID ||
+              run.run_attempt !== expectedAttempt ||
+              run.head_sha !== process.env.EXPECTED_HEAD_SHA ||
+              run.repository?.full_name !== process.env.EXPECTED_REPOSITORY ||
+              !Number.isSafeInteger(run.workflow_id) ||
+              run.workflow_id <= 0
+            ) {
+              core.setFailed("workflow run identity does not match the canonical CI context");
+              return;
+            }
+            core.setOutput("workflow_id", String(run.workflow_id));
+
+      - name: Validate and write image publication evidence
+        env:
+          DEPLOY_SHA: ${{ steps.meta.outputs.deploy_sha }}
+          IMAGE_REGISTRY: ${{ steps.meta.outputs.image_registry }}
+          CANONICAL_IMAGE_TAG: ${{ steps.meta.outputs.canonical_image_tag }}
+          WEB_DIGEST: ${{ steps.web_build.outputs.digest }}
+          API_DIGEST: ${{ steps.api_build.outputs.digest }}
+          WORKER_DIGEST: ${{ steps.worker_build.outputs.digest }}
+          WORKFLOW_ID: ${{ steps.run_identity.outputs.workflow_id }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          digest_pattern='^sha256:[0-9a-f]{64}$'
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANONICAL_IMAGE_TAG" == "sha-${DEPLOY_SHA}" ]]
+          [[ "$WORKFLOW_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+
+          inspect_and_validate() {
+            local repository="$1"
+            local pushed_digest="$2"
+            local image_ref="${repository}:${CANONICAL_IMAGE_TAG}"
+            [[ "$pushed_digest" =~ $digest_pattern ]] || {
+              echo "missing or invalid pushed digest for ${repository}" >&2
+              return 1
+            }
+            local raw_manifest inspected_digest image_manifest_ref inspected_revision
+            raw_manifest="$(mktemp)"
+            docker buildx imagetools inspect "$image_ref" --raw > "$raw_manifest"
+            inspected_digest="sha256:$(sha256sum "$raw_manifest" | cut -d' ' -f1)"
+            [[ "$inspected_digest" == "$pushed_digest" ]] || {
+              rm -f "$raw_manifest"
+              echo "inspected digest does not match pushed digest for ${repository}" >&2
+              return 1
+            }
+
+            image_manifest_ref="$image_ref"
+            if jq -e 'has("manifests")' "$raw_manifest" > /dev/null; then
+              image_manifest_ref="${repository}@$(
+                jq -er '
+                  [.manifests[] | select(
+                    .platform.os == "linux" and
+                    .platform.architecture != "unknown"
+                  )] |
+                  if length == 1 then .[0].digest
+                  else error("expected exactly one runnable Linux image manifest")
+                  end
+                ' "$raw_manifest"
+              )"
+            fi
+            rm -f "$raw_manifest"
+            inspected_revision="$(
+              docker buildx imagetools inspect "$image_manifest_ref" \
+                --format '{{json .Image.Config.Labels}}' |
+                jq -er '.["org.opencontainers.image.revision"]'
+            )"
+            [[ "$inspected_revision" == "$DEPLOY_SHA" ]] || {
+              echo "OCI revision does not match DEPLOY_SHA for ${repository}" >&2
+              return 1
+            }
+          }
+
+          web_repository="${IMAGE_REGISTRY}/ai-reader-web"
+          api_repository="${IMAGE_REGISTRY}/ai-reader-api"
+          worker_repository="${IMAGE_REGISTRY}/ai-reader-worker"
+          inspect_and_validate "$web_repository" "$WEB_DIGEST"
+          inspect_and_validate "$api_repository" "$API_DIGEST"
+          inspect_and_validate "$worker_repository" "$WORKER_DIGEST"
+
+          mkdir -p output/evidence/trusted-image-publication
+          publication_file="output/evidence/trusted-image-publication/trusted-image-publication.json"
+          jq -n \
+            --arg schema_version "trusted-image-publication/v1" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflow_id "$WORKFLOW_ID" \
+            --arg run_id "$RUN_ID" \
+            --arg run_attempt "$RUN_ATTEMPT" \
+            --arg deploy_sha "$DEPLOY_SHA" \
+            --arg image_tag "$CANONICAL_IMAGE_TAG" \
+            --arg web_repository "$web_repository" \
+            --arg web_digest "$WEB_DIGEST" \
+            --arg api_repository "$api_repository" \
+            --arg api_digest "$API_DIGEST" \
+            --arg worker_repository "$worker_repository" \
+            --arg worker_digest "$WORKER_DIGEST" \
+            '{
+              schema_version: $schema_version,
+              repository: $repository,
+              workflow_id: $workflow_id,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              deploy_sha: $deploy_sha,
+              image_tag: $image_tag,
+              images: {
+                web: {repository: $web_repository, digest: $web_digest},
+                api: {repository: $api_repository, digest: $api_digest},
+                worker: {repository: $worker_repository, digest: $worker_digest}
+              }
+            }' > "$publication_file"
+          python .github/scripts/validate-trusted-image-publication.py \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            "$publication_file"
+
+      - name: Upload trusted image publication evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusted-image-publication-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: output/evidence/trusted-image-publication/trusted-image-publication.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: false
+
       - name: Image summary
         run: |
           {
             echo "### Published images"
-            echo "- ai-reader-web: \`${{ steps.meta.outputs.web_image }}\`"
-            echo "- ai-reader-api: \`${{ steps.meta.outputs.api_image }}\`"
-            echo "- ai-reader-worker: \`${{ steps.meta.outputs.worker_image }}\`"
+            echo "- canonical tag: \`${{ steps.meta.outputs.canonical_image_tag }}\`"
+            echo "- legacy staging alias: \`${{ steps.meta.outputs.image_tag }}\`"
+            echo "- ai-reader-web digest: \`${{ steps.web_build.outputs.digest }}\`"
+            echo "- ai-reader-api digest: \`${{ steps.api_build.outputs.digest }}\`"
+            echo "- ai-reader-worker digest: \`${{ steps.worker_build.outputs.digest }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy-staging:
