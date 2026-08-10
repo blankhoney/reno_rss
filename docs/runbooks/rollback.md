@@ -2,7 +2,7 @@
 
 > **Current boundary:** `rollback.yml` is request-only. It validates an immutable image tag and full deploy SHA, then uploads a JSON request artifact. It does not checkout code, read deployment secrets, request an environment approval, SSH to a VPS, or run `rollback.sh`.
 >
-> The trusted orchestrator that would consume the request and perform a secret-bearing rollback is **not enabled**. Running the workflow does not roll back staging or production automatically.
+> `trusted-deploy.yml` currently performs a verify-only provenance check for the completed rollback request. It does not declare an environment, read deployment secrets, SSH, or run `rollback.sh`; the secret-bearing rollback phase is **not enabled**. Running the request workflow does not roll back staging or production automatically.
 
 ## When to request a rollback
 
@@ -53,7 +53,7 @@ The fixed artifact name is `trusted-rollback-request`. A future trusted orchestr
 
 ## Residual provenance blocker
 
-The current artifact carries `deploy_sha` but no trusted `DEPLOY_REF` or workflow-run/ref provenance claim. Once `main` advances, an old rollback SHA cannot satisfy the existing remote contract that requires a trusted `DEPLOY_REF` plus `FETCH_HEAD^{commit}` to equal `DEPLOY_SHA`. Rollback cannot be enabled or called usable until the trusted orchestrator defines either a trusted ref/provenance resolution flow or a safe SHA-based fetch contract. Do not restore arbitrary `git_ref` input as a bypass.
+The verify-only `trusted-deploy.yml` path now validates request-run/artifact provenance and requires the rollback target to have successful canonical `ci.yml` main publication evidence. Secret-bearing rollback remains disabled until maintainer evidence confirms the workflow-ID allowlist, default-main protection, fixed production/staging Environment policies, and environment-scoped secrets. The remote contract uses fixed `refs/heads/main` ancestry (`.github/scripts/remote-deploy.sh:39-42,108-138`); do not restore arbitrary `git_ref` input or the retired `FETCH_HEAD^{commit} == DEPLOY_SHA` equality as a bypass.
 
 ## Stop conditions
 
@@ -64,7 +64,7 @@ Stop and report without retrying when:
 - `image_tag` is not `sha-<7 lowercase hexadecimal characters>` or does not match the SHA prefix.
 - The last-known-good image cannot be tied to a full SHA and trusted publication evidence.
 - The request artifact is missing, has extra fields, or does not match `trusted-deploy-request/v1`.
-- The trusted orchestrator is not enabled. Do not claim a rollback or issue repeated requests to compensate.
+- The secret-bearing trusted execution phase is not enabled. Verify-only provenance success is not a rollback result; do not claim a rollback or issue repeated requests to compensate.
 - A later trusted execution reports a dirty tracked VPS worktree, a fetched-SHA mismatch, an image pull failure, or a migration/health-check failure. Do not reset the VPS or downgrade the database automatically.
 
 ## Post-rollback verification

@@ -2,14 +2,14 @@
 
 > **Current boundary:** the three manual deploy workflows are request-only. They validate input and upload a JSON request artifact; they do not checkout repository code, read deployment secrets, SSH to a VPS, or deploy containers.
 >
-> The trusted orchestrator that would consume these artifacts and perform secret-bearing deployment is **not enabled**. Creating a request does not deploy staging or production automatically.
+> `trusted-deploy.yml` now consumes completed request runs in a **verify-only** job. It validates workflow identity/path/ID, repository/ref/SHA, the exact artifact from the same run, and successful canonical `ci.yml` image publication. It has no environment, deployment secret, SSH, or deploy step; a verified request still does not deploy staging or production. The secret-bearing execution phase is **not enabled**.
 
 ## Current deployment paths
 
 - **Staging normal path:** a successful `main` push runs `ci.yml`, which builds and publishes the images and performs the existing staging deployment path.
 - **Manual staging path:** `deploy-staging.yml` creates a request artifact only. It is not a deployment fallback until a trusted orchestrator is enabled.
 - **Manual production path:** `deploy-prod.yml` creates a request artifact only. Production remains unchanged; no `production` environment approval or secret-bearing deployment is performed by this workflow.
-- **Rollback path:** `rollback.yml` creates a rollback request artifact only. See [rollback.md](./rollback.md).
+- **Rollback path:** `rollback.yml` creates a rollback request artifact; `trusted-deploy.yml` verifies its provenance only and does not run `rollback.sh`. See [rollback.md](./rollback.md).
 
 Do not use SSH, `git pull`, `infra/scripts/deploy.sh`, or another direct VPS command as a routine substitute for the request workflow. The old direct path is retained only as an authorized incident break-glass procedure below.
 
@@ -54,7 +54,7 @@ A future trusted orchestrator must validate this schema as data. It must not exe
 4. Run the workflow and confirm that the request artifact was uploaded.
 5. Stop. Until a trusted orchestrator is enabled, no deployment follows this workflow.
 
-Before any trusted orchestrator is enabled, it must verify workflow-run/ref/artifact provenance: the artifact must come from the expected workflow run and dispatch ref, and its request data must remain bound to the validated immutable SHA. The current artifact schema does not itself carry a trusted ref or provenance claim.
+The verify-only `trusted-deploy.yml` path verifies workflow-run/ref/artifact provenance: the artifact must come from the expected completed request run and main dispatch ref, and its request data must remain bound to the validated immutable SHA. The current artifact schema does not itself carry the trusted provenance claim; the verifier obtains it from the run and repository metadata.
 
 For production, do not describe a successful request artifact as a production deployment or approval. There is currently no enabled path from this artifact to the production VPS.
 

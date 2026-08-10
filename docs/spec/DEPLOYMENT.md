@@ -7,8 +7,8 @@
 ## Current status (2026-08)
 
 - **ARCHIVED / DO NOT EXECUTE:** this document is a historical v0.4 plan. Its old production environment, SSH, image, migration, and rollback steps are design history only.
-- `deploy-staging.yml`, `deploy-prod.yml`, and `rollback.yml` are currently request-only and upload `trusted-deploy-request/v1` data artifacts. The trusted orchestrator is not enabled, so a request does not deploy or roll back an environment.
-- Main branch protection is not enabled; the existing `main`/`develop` rulesets exist but are disabled/not enforced. The production environment has a required reviewer, but its deployment branch policy is not configured; the current request-only `deploy-prod.yml` does not bind to or trigger that environment. Do not treat the old `PASS` claims or execution examples below as current evidence.
+- `deploy-staging.yml`, `deploy-prod.yml`, and `rollback.yml` remain request-only and upload `trusted-deploy-request/v1` data artifacts. `trusted-deploy.yml` now performs a verify-only provenance check from the default main checkout; it does not declare an environment, read deployment secrets, SSH, deploy, or roll back. Secret-bearing execution is not enabled, so a verified request still does not deploy or roll back an environment.
+- Main branch protection, workflow-ID registration, Environment policies, and secret scope are not verified in this repository. Existing documentation records earlier control-plane observations, but those observations are not current API evidence. Do not treat the old `PASS` claims or execution examples below as current evidence.
 - Use `SPEC-CICD.md`, `SPEC-CICD.zh-CN.md`, `docs/runbooks/deploy.md`, and `docs/runbooks/rollback.md` for the current boundary and inputs.
 
 ## 1. 仓库结构（原地重构 my_rss）

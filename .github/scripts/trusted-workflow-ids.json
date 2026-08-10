@@ -1,0 +1,35 @@
+{
+  "schema_version": "trusted-workflow-ids/v1",
+  "default_branch": "main",
+  "request_workflows": {
+    "deploy-staging": {
+      "path": ".github/workflows/deploy-staging.yml",
+      "name": "deploy-staging",
+      "id": null,
+      "artifact": "trusted-staging-deploy-request",
+      "request_type": "deploy",
+      "environment": "staging"
+    },
+    "deploy-prod": {
+      "path": ".github/workflows/deploy-prod.yml",
+      "name": "deploy-prod",
+      "id": null,
+      "artifact": "trusted-production-deploy-request",
+      "request_type": "deploy",
+      "environment": "prod"
+    },
+    "rollback": {
+      "path": ".github/workflows/rollback.yml",
+      "name": "rollback",
+      "id": null,
+      "artifact": "trusted-rollback-request",
+      "request_type": "rollback",
+      "environment": "from-request-after-validation"
+    }
+  },
+  "ci_workflow": {
+    "path": ".github/workflows/ci.yml",
+    "name": "ci",
+    "id": null
+  }
+}

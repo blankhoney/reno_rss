@@ -53,11 +53,11 @@ Reno RSS / AI Reader 已具备 GitHub Actions 检查、GHCR 镜像发布、VPS �
 
 ## 接口与边界
 
-- **GitHub Actions**：`ci.yml` 是常规路径；`deploy-staging.yml`、`deploy-prod.yml` 和 `rollback.yml` 是手动 request-only 路径。GitHub 从用户选定的 dispatch ref 加载 workflow YAML，但 request job 不 checkout 或执行目标 repository code，也不访问部署 secret。未来 trusted orchestrator 执行前必须校验 workflow-run/ref/artifact provenance。
+- **GitHub Actions**：`ci.yml` 是常规路径；`deploy-staging.yml`、`deploy-prod.yml` 和 `rollback.yml` 是手动 request-only 路径。GitHub 从用户选定的 dispatch ref 加载 workflow YAML，但 request job 不 checkout 或执行目标 repository code，也不访问部署 secret。当前新增的 `trusted-deploy.yml` 仅执行 verify-only：从 default main checkout 校验 completed request run、artifact、repository/ref/SHA 和 canonical `ci.yml` publication provenance，随后停止，不声明 environment、不读取 secret、不 SSH、不部署。其 workflow-ID allowlist 在 maintainer 提供控制面证据前保持未登记，因此 fail closed。后续执行阶段必须在读取部署 secret 前保留这道 provenance gate。
 - **Request 输入**：`deploy-staging.yml` 和 `deploy-prod.yml` 只接受 `image_tag` 与完整 `deploy_sha`；`rollback.yml` 另外接受 `env`，值只能是 `staging` 或 `prod`。三个入口都拒绝 `git_ref`。
 - **Request artifact**：每个手动请求上传一个固定 JSON artifact，且只含 `schema_version`、`request_type`、`environment`、`image_tag` 和 `deploy_sha`。`schema_version` 固定为 `trusted-deploy-request/v1`；`image_tag` 必须是 `sha-<7 位小写十六进制>`，并匹配完整 40 位小写 `deploy_sha` 的前七位。artifact 只是数据，不能执行其内容。
 - **固定 artifact 名称**：staging 为 `trusted-staging-deploy-request`，production 为 `trusted-production-deploy-request`，rollback 为 `trusted-rollback-request`。
-- **Rollback provenance blocker**：当前 rollback artifact 只有 `deploy_sha`，没有可信 `DEPLOY_REF` 或 workflow-run/ref provenance 声明。`main` 前进后，旧 SHA 无法满足现有 remote contract：必须有可信 `DEPLOY_REF`，且 `FETCH_HEAD^{commit}` 必须等于 `DEPLOY_SHA`。在 trusted orchestrator 定义可信 ref/provenance 解析流程或安全的按 SHA fetch contract 前，rollback 不可启用、不可宣称可用；不得恢复任意 `git_ref` 输入作为旁路。
+- **Rollback provenance 边界**：`trusted-deploy.yml` 现在校验 rollback request run、固定 artifact、canonical repository/main provenance，以及目标 SHA 对应的成功 canonical `ci.yml` publication；但它仍是 verify-only，不能选择 environment，也不能部署。remote contract 固定使用 `refs/heads/main`，只有目标 SHA 存在且是 fetched main tip 的 ancestor 时才继续（`.github/scripts/remote-deploy.sh:39-42,108-138`）。不得恢复任意 `git_ref` 输入，也不得把已废弃的 `FETCH_HEAD^{commit} == DEPLOY_SHA` equality 当作执行契约。
 - **Trusted orchestrator 边界**：当前 trusted orchestrator 尚未启用，创建 request 不会自动部署或回滚。未来 trusted workflow 消费 artifact 数据，应用 environment 审批和 secret，并可复用已经验证的远程部署路径。
 - **Remote deploy**：`.github/scripts/remote-deploy.sh` 是后续 trusted orchestrator 的执行路径。它 SSH 到 `VPS_APP_DIR`，确认 tracked 工作树干净，checkout `DEPLOY_SHA`，登录 GHCR，然后运行 `infra/scripts/deploy.sh`。
 - **Smoke test**：`infra/scripts/smoke-test.sh` 验证运行时健康，不打印 secret，也不修改业务数据。

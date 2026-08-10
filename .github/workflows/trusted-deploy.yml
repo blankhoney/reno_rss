@@ -1,0 +1,38 @@
+name: trusted-deploy-verify
+
+on:
+  workflow_run:
+    workflows:
+      - deploy-staging
+      - deploy-prod
+      - rollback
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    name: verify trusted request provenance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout trusted verifier from main
+        uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate workflow run, artifact, and CI publication provenance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_REF: ${{ github.ref }}
+        run: >-
+          python .github/scripts/validate-trusted-workflow-run.py
+          --event "$GITHUB_EVENT_PATH"
+          --allowlist .github/scripts/trusted-workflow-ids.json
+          --output "$GITHUB_OUTPUT"

@@ -1,6 +1,7 @@
 """Static regression locks for the GitHub Actions CI delivery boundary."""
 
 import base64
+import copy
 import importlib.util
 import io
 import json
@@ -1554,4 +1555,469 @@ def test_trusted_image_publication_validator_rejects_archive_resource_limits():
     ):
         trusted_image_publication_validator.validate_publication_zip_bytes(
             archive, expected_repository=PUBLICATION_REPOSITORY
+        )
+
+
+TRUSTED_WORKFLOW_RUN_SCRIPT = (
+    REPOSITORY_ROOT / ".github/scripts/validate-trusted-workflow-run.py"
+)
+_TRUSTED_WORKFLOW_RUN_SPEC = importlib.util.spec_from_file_location(
+    "validate_trusted_workflow_run", TRUSTED_WORKFLOW_RUN_SCRIPT
+)
+if _TRUSTED_WORKFLOW_RUN_SPEC is None or _TRUSTED_WORKFLOW_RUN_SPEC.loader is None:
+    raise RuntimeError("unable to load trusted workflow-run validator")
+trusted_workflow_run_validator = importlib.util.module_from_spec(_TRUSTED_WORKFLOW_RUN_SPEC)
+_TRUSTED_WORKFLOW_RUN_SPEC.loader.exec_module(trusted_workflow_run_validator)
+
+TRUSTED_REPOSITORY = "example/project"
+TRUSTED_REPOSITORY_ID = 7001
+TRUSTED_REQUEST_RUN_ID = 8001
+TRUSTED_REQUEST_WORKFLOW_ID = 8101
+TRUSTED_CI_WORKFLOW_ID = 8199
+TRUSTED_CI_RUN_ID = 8201
+TRUSTED_TARGET_SHA = "a" * 40
+TRUSTED_REQUEST_HEAD_SHA = "b" * 40
+
+
+def _trusted_workflow_allowlist(
+    *,
+    request_workflow_id: int | None = TRUSTED_REQUEST_WORKFLOW_ID,
+    ci_workflow_id: int | None = TRUSTED_CI_WORKFLOW_ID,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "trusted-workflow-ids/v1",
+        "default_branch": "main",
+        "request_workflows": {
+            "deploy-staging": {
+                "path": ".github/workflows/deploy-staging.yml",
+                "name": "deploy-staging",
+                "id": request_workflow_id,
+                "artifact": "trusted-staging-deploy-request",
+                "request_type": "deploy",
+                "environment": "staging",
+            },
+            "deploy-prod": {
+                "path": ".github/workflows/deploy-prod.yml",
+                "name": "deploy-prod",
+                "id": request_workflow_id,
+                "artifact": "trusted-production-deploy-request",
+                "request_type": "deploy",
+                "environment": "prod",
+            },
+            "rollback": {
+                "path": ".github/workflows/rollback.yml",
+                "name": "rollback",
+                "id": request_workflow_id,
+                "artifact": "trusted-rollback-request",
+                "request_type": "rollback",
+                "environment": "from-request-after-validation",
+            },
+        },
+        "ci_workflow": {
+            "path": ".github/workflows/ci.yml",
+            "name": "ci",
+            "id": ci_workflow_id,
+        },
+    }
+
+
+def _trusted_repository_identity() -> dict[str, Any]:
+    return {"id": TRUSTED_REPOSITORY_ID, "full_name": TRUSTED_REPOSITORY}
+
+
+def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any]:
+    repository = _trusted_repository_identity()
+    head_repository = copy.deepcopy(repository)
+    request_run = {
+        "id": TRUSTED_REQUEST_RUN_ID,
+        "workflow_id": TRUSTED_REQUEST_WORKFLOW_ID,
+        "path": ".github/workflows/deploy-staging.yml",
+        "name": "deploy-staging",
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "conclusion": "success",
+        "head_branch": "main",
+        "head_sha": TRUSTED_REQUEST_HEAD_SHA,
+        "ref": "refs/heads/main",
+        "repository": copy.deepcopy(repository),
+        "head_repository": head_repository,
+    }
+    event = {"workflow_run": copy.deepcopy(request_run)}
+    request = _valid_trusted_request(environment="staging")
+    artifact = {
+        "id": 8301,
+        "name": "trusted-staging-deploy-request",
+        "expired": False,
+        "workflow_run": {
+            "id": TRUSTED_REQUEST_RUN_ID,
+            "repository_id": TRUSTED_REPOSITORY_ID,
+            "head_repository_id": TRUSTED_REPOSITORY_ID,
+            "head_branch": "main",
+            "head_sha": TRUSTED_REQUEST_HEAD_SHA,
+        },
+    }
+    ci_run = {
+        "id": TRUSTED_CI_RUN_ID,
+        "workflow_id": TRUSTED_CI_WORKFLOW_ID,
+        "path": ".github/workflows/ci.yml",
+        "name": "ci",
+        "event": "push",
+        "status": "completed",
+        "conclusion": "success",
+        "head_branch": "main",
+        "head_sha": TRUSTED_TARGET_SHA,
+        "ref": "refs/heads/main",
+        "repository": copy.deepcopy(repository),
+        "head_repository": copy.deepcopy(repository),
+    }
+    workflows = {
+        ".github/workflows/deploy-staging.yml": {
+            "id": TRUSTED_REQUEST_WORKFLOW_ID,
+            "path": ".github/workflows/deploy-staging.yml",
+            "name": "deploy-staging",
+        },
+        TRUSTED_REQUEST_WORKFLOW_ID: {
+            "id": TRUSTED_REQUEST_WORKFLOW_ID,
+            "path": ".github/workflows/deploy-staging.yml",
+            "name": "deploy-staging",
+        },
+        ".github/workflows/ci.yml": {
+            "id": TRUSTED_CI_WORKFLOW_ID,
+            "path": ".github/workflows/ci.yml",
+            "name": "ci",
+        },
+        TRUSTED_CI_WORKFLOW_ID: {
+            "id": TRUSTED_CI_WORKFLOW_ID,
+            "path": ".github/workflows/ci.yml",
+            "name": "ci",
+        },
+    }
+
+    class FakeApi:
+        def __init__(self):
+            self.run = copy.deepcopy(request_run)
+            self.artifact = copy.deepcopy(artifact)
+            self.workflows = copy.deepcopy(workflows)
+            self.ci_run = copy.deepcopy(ci_run)
+            self.jobs = [
+                {
+                    "name": "build / push GHCR images",
+                    "run_id": TRUSTED_CI_RUN_ID,
+                    "workflow_name": "ci",
+                    "workflow_id": TRUSTED_CI_WORKFLOW_ID,
+                    "path": ".github/workflows/ci.yml",
+                    "head_sha": TRUSTED_TARGET_SHA,
+                    "head_branch": "main",
+                    "status": "completed",
+                    "conclusion": "success",
+                }
+            ]
+
+        def repository(self, repository_name):
+            assert repository_name == TRUSTED_REPOSITORY
+            return {**repository, "default_branch": "main"}
+
+        def workflow_run(self, repository_name, run_id):
+            assert repository_name == TRUSTED_REPOSITORY
+            assert run_id == TRUSTED_REQUEST_RUN_ID
+            return copy.deepcopy(self.run)
+
+        def workflow_by_path(self, repository_name, path):
+            assert repository_name == TRUSTED_REPOSITORY
+            return copy.deepcopy(self.workflows[path])
+
+        def workflow_by_id(self, repository_name, workflow_id):
+            assert repository_name == TRUSTED_REPOSITORY
+            return copy.deepcopy(self.workflows[workflow_id])
+
+        def workflow_run_artifacts(self, repository_name, run_id):
+            assert repository_name == TRUSTED_REPOSITORY
+            assert run_id == TRUSTED_REQUEST_RUN_ID
+            return {"artifacts": [copy.deepcopy(self.artifact)]}
+
+        def artifact_zip(self, repository_name, artifact_id):
+            assert repository_name == TRUSTED_REPOSITORY
+            assert artifact_id == self.artifact["id"]
+            return _trusted_request_zip(request)
+
+        def workflow_runs(self, repository_name, workflow_id, head_sha):
+            assert repository_name == TRUSTED_REPOSITORY
+            assert workflow_id == TRUSTED_CI_WORKFLOW_ID
+            assert head_sha == TRUSTED_TARGET_SHA
+            return {"workflow_runs": [copy.deepcopy(self.ci_run)]}
+
+        def workflow_run_jobs(self, repository_name, run_id):
+            assert repository_name == TRUSTED_REPOSITORY
+            assert run_id == TRUSTED_CI_RUN_ID
+            return {"jobs": copy.deepcopy(self.jobs)}
+
+    return event, _trusted_workflow_allowlist(), FakeApi()
+
+
+def test_trusted_verify_workflow_is_workflow_run_only_and_read_only():
+    workflow_path = REPOSITORY_ROOT / ".github/workflows/trusted-deploy.yml"
+    workflow = _load_workflow(workflow_path)
+    assert workflow["on"]["workflow_run"]["types"] == ["completed"]
+    assert workflow["on"]["workflow_run"]["workflows"] == [
+        "deploy-staging",
+        "deploy-prod",
+        "rollback",
+    ]
+    assert workflow["permissions"] == {"actions": "read", "contents": "read"}
+    job = workflow["jobs"]["verify"]
+    assert "environment" not in job
+    source = workflow_path.read_text(encoding="utf-8")
+    assert "workflow_dispatch" not in source
+    assert "secrets." not in source
+    assert "ssh " not in source
+    assert "docker login" not in source
+    checkout = job["steps"][0]
+    assert checkout["uses"] == "actions/checkout@v4"
+    assert checkout["with"] == {
+        "ref": "refs/heads/main",
+        "persist-credentials": False,
+        "fetch-depth": 1,
+    }
+
+
+def test_trusted_workflow_id_allowlist_fails_closed_when_ids_are_unregistered(tmp_path):
+    allowlist_path = tmp_path / "trusted-workflow-ids.json"
+    allowlist_path.write_text(
+        json.dumps(_trusted_workflow_allowlist(request_workflow_id=None, ci_workflow_id=None)),
+        encoding="utf-8",
+    )
+    allowlist = trusted_workflow_run_validator.load_allowlist(allowlist_path)
+    event, _, api = _trusted_workflow_run_fixture()
+    with pytest.raises(
+        trusted_workflow_run_validator.ProvenanceValidationError,
+        match="request workflow.id is not registered",
+    ):
+        trusted_workflow_run_validator.validate_provenance(
+            event=event,
+            allowlist=allowlist,
+            expected_repository=TRUSTED_REPOSITORY,
+            expected_repository_id=TRUSTED_REPOSITORY_ID,
+            orchestrator_ref="refs/heads/main",
+            api=api,
+        )
+
+
+def test_trusted_provenance_accepts_bound_request_and_ci_publication():
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    result = trusted_workflow_run_validator.validate_provenance(
+        event=event,
+        allowlist=allowlist,
+        expected_repository=TRUSTED_REPOSITORY,
+        expected_repository_id=TRUSTED_REPOSITORY_ID,
+        orchestrator_ref="refs/heads/main",
+        api=api,
+    )
+    assert result == {
+        "verified": True,
+        "request_type": "deploy",
+        "environment": "staging",
+        "image_tag": "sha-aaaaaaa",
+        "deploy_sha": TRUSTED_TARGET_SHA,
+        "request_run_id": TRUSTED_REQUEST_RUN_ID,
+        "artifact_id": 8301,
+        "ci_run_id": TRUSTED_CI_RUN_ID,
+    }
+
+
+def test_trusted_provenance_allows_event_payload_without_optional_path():
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    del event["workflow_run"]["path"]
+    result = trusted_workflow_run_validator.validate_provenance(
+        event=event,
+        allowlist=allowlist,
+        expected_repository=TRUSTED_REPOSITORY,
+        expected_repository_id=TRUSTED_REPOSITORY_ID,
+        orchestrator_ref="refs/heads/main",
+        api=api,
+    )
+    assert result["verified"] is True
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("fork", "run.repository.id mismatch"),
+        ("workflow-id", "run.workflow_id mismatch"),
+        ("artifact-run", "artifact.workflow_run.id mismatch"),
+        ("artifact-head-repository", "artifact.workflow_run.head_repository_id mismatch"),
+        ("ci-workflow", "ci workflow by path.id mismatch"),
+        ("ci-job", "ci publication run must contain exactly one GHCR publication job"),
+    ),
+)
+def test_trusted_provenance_rejects_identity_and_publication_mismatches(mutation, message):
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    if mutation == "fork":
+        api.run["repository"]["id"] = TRUSTED_REPOSITORY_ID + 1
+    elif mutation == "workflow-id":
+        api.run["workflow_id"] = TRUSTED_REQUEST_WORKFLOW_ID + 1
+    elif mutation == "artifact-run":
+        api.artifact["workflow_run"]["id"] = TRUSTED_REQUEST_RUN_ID + 1
+    elif mutation == "artifact-head-repository":
+        api.artifact["workflow_run"]["head_repository_id"] = TRUSTED_REPOSITORY_ID + 1
+    elif mutation == "ci-workflow":
+        api.workflows[".github/workflows/ci.yml"]["id"] = TRUSTED_CI_WORKFLOW_ID + 1
+    elif mutation == "ci-job":
+        api.jobs = []
+    with pytest.raises(trusted_workflow_run_validator.ProvenanceValidationError, match=message):
+        trusted_workflow_run_validator.validate_provenance(
+            event=event,
+            allowlist=allowlist,
+            expected_repository=TRUSTED_REPOSITORY,
+            expected_repository_id=TRUSTED_REPOSITORY_ID,
+            orchestrator_ref="refs/heads/main",
+            api=api,
+        )
+
+
+def _trusted_request_variant(
+    workflow_name: str, request_type: str, environment: str
+) -> tuple[dict[str, Any], dict[str, Any], Any]:
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    workflow_path = f".github/workflows/{workflow_name}.yml"
+    artifact_name = (
+        "trusted-staging-deploy-request"
+        if workflow_name == "deploy-staging"
+        else "trusted-production-deploy-request"
+        if workflow_name == "deploy-prod"
+        else "trusted-rollback-request"
+    )
+    request = _valid_trusted_request(request_type=request_type, environment=environment)
+    api.run.update({"path": workflow_path, "name": workflow_name})
+    event["workflow_run"].update({"path": workflow_path, "name": workflow_name})
+    api.artifact.update(
+        {
+            "name": artifact_name,
+            "workflow_run": {
+                "id": TRUSTED_REQUEST_RUN_ID,
+                "repository_id": TRUSTED_REPOSITORY_ID,
+                "head_repository_id": TRUSTED_REPOSITORY_ID,
+                "head_branch": "main",
+                "head_sha": TRUSTED_REQUEST_HEAD_SHA,
+            },
+        }
+    )
+    request_workflow = {
+        "id": TRUSTED_REQUEST_WORKFLOW_ID,
+        "path": workflow_path,
+        "name": workflow_name,
+    }
+    api.workflows = {
+        workflow_path: copy.deepcopy(request_workflow),
+        TRUSTED_REQUEST_WORKFLOW_ID: copy.deepcopy(request_workflow),
+        ".github/workflows/ci.yml": {
+            "id": TRUSTED_CI_WORKFLOW_ID,
+            "path": ".github/workflows/ci.yml",
+            "name": "ci",
+        },
+        TRUSTED_CI_WORKFLOW_ID: {
+            "id": TRUSTED_CI_WORKFLOW_ID,
+            "path": ".github/workflows/ci.yml",
+            "name": "ci",
+        },
+    }
+    api.artifact_zip = lambda repository_name, artifact_id: _trusted_request_zip(
+        request,
+        member_name=(
+            "trusted-rollback-request.json"
+            if request_type == "rollback"
+            else "trusted-deploy-request.json"
+        ),
+    )
+    return event, allowlist, api
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "request_type", "environment"),
+    (
+        ("deploy-staging", "deploy", "staging"),
+        ("deploy-prod", "deploy", "prod"),
+        ("rollback", "rollback", "staging"),
+        ("rollback", "rollback", "prod"),
+    ),
+)
+def test_trusted_provenance_accepts_all_fixed_request_mappings(
+    workflow_name, request_type, environment
+):
+    event, allowlist, api = _trusted_request_variant(workflow_name, request_type, environment)
+    result = trusted_workflow_run_validator.validate_provenance(
+        event=event,
+        allowlist=allowlist,
+        expected_repository=TRUSTED_REPOSITORY,
+        expected_repository_id=TRUSTED_REPOSITORY_ID,
+        orchestrator_ref="refs/heads/main",
+        api=api,
+    )
+    assert result["request_type"] == request_type
+    assert result["environment"] == environment
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("wrong-ref", "workflow_run.ref mismatch"),
+        ("wrong-event", "workflow_run.event mismatch"),
+        ("non-completed", "workflow_run.status mismatch"),
+        ("failed-request", "workflow_run.conclusion mismatch"),
+        ("fork-head", "run.head_repository.id mismatch"),
+        ("expired-artifact", "request artifact must not be expired"),
+        ("duplicate-artifact", "workflow run artifacts do not match"),
+        ("artifact-branch", "artifact head branch mismatch"),
+        ("artifact-sha", "artifact head SHA mismatch"),
+        ("bad-request-schema", "request artifact failed schema validation"),
+        ("ci-pr", "no successful canonical main ci publication run"),
+        ("ci-failed", "no successful canonical main ci publication run"),
+        ("ci-job-run", "ci image job workflow run ID mismatch"),
+        ("ci-job-sha", "ci image job head SHA mismatch"),
+        ("ci-job-status", "ci image job status mismatch"),
+    ),
+)
+def test_trusted_provenance_rejects_provenance_and_publication_failures(mutation, message):
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    if mutation == "wrong-ref":
+        event["workflow_run"]["ref"] = "refs/heads/attacker"
+    elif mutation == "wrong-event":
+        event["workflow_run"]["event"] = "pull_request"
+    elif mutation == "non-completed":
+        event["workflow_run"]["status"] = "in_progress"
+    elif mutation == "failed-request":
+        event["workflow_run"]["conclusion"] = "failure"
+    elif mutation == "fork-head":
+        api.run["head_repository"]["id"] = TRUSTED_REPOSITORY_ID + 1
+    elif mutation == "expired-artifact":
+        api.artifact["expired"] = True
+    elif mutation == "duplicate-artifact":
+        api.workflow_run_artifacts = lambda *_: {
+            "artifacts": [copy.deepcopy(api.artifact), copy.deepcopy(api.artifact)]
+        }
+    elif mutation == "artifact-branch":
+        api.artifact["workflow_run"]["head_branch"] = "attacker"
+    elif mutation == "artifact-sha":
+        api.artifact["workflow_run"]["head_sha"] = "c" * 40
+    elif mutation == "bad-request-schema":
+        api.artifact_zip = lambda *_: _trusted_request_zip(
+            {**_valid_trusted_request(), "unexpected": "field"}
+        )
+    elif mutation == "ci-pr":
+        api.ci_run["event"] = "pull_request"
+    elif mutation == "ci-failed":
+        api.ci_run["conclusion"] = "failure"
+    elif mutation == "ci-job-run":
+        api.jobs[0]["run_id"] = TRUSTED_CI_RUN_ID + 1
+    elif mutation == "ci-job-sha":
+        api.jobs[0]["head_sha"] = "c" * 40
+    elif mutation == "ci-job-status":
+        api.jobs[0]["status"] = "in_progress"
+    with pytest.raises(trusted_workflow_run_validator.ProvenanceValidationError, match=message):
+        trusted_workflow_run_validator.validate_provenance(
+            event=event,
+            allowlist=allowlist,
+            expected_repository=TRUSTED_REPOSITORY,
+            expected_repository_id=TRUSTED_REPOSITORY_ID,
+            orchestrator_ref="refs/heads/main",
+            api=api,
         )
