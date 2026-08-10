@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { compositeCssLayers, contrastRatio } from "./support/color";
 
 async function resetFixtures(page: import("@playwright/test").Page) {
   await page.request.post("/__e2e/reset");
@@ -146,21 +147,120 @@ async function selectReaderParagraphWithMouse(page: import("@playwright/test").P
   await page.mouse.up();
 }
 
-function contrastRatio(foreground: string, background: string): number {
-  const luminance = (color: string) => {
-    const hex = color.match(/^#([0-9a-f]{6})$/i)?.[1];
-    const channels = hex
-      ? [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map((channel) => Number.parseInt(channel, 16))
-      : color.match(/\d+/g)?.map(Number);
-    if (channels == null || channels.length < 3) throw new Error(`Expected rgb color, received ${color}`);
-    const [red, green, blue] = channels.slice(0, 3).map((channel) => {
-      const normalized = channel / 255;
-      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
-    });
-    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-  };
-  const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
-  return (light + 0.05) / (dark + 0.05);
+async function pressTabUntilFocused(
+  page: import("@playwright/test").Page,
+  target: import("@playwright/test").Locator,
+  options: { reverse?: boolean; attempts?: number } = {},
+) {
+  const key = options.reverse ? "Shift+Tab" : "Tab";
+  for (let index = 0; index < (options.attempts ?? 60); index += 1) {
+    await page.keyboard.press(key);
+    if (await target.evaluate((element) => element === document.activeElement).catch(() => false)) return;
+  }
+  throw new Error(`Keyboard focus did not reach ${await target.evaluate((element) => element.outerHTML)}`);
+}
+
+async function expectVisibleFocusContrast(
+  target: import("@playwright/test").Locator,
+  expectedTheme: "light" | "dark",
+) {
+  const focus = await target.evaluate(async (element, expectedTheme) => {
+    const root = document.documentElement;
+    const probe = document.createElement("span");
+    probe.style.cssText =
+      "position:fixed;pointer-events:none;visibility:hidden;background-color:var(--bg);width:0;height:0";
+    document.body.append(probe);
+
+    const readSurface = () => {
+      const backgroundColors: string[] = [];
+      const surfaces: Element[] = [];
+      let surface = element.parentElement;
+      while (surface != null) {
+        const backgroundColor = getComputedStyle(surface).backgroundColor;
+        surfaces.push(surface);
+        if (backgroundColor !== "transparent") backgroundColors.push(backgroundColor);
+        surface = surface.parentElement;
+      }
+      return {
+        backgroundColors,
+        surfaces,
+        signature: JSON.stringify({
+          theme: root.dataset.theme || "light",
+          backgroundToken: getComputedStyle(root).getPropertyValue("--bg").trim(),
+          resolvedBackgroundToken: getComputedStyle(probe).backgroundColor,
+          bodyBackground: getComputedStyle(document.body).backgroundColor,
+          backgroundColors,
+        }),
+      };
+    };
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const startedAt = performance.now();
+        let previousSignature = "";
+        let stableFrames = 0;
+        const check = () => {
+          const sample = readSurface();
+          const themeMatches = (root.dataset.theme || "light") === expectedTheme;
+          const backgroundsMatch = sample.resolvedBackgroundToken === sample.bodyBackground;
+          const backgroundsAnimating = sample.surfaces.some((surface) =>
+            surface.getAnimations().some((animation) => animation.playState === "pending" || animation.playState === "running"),
+          );
+          stableFrames =
+            themeMatches && backgroundsMatch && !backgroundsAnimating && sample.signature === previousSignature
+              ? stableFrames + 1
+              : 0;
+          previousSignature = sample.signature;
+          if (stableFrames >= 2) {
+            resolve();
+            return;
+          }
+          if (performance.now() - startedAt >= 5_000) {
+            reject(new Error(`Theme surfaces did not settle: ${sample.signature}`));
+            return;
+          }
+          requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      });
+
+      const style = getComputedStyle(element);
+      const surface = readSurface();
+      const matchedFocusRules = Array.from(document.styleSheets).flatMap((sheet) => {
+        try {
+          return Array.from(sheet.cssRules)
+            .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule)
+            .filter((rule) => rule.selectorText?.includes(":focus-visible") && element.matches(rule.selectorText))
+            .map((rule) => rule.cssText);
+        } catch {
+          return [];
+        }
+      });
+      return {
+        className: element.className,
+        focusVisible: element.matches(":focus-visible"),
+        matchedFocusRules,
+        outlineStyle: style.outlineStyle,
+        outlineWidth: Number.parseFloat(style.outlineWidth),
+        outlineOffset: Number.parseFloat(style.outlineOffset),
+        outlineColor: style.outlineColor,
+        backgroundColors: surface.backgroundColors,
+        settledSignature: surface.signature,
+      };
+    } finally {
+      probe.remove();
+    }
+  }, expectedTheme);
+  const background = compositeCssLayers(focus.backgroundColors);
+  const backgroundColor = background[3] === 1 ? `rgb(${background[0]}, ${background[1]}, ${background[2]})` : "";
+  const evidence = JSON.stringify({ ...focus, backgroundColor });
+
+  expect(focus.focusVisible, evidence).toBe(true);
+  expect(focus.matchedFocusRules.some((rule) => /outline-offset:\s*[1-9]/.test(rule)), evidence).toBe(true);
+  expect(focus.outlineStyle, evidence).toBe("solid");
+  expect(focus.outlineWidth, evidence).toBeGreaterThanOrEqual(2);
+  expect(backgroundColor, evidence).not.toBe("");
+  expect(contrastRatio(focus.outlineColor, backgroundColor), evidence).toBeGreaterThanOrEqual(3);
 }
 
 test("muted reading text meets AA contrast and reduced motion disables nonessential transitions", async ({ page }) => {
@@ -354,6 +454,104 @@ test("keyboard Tab reaches interactive elements with visible focus", async ({ pa
     return el && el !== document.body ? el.getAttribute("aria-label") ?? el.tagName.toLowerCase() : null;
   });
   expect(readerFocused).not.toBeNull();
+});
+
+test("@reader-a11y @focus shared controls expose keyboard focus with measured contrast", async ({ page }) => {
+  await resetFixtures(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?module=all&sort=default&lang=zh");
+  await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+
+  const workbenchArticle = page.getByRole("link", { name: /Keyboard article one/ }).first();
+  await pressTabUntilFocused(page, workbenchArticle);
+  await expect(workbenchArticle).toBeFocused();
+  await expectVisibleFocusContrast(workbenchArticle, "light");
+
+  const sortButton = page.getByRole("button", { name: /排序/ });
+  await pressTabUntilFocused(page, sortButton);
+  await page.keyboard.press("Control+k");
+  const paletteInput = page.getByRole("dialog", { name: "命令面板" }).getByRole("textbox");
+  await expect(paletteInput).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(paletteInput).toBeFocused();
+  await expectVisibleFocusContrast(paletteInput, "light");
+  await page.keyboard.press("Escape");
+  await expect(sortButton).toBeFocused();
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "dark";
+  });
+
+  const returnLink = page.getByRole("link", { name: "返回工作台" });
+  await pressTabUntilFocused(page, returnLink);
+  await expectVisibleFocusContrast(returnLink, "dark");
+
+  const feedbackButton = page.getByRole("button", { name: "反馈校准" });
+  await pressTabUntilFocused(page, feedbackButton);
+  await expectVisibleFocusContrast(feedbackButton, "dark");
+
+  const overflowTrigger = page.getByRole("button", { name: "更多文章操作" });
+  await pressTabUntilFocused(page, overflowTrigger, { reverse: true });
+  await expectVisibleFocusContrast(overflowTrigger, "dark");
+  await page.keyboard.press("ArrowDown");
+  const overflowOption = page.getByRole("menuitem", { name: "刷新全文" });
+  await expect(overflowOption).toBeFocused();
+  await expectVisibleFocusContrast(overflowOption, "dark");
+  await page.keyboard.press("Escape");
+  await expect(overflowTrigger).toBeFocused();
+
+  const drawerTrigger = page.getByRole("button", { name: "文章助手" });
+  await pressTabUntilFocused(page, drawerTrigger);
+  await expectVisibleFocusContrast(drawerTrigger, "dark");
+  await page.keyboard.press("Enter");
+  const quickAction = page.getByRole("button", { name: "总结", exact: true });
+  await pressTabUntilFocused(page, quickAction);
+  await expectVisibleFocusContrast(quickAction, "dark");
+  const agentQuestion = page.locator(".agentDrawer textarea");
+  await pressTabUntilFocused(page, agentQuestion);
+  await expectVisibleFocusContrast(agentQuestion, "dark");
+
+  await pressTabUntilFocused(page, drawerTrigger, { reverse: true });
+  await page.keyboard.press("Enter");
+  await selectReaderText(page);
+  const selectionToolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(selectionToolbar).toBeVisible();
+  const selectionColor = selectionToolbar.getByRole("combobox", { name: "划线颜色" });
+  await pressTabUntilFocused(page, selectionColor);
+  await expectVisibleFocusContrast(selectionColor, "dark");
+});
+
+test("@reader-a11y @focus Workbench remains Axe-clean without horizontal overflow", async ({ page }) => {
+  await resetFixtures(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+
+  for (const setup of [
+    { width: 1440, height: 1000, theme: "light" },
+    { width: 390, height: 844, theme: "dark" },
+  ] as const) {
+    await page.setViewportSize({ width: setup.width, height: setup.height });
+    await page.goto("/?module=all&sort=default&lang=zh");
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, setup.theme);
+    await expect(page.getByText("Keyboard article one", { exact: true })).toBeVisible();
+    await waitForSettledArticleList(page);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
+      .toBe(true);
+
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    const serious = results.violations.filter(
+      (violation) => violation.impact === "critical" || violation.impact === "serious",
+    );
+    expect(
+      serious,
+      `${setup.theme} ${setup.width}px Workbench a11y: ${JSON.stringify(serious.map((item) => item.id))}`,
+    ).toEqual([]);
+  }
 });
 
 test("axe scan finds no critical accessibility violations on core pages", async ({ page }) => {
@@ -843,6 +1041,202 @@ test("annotation save 503 shows explicit retry and recovers without losing the s
   await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
 });
 
+test("annotation edit retry submits the latest draft and metadata", async ({ page }) => {
+  await resetFixtures(page);
+  await enableNotesDualPane(page);
+  let putCount = 0;
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/annotations/41", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.fallback();
+      return;
+    }
+    putCount += 1;
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    if (putCount === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "标注更新暂不可用，请重试。" } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 41,
+          article_id: 7,
+          type: "annotation",
+          selected_text: "A durable note returns when it matters.",
+          content: submitted?.content,
+          color: submitted?.color,
+          tags: submitted?.tags,
+          anchor: null,
+          created_at: "2026-07-24T08:00:00Z",
+          updated_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 3,
+          review_count: 1,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  const manager = page.locator('section[aria-label="已保存标注"]');
+  await expect(manager).toBeVisible();
+  await manager.getByRole("button", { name: "编辑标注" }).click();
+  await manager.getByLabel("笔记内容").fill("旧正文");
+  await manager.getByLabel("颜色").selectOption("blue");
+  await manager.getByLabel("标签").fill("old");
+  await manager.getByRole("button", { name: "保存修改" }).click();
+
+  await expect(page.getByRole("button", { name: "重试标注操作" })).toBeVisible();
+  await manager.getByLabel("笔记内容").fill("最新正文");
+  await manager.getByLabel("颜色").selectOption("green");
+  await manager.getByLabel("标签").fill("latest, retry");
+  await page.getByRole("button", { name: "重试标注操作" }).click();
+
+  await expect(page.getByText("标注已更新", { exact: true })).toBeVisible();
+  expect(putCount).toBe(2);
+  expect(submitted).toEqual({
+    content: "最新正文",
+    color: "green",
+    tags: ["latest", "retry"],
+  });
+  await expect(manager).toContainText("最新正文");
+  await expect(manager).toContainText("颜色：green");
+  await expect(manager).toContainText("标签：latest, retry");
+});
+
+test("annotation delete response loss retries without a second confirmation", async ({ page }) => {
+  await resetFixtures(page);
+  await enableNotesDualPane(page);
+  let deleteCount = 0;
+  let dialogCount = 0;
+  const unexpectedDialogs: string[] = [];
+  let serverDeleted = false;
+
+  page.on("dialog", async (dialog) => {
+    dialogCount += 1;
+    if (dialogCount === 1) {
+      await dialog.accept();
+      return;
+    }
+    unexpectedDialogs.push(dialog.message());
+    await dialog.dismiss();
+  });
+  await page.route("**/api/annotations/41", async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.fallback();
+      return;
+    }
+    deleteCount += 1;
+    if (deleteCount === 1) {
+      serverDeleted = true;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "response_lost", message: "删除已提交，但响应未送达。" },
+        }),
+      });
+      return;
+    }
+    expect(serverDeleted).toBe(true);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ deleted: true, id: 41 }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  const manager = page.locator('section[aria-label="已保存标注"]');
+  await expect(manager).toBeVisible();
+  await manager.getByRole("button", { name: "删除标注" }).click();
+
+  await expect(manager.getByRole("alert")).toContainText("删除已提交，但响应未送达。");
+  await expect(manager.getByRole("button", { name: "重试标注操作" })).toBeVisible();
+  await expect(manager).toContainText("A durable note returns when it matters.");
+
+  await manager.getByRole("button", { name: "重试标注操作" }).click();
+  await expect(page.getByText("标注已删除", { exact: true })).toBeVisible();
+  await expect(manager).toHaveCount(0);
+  expect(deleteCount).toBe(2);
+  expect(dialogCount).toBe(1);
+  expect(unexpectedDialogs).toEqual([]);
+});
+
+test("annotation selection retry uses current color and tags without changing its quote", async ({ page }) => {
+  await resetFixtures(page);
+  let postCount = 0;
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    postCount += 1;
+    submitted = route.request().postDataJSON() as Record<string, unknown>;
+    if (postCount === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "annotation_unavailable", message: "标注保存暂不可用，请重试。" } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 65,
+          article_id: 7,
+          type: "annotation",
+          selected_text: submitted?.selected_text,
+          content: submitted?.content,
+          color: submitted?.color,
+          tags: submitted?.tags,
+          anchor: submitted?.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator("select").selectOption("yellow");
+  await expect(toolbar).toBeVisible();
+  await toolbar.getByPlaceholder("标签,逗号分隔").fill("old");
+  await expect(toolbar).toBeVisible();
+  await toolbar.getByRole("button", { name: "保存划线" }).click();
+  await expect(toolbar.getByRole("button", { name: "重试保存" })).toBeVisible();
+
+  await toolbar.locator("select").selectOption("green");
+  await toolbar.getByPlaceholder("标签,逗号分隔").fill("latest, retry");
+  await toolbar.getByRole("button", { name: "重试保存" }).click();
+
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  expect(postCount).toBe(2);
+  expect(submitted?.content).toBe("Evidence persists.");
+  expect(submitted?.selected_text).toBe("Evidence persists.");
+  expect(submitted?.color).toBe("green");
+  expect(submitted?.tags).toEqual(["latest", "retry"]);
+  expect((submitted?.anchor as Record<string, unknown>).exact).toBe("Evidence persists.");
+  await expect(page.locator('mark[data-annotation-id="65"]')).toBeVisible();
+});
+
 test("dual-pane note submission prevents duplicate POST and preserves an ABA-edited draft", async ({ page }) => {
   await resetFixtures(page);
   await enableNotesDualPane(page);
@@ -931,13 +1325,21 @@ test("dual-pane note retry resubmits the immutable failed snapshot", async ({ pa
   });
 
   await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
+  await selectReaderText(page);
+  const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
   const notes = page.locator('aside[aria-label="笔记双栏"]');
   const textarea = notes.getByPlaceholder("边读边记…");
+  await expect(toolbar).toBeVisible();
   await textarea.fill("原提交笔记");
+  await toolbar.locator("select").selectOption("yellow");
+  await toolbar.getByPlaceholder("标签,逗号分隔").fill("original, snapshot");
   await notes.getByRole("button", { name: "保存笔记" }).click();
   await expect(notes.getByRole("button", { name: "重试原提交" })).toBeVisible();
 
   await textarea.fill("失败后新笔记");
+  await toolbar.locator("select").selectOption("blue");
+  await toolbar.getByPlaceholder("标签,逗号分隔").fill("latest, draft");
   await notes.getByRole("button", { name: "重试原提交" }).click();
 
   await expect.poll(() => submitted.length).toBe(2);
@@ -948,10 +1350,10 @@ test("dual-pane note retry resubmits the immutable failed snapshot", async ({ pa
   await expect(retryAlert).toContainText("标注保存暂不可用，请重试。");
   expect(submitted[1]).toEqual(submitted[0]);
   expect(submitted[0]?.content).toBe("原提交笔记");
-  expect(submitted[0]?.selected_text).toBeNull();
+  expect(submitted[0]?.selected_text).toBe("Evidence persists.");
   expect(submitted[0]?.color).toBe("yellow");
-  expect(submitted[0]?.tags).toEqual([]);
-  expect(submitted[0]?.anchor).toBeUndefined();
+  expect(submitted[0]?.tags).toEqual(["original", "snapshot"]);
+  expect((submitted[0]?.anchor as Record<string, unknown>).exact).toBe("Evidence persists.");
   await expect(textarea).toHaveValue("失败后新笔记");
 
   releaseRetry();
@@ -1182,12 +1584,104 @@ test("new selection invalidates a stale annotation retry after save failure", as
   expect(submitted?.selected_text).toBe("Evidence persists.");
 });
 
-test("in-flight annotation save success cannot clear a newer selection", async ({ page }) => {
+test("selection callbacks from an unmounted article cannot contaminate the next article", async ({ page }) => {
+  await resetFixtures(page);
+  let postStarted = false;
+  let getStarted = false;
+  let releaseOldPost!: () => void;
+  let releaseOldGet!: () => void;
+  const oldPostHeld = new Promise<void>((resolve) => {
+    releaseOldPost = resolve;
+  });
+  const oldGetHeld = new Promise<void>((resolve) => {
+    releaseOldGet = resolve;
+  });
+
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() === "POST") {
+      postStarted = true;
+      await oldPostHeld;
+      await route.fallback();
+      return;
+    }
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    const response = await route.fetch();
+    const body = await response.body();
+    getStarted = true;
+    await oldGetHeld;
+    await route.fulfill({ response, body });
+  });
+
+  await page.goto("/read/7?module=search&filter=all&sort=default&lang=zh&q=fast");
+  await expect(page.getByRole("heading", { name: "Durable research workflows" })).toBeVisible();
+  await expect.poll(() => getStarted).toBe(true);
+  await selectReaderText(page);
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect.poll(() => postStarted).toBe(true);
+
+  await page.getByRole("link", { name: "返回工作台" }).click();
+  await expect(page).toHaveURL(/module=search.*q=fast/);
+  const fastResult = page.getByRole("link", { name: "Fast search result" }).first();
+  await expect(fastResult).toBeVisible();
+  await fastResult.click();
+  await expect(page).toHaveURL(/\/read\/9\?/);
+  await expect(page.getByRole("heading", { name: "Fast search result" })).toBeVisible();
+
+  releaseOldPost();
+  releaseOldGet();
+  await page.waitForTimeout(150);
+  await expect(page.locator('mark[data-annotation-id="60"]')).toHaveCount(0);
+  await expect(page.getByText("已保存划线", { exact: true })).toHaveCount(0);
+});
+
+test("annotation create success is not overwritten by a delayed mutation-before GET snapshot", async ({ page }) => {
+  await resetFixtures(page);
+  let releaseInitialGet!: () => void;
+  let markSnapshotReady!: () => void;
+  const initialGetHeld = new Promise<void>((resolve) => {
+    releaseInitialGet = resolve;
+  });
+  const snapshotReady = new Promise<void>((resolve) => {
+    markSnapshotReady = resolve;
+  });
+  await page.route("**/api/articles/7/annotations", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    const snapshot = await route.fetch();
+    const body = await snapshot.body();
+    markSnapshotReady();
+    await initialGetHeld;
+    await route.fulfill({ response: snapshot, body });
+  });
+
+  await page.goto("/read/7?module=all&sort=default&lang=zh");
+  await snapshotReady;
+  await waitForSettledFocusReader(page);
+  await selectReaderText(page);
+  await page.getByRole("button", { name: "保存划线" }).click();
+  await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
+  await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
+
+  releaseInitialGet();
+  await page.waitForTimeout(150);
+  await expect(page.locator('mark[data-annotation-id="60"]')).toBeVisible();
+});
+
+test("selection pending blocks synchronous duplicate POST and old success cannot clear a newer attempt", async ({ page }) => {
   await resetFixtures(page);
   let postCount = 0;
   let releaseFirst: (() => void) | null = null;
+  let releaseSecond: (() => void) | null = null;
   const firstResponseHeld = new Promise<void>((resolve) => {
     releaseFirst = resolve;
+  });
+  const secondResponseHeld = new Promise<void>((resolve) => {
+    releaseSecond = resolve;
   });
 
   await page.route("**/api/articles/7/annotations", async (route) => {
@@ -1196,14 +1690,16 @@ test("in-flight annotation save success cannot clear a newer selection", async (
       return;
     }
     postCount += 1;
+    const requestNumber = postCount;
     const body = route.request().postDataJSON() as Record<string, unknown>;
-    if (postCount === 1) await firstResponseHeld;
+    if (requestNumber === 1) await firstResponseHeld;
+    if (requestNumber === 2) await secondResponseHeld;
     await route.fulfill({
       status: 201,
       contentType: "application/json",
       body: JSON.stringify({
         annotation: {
-          id: postCount === 1 ? 62 : 63,
+          id: requestNumber === 1 ? 62 : 63,
           article_id: 7,
           type: "annotation",
           selected_text: body.selected_text,
@@ -1225,19 +1721,32 @@ test("in-flight annotation save success cannot clear a newer selection", async (
   await selectReaderText(page);
   const toolbar = page.getByRole("toolbar", { name: "选中文字操作" });
   await expect(toolbar).toBeVisible();
-  await page.getByRole("button", { name: "保存划线" }).click();
+  const firstSave = page.getByRole("button", { name: "保存划线" });
+  await firstSave.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
   await expect.poll(() => postCount).toBe(1);
+  await expect(page.getByRole("button", { name: "保存中…" })).toBeDisabled();
+  await page.waitForTimeout(100);
+  expect(postCount).toBe(1);
 
   await page.keyboard.press("Escape");
   await selectReaderParagraphWithMouse(page, "Evidence should survive navigation.");
   await expect(toolbar).toBeVisible();
-  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
+  const secondSave = page.getByRole("button", { name: "保存划线" });
+  await expect(secondSave).toBeEnabled();
+  await secondSave.click();
+  await expect.poll(() => postCount).toBe(2);
+  await expect(page.getByRole("button", { name: "保存中…" })).toBeDisabled();
 
   releaseFirst?.();
   releaseFirst = null;
-  await expect(page.getByRole("button", { name: "保存划线" })).toBeVisible();
-  await page.getByRole("button", { name: "保存划线" }).click();
-  await expect.poll(() => postCount).toBe(2);
+  await expect(page.getByRole("button", { name: "保存中…" })).toBeDisabled();
+  await expect(page.getByText("已保存划线", { exact: true })).toHaveCount(0);
+
+  releaseSecond?.();
+  releaseSecond = null;
   await expect(page.getByText("已保存划线", { exact: true })).toBeVisible();
   await expect(toolbar).toBeHidden();
 });
@@ -2011,9 +2520,148 @@ test("review queue failure shows error with retry and recovers", async ({ page }
   await page.goto("/?module=review&sort=default&lang=zh");
 
   await expect(page.getByText(/复习队列暂不可用/)).toBeVisible();
-  await page.getByRole("button", { name: "重试" }).click();
+  await page.getByRole("button", { name: "刷新队列" }).click();
   await expect(page.getByText("A durable note returns when it matters.", { exact: true })).toBeVisible();
   await expect(page.getByText(/复习队列暂不可用/)).toHaveCount(0);
+});
+
+test("review refresh and review pending block synchronous duplicates and reject stale queue snapshots", async ({ page }) => {
+  await resetFixtures(page);
+  let getCount = 0;
+  let postCount = 0;
+  let releaseRefresh!: () => void;
+  let releaseReview!: () => void;
+  const refreshHeld = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  const reviewHeld = new Promise<void>((resolve) => {
+    releaseReview = resolve;
+  });
+  const reviewItem = {
+    id: 41,
+    article_id: 7,
+    type: "annotation",
+    selected_text: "A durable note returns when it matters.",
+    content: "A durable note returns when it matters.",
+    color: "yellow",
+    tags: ["evidence"],
+    created_at: "2026-07-24T08:00:00Z",
+    next_review_at: "2026-07-26T08:00:00Z",
+    interval_days: 3,
+    review_count: 1,
+    article_title: "Durable research workflows",
+    article_url: "https://example.com/durable-research",
+  };
+  await page.route("**/api/annotations/review?**", async (route) => {
+    getCount += 1;
+    if (getCount === 2) await refreshHeld;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [reviewItem] }),
+    });
+  });
+  await page.route("**/api/annotations/41/review", async (route) => {
+    postCount += 1;
+    await reviewHeld;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ annotation: { ...reviewItem, review_count: 2, interval_days: 7 } }),
+    });
+  });
+
+  await page.goto("/?module=review&sort=default&lang=zh");
+  await expect(page.getByText(reviewItem.content, { exact: true })).toBeVisible();
+  expect(getCount).toBe(1);
+  const refresh = page.getByRole("button", { name: "刷新队列" });
+  await refresh.focus();
+  await refresh.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect.poll(() => getCount).toBe(2);
+  await expect(refresh).toBeDisabled();
+  await expect(refresh).toHaveText("刷新中…");
+  await expect(page.getByText(reviewItem.content, { exact: true })).toBeVisible();
+  await page.waitForTimeout(100);
+  expect(getCount).toBe(2);
+
+  const remember = page.getByRole("button", { name: "记得" });
+  await remember.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect.poll(() => postCount).toBe(1);
+  await expect(page.getByRole("button", { name: "提交中…" }).first()).toBeDisabled();
+  await page.waitForTimeout(100);
+  expect(postCount).toBe(1);
+  releaseReview();
+  await expect(page.getByText(reviewItem.content, { exact: true })).toHaveCount(0);
+
+  releaseRefresh();
+  await expect(refresh).toBeEnabled();
+  await expect(refresh).toHaveAccessibleName("刷新队列");
+  await expect(page.getByText(reviewItem.content, { exact: true })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("刷新队列");
+});
+
+test("review refresh failure preserves items and same-mount retry issues the third GET", async ({ page }) => {
+  await resetFixtures(page);
+  let getCount = 0;
+  const item = {
+    id: 41,
+    article_id: 7,
+    type: "annotation",
+    selected_text: "A durable note returns when it matters.",
+    content: "A durable note returns when it matters.",
+    color: "yellow",
+    tags: ["evidence"],
+    created_at: "2026-07-24T08:00:00Z",
+    next_review_at: "2026-07-26T08:00:00Z",
+    interval_days: 3,
+    review_count: 1,
+    article_title: "Durable research workflows",
+    article_url: "https://example.com/durable-research",
+  };
+  await page.route("**/api/annotations/review?**", async (route) => {
+    getCount += 1;
+    if (getCount === 2) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "review_unavailable", message: "刷新队列失败" } }),
+      });
+      return;
+    }
+    const nextItems = getCount === 3 ? [{ ...item, id: 42, selected_text: "Recovered queue item", content: "Recovered queue item" }] : [item];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: nextItems }),
+    });
+  });
+
+  await page.goto("/?module=review&sort=default&lang=zh");
+  await expect(page.getByText(item.content, { exact: true })).toBeVisible();
+  const refresh = page.getByRole("button", { name: "刷新队列" });
+  await refresh.focus();
+  await refresh.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect.poll(() => getCount).toBe(2);
+  await expect(page.locator(".reviewQueuePane .adminConsoleError")).toContainText("刷新队列失败");
+  await expect(page.getByText(item.content, { exact: true })).toBeVisible();
+  await expect(refresh).toBeEnabled();
+  await expect(refresh).toHaveAccessibleName("刷新队列");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("刷新队列");
+
+  await refresh.click();
+  await expect.poll(() => getCount).toBe(3);
+  await expect(page.locator(".reviewQueuePane .adminConsoleError")).toHaveCount(0);
+  await expect(page.getByText("Recovered queue item", { exact: true })).toBeVisible();
+  await expect(page.getByText(item.content, { exact: true })).toHaveCount(0);
 });
 
 test("export panel downloads project markdown", async ({ page }) => {
