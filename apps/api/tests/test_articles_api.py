@@ -1,4 +1,6 @@
+from collections import Counter
 from datetime import UTC, datetime, timedelta
+from threading import Barrier, Thread
 
 import pytest
 
@@ -376,6 +378,447 @@ async def test_article_annotations_are_private_to_current_user(app, client):
     assert listed.json()["items"][0]["id"] == created.json()["annotation"]["id"]
     assert listed.json()["items"][0]["anchor"] == anchor
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_annotation_edit_and_soft_delete_preserve_anchor_and_visibility(app, client):
+    owner, owner_token, _ = app.state.auth_store.create_user("Annotation Owner")
+    _, other_token, _ = app.state.auth_store.create_user("Other Annotation User")
+    from app.core.security import SESSION_COOKIE_NAME
+
+    client.cookies.set(SESSION_COOKIE_NAME, owner_token)
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 304,
+            "url": "https://example.com/annotation-lifecycle",
+            "title": "Annotation lifecycle",
+            "content_text": "quoted body",
+        }
+    )
+    anchor = {
+        "kind": "text-quote",
+        "version": 1,
+        "exact": "quoted",
+        "prefix": "",
+        "suffix": " body",
+        "start": 0,
+        "end": 6,
+    }
+    created = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        json={
+            "content": "old body",
+            "selected_text": "quoted",
+            "type": "comment",
+            "color": "yellow",
+            "tags": ["old"],
+            "anchor": anchor,
+        },
+    )
+    assert created.status_code == 201
+    annotation_id = created.json()["annotation"]["id"]
+
+    updated = await client.put(
+        f"/api/annotations/{annotation_id}",
+        json={"content": "  new body  ", "color": "BLUE", "tags": ["AI", "ai", "research"]},
+    )
+    assert updated.status_code == 200
+    updated_annotation = updated.json()["annotation"]
+    assert updated_annotation["content"] == "new body"
+    assert updated_annotation["color"] == "blue"
+    assert updated_annotation["tags"] == ["AI", "research"]
+    assert updated_annotation["selected_text"] == "quoted"
+    assert updated_annotation["type"] == "comment"
+    assert updated_annotation["anchor"] == anchor
+    assert updated_annotation["updated_at"] is not None
+
+    cleared = await client.put(
+        f"/api/annotations/{annotation_id}",
+        json={"content": "body only", "color": None, "tags": []},
+    )
+    assert cleared.status_code == 200
+    cleared_annotation = cleared.json()["annotation"]
+    assert cleared_annotation["content"] == "body only"
+    assert cleared_annotation["color"] is None
+    assert cleared_annotation["tags"] == []
+    assert cleared_annotation["selected_text"] == "quoted"
+    assert cleared_annotation["type"] == "comment"
+    assert cleared_annotation["anchor"] == anchor
+
+    new_search = await client.get("/api/annotations/search", params={"q": "body only"})
+    old_search = await client.get("/api/annotations/search", params={"q": "old body"})
+    assert [item["id"] for item in new_search.json()["items"]] == [annotation_id]
+    assert old_search.json()["items"] == []
+    selected_search = await client.get("/api/annotations/search", params={"q": "QUOTED"})
+    assert [item["id"] for item in selected_search.json()["items"]] == [annotation_id]
+
+    from app.db.repositories.articles import AnnotationDeleteResult
+
+    deleted = await client.delete(f"/api/annotations/{annotation_id}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True, "id": annotation_id}
+    stored = app.state.article_repository._annotations[annotation_id]
+    assert stored.deleted_at is not None
+    assert stored.deleted_at == stored.updated_at
+    assert stored.deleted_by == owner.id
+    assert stored.delete_reason == "user_request"
+    original_audit = (
+        stored.deleted_at,
+        stored.updated_at,
+        stored.deleted_by,
+        stored.delete_reason,
+    )
+    assert app.state.article_repository.get_annotation(owner.id, annotation_id) is None
+    assert (
+        app.state.article_repository.soft_delete_annotation(owner.id, annotation_id)
+        is AnnotationDeleteResult.ALREADY_DELETED
+    )
+    repeated = app.state.article_repository._annotations[annotation_id]
+    assert (
+        repeated.deleted_at,
+        repeated.updated_at,
+        repeated.deleted_by,
+        repeated.delete_reason,
+    ) == original_audit
+
+    assert (await client.get(f"/api/articles/{article.id}/annotations")).json()["items"] == []
+    assert (await client.get("/api/annotations/search", params={"q": "new body"})).json()["items"] == []
+    assert (await client.get("/api/annotations/review")).json()["items"] == []
+    assert (await client.put(
+        f"/api/annotations/{annotation_id}",
+        json={"content": "again", "color": None, "tags": []},
+    )).status_code == 404
+    retried_delete = await client.delete(f"/api/annotations/{annotation_id}")
+    assert retried_delete.status_code == 200
+    assert retried_delete.json() == deleted.json()
+    assert (await client.post(
+        f"/api/annotations/{annotation_id}/review",
+        json={"remembered": True},
+    )).status_code == 404
+
+    client.cookies.set(SESSION_COOKIE_NAME, other_token)
+    assert (await client.put(
+        f"/api/annotations/{annotation_id}",
+        json={"content": "other", "color": None, "tags": []},
+    )).status_code == 404
+    assert (await client.delete(f"/api/annotations/{annotation_id}")).status_code == 404
+    assert (await client.post(
+        f"/api/annotations/{annotation_id}/review",
+        json={"remembered": True},
+    )).status_code == 404
+    assert (await client.get(f"/api/articles/{article.id}/annotations")).json()["items"] == []
+    assert (await client.get("/api/annotations/search", params={"q": "new body"})).json()["items"] == []
+    assert (await client.get("/api/annotations/review")).json()["items"] == []
+
+
+def test_annotation_delete_openapi_declares_typed_success_and_not_found(app):
+    operation = app.openapi()["paths"]["/api/annotations/{annotation_id}"]["delete"]
+    assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/AnnotationDeleteResponse"
+    }
+    assert operation["responses"]["404"]["description"] == "Annotation not found"
+    schema = app.openapi()["components"]["schemas"]["AnnotationDeleteResponse"]
+    assert schema["required"] == ["id"]
+    assert schema["properties"]["deleted"]["const"] is True
+    assert schema["properties"]["id"]["type"] == "integer"
+
+
+def test_memory_annotation_delete_is_atomic_and_typed():
+    from app.db.repositories.articles import AnnotationDeleteResult, MemoryArticleRepository
+    from uuid import uuid4
+
+    repository = MemoryArticleRepository()
+    owner_id = uuid4()
+    article = repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 9001,
+            "url": "https://example.com/memory-delete-race",
+            "title": "Memory delete race",
+        }
+    )
+    annotation = repository.create_annotation(owner_id, article.id, content="race")
+    assert annotation is not None
+    barrier = Barrier(2)
+    results: list[AnnotationDeleteResult] = []
+
+    def delete() -> None:
+        barrier.wait()
+        results.append(repository.soft_delete_annotation(owner_id, annotation.id))
+
+    threads = [Thread(target=delete), Thread(target=delete)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+
+    assert Counter(results) == Counter(
+        [AnnotationDeleteResult.DELETED, AnnotationDeleteResult.ALREADY_DELETED]
+    )
+    tombstone = repository._annotations[annotation.id]
+    assert tombstone.deleted_at is not None
+    assert tombstone.deleted_at == tombstone.updated_at
+    assert tombstone.deleted_by == owner_id
+    assert tombstone.delete_reason == "user_request"
+    assert repository.list_annotations(owner_id, article.id) == []
+
+
+@pytest.mark.asyncio
+async def test_annotation_delete_missing_and_unknown_results_fail_closed(app, client, monkeypatch):
+    from app.db.repositories.articles import AnnotationDeleteResult
+
+    await client.post("/api/auth/login", json={"display_name": "Delete Result User"})
+    owner, _, _ = app.state.auth_store.create_user("Delete Result Owner")
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 9003,
+            "url": "https://example.com/delete-result-boundary",
+            "title": "Delete result boundary",
+        }
+    )
+    annotation = app.state.article_repository.create_annotation(owner.id, article.id, content="owner")
+    assert annotation is not None
+
+    missing = await client.delete("/api/annotations/999999")
+    non_owner = await client.delete(f"/api/annotations/{annotation.id}")
+    assert missing.status_code == non_owner.status_code == 404
+    assert missing.json() == non_owner.json()
+    assert missing.json()["error"] == {
+        "code": "not_found",
+        "message": "Annotation not found",
+        "details": {},
+    }
+    assert app.state.article_repository.get_annotation(owner.id, annotation.id) is not None
+    assert bool(AnnotationDeleteResult.NOT_FOUND_OR_NOT_OWNER) is True
+
+    invalid_results = (
+        "deleted",
+        "already_deleted",
+        "not_found_or_not_owner",
+        "future_delete_result",
+    )
+    for invalid_result in invalid_results:
+        monkeypatch.setattr(
+            app.state.article_repository,
+            "soft_delete_annotation",
+            lambda *_args, _result=invalid_result, **_kwargs: _result,
+        )
+        with pytest.raises(
+            AssertionError,
+            match="soft_delete_annotation must return AnnotationDeleteResult",
+        ):
+            await client.delete("/api/annotations/999999")
+
+
+@pytest.mark.asyncio
+async def test_annotation_delete_admin_has_no_owner_override(app, client):
+    from app.core.security import SESSION_COOKIE_NAME
+
+    owner, owner_token, _ = app.state.auth_store.create_user("Delete Owner")
+    _, admin_token, _ = app.state.auth_store.create_user("Delete Admin", role="admin")
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 9002,
+            "url": "https://example.com/admin-delete-boundary",
+            "title": "Admin delete boundary",
+        }
+    )
+    owner_annotation = app.state.article_repository.create_annotation(owner.id, article.id, content="owner")
+    assert owner_annotation is not None
+
+    client.cookies.set(SESSION_COOKIE_NAME, admin_token)
+    assert (await client.delete(f"/api/annotations/{owner_annotation.id}")).status_code == 404
+    assert app.state.article_repository.get_annotation(owner.id, owner_annotation.id) is not None
+
+    client.cookies.set(SESSION_COOKIE_NAME, owner_token)
+    assert (await client.delete(f"/api/annotations/{owner_annotation.id}")).status_code == 200
+
+    client.cookies.set(SESSION_COOKIE_NAME, admin_token)
+    assert (await client.delete(f"/api/annotations/{owner_annotation.id}")).status_code == 404
+    admin = app.state.auth_store.get_user_by_session(admin_token)
+    assert admin is not None
+    admin_annotation = app.state.article_repository.create_annotation(admin.id, article.id, content="admin")
+    assert admin_annotation is not None
+    first = await client.delete(f"/api/annotations/{admin_annotation.id}")
+    second = await client.delete(f"/api/annotations/{admin_annotation.id}")
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json() == {"deleted": True, "id": admin_annotation.id}
+
+
+@pytest.mark.asyncio
+async def test_visible_annotation_owner_isolation_preserves_owner_state(app, client):
+    owner, owner_token, _ = app.state.auth_store.create_user("Visible Annotation Owner")
+    _, other_token, _ = app.state.auth_store.create_user("Visible Annotation Other")
+    from app.core.security import SESSION_COOKIE_NAME
+
+    client.cookies.set(SESSION_COOKIE_NAME, owner_token)
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 307,
+            "url": "https://example.com/visible-owner-annotation",
+            "title": "Visible owner annotation",
+            "content_text": "owneronly quote body",
+        }
+    )
+    anchor = {
+        "kind": "text-quote",
+        "version": 1,
+        "exact": "owneronly quote",
+        "prefix": "",
+        "suffix": " body",
+        "start": 0,
+        "end": 15,
+    }
+    created = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        json={
+            "content": "owneronly private note",
+            "selected_text": "owneronly quote",
+            "type": "comment",
+            "color": "purple",
+            "tags": ["owneronly"],
+            "anchor": anchor,
+        },
+    )
+    assert created.status_code == 201
+    annotation_id = created.json()["annotation"]["id"]
+
+    owner_list_before = await client.get(f"/api/articles/{article.id}/annotations")
+    owner_review_before = await client.get("/api/annotations/review")
+    owner_interest_before = await client.get("/api/me/interest")
+    assert owner_list_before.status_code == 200
+    assert owner_review_before.status_code == 200
+    assert owner_interest_before.status_code == 200
+    assert [item["id"] for item in owner_list_before.json()["items"]] == [annotation_id]
+    assert [item["id"] for item in owner_review_before.json()["items"]] == [annotation_id]
+    assert owner_interest_before.json()["annotation_count"] == 1
+
+    client.cookies.set(SESSION_COOKIE_NAME, other_token)
+    other_update = await client.put(
+        f"/api/annotations/{annotation_id}",
+        json={"content": "other must not write", "color": "blue", "tags": ["other"]},
+    )
+    other_delete = await client.delete(f"/api/annotations/{annotation_id}")
+    other_review = await client.post(
+        f"/api/annotations/{annotation_id}/review",
+        json={"remembered": True},
+    )
+    other_list = await client.get(f"/api/articles/{article.id}/annotations")
+    other_search = await client.get("/api/annotations/search", params={"q": "owneronly"})
+    other_review_queue = await client.get("/api/annotations/review")
+    other_interest = await client.get("/api/me/interest")
+
+    assert other_update.status_code == 404
+    assert other_delete.status_code == 404
+    assert other_review.status_code == 404
+    assert other_list.status_code == 200
+    assert other_list.json()["items"] == []
+    assert other_search.status_code == 200
+    assert other_search.json()["items"] == []
+    assert other_review_queue.status_code == 200
+    assert other_review_queue.json()["items"] == []
+    assert other_interest.status_code == 200
+    assert other_interest.json()["annotation_count"] == 0
+    assert all(item["term"] not in {"owneronly", "private", "note"} for item in other_interest.json()["keywords"])
+
+    client.cookies.set(SESSION_COOKIE_NAME, owner_token)
+    owner_list_after = await client.get(f"/api/articles/{article.id}/annotations")
+    owner_review_after = await client.get("/api/annotations/review")
+    owner_interest_after = await client.get("/api/me/interest")
+
+    assert owner_list_after.json() == owner_list_before.json()
+    assert owner_review_after.json() == owner_review_before.json()
+    before_interest = {key: value for key, value in owner_interest_before.json().items() if key != "generated_at"}
+    after_interest = {key: value for key, value in owner_interest_after.json().items() if key != "generated_at"}
+    assert after_interest == before_interest
+    stored = app.state.article_repository.get_annotation(owner.id, annotation_id)
+    assert stored is not None
+    assert stored.review_count == 0
+
+
+@pytest.mark.asyncio
+async def test_annotation_search_uses_decoded_body_not_anchor_meta(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Search Meta User"})
+    _, other_token, _ = app.state.auth_store.create_user("Other Search Meta User")
+    from app.core.security import SESSION_COOKIE_NAME
+
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 306,
+            "url": "https://example.com/annotation-search-meta",
+            "title": "Annotation search meta",
+        }
+    )
+    anchor = {
+        "kind": "text-quote",
+        "version": 1,
+        "exact": "old body",
+        "prefix": "",
+        "suffix": "",
+        "start": 0,
+        "end": 8,
+    }
+    created = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        json={"content": "old body", "anchor": anchor},
+    )
+    assert created.status_code == 201
+    annotation_id = created.json()["annotation"]["id"]
+
+    updated = await client.put(
+        f"/api/annotations/{annotation_id}",
+        json={"content": "new body", "color": "blue", "tags": []},
+    )
+    assert updated.status_code == 200
+
+    assert (await client.get("/api/annotations/search", params={"q": "old body"})).json()["items"] == []
+    current = await client.get("/api/annotations/search", params={"q": "new body"})
+    assert [item["id"] for item in current.json()["items"]] == [annotation_id]
+    current_upper = await client.get("/api/annotations/search", params={"q": "NEW BODY"})
+    assert [item["id"] for item in current_upper.json()["items"]] == [annotation_id]
+
+    deleted = await client.delete(f"/api/annotations/{annotation_id}")
+    assert deleted.status_code == 200
+    assert (await client.get("/api/annotations/search", params={"q": "new body"})).json()["items"] == []
+
+    client.cookies.set(SESSION_COOKIE_NAME, other_token)
+    assert (await client.get("/api/annotations/search", params={"q": "old body"})).json()["items"] == []
+    assert (await client.get("/api/annotations/search", params={"q": "new body"})).json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_annotation_write_boundary_returns_401_and_403(app, client):
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 305,
+            "url": "https://example.com/annotation-boundary",
+            "title": "Annotation boundary",
+        }
+    )
+    unauthenticated = await client.put(
+        "/api/annotations/1",
+        json={"content": "no session", "color": None, "tags": []},
+    )
+    assert unauthenticated.status_code == 401
+
+    _, token, _ = app.state.auth_store.create_user("Boundary User")
+    from app.core.security import SESSION_COOKIE_NAME
+
+    client.cookies.set(SESSION_COOKIE_NAME, token)
+    client.headers["Origin"] = "https://evil.example"
+    forbidden = await client.put(
+        f"/api/annotations/{article.id}",
+        json={"content": "bad origin", "color": None, "tags": []},
+    )
+    assert forbidden.status_code == 403
+    client.headers.pop("Origin", None)
 
 
 @pytest.mark.asyncio

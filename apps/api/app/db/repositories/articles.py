@@ -4,6 +4,7 @@ import base64
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from enum import StrEnum
 from functools import wraps
 from threading import RLock
 import hashlib
@@ -15,8 +16,10 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import Engine, Numeric, and_, bindparam, case, create_engine, desc, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
+from app.domain.annotations_meta import searchable_annotation_body
 from app.db.models import (
     article_annotations,
     article_base_scores,
@@ -132,6 +135,12 @@ class ArticlePage:
     has_more: bool
 
 
+class AnnotationDeleteResult(StrEnum):
+    DELETED = "deleted"
+    ALREADY_DELETED = "already_deleted"
+    NOT_FOUND_OR_NOT_OWNER = "not_found_or_not_owner"
+
+
 @dataclass(frozen=True)
 class AnnotationRecord:
     id: int
@@ -145,6 +154,9 @@ class AnnotationRecord:
     next_review_at: datetime | None = None
     interval_days: int = 1
     review_count: int = 0
+    deleted_at: datetime | None = None
+    deleted_by: UUID | None = None
+    delete_reason: str | None = None
 
 
 class ArticleStore(Protocol):
@@ -217,6 +229,22 @@ class ArticleStore(Protocol):
     ) -> list[AnnotationRecord]: ...
 
     def get_annotation(self, user_id: UUID, annotation_id: int) -> AnnotationRecord | None: ...
+
+    def update_annotation(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        content: str,
+    ) -> AnnotationRecord | None: ...
+
+    def soft_delete_annotation(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        delete_reason: str = "user_request",
+    ) -> AnnotationDeleteResult: ...
 
     def update_annotation_review(
         self,
@@ -604,7 +632,11 @@ class MemoryArticleRepository:
             [
                 annotation
                 for annotation in self._annotations.values()
-                if annotation.user_id == user_id and annotation.article_id == article_id
+                if (
+                    annotation.user_id == user_id
+                    and annotation.article_id == article_id
+                    and annotation.deleted_at is None
+                )
             ],
             key=lambda item: item.id,
             reverse=True,
@@ -618,7 +650,11 @@ class MemoryArticleRepository:
         wanted = set(article_ids)
         grouped: dict[int, list[AnnotationRecord]] = defaultdict(list)
         for annotation in self._annotations.values():
-            if annotation.user_id == user_id and annotation.article_id in wanted:
+            if (
+                annotation.user_id == user_id
+                and annotation.article_id in wanted
+                and annotation.deleted_at is None
+            ):
                 grouped[annotation.article_id].append(annotation)
         return {
             article_id: sorted(items, key=lambda item: item.id, reverse=True)
@@ -635,7 +671,7 @@ class MemoryArticleRepository:
             [
                 annotation
                 for annotation in self._annotations.values()
-                if annotation.user_id == user_id
+                if annotation.user_id == user_id and annotation.deleted_at is None
             ],
             key=lambda item: (item.created_at, item.id),
             reverse=True,
@@ -656,6 +692,7 @@ class MemoryArticleRepository:
             annotation
             for annotation in self._annotations.values()
             if annotation.user_id == user_id
+            and annotation.deleted_at is None
             and is_due(
                 annotation.next_review_at,
                 now=moment,
@@ -681,23 +718,62 @@ class MemoryArticleRepository:
         if not needle:
             return []
         capped = max(1, min(limit, 100))
-        items = [
-            annotation
-            for annotation in self._annotations.values()
-            if annotation.user_id == user_id
-            and (
-                needle in (annotation.content or "").casefold()
-                or needle in (annotation.selected_text or "").casefold()
-            )
-        ]
+        items: list[AnnotationRecord] = []
+        for annotation in self._annotations.values():
+            if annotation.user_id != user_id or annotation.deleted_at is not None:
+                continue
+            body = searchable_annotation_body(annotation.content)
+            if needle in body.casefold() or needle in (annotation.selected_text or "").casefold():
+                items.append(annotation)
         items.sort(key=lambda item: item.id, reverse=True)
         return items[:capped]
 
     def get_annotation(self, user_id: UUID, annotation_id: int) -> AnnotationRecord | None:
         record = self._annotations.get(annotation_id)
-        if record is None or record.user_id != user_id:
+        if record is None or record.user_id != user_id or record.deleted_at is not None:
             return None
         return record
+
+    def update_annotation(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        content: str,
+    ) -> AnnotationRecord | None:
+        current = self.get_annotation(user_id, annotation_id)
+        if current is None:
+            return None
+        updated = replace(
+            current,
+            content=content,
+            updated_at=datetime.now(UTC),
+        )
+        self._annotations[annotation_id] = updated
+        return updated
+
+    @_with_memory_article_lock
+    def soft_delete_annotation(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        delete_reason: str = "user_request",
+    ) -> AnnotationDeleteResult:
+        current = self._annotations.get(annotation_id)
+        if current is None or current.user_id != user_id:
+            return AnnotationDeleteResult.NOT_FOUND_OR_NOT_OWNER
+        if current.deleted_at is not None:
+            return AnnotationDeleteResult.ALREADY_DELETED
+        now = datetime.now(UTC)
+        self._annotations[annotation_id] = replace(
+            current,
+            deleted_at=now,
+            deleted_by=user_id,
+            delete_reason=delete_reason,
+            updated_at=now,
+        )
+        return AnnotationDeleteResult.DELETED
 
     def update_annotation_review(
         self,
@@ -876,8 +952,15 @@ class MemoryArticleRepository:
 
 
 class DatabaseArticleRepository:
-    def __init__(self, database_url: str, engine: Engine | None = None) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        engine: Engine | None = None,
+        *,
+        annotation_delete_transaction_observer: Callable[[Connection], None] | None = None,
+    ) -> None:
         self.engine = engine or create_engine(database_url, pool_pre_ping=True)
+        self._annotation_delete_transaction_observer = annotation_delete_transaction_observer
 
     def upsert_from_source(self, entry: dict[str, object]) -> ArticleRecord:
         feed_id = int(entry["feed_id"])
@@ -1158,11 +1241,10 @@ class DatabaseArticleRepository:
         q: str,
         limit: int = 30,
     ) -> list[AnnotationRecord]:
-        needle = (q or "").strip()
+        needle = (q or "").strip().casefold()
         if not needle:
             return []
         capped = max(1, min(limit, 100))
-        pattern = f"%{needle}%"
         with self.engine.begin() as connection:
             rows = (
                 connection.execute(
@@ -1170,18 +1252,19 @@ class DatabaseArticleRepository:
                     .where(
                         article_annotations.c.user_id == user_id,
                         article_annotations.c.deleted_at.is_(None),
-                        or_(
-                            article_annotations.c.content.ilike(pattern),
-                            article_annotations.c.selected_text.ilike(pattern),
-                        ),
                     )
                     .order_by(desc(article_annotations.c.id))
-                    .limit(capped)
                 )
                 .mappings()
                 .all()
             )
-        return [_annotation_from_row(row) for row in rows]
+        records = [_annotation_from_row(row) for row in rows]
+        return [
+            record
+            for record in records
+            if needle in searchable_annotation_body(record.content).casefold()
+            or needle in (record.selected_text or "").casefold()
+        ][:capped]
 
     def get_annotation(self, user_id: UUID, annotation_id: int) -> AnnotationRecord | None:
         with self.engine.begin() as connection:
@@ -1199,6 +1282,75 @@ class DatabaseArticleRepository:
         if row is None:
             return None
         return _annotation_from_row(row)
+
+    def update_annotation(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        content: str,
+    ) -> AnnotationRecord | None:
+        now = datetime.now(UTC)
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(
+                    article_annotations.update()
+                    .where(
+                        article_annotations.c.id == annotation_id,
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.deleted_at.is_(None),
+                    )
+                    .values(content=content, updated_at=now)
+                    .returning(article_annotations)
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            return None
+        return _annotation_from_row(row)
+
+    def soft_delete_annotation(
+        self,
+        user_id: UUID,
+        annotation_id: int,
+        *,
+        delete_reason: str = "user_request",
+    ) -> AnnotationDeleteResult:
+        now = datetime.now(UTC)
+        with self.engine.begin() as connection:
+            if self._annotation_delete_transaction_observer is not None:
+                self._annotation_delete_transaction_observer(connection)
+            row = (
+                connection.execute(
+                    article_annotations.update()
+                    .where(
+                        article_annotations.c.id == annotation_id,
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.deleted_at.is_(None),
+                    )
+                    .values(
+                        deleted_at=now,
+                        deleted_by=user_id,
+                        delete_reason=delete_reason,
+                        updated_at=now,
+                    )
+                    .returning(article_annotations.c.id)
+                )
+                .first()
+            )
+            if row is not None:
+                return AnnotationDeleteResult.DELETED
+            tombstone_id = connection.execute(
+                select(article_annotations.c.id).where(
+                    article_annotations.c.id == annotation_id,
+                    article_annotations.c.user_id == user_id,
+                    article_annotations.c.deleted_at.is_not(None),
+                )
+            ).scalar_one_or_none()
+        if tombstone_id is not None:
+            return AnnotationDeleteResult.ALREADY_DELETED
+        return AnnotationDeleteResult.NOT_FOUND_OR_NOT_OWNER
 
     def update_annotation_review(
         self,
@@ -1851,6 +2003,9 @@ def _annotation_from_row(row) -> AnnotationRecord:
         next_review_at=next_review_raw,
         interval_days=int(interval_raw) if interval_raw is not None else 1,
         review_count=int(review_count_raw) if review_count_raw is not None else 0,
+        deleted_at=_row_get(row, "deleted_at"),
+        deleted_by=_row_get(row, "deleted_by"),
+        delete_reason=_row_get(row, "delete_reason"),
     )
 
 

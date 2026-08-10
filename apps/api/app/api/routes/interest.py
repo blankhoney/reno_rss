@@ -17,6 +17,7 @@ from app.db.auth_store import UserRecord
 from app.db.repositories.articles import ArticleRecord, ArticleStore
 from app.db.repositories.interest import InterestResetStore
 from app.db.repositories.scoring import ScoringStore
+from app.domain.annotations_meta import decode_annotation_content
 from app.domain.personalization import InterestSignal, build_interest_profile
 
 
@@ -108,9 +109,10 @@ def _profile_for_user(
 
     signals: list[InterestSignal] = []
     for annotation in annotations:
+        meta = decode_annotation_content(annotation.content)
         text = " ".join(
             part
-            for part in (annotation.selected_text or "", annotation.content or "")
+            for part in (annotation.selected_text or "", meta.body)
             if part
         )
         if text.strip():

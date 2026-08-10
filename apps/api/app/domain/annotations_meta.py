@@ -80,6 +80,26 @@ def encode_annotation_content(
     return f"⟦meta:{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}⟧\n{body}"
 
 
+def rewrite_annotation_content(
+    existing_content: str,
+    content: str,
+    *,
+    color: str | None = None,
+    tags: list[str] | None = None,
+) -> str:
+    """Rewrite editable metadata while preserving the persisted anchor."""
+    body = (content or "").strip()
+    if not body:
+        raise ValueError("content is required")
+    existing = decode_annotation_content(existing_content)
+    return encode_annotation_content(
+        body,
+        color=color,
+        tags=tags,
+        anchor=existing.anchor,
+    )
+
+
 def decode_annotation_content(content: str) -> AnnotationMeta:
     text = content or ""
     match = _META_RE.match(text)
@@ -103,3 +123,8 @@ def decode_annotation_content(content: str) -> AnnotationMeta:
     anchor = payload.get("anchor") if isinstance(payload.get("anchor"), dict) else None
     body = text[match.end() :]
     return AnnotationMeta(body=body, color=color, tags=tags, anchor=anchor)
+
+
+def searchable_annotation_body(content: str) -> str:
+    """Return only the user-authored body for annotation search."""
+    return decode_annotation_content(content).body

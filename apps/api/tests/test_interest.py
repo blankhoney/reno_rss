@@ -1,4 +1,7 @@
 from datetime import UTC, datetime
+import io
+import json
+import zipfile
 
 import pytest
 
@@ -84,6 +87,45 @@ async def test_interest_get_reset_export(client, app):
     assert "export" in export.json()
 
 
+@pytest.mark.asyncio
+async def test_interest_decodes_annotation_body_before_building_signals(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Interest Meta User"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 702,
+            "url": "https://example.com/interest-meta",
+            "title": "Interest meta article",
+        }
+    )
+    anchor = {
+        "kind": "text-quote",
+        "version": 1,
+        "exact": "old body",
+        "prefix": "anchor_only_token",
+        "suffix": "meta_only_token",
+        "start": 0,
+        "end": 8,
+    }
+    created = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        json={
+            "content": "new body",
+            "selected_text": "kept quote",
+            "color": "purple",
+            "tags": ["meta_tag"],
+            "anchor": anchor,
+        },
+    )
+    assert created.status_code == 201
+
+    profile = await client.get("/api/me/interest")
+    assert profile.status_code == 200
+    terms = {item["term"] for item in profile.json()["keywords"]}
+    assert {"new", "body", "kept", "quote"}.issubset(terms)
+    assert {"old", "anchor_only_token", "meta_only_token", "purple", "meta_tag"}.isdisjoint(terms)
+
+
 def test_database_interest_reset_repository_is_shared_across_instances():
     from uuid import uuid4
 
@@ -125,13 +167,22 @@ async def test_annotation_search_and_zip_export(app, client):
         json={"content": "remember the async runtime note", "selected_text": "async runtime"},
     )
     assert created.status_code == 201
+    annotation_id = created.json()["annotation"]["id"]
 
     search = await client.get("/api/annotations/search", params={"q": "async"})
     assert search.status_code == 200
     assert len(search.json()["items"]) >= 1
     assert "async" in search.json()["items"][0]["selected_text"].lower()
 
-    # Project state then zip export
+    deleted = await client.delete(f"/api/annotations/{annotation_id}")
+    assert deleted.status_code == 200
+    assert (await client.get("/api/annotations/search", params={"q": "async"})).json()["items"] == []
+    interest_after_delete = await client.get("/api/me/interest")
+    assert interest_after_delete.status_code == 200
+    assert interest_after_delete.json()["annotation_count"] == 0
+    assert all(item["term"] != "async" for item in interest_after_delete.json()["keywords"])
+
+    # Project state then zip export; the deleted annotation must not reappear.
     await client.post(
         f"/api/articles/{article.id}/state",
         json={"saved": True, "project": True},
@@ -140,5 +191,8 @@ async def test_annotation_search_and_zip_export(app, client):
     assert zip_response.status_code == 200
     assert zip_response.headers["content-type"].startswith("application/zip")
     assert zip_response.content[:2] == b"PK"
+    with zipfile.ZipFile(io.BytesIO(zip_response.content)) as archive:
+        project_json = json.loads(archive.read("project.json"))
+    assert project_json["items"][0]["annotations"] == []
     del user_id
     del me

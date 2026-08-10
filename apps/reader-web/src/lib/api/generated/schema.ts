@@ -289,6 +289,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/annotations/{annotation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Annotation */
+        put: operations["update_annotation_api_annotations__annotation_id__put"];
+        post?: never;
+        /** Delete Annotation */
+        delete: operations["delete_annotation_api_annotations__annotation_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/annotations/{annotation_id}/review": {
         parameters: {
             query?: never;
@@ -874,6 +892,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnnotationDeleteResponse */
+        AnnotationDeleteResponse: {
+            /**
+             * Deleted
+             * @default true
+             * @constant
+             */
+            deleted: true;
+            /** Id */
+            id: number;
+        };
         /** AnnotationReviewRequest */
         AnnotationReviewRequest: {
             /** Remembered */
@@ -918,6 +947,15 @@ export interface components {
             /** Tags */
             tags?: string[] | null;
             anchor?: components["schemas"]["ArticleAnnotationAnchor"] | null;
+        };
+        /** ArticleAnnotationUpdateRequest */
+        ArticleAnnotationUpdateRequest: {
+            /** Content */
+            content: string;
+            /** Color */
+            color?: string | null;
+            /** Tags */
+            tags?: string[];
         };
         /** ArticleFeedbackRequest */
         ArticleFeedbackRequest: {
@@ -1756,6 +1794,81 @@ export interface operations {
                         [key: string]: unknown;
                     };
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_annotation_api_annotations__annotation_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                annotation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArticleAnnotationUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_annotation_api_annotations__annotation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                annotation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotationDeleteResponse"];
+                };
+            };
+            /** @description Annotation not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

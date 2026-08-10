@@ -114,3 +114,10 @@ async def test_export_project_markdown_endpoint(app, client):
     assert exported["note"] == "Keep this reasoning"
     assert exported["color"] == "blue"
     assert exported["tags"] == ["portable"]
+
+    deleted = await client.delete(f"/api/annotations/{annotation.json()['annotation']['id']}")
+    assert deleted.status_code == 200
+    after_markdown = await client.get("/api/export/project", params={"format": "markdown"})
+    assert "Portable evidence" not in after_markdown.text
+    after_json = await client.get("/api/export/project", params={"format": "json"})
+    assert after_json.json()["items"][0]["annotations"] == []

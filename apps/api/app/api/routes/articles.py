@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, assert_never
 
 from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
@@ -22,6 +22,7 @@ from app.domain.export_project import (
 from app.domain.annotations_meta import decode_annotation_content
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import (
+    AnnotationDeleteResult,
     AnnotationRecord,
     ArticleFeedbackRecord,
     ArticleRecord,
@@ -96,6 +97,17 @@ class ArticleAnnotationRequest(BaseModel):
     color: str | None = Field(default=None, max_length=20)
     tags: list[str] | None = Field(default=None, max_length=12)
     anchor: ArticleAnnotationAnchor | None = None
+
+
+class ArticleAnnotationUpdateRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
+    color: str | None = Field(default=None, max_length=20)
+    tags: list[str] = Field(default_factory=list, max_length=12)
+
+
+class AnnotationDeleteResponse(BaseModel):
+    deleted: Literal[True] = True
+    id: int
 
 
 class AnnotationReviewRequest(BaseModel):
@@ -525,6 +537,62 @@ def list_annotation_review_queue(
             for item in items
         ]
     }
+
+
+@router.put("/annotations/{annotation_id}")
+@limiter.limit(write_rate_limit)
+def update_annotation(
+    payload: ArticleAnnotationUpdateRequest,
+    request: Request,
+    annotation_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+) -> dict[str, object]:
+    from app.domain.annotations_meta import rewrite_annotation_content
+
+    current = article_repository.get_annotation(current_user.id, annotation_id)
+    if current is None:
+        raise ApiError(404, "not_found", "Annotation not found")
+    try:
+        stored_content = rewrite_annotation_content(
+            current.content,
+            payload.content,
+            color=payload.color,
+            tags=payload.tags,
+        )
+    except ValueError as error:
+        raise ApiError(400, "invalid_request", str(error)) from None
+    updated = article_repository.update_annotation(
+        current_user.id,
+        annotation_id,
+        content=stored_content,
+    )
+    if updated is None:
+        raise ApiError(404, "not_found", "Annotation not found")
+    return {"annotation": annotation_public(updated)}
+
+
+@router.delete(
+    "/annotations/{annotation_id}",
+    response_model=AnnotationDeleteResponse,
+    responses={404: {"description": "Annotation not found"}},
+)
+@limiter.limit(write_rate_limit)
+def delete_annotation(
+    request: Request,
+    annotation_id: int = Path(gt=0),
+    current_user: UserRecord = Depends(require_user),
+    article_repository: ArticleStore = Depends(get_article_repository),
+) -> AnnotationDeleteResponse:
+    result = article_repository.soft_delete_annotation(current_user.id, annotation_id)
+    assert isinstance(result, AnnotationDeleteResult), (
+        "soft_delete_annotation must return AnnotationDeleteResult"
+    )
+    if result is AnnotationDeleteResult.DELETED or result is AnnotationDeleteResult.ALREADY_DELETED:
+        return AnnotationDeleteResponse(id=annotation_id)
+    if result is AnnotationDeleteResult.NOT_FOUND_OR_NOT_OWNER:
+        raise ApiError(404, "not_found", "Annotation not found")
+    assert_never(result)
 
 
 @router.post("/annotations/{annotation_id}/review")
