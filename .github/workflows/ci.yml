@@ -211,6 +211,20 @@ jobs:
       - name: Verify disposable PostgreSQL snapshot restore
         run: |
           set -euo pipefail
+          MIGRATION_HEAD="$(
+            uv --directory apps/api run --isolated --with-editable . --extra dev python - <<'PY'
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+
+          config = Config("alembic.ini")
+          scripts = ScriptDirectory.from_config(config)
+          heads = scripts.get_heads()
+          if len(heads) != 1:
+              raise SystemExit(f"expected exactly one Alembic head, found {heads}")
+          print(heads[0])
+          PY
+          )"
+          export MIGRATION_HEAD
           snapshot_dir="output/evidence/db-snapshot-restore-ci"
           mkdir -p "$snapshot_dir"
           docker run --rm --network host --volume "$PWD/$snapshot_dir:/snapshot" --env PGPASSWORD=postgres postgres:16 \
@@ -226,7 +240,7 @@ jobs:
           docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
             psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
             --tuples-only --no-align --command "SELECT version_num FROM alembic_version" \
-            | grep -qx '0012_translation_usage'
+            | grep -qx "$MIGRATION_HEAD"
           docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
             psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
             --tuples-only --no-align --command "SELECT title FROM articles WHERE id = 990001" \
@@ -237,6 +251,7 @@ jobs:
             | grep -qx 'Performance fixture'
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           Path("output/evidence/db-snapshot-restore-ci/status.json").write_text(
@@ -244,7 +259,7 @@ jobs:
                   {
                       "database": "snapshot_restore_verify",
                       "fixture": "performance-fixture",
-                      "migration": "0012_translation_usage",
+                      "migration": os.environ["MIGRATION_HEAD"],
                       "status": "restored",
                   },
                   indent=2,

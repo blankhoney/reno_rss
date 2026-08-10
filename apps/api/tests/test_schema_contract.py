@@ -2,6 +2,8 @@ import importlib.util
 from pathlib import Path
 
 import sqlalchemy as sa
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 
 EXPECTED_TABLES = {
@@ -38,9 +40,10 @@ EXPECTED_TABLES = {
 class MigrationOpRecorder:
     def __init__(self):
         self.tables = {}
+        self.statements = []
 
-    def execute(self, *_args, **_kwargs):
-        return None
+    def execute(self, statement, *_args, **_kwargs):
+        self.statements.append(str(statement))
 
     def bulk_insert(self, *_args, **_kwargs):
         return None
@@ -77,6 +80,16 @@ def load_initial_migration():
     return load_migration("0001_initial.py")
 
 
+def migration_scripts():
+    api_root = Path(__file__).parents[1]
+    config = Config(str(api_root / "alembic.ini"))
+    config.set_main_option("script_location", str(api_root / "alembic"))
+    scripts = ScriptDirectory.from_config(config)
+    heads = scripts.get_heads()
+    assert len(heads) == 1, f"expected exactly one Alembic head, found {heads}"
+    return list(reversed(list(scripts.walk_revisions(base="base", head=heads[0]))))
+
+
 def test_alembic_revision_ids_fit_version_table_column():
     versions = Path(__file__).parents[1] / "alembic" / "versions"
 
@@ -93,8 +106,12 @@ def test_alembic_revision_ids_fit_version_table_column():
 def test_ci_snapshot_restore_checks_current_migration_head():
     ci_workflow = (Path(__file__).parents[3] / ".github/workflows/ci.yml").read_text()
 
-    assert "grep -qx '0012_translation_usage'" in ci_workflow
-    assert '"migration": "0012_translation_usage"' in ci_workflow
+    assert "ScriptDirectory.from_config" in ci_workflow
+    assert "get_heads()" in ci_workflow
+    assert 'len(heads) != 1' in ci_workflow
+    assert 'grep -qx "$MIGRATION_HEAD"' in ci_workflow
+    assert '"migration": os.environ["MIGRATION_HEAD"]' in ci_workflow
+    assert "0012_translation_usage" not in ci_workflow
 
 
 def test_initial_migration_defines_required_tables():
@@ -187,24 +204,11 @@ def test_initial_migration_bootstraps_extension_and_seed_data():
 def test_migration_column_nullability_matches_model():
     from app.db.models import metadata
 
-    migrations = [
-        load_migration("0001_initial.py"),
-        load_migration("0002_article_translation.py"),
-        load_migration("0003_user_article_state_project.py"),
-        load_migration("0005_annotation_spaced_review.py"),
-        load_migration("0006_user_reader_rules.py"),
-        load_migration("0007_user_saved_searches.py"),
-        load_migration("0008_user_interest_reset.py"),
-        load_migration("0009_project_acl.py"),
-        load_migration("0010_llm_daily_usage.py"),
-        load_migration("0011_project_requires_saved.py"),
-        load_migration("0012_translation_daily_usage_account.py"),
-    ]
     recorder = MigrationOpRecorder()
-    for migration in migrations:
-        migration.op = recorder
+    for migration in migration_scripts():
+        migration.module.op = recorder
 
-        migration.upgrade()
+        migration.module.upgrade()
 
     mismatches = []
     for table_name, model_table in metadata.tables.items():
@@ -219,6 +223,33 @@ def test_migration_column_nullability_matches_model():
                 )
 
     assert mismatches == []
+
+
+def test_annotation_search_key_expand_is_nullable_and_invalidates_source_writes():
+    recorder = MigrationOpRecorder()
+    for migration in migration_scripts():
+        migration.module.op = recorder
+        migration.module.upgrade()
+
+    annotations = recorder.tables["article_annotations"]
+    assert annotations["searchable_body"].nullable is True
+    assert annotations["searchable_selected_text"].nullable is True
+
+    ddl = "\n".join(recorder.statements)
+    assert "CREATE FUNCTION invalidate_annotation_search_keys()" in ddl
+    assert "NEW.searchable_body := NULL" in ddl
+    assert "NEW.searchable_selected_text := NULL" in ddl
+    assert "BEFORE INSERT OR UPDATE OF content, selected_text" in ddl
+    assert "ON article_annotations" in ddl
+
+    migration_source = (
+        Path(__file__).parents[1]
+        / "alembic/versions/0013_annotation_searchable_body.py"
+    ).read_text()
+    assert "DROP TRIGGER IF EXISTS" in migration_source
+    assert "DROP FUNCTION IF EXISTS" in migration_source
+    assert 'op.drop_column("article_annotations", "searchable_selected_text")' in migration_source
+    assert 'op.drop_column("article_annotations", "searchable_body")' in migration_source
 
 
 def test_rubric_seed_contains_b4_ranking_parameters():
