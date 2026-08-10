@@ -337,3 +337,77 @@ async def test_database_enqueue_retries_when_conflicting_job_finishes_before_res
     assert engine.connection.insert_attempts == 2
     assert engine.connection.select_attempts == 1
     assert engine.connection.watcher_inserts == 1
+
+
+async def test_connection_scoped_enqueue_locks_reused_active_job():
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from app.db.repositories.jobs import enqueue_job_in_transaction
+
+    user_id = uuid4()
+    now = datetime.now(UTC)
+    active_job = {
+        "id": 43,
+        "job_type": "translate_article",
+        "status": "queued",
+        "priority": 0,
+        "payload": {"article_id": 1},
+        "dedupe_key": "translate:1",
+        "progress": {},
+        "result": {},
+        "locked_by": None,
+        "locked_at": None,
+        "attempt_count": 0,
+        "max_attempts": 5,
+        "run_after": now,
+        "completed_at": None,
+        "last_error": None,
+        "created_by": user_id,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    class FakeScalarResult:
+        def __init__(self, row):
+            self.row = row
+
+        def one_or_none(self):
+            return self.row
+
+    class FakeMappingResult:
+        def __init__(self, row):
+            self.row = row
+
+        def mappings(self):
+            return FakeScalarResult(self.row)
+
+    class FakeConnection:
+        def __init__(self):
+            self.select_statement = None
+
+        def execute(self, statement):
+            statement_text = str(statement)
+            if "INSERT INTO jobs" in statement_text:
+                return FakeMappingResult(None)
+            if "SELECT jobs.id" in statement_text:
+                self.select_statement = statement
+                return FakeMappingResult(active_job)
+            if "INSERT INTO job_watchers" in statement_text:
+                return FakeMappingResult(None)
+            raise AssertionError(statement_text)
+
+    connection = FakeConnection()
+    result = enqueue_job_in_transaction(
+        connection,
+        dialect_name="postgresql",
+        job_type="translate_article",
+        payload={"article_id": 1},
+        dedupe_key="translate:1",
+        created_by=user_id,
+        lock_reused_active=True,
+    )
+
+    assert result.id == 43
+    assert connection.select_statement is not None
+    assert "FOR UPDATE" in str(connection.select_statement)

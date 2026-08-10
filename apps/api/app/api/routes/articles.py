@@ -10,6 +10,7 @@ from app.api.deps import (
     get_article_repository,
     get_job_repository,
     get_scoring_repository,
+    get_translation_enqueue_store,
     require_user,
 )
 from app.domain.export_project import (
@@ -30,6 +31,7 @@ from app.db.repositories.articles import (
 )
 from app.db.repositories.jobs import JobStore, dedupe_key_for
 from app.db.repositories.scoring import ScoreRecord, ScoringStore
+from app.db.repositories.translation_enqueue import TranslationEnqueueStore
 from app.core.ratelimit import limiter, llm_rate_limit, write_rate_limit
 from app.domain.ranking import FEEDBACK_BASE_ADJUSTMENTS
 
@@ -641,36 +643,25 @@ def enqueue_translate_article_job(
     request: Request,
     article_id: int = Path(gt=0),
     current_user: UserRecord = Depends(require_user),
-    article_repository: ArticleStore = Depends(get_article_repository),
-    job_repository: JobStore = Depends(get_job_repository),
+    translation_store: TranslationEnqueueStore = Depends(get_translation_enqueue_store),
 ) -> Response | ArticleTranslationResponse:
-    article = article_repository.get_article(article_id)
-    if article is None:
+    result = translation_store.enqueue(article_id, created_by=current_user.id)
+    if result.kind == "missing":
         raise ApiError(404, "not_found", "Article not found")
-    if article.content_zh and article.content_zh_status == "succeeded":
+    if result.kind == "cached":
         cached = ArticleTranslationResponse(
             status="succeeded",
-            content_zh=article.content_zh,
-            translated_at=article.translated_at.isoformat() if article.translated_at else None,
+            content_zh=result.content_zh,
+            translated_at=result.translated_at.isoformat() if result.translated_at else None,
             job_id=None,
         )
         return JSONResponse(status_code=200, content=cached.model_dump(mode="json"))
 
-    article_repository.save_translation(
-        article_id,
-        content_zh=article.content_zh,
-        status="queued",
-        translated_at=article.translated_at,
-    )
-    job = job_repository.enqueue(
-        "translate_article",
-        {"article_id": article_id},
-        dedupe_key=dedupe_key_for("translate_article", article_id),
-        created_by=current_user.id,
-    )
+    if result.job is None or result.status is None:
+        raise RuntimeError("translation enqueue returned an incomplete result")
     return ArticleTranslationResponse(
-        status=job.status,
+        status=result.status,
         content_zh=None,
         translated_at=None,
-        job_id=job.id,
+        job_id=result.job.id,
     )

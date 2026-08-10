@@ -16,6 +16,7 @@ from app.db.repositories.recommendations import RecommendationStore
 from app.db.repositories.rules import RuleStore
 from app.db.repositories.saved_searches import SavedSearchStore
 from app.db.repositories.scoring import ScoringStore
+from app.db.repositories.translation_enqueue import TranslationEnqueueStore
 
 
 @dataclass
@@ -74,6 +75,10 @@ def get_auth_store(request: Request) -> AuthStore:
 
 def get_job_repository(request: Request) -> JobStore:
     return request.app.state.job_repository
+
+
+def get_translation_enqueue_store(request: Request) -> TranslationEnqueueStore:
+    return request.app.state.translation_enqueue_store
 
 
 def get_benchmark_repository(request: Request) -> BenchmarkStore:

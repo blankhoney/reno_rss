@@ -1,7 +1,11 @@
-from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from __future__ import annotations
+
 import base64
 from collections import defaultdict
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from functools import wraps
+from threading import RLock
 import hashlib
 import json
 from collections.abc import Callable, Mapping
@@ -366,8 +370,18 @@ def article_rank_value(score: object | None, sort_key: str) -> float:
     raise ValueError(f"unsupported rank sort: {sort_key}")
 
 
+def _with_memory_article_lock(method):
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return locked
+
+
 class MemoryArticleRepository:
-    def __init__(self) -> None:
+    def __init__(self, lock: RLock | None = None) -> None:
+        self._lock = lock or RLock()
         self._articles: dict[int, ArticleRecord] = {}
         self._article_ids_by_dedup_key: dict[str, int] = {}
         self._feed_titles: dict[int, str | None] = {}
@@ -381,6 +395,7 @@ class MemoryArticleRepository:
         self._next_id = 1
         self._next_annotation_id = 1
 
+    @_with_memory_article_lock
     def upsert_from_source(self, entry: dict[str, object]) -> ArticleRecord:
         feed_id = int(entry["feed_id"])
         miniflux_entry_id = int(entry["miniflux_entry_id"])
@@ -450,6 +465,7 @@ class MemoryArticleRepository:
             key=lambda source: (source.feed_id, source.miniflux_entry_id),
         )
 
+    @_with_memory_article_lock
     def list_articles(
         self,
         *,
@@ -533,13 +549,16 @@ class MemoryArticleRepository:
             next_cursor = encode_article_cursor(page_items[-1]) if has_more and page_items else None
         return ArticlePage(items=page_items, next_cursor=next_cursor, has_more=has_more)
 
+    @_with_memory_article_lock
     def count_articles(self) -> int:
         return len(self._articles)
 
+    @_with_memory_article_lock
     def get_article(self, article_id: int) -> ArticleRecord | None:
         article = self._articles.get(article_id)
         return self._with_source_metadata(article) if article is not None else None
 
+    @_with_memory_article_lock
     def get_articles(self, article_ids: list[int]) -> dict[int, ArticleRecord]:
         unique_article_ids = _unique_article_ids(article_ids)
         return {
@@ -801,6 +820,7 @@ class MemoryArticleRepository:
         self._feedbacks[(user_id, article_id)] = feedback
         return feedback
 
+    @_with_memory_article_lock
     def save_translation(
         self,
         article_id: int,
@@ -821,6 +841,19 @@ class MemoryArticleRepository:
         )
         self._articles[article_id] = updated
         return updated
+
+    def _snapshot_translation_locked(self, article_id: int) -> ArticleRecord | None:
+        return self._articles.get(article_id)
+
+    def _restore_translation_locked(
+        self,
+        article_id: int,
+        snapshot: ArticleRecord | None,
+    ) -> None:
+        if snapshot is None:
+            self._articles.pop(article_id, None)
+        else:
+            self._articles[article_id] = snapshot
 
     def _with_source_metadata(self, article: ArticleRecord) -> ArticleRecord:
         source_count = sum(
@@ -1670,10 +1703,14 @@ class DatabaseArticleRepository:
         )
 
 
-def create_article_repository(database_url: str | None) -> ArticleStore:
+def create_article_repository(
+    database_url: str | None,
+    *,
+    lock: RLock | None = None,
+) -> ArticleStore:
     if database_url:
         return DatabaseArticleRepository(database_url)
-    return MemoryArticleRepository()
+    return MemoryArticleRepository(lock=lock)
 
 
 def _database_rank_expression(sort_key: str):

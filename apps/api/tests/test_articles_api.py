@@ -522,6 +522,124 @@ async def test_translate_article_enqueues_job_and_marks_translation_queued(app, 
 
 
 @pytest.mark.asyncio
+async def test_translate_article_rolls_back_when_enqueue_fails(app, client, monkeypatch):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 101,
+            "url": "https://example.com/post",
+            "title": "Article",
+        }
+    )
+    before_job_ids = set(app.state.job_repository._jobs)
+
+    def fail_enqueue(*_args, **_kwargs):
+        raise RuntimeError("queue unavailable")
+
+    monkeypatch.setattr(app.state.job_repository, "enqueue", fail_enqueue)
+
+    with pytest.raises(RuntimeError, match="queue unavailable"):
+        await client.post(f"/api/articles/{article.id}/translate")
+
+    detail_response = await client.get(f"/api/articles/{article.id}")
+
+    assert detail_response.json()["content_zh_status"] is None
+    assert set(app.state.job_repository._jobs) == before_job_ids
+
+
+@pytest.mark.asyncio
+async def test_translate_article_missing_returns_typed_404_without_enqueue(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Blank"})
+    before_job_ids = set(app.state.job_repository._jobs)
+
+    response = await client.post("/api/articles/999999/translate")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    assert set(app.state.job_repository._jobs) == before_job_ids
+
+
+@pytest.mark.asyncio
+async def test_translate_article_dedupes_and_adds_second_watcher(app):
+    from httpx import ASGITransport, AsyncClient
+
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 102,
+            "url": "https://example.com/translate-dedupe",
+            "title": "Translate dedupe",
+        }
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as first_client:
+        await first_client.post("/api/auth/login", json={"display_name": "First"})
+        first = await first_client.post(f"/api/articles/{article.id}/translate")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as second_client:
+        await second_client.post("/api/auth/login", json={"display_name": "Second"})
+        second = await second_client.post(f"/api/articles/{article.id}/translate")
+        visible = await second_client.get(f"/api/jobs/{second.json()['job_id']}")
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json()["job_id"] == first.json()["job_id"]
+    assert second.json()["status"] == "queued"
+    assert visible.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_translate_article_reuses_running_job_without_downgrade(app):
+    from httpx import ASGITransport, AsyncClient
+
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 103,
+            "url": "https://example.com/translate-running",
+            "title": "Translate running",
+        }
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as first_client:
+        await first_client.post("/api/auth/login", json={"display_name": "First"})
+        first = await first_client.post(f"/api/articles/{article.id}/translate")
+
+    claimed = app.state.job_repository.claim_next("translation-worker")
+    assert claimed is not None
+    assert claimed.id == first.json()["job_id"]
+    assert claimed.status == "running"
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://test",
+        headers={"Referer": "https://test/"},
+    ) as second_client:
+        await second_client.post("/api/auth/login", json={"display_name": "Second"})
+        second = await second_client.post(f"/api/articles/{article.id}/translate")
+        visible = await second_client.get(f"/api/jobs/{second.json()['job_id']}")
+        detail = await second_client.get(f"/api/articles/{article.id}")
+
+    assert second.status_code == 202
+    assert second.json()["job_id"] == claimed.id
+    assert second.json()["status"] == "running"
+    assert visible.status_code == 200
+    assert visible.json()["status"] == "running"
+    assert detail.json()["content_zh_status"] == "running"
+
+
+@pytest.mark.asyncio
 async def test_articles_require_auth_when_anonymous_demo_disabled(app, client):
     # Production default: no session cookie and the flag off → fail closed.
     assert app.state.anonymous_demo_enabled is False

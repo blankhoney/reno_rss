@@ -1,6 +1,10 @@
+from __future__ import annotations
+
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 import hashlib
+from threading import RLock
 from typing import Protocol
 from uuid import UUID
 
@@ -84,7 +88,8 @@ def dedupe_key_for(job_type: str, value: object) -> str:
 
 
 class MemoryJobRepository:
-    def __init__(self) -> None:
+    def __init__(self, lock: RLock | None = None) -> None:
+        self._lock = lock or RLock()
         self._jobs: dict[int, JobRecord] = {}
         self._watchers_by_job: dict[int, set[UUID]] = {}
         self._next_id = 1
@@ -97,6 +102,24 @@ class MemoryJobRepository:
         dedupe_key: str,
         created_by: UUID | None = None,
         priority: int = 0,
+    ) -> JobRecord:
+        with self._lock:
+            return self._enqueue_locked(
+                job_type,
+                payload,
+                dedupe_key=dedupe_key,
+                created_by=created_by,
+                priority=priority,
+            )
+
+    def _enqueue_locked(
+        self,
+        job_type: str,
+        payload: dict[str, object],
+        *,
+        dedupe_key: str,
+        created_by: UUID | None,
+        priority: int,
     ) -> JobRecord:
         for job in self._jobs.values():
             if (
@@ -134,14 +157,15 @@ class MemoryJobRepository:
         return job
 
     def get_visible_job(self, job_id: int, *, current_user_id: UUID, is_admin: bool) -> JobRecord | None:
-        job = self._jobs.get(job_id)
-        if job is None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return None
+            if is_admin:
+                return job
+            if current_user_id in self._watchers_by_job.get(job_id, set()):
+                return job
             return None
-        if is_admin:
-            return job
-        if current_user_id in self._watchers_by_job.get(job_id, set()):
-            return job
-        return None
 
     def _watch_job(self, job_id: int, user_id: UUID | None) -> None:
         if user_id is None:
@@ -149,29 +173,31 @@ class MemoryJobRepository:
         self._watchers_by_job.setdefault(job_id, set()).add(user_id)
 
     def claim_next(self, worker_id: str) -> JobRecord | None:
-        now = datetime.now(UTC)
-        candidates = [
-            job
-            for job in self._jobs.values()
-            if job.status == "queued" and job.run_after <= now
-        ]
-        if not candidates:
-            return None
+        with self._lock:
+            now = datetime.now(UTC)
+            candidates = [
+                job
+                for job in self._jobs.values()
+                if job.status == "queued" and job.run_after <= now
+            ]
+            if not candidates:
+                return None
 
-        job = sorted(candidates, key=lambda item: (-item.priority, item.id))[0]
-        claimed = replace(
-            job,
-            status="running",
-            locked_by=worker_id,
-            locked_at=now,
-            attempt_count=job.attempt_count + 1,
-            updated_at=now,
-        )
-        self._jobs[job.id] = claimed
-        return claimed
+            job = sorted(candidates, key=lambda item: (-item.priority, item.id))[0]
+            claimed = replace(
+                job,
+                status="running",
+                locked_by=worker_id,
+                locked_at=now,
+                attempt_count=job.attempt_count + 1,
+                updated_at=now,
+            )
+            self._jobs[job.id] = claimed
+            return claimed
 
     def mark_succeeded(self, job_id: int, result: dict[str, object]) -> JobRecord | None:
-        return self._complete(job_id, status="succeeded", result=result, error=None)
+        with self._lock:
+            return self._complete(job_id, status="succeeded", result=dict(result), error=None)
 
     def mark_retryable_failure(
         self,
@@ -179,24 +205,26 @@ class MemoryJobRepository:
         error: str,
         backoff_seconds: int,
     ) -> JobRecord | None:
-        job = self._jobs.get(job_id)
-        if job is None:
-            return None
-        now = datetime.now(UTC)
-        updated = replace(
-            job,
-            status="queued",
-            locked_by=None,
-            locked_at=None,
-            run_after=now + timedelta(seconds=backoff_seconds),
-            last_error=error,
-            updated_at=now,
-        )
-        self._jobs[job_id] = updated
-        return updated
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return None
+            now = datetime.now(UTC)
+            updated = replace(
+                job,
+                status="queued",
+                locked_by=None,
+                locked_at=None,
+                run_after=now + timedelta(seconds=backoff_seconds),
+                last_error=error,
+                updated_at=now,
+            )
+            self._jobs[job_id] = updated
+            return updated
 
     def mark_failed(self, job_id: int, error: str) -> JobRecord | None:
-        return self._complete(job_id, status="failed", result={}, error=error)
+        with self._lock:
+            return self._complete(job_id, status="failed", result={}, error=error)
 
     def latest_succeeded(
         self,
@@ -204,19 +232,20 @@ class MemoryJobRepository:
         *,
         limit: int = 10,
     ) -> list[JobRecord]:
-        matched = [
-            job
-            for job in self._jobs.values()
-            if job.job_type == job_type and job.status == "succeeded"
-        ]
-        matched.sort(
-            key=lambda job: (
-                job.completed_at or job.updated_at,
-                job.id,
-            ),
-            reverse=True,
-        )
-        return matched[: max(1, limit)]
+        with self._lock:
+            matched = [
+                job
+                for job in self._jobs.values()
+                if job.job_type == job_type and job.status == "succeeded"
+            ]
+            matched.sort(
+                key=lambda job: (
+                    job.completed_at or job.updated_at,
+                    job.id,
+                ),
+                reverse=True,
+            )
+            return matched[: max(1, limit)]
 
     def pipeline_snapshot(
         self,
@@ -225,13 +254,26 @@ class MemoryJobRepository:
         now: datetime | None = None,
         stale_after_seconds: int = 900,
     ) -> dict[str, object]:
-        current = now or datetime.now(UTC)
-        records = [job for job in self._jobs.values() if job.job_type in job_types]
-        return _pipeline_snapshot_from_records(
-            records,
-            now=current,
-            stale_after_seconds=stale_after_seconds,
-        )
+        with self._lock:
+            current = now or datetime.now(UTC)
+            records = [job for job in self._jobs.values() if job.job_type in job_types]
+            return _pipeline_snapshot_from_records(
+                records,
+                now=current,
+                stale_after_seconds=stale_after_seconds,
+            )
+
+    def _snapshot_locked(self) -> tuple[dict[int, JobRecord], dict[int, set[UUID]], int]:
+        return deepcopy(self._jobs), deepcopy(self._watchers_by_job), self._next_id
+
+    def _restore_locked(
+        self,
+        snapshot: tuple[dict[int, JobRecord], dict[int, set[UUID]], int],
+    ) -> None:
+        jobs_snapshot, watchers_snapshot, next_id = snapshot
+        self._jobs = jobs_snapshot
+        self._watchers_by_job = watchers_snapshot
+        self._next_id = next_id
 
     def _complete(
         self,
@@ -257,6 +299,104 @@ class MemoryJobRepository:
         return updated
 
 
+def claim_next_job_in_transaction(connection, worker_id: str) -> JobRecord | None:
+    statement = text(
+        """
+        UPDATE jobs
+        SET status='running',
+            locked_by=:worker_id,
+            locked_at=NOW(),
+            attempt_count=attempt_count+1,
+            updated_at=NOW()
+        WHERE id = (
+          SELECT id FROM jobs
+          WHERE status='queued' AND run_after<=NOW()
+          ORDER BY priority DESC, id ASC
+          FOR UPDATE SKIP LOCKED
+          LIMIT 1
+        )
+        RETURNING *;
+        """
+    )
+    row = connection.execute(statement, {"worker_id": worker_id}).mappings().one_or_none()
+    return _job_from_row(row) if row is not None else None
+
+
+def cancel_job_in_transaction(connection, job_id: int) -> JobRecord | None:
+    statement = text(
+        """
+        UPDATE jobs
+        SET status='cancelled',
+            locked_by=NULL,
+            locked_at=NULL,
+            completed_at=NOW(),
+            updated_at=NOW()
+        WHERE id=:job_id AND status IN ('queued', 'running')
+        RETURNING *;
+        """
+    )
+    row = connection.execute(statement, {"job_id": job_id}).mappings().one_or_none()
+    return _job_from_row(row) if row is not None else None
+
+
+def enqueue_job_in_transaction(
+    connection,
+    *,
+    dialect_name: str,
+    job_type: str,
+    payload: dict[str, object],
+    dedupe_key: str,
+    created_by: UUID | None,
+    priority: int = 0,
+    lock_reused_active: bool = False,
+) -> JobRecord:
+    row = _insert_job(
+        connection,
+        dialect_name=dialect_name,
+        job_type=job_type,
+        payload=payload,
+        dedupe_key=dedupe_key,
+        created_by=created_by,
+        priority=priority,
+    )
+    if row is None:
+        row = _select_active_deduped_job(
+            connection,
+            job_type=job_type,
+            dedupe_key=dedupe_key,
+            lock_for_update=lock_reused_active,
+        )
+    if row is None:
+        row = _insert_job(
+            connection,
+            dialect_name=dialect_name,
+            job_type=job_type,
+            payload=payload,
+            dedupe_key=dedupe_key,
+            created_by=created_by,
+            priority=priority,
+        )
+    if row is None:
+        row = _select_active_deduped_job(
+            connection,
+            job_type=job_type,
+            dedupe_key=dedupe_key,
+            lock_for_update=lock_reused_active,
+        )
+    if row is None:
+        raise RuntimeError("failed to enqueue or find active deduped job")
+    job = _job_from_row(row)
+    if job.status not in ACTIVE_DEDUPE_STATUSES:
+        raise RuntimeError("failed to enqueue or find active deduped job")
+    _watch_job(
+        connection,
+        dialect_name=dialect_name,
+        job_id=job.id,
+        user_id=created_by,
+    )
+    return job
+
+
 class DatabaseJobRepository:
     def __init__(self, database_url: str, engine: Engine | None = None) -> None:
         self.engine = engine or create_engine(database_url, pool_pre_ping=True)
@@ -270,25 +410,19 @@ class DatabaseJobRepository:
         created_by: UUID | None = None,
         priority: int = 0,
     ) -> JobRecord:
-        # Insert (ON CONFLICT DO NOTHING against the partial unique index on
-        # active jobs). On conflict the row is None, so fall back to selecting
-        # the active duplicate. That duplicate can finish between the insert and
-        # the select, leaving nothing to return — so retry insert+select once
-        # more. Two rounds is enough: a fresh insert can only lose to a *new*
-        # active job, which the following select will then find.
+        # Two insert/select rounds preserve the existing race handling when a
+        # conflicting active job becomes terminal between the first conflict
+        # and reselect. This public path does not lock reused jobs.
         with self.engine.begin() as connection:
-            row = self._insert_job(connection, job_type, payload, dedupe_key, created_by, priority)
-            if row is None:
-                row = self._select_active_deduped_job(connection, job_type, dedupe_key)
-            if row is None:
-                row = self._insert_job(connection, job_type, payload, dedupe_key, created_by, priority)
-            if row is None:
-                row = self._select_active_deduped_job(connection, job_type, dedupe_key)
-            if row is None:
-                raise RuntimeError("failed to enqueue or find active deduped job")
-            job = _job_from_row(row)
-            self._watch_job(connection, job.id, created_by)
-        return job
+            return enqueue_job_in_transaction(
+                connection,
+                dialect_name=self.engine.dialect.name,
+                job_type=job_type,
+                payload=payload,
+                dedupe_key=dedupe_key,
+                created_by=created_by,
+                priority=priority,
+            )
 
     def get_visible_job(self, job_id: int, *, current_user_id: UUID, is_admin: bool) -> JobRecord | None:
         statement = select(jobs).where(jobs.c.id == job_id)
@@ -449,95 +583,8 @@ class DatabaseJobRepository:
         self.engine.dispose()
 
     def _claim_next_postgres(self, worker_id: str) -> JobRecord | None:
-        statement = text(
-            """
-            UPDATE jobs
-            SET status='running',
-                locked_by=:worker_id,
-                locked_at=NOW(),
-                attempt_count=attempt_count+1,
-                updated_at=NOW()
-            WHERE id = (
-              SELECT id FROM jobs
-              WHERE status='queued' AND run_after<=NOW()
-              ORDER BY priority DESC, id ASC
-              FOR UPDATE SKIP LOCKED
-              LIMIT 1
-            )
-            RETURNING *;
-            """
-        )
         with self.engine.begin() as connection:
-            row = connection.execute(statement, {"worker_id": worker_id}).mappings().one_or_none()
-        return _job_from_row(row) if row is not None else None
-
-    def _insert_job(
-        self,
-        connection,
-        job_type: str,
-        payload: dict[str, object],
-        dedupe_key: str,
-        created_by: UUID | None,
-        priority: int,
-    ):
-        values = {
-            "job_type": job_type,
-            "payload": payload,
-            "dedupe_key": dedupe_key,
-            "created_by": created_by,
-            "priority": priority,
-        }
-        if self.engine.dialect.name == "postgresql":
-            statement = (
-                pg_insert(jobs)
-                .values(**values)
-                .on_conflict_do_nothing(
-                    index_elements=[jobs.c.job_type, jobs.c.dedupe_key],
-                    index_where=jobs.c.status.in_(ACTIVE_DEDUPE_STATUSES),
-                )
-                .returning(jobs)
-            )
-            return connection.execute(statement).mappings().one_or_none()
-
-        try:
-            return (
-                connection.execute(jobs.insert().values(**values).returning(jobs))
-                .mappings()
-                .one()
-            )
-        except IntegrityError:
-            return None
-
-    def _select_active_deduped_job(self, connection, job_type: str, dedupe_key: str):
-        return (
-            connection.execute(
-                select(jobs).where(
-                    jobs.c.job_type == job_type,
-                    jobs.c.dedupe_key == dedupe_key,
-                    jobs.c.status.in_(ACTIVE_DEDUPE_STATUSES),
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-
-    def _watch_job(self, connection, job_id: int, user_id: UUID | None) -> None:
-        if user_id is None:
-            return
-        values = {"job_id": job_id, "user_id": user_id}
-        if self.engine.dialect.name == "postgresql":
-            statement = (
-                pg_insert(job_watchers)
-                .values(**values)
-                .on_conflict_do_nothing(index_elements=[job_watchers.c.job_id, job_watchers.c.user_id])
-            )
-            connection.execute(statement)
-            return
-
-        try:
-            connection.execute(job_watchers.insert().values(**values))
-        except IntegrityError:
-            return
+            return claim_next_job_in_transaction(connection, worker_id)
 
     def _claim_next_generic(self, worker_id: str) -> JobRecord | None:
         now = datetime.now(UTC)
@@ -580,10 +627,91 @@ class DatabaseJobRepository:
         return _job_from_row(row) if row is not None else None
 
 
-def create_job_repository(database_url: str | None) -> JobStore:
+def _insert_job(
+    connection,
+    *,
+    dialect_name: str,
+    job_type: str,
+    payload: dict[str, object],
+    dedupe_key: str,
+    created_by: UUID | None,
+    priority: int,
+):
+    values = {
+        "job_type": job_type,
+        "payload": payload,
+        "dedupe_key": dedupe_key,
+        "created_by": created_by,
+        "priority": priority,
+    }
+    if dialect_name == "postgresql":
+        statement = (
+            pg_insert(jobs)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=[jobs.c.job_type, jobs.c.dedupe_key],
+                index_where=jobs.c.status.in_(ACTIVE_DEDUPE_STATUSES),
+            )
+            .returning(jobs)
+        )
+        return connection.execute(statement).mappings().one_or_none()
+
+    try:
+        return (
+            connection.execute(jobs.insert().values(**values).returning(jobs))
+            .mappings()
+            .one()
+        )
+    except IntegrityError:
+        return None
+
+
+def _select_active_deduped_job(
+    connection,
+    *,
+    job_type: str,
+    dedupe_key: str,
+    lock_for_update: bool,
+):
+    statement = select(jobs).where(
+        jobs.c.job_type == job_type,
+        jobs.c.dedupe_key == dedupe_key,
+        jobs.c.status.in_(ACTIVE_DEDUPE_STATUSES),
+    )
+    if lock_for_update:
+        statement = statement.with_for_update()
+    return connection.execute(statement).mappings().one_or_none()
+
+
+def _watch_job(
+    connection,
+    *,
+    dialect_name: str,
+    job_id: int,
+    user_id: UUID | None,
+) -> None:
+    if user_id is None:
+        return
+    values = {"job_id": job_id, "user_id": user_id}
+    if dialect_name == "postgresql":
+        statement = (
+            pg_insert(job_watchers)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=[job_watchers.c.job_id, job_watchers.c.user_id])
+        )
+        connection.execute(statement)
+        return
+
+    try:
+        connection.execute(job_watchers.insert().values(**values))
+    except IntegrityError:
+        return
+
+
+def create_job_repository(database_url: str | None, *, lock: RLock | None = None) -> JobStore:
     if database_url:
         return DatabaseJobRepository(normalize_database_url(database_url) or database_url)
-    return MemoryJobRepository()
+    return MemoryJobRepository(lock=lock)
 
 
 def _pipeline_snapshot_from_records(

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 import logging
+from threading import RLock
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -29,10 +30,11 @@ from app.core.ratelimit import limiter
 from app.core.request_timing import RequestMetrics, RequestTimingMiddleware
 from app.core.security import has_valid_csrf_origin
 from app.db.auth_store import create_auth_store
-from app.db.repositories.articles import create_article_repository
+from app.db.repositories.articles import MemoryArticleRepository, create_article_repository
 from app.db.repositories.benchmarks import create_benchmark_repository
 from app.db.repositories.feeds import create_feed_repository
-from app.db.repositories.jobs import create_job_repository
+from app.db.repositories.jobs import MemoryJobRepository, create_job_repository
+from app.db.repositories.translation_enqueue import create_translation_enqueue_store
 from app.db.repositories.cost_ledger import create_cost_ledger
 from app.db.repositories.interest import create_interest_reset_repository
 from app.db.repositories.project_acl import create_project_acl_repository
@@ -49,11 +51,26 @@ LOGGER = logging.getLogger(__name__)
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="AI Reader API", version=APP_VERSION)
+    memory_lock = RLock() if not settings.database_url else None
     app.state.auth_store = create_auth_store(settings.database_url)
-    app.state.job_repository = create_job_repository(settings.database_url)
+    app.state.job_repository = create_job_repository(settings.database_url, lock=memory_lock)
     app.state.benchmark_repository = create_benchmark_repository(settings.database_url)
     app.state.feed_repository = create_feed_repository(settings.database_url)
-    app.state.article_repository = create_article_repository(settings.database_url)
+    app.state.article_repository = create_article_repository(settings.database_url, lock=memory_lock)
+    if settings.database_url:
+        app.state.translation_enqueue_store = create_translation_enqueue_store(
+            settings.database_url
+        )
+    else:
+        assert memory_lock is not None
+        assert isinstance(app.state.article_repository, MemoryArticleRepository)
+        assert isinstance(app.state.job_repository, MemoryJobRepository)
+        app.state.translation_enqueue_store = create_translation_enqueue_store(
+            None,
+            article_repository=app.state.article_repository,
+            job_repository=app.state.job_repository,
+            lock=memory_lock,
+        )
     app.state.scoring_repository = create_scoring_repository(settings.database_url)
     app.state.recommendation_repository = create_recommendation_repository(settings.database_url)
     app.state.rule_repository = create_rule_repository(settings.database_url)
