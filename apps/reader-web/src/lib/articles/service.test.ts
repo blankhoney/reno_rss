@@ -312,6 +312,30 @@ test("sanitizeArticleHtml makes http links open safely in a new tab", () => {
   assert.match(html, /<a href="mailto:test@example.com">Mail<\/a>/);
 });
 
+test("sanitizeArticleHtml strips advisory URI attributes while preserving safe URIs", () => {
+  const html = sanitizeArticleHtml(`
+    <a action="javascript:alert(1)" href="https://example.com/safe">Safe link</a>
+    <button formaction=" JaVaScRiPt:alert(2)">Button</button>
+    <object data="&#x6a;avascript:alert(3)">Object</object>
+    <video poster="&#106;avascript:alert(4)">Video</video>
+    <table background="&#x09;javascript:alert(5)"><tr><td>Cell</td></tr></table>
+    <img src="https://example.com/safe.jpg" alt="Safe image">
+  `);
+
+  for (const attribute of ["action", "formaction", "data", "poster", "background"]) {
+    assert.doesNotMatch(html, new RegExp(`\\s${attribute}\\s*=`, "i"));
+  }
+  assert.doesNotMatch(html, /javascript\s*:/i);
+  assert.match(
+    html,
+    /<a href="https:\/\/example.com\/safe" target="_blank" rel="noreferrer noopener">Safe link<\/a>/,
+  );
+  assert.match(
+    html,
+    /<img src="https:\/\/example.com\/safe.jpg" alt="Safe image" loading="lazy" decoding="async" \/>/,
+  );
+});
+
 test("articleNeedsOriginalContentFetch detects empty, short, and Comments placeholders", () => {
   assert.equal(articleNeedsOriginalContentFetch(""), true);
   assert.equal(articleNeedsOriginalContentFetch("<p>Comments</p>"), true);
