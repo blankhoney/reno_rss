@@ -40,3 +40,11 @@
   so a failed restore artifact is diagnostic evidence rather than a success
   receipt. The disposable verification database is dropped before and after
   every attempt.
+- Trusted deploy transport contains only a strict, secret-free manifest after
+  a bounded credential frame. The VPS receives and validates it inside the
+  canonical lock; no remote temporary file, checkout, backup, migration, edge
+  change, activation, probe, compensation, or cleanup runs outside that lock.
+- A release operation SHA names the immutable runtime images, while a separate
+  control-plane SHA pins the current trusted `main` deployment scripts. This is
+  especially important for rollback: old images never reintroduce old lock,
+  edge, probe, or compensation behavior.
