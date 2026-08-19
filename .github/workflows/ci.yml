@@ -420,9 +420,26 @@ jobs:
         working-directory: apps/reader-web
         run: npm run build
 
+      - name: Install Playwright system dependencies
+        working-directory: apps/reader-web
+        timeout-minutes: 10
+        run: npx playwright install-deps chromium firefox webkit
+
       - name: Install Playwright browser matrix
         working-directory: apps/reader-web
-        run: npx playwright install --with-deps chromium firefox webkit
+        timeout-minutes: 20
+        env:
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: "120000"
+        run: |
+          set -euo pipefail
+          for attempt in 1 2; do
+            if timeout --signal=TERM --kill-after=30s 8m \
+              npx playwright install chromium firefox webkit; then
+              exit 0
+            fi
+            echo "Playwright browser download attempt ${attempt}/2 failed or timed out" >&2
+          done
+          exit 1
 
       - name: Test reader-web browser flows
         working-directory: apps/reader-web

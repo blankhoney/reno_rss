@@ -86,3 +86,7 @@
   receipt shape from activation failure: it records only `pre-mutation` and
   `post-compensation`, preserving audit evidence without inventing a phase that
   never completed.
+- Browser installation is a release gate and must be bounded like a test. CI
+  installs the Chromium, Firefox, and WebKit dependencies separately, limits
+  both steps, and retries bounded browser downloads so a stalled external CDN
+  cannot occupy a runner indefinitely or hide which phase failed.

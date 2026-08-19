@@ -121,6 +121,21 @@ def test_release_record_commit_cannot_be_excluded_from_canonical_ci():
     assert "**/*.md" not in source
 
 
+def test_playwright_matrix_install_is_bounded_diagnostic_and_complete():
+    workflow = _load_workflow(CI_WORKFLOW)
+    steps = workflow["jobs"]["checks"]["steps"]
+    dependencies = next(step for step in steps if step.get("name") == "Install Playwright system dependencies")
+    browsers = next(step for step in steps if step.get("name") == "Install Playwright browser matrix")
+    assert dependencies["timeout-minutes"] == 10
+    assert dependencies["run"] == "npx playwright install-deps chromium firefox webkit"
+    assert browsers["timeout-minutes"] == 20
+    assert browsers["env"]["PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT"] == "120000"
+    assert "timeout --signal=TERM --kill-after=30s 8m" in browsers["run"]
+    assert "npx playwright install chromium firefox webkit" in browsers["run"]
+    assert "for attempt in 1 2" in browsers["run"]
+    assert "exit 1" in browsers["run"]
+
+
 def test_request_workflows_have_strict_dispatch_inputs_and_no_target_ref():
     for workflow_path in (
         REPOSITORY_ROOT / ".github/workflows/deploy-staging.yml",
