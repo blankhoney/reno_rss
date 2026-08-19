@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 from collections.abc import Mapping, Sequence
+import hashlib
 import importlib.util
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -15,6 +19,7 @@ from typing import Any, NoReturn, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from zipfile import BadZipFile, ZipFile
 
 
 SCHEMA_VERSION = "trusted-workflow-ids/v1"
@@ -27,7 +32,10 @@ REQUEST_WORKFLOW_PATHS = {
     "rollback": ".github/workflows/rollback.yml",
 }
 CI_JOB_NAME = "build / push GHCR images"
+PROMOTION_PROOF_SCHEMA = "trusted-production-promotion/v1"
+RELEASE_RECORD_SCHEMA = "rss-production-release/v1"
 _SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 _REPOSITORY_PATTERN = re.compile(r"[^/\s]+/[^/\s]+")
 
 
@@ -96,6 +104,12 @@ def _assert_sha(value: Mapping[str, Any], key: str, label: str) -> str:
     return sha
 
 
+def _assert_sha_value(value: object, label: str) -> str:
+    if type(value) is not str or _SHA_PATTERN.fullmatch(value) is None:
+        _reject(f"{label} must be a full lowercase SHA")
+    return value
+
+
 def _response_items(response: Mapping[str, Any], key: str, label: str) -> list[Mapping[str, Any]]:
     raw_items = response.get(key)
     if not isinstance(raw_items, Sequence) or isinstance(raw_items, (str, bytes, bytearray)):
@@ -139,6 +153,8 @@ def load_allowlist(path: str | Path) -> Mapping[str, Any]:
             else "prod"
         )
         _assert_equal(config.get("environment"), expected_environment, f"{label}.environment")
+        if workflow_name == "deploy-prod":
+            _required_text(config, "promotion_artifact", label)
 
     ci_workflow = _mapping(allowlist.get("ci_workflow"), "allowlist.ci_workflow")
     _assert_equal(
@@ -172,6 +188,236 @@ def _workflow_identity(
     )
     _assert_equal(_required_text(workflow, "path", label), expected_path, f"{label}.path")
     _assert_equal(_required_text(workflow, "name", label), expected_name, f"{label}.name")
+
+
+def _promotion_proof(
+    payload: bytes,
+    *,
+    operation_sha: str,
+    control_plane_sha: str,
+    publication: Mapping[str, Any],
+    publication_run_id: int,
+    publication_run_attempt: int,
+    publication_artifact_id: int,
+    publication_artifact_digest: str,
+    ci_workflow_id: int,
+    api: Any,
+    repository: str,
+) -> dict[str, Any]:
+    """Validate staging, rollback, forward, and release-record evidence."""
+    try:
+        with ZipFile(BytesIO(payload), "r") as archive:
+            members = archive.infolist()
+            if len(members) != 1 or members[0].filename != "trusted-production-promotion-proof.json":
+                _reject("production promotion proof archive shape is invalid")
+            proof = json.loads(archive.read(members[0]).decode("utf-8"))
+    except (BadZipFile, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        _reject("production promotion proof is invalid")
+    item = _mapping(proof, "promotion proof")
+    if set(item) != {
+        "schema_version",
+        "operation_sha",
+        "control_plane_sha",
+        "rollback_target_sha",
+        "staging_receipt",
+        "rollback_receipt",
+        "forward_receipt",
+        "release_record",
+    }:
+        _reject("production promotion proof schema is invalid")
+    _assert_equal(item.get("schema_version"), PROMOTION_PROOF_SCHEMA, "promotion proof schema_version")
+    _assert_equal(item.get("operation_sha"), operation_sha, "promotion proof operation_sha")
+    _assert_equal(item.get("control_plane_sha"), control_plane_sha, "promotion proof control_plane_sha")
+    rollback_target = _assert_sha_value(item.get("rollback_target_sha"), "promotion proof rollback_target_sha")
+    if rollback_target == operation_sha:
+        _reject("promotion proof rollback target must differ from the candidate")
+    refs: list[tuple[str, int, str, str]] = []
+    for key, request_type, expected_operation in (
+        ("staging_receipt", "deploy", operation_sha),
+        ("rollback_receipt", "rollback", rollback_target),
+        ("forward_receipt", "deploy", operation_sha),
+    ):
+        receipt = _mapping(item.get(key), f"promotion proof {key}")
+        if set(receipt) != {"workflow_run", "status"} or receipt.get("status") != "success":
+            _reject(f"promotion proof {key} is not a successful receipt")
+        run_id = _required_int(receipt, "workflow_run", f"promotion proof {key}")
+        artifact_name = (
+            f"trusted-shared-edge-receipts-staging-{request_type}-{run_id}-{expected_operation}"
+        )
+        refs.append((key, run_id, artifact_name, expected_operation))
+    if len({run_id for _, run_id, _, _ in refs}) != 3:
+        _reject("promotion proof must reference three distinct trusted deploy runs")
+    record = _mapping(item.get("release_record"), "promotion proof release_record")
+    if set(record) != {"ref", "digest", "provenance"}:
+        _reject("promotion proof release record schema is invalid")
+    ref = _required_text(record, "ref", "promotion proof release_record")
+    expected_record_ref = f"{control_plane_sha}:docs/releases/{operation_sha}.json"
+    if ref != expected_record_ref:
+        _reject("promotion proof release record must be pushed at the pinned control-plane SHA")
+    digest = _required_text(record, "digest", "promotion proof release_record")
+    if _DIGEST_PATTERN.fullmatch(digest) is None:
+        _reject("promotion proof release record digest is invalid")
+    if record.get("provenance") is not True:
+        _reject("promotion proof release record provenance is not verified")
+    receipt_validator = _load_receipt_validator()
+    validated_receipts: dict[str, dict[str, dict[str, Any]]] = {}
+    for label, run_id, artifact_name, expected_operation in refs:
+        run = _mapping(api.workflow_run(repository, run_id), f"{label} workflow run")
+        _assert_equal(run.get("id"), run_id, f"{label} workflow run id")
+        _assert_equal(run.get("status"), "completed", f"{label} workflow status")
+        _assert_equal(run.get("conclusion"), "success", f"{label} workflow conclusion")
+        _assert_equal(run.get("path"), ".github/workflows/trusted-deploy.yml", f"{label} workflow path")
+        _assert_equal(run.get("name"), "trusted-deploy", f"{label} workflow name")
+        _assert_equal(run.get("event"), "workflow_run", f"{label} workflow event")
+        _assert_equal(run.get("head_branch"), DEFAULT_BRANCH, f"{label} workflow head_branch")
+        artifacts = _response_items(api.workflow_run_artifacts(repository, run_id), "artifacts", f"{label} artifacts")
+        matching = [artifact for artifact in artifacts if artifact.get("name") == artifact_name]
+        if len(matching) != 1 or matching[0].get("expired") is not False:
+            _reject(f"promotion proof {label} artifact is missing or expired")
+        receipt_zip = api.artifact_zip(repository, _required_int(matching[0], "id", f"{label} artifact"))
+        try:
+            with ZipFile(BytesIO(receipt_zip), "r") as receipt_archive:
+                receipt_members = receipt_archive.infolist()
+                final = "post-rollback" if label == "rollback_receipt" else "post-activation"
+                expected_members = {
+                    "pre-mutation.json",
+                    "pre-activation.json",
+                    f"{final}.json",
+                }
+                if (
+                    len(receipt_zip) > 1024 * 1024
+                    or len(receipt_members) != 3
+                    or {member.filename for member in receipt_members} != expected_members
+                    or any(member.is_dir() or member.file_size > 128 * 1024 for member in receipt_members)
+                ):
+                    _reject(f"promotion proof {label} receipt archive is invalid")
+                receipts = {
+                    member.filename[:-5]: json.loads(receipt_archive.read(member))
+                    for member in receipt_members
+                }
+        except (BadZipFile, OSError, UnicodeDecodeError, json.JSONDecodeError):
+            _reject(f"promotion proof {label} receipt archive is invalid")
+        for phase, receipt in receipts.items():
+            receipt_validator.validate_receipt(
+                receipt, operation_sha=expected_operation, workflow_run=run_id, phase=phase
+            )
+        validated_receipts[label] = receipts
+
+    staging = validated_receipts["staging_receipt"]
+    rollback = validated_receipts["rollback_receipt"]
+    forward = validated_receipts["forward_receipt"]
+    if any(
+        staging[phase]["runtime"]["fullSha"] != rollback_target
+        for phase in ("pre-mutation", "pre-activation")
+    ):
+        _reject("staging receipts must begin from the declared rollback target")
+    if staging["post-activation"]["runtime"]["fullSha"] != operation_sha:
+        _reject("staging receipt does not activate the candidate")
+    if any(
+        rollback[phase]["runtime"]["fullSha"] != operation_sha
+        for phase in ("pre-mutation", "pre-activation")
+    ):
+        _reject("rollback receipts must begin from the staged candidate")
+    rollback_final = rollback["post-rollback"]
+    if rollback_final["runtime"]["fullSha"] != rollback_target or rollback_final["rollback"] != {
+        "rollbackFrom": operation_sha,
+        "target": rollback_target,
+    }:
+        _reject("rollback receipt does not restore the declared target")
+    if any(
+        forward[phase]["runtime"]["fullSha"] != rollback_target
+        for phase in ("pre-mutation", "pre-activation")
+    ):
+        _reject("forward receipts must begin from the rollback target")
+    if forward["post-activation"]["runtime"]["fullSha"] != operation_sha:
+        _reject("forward receipt does not reactivate the candidate")
+
+    record_sha, record_path = ref.split(":", 1)
+    encoded = api.repository_content(repository, record_path, record_sha)
+    try:
+        encoded_content = "".join(_required_text(encoded, "content", "release record").split())
+        record_bytes = base64.b64decode(encoded_content, validate=True)
+    except (ValueError, binascii.Error):
+        _reject("release record content is not valid base64")
+    if hashlib.sha256(record_bytes).hexdigest() != digest.removeprefix("sha256:"):
+        _reject("release record digest does not match pushed content")
+    try:
+        record_json = json.loads(record_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _reject("release record content is not valid JSON")
+    record_object = _mapping(record_json, "release record")
+    required_record_fields = {
+        "schemaVersion",
+        "repository",
+        "operationSha",
+        "controlPlaneSha",
+        "canonicalCi",
+        "staging",
+        "rollback",
+        "forward",
+        "plan",
+    }
+    if set(record_object) != required_record_fields:
+        _reject("release record schema is incomplete")
+    if (
+        record_object.get("schemaVersion") != RELEASE_RECORD_SCHEMA
+        or record_object.get("repository") != repository
+        or record_object.get("operationSha") != operation_sha
+        or record_object.get("controlPlaneSha") != control_plane_sha
+    ):
+        _reject("release record is not bound to the operation provenance")
+
+    canonical_ci = _mapping(record_object.get("canonicalCi"), "release record canonicalCi")
+    if set(canonical_ci) != {
+        "workflowId",
+        "runId",
+        "runAttempt",
+        "publicationArtifactId",
+        "publicationArtifactDigest",
+        "imageTag",
+        "images",
+    }:
+        _reject("release record canonical CI schema is invalid")
+    images = {
+        image_name: publication["images"][image_name]["digest"]
+        for image_name in ("web", "api", "worker")
+    }
+    if canonical_ci != {
+        "workflowId": ci_workflow_id,
+        "runId": publication_run_id,
+        "runAttempt": publication_run_attempt,
+        "publicationArtifactId": publication_artifact_id,
+        "publicationArtifactDigest": publication_artifact_digest,
+        "imageTag": publication["image_tag"],
+        "images": images,
+    }:
+        _reject("release record canonical CI provenance does not match GitHub evidence")
+    if record_object.get("staging") != {"workflowRun": refs[0][1]}:
+        _reject("release record staging evidence does not match")
+    if record_object.get("rollback") != {
+        "workflowRun": refs[1][1],
+        "rollbackTargetSha": rollback_target,
+    }:
+        _reject("release record rollback evidence does not match")
+    if record_object.get("forward") != {"workflowRun": refs[2][1]}:
+        _reject("release record forward evidence does not match")
+    if record_object.get("plan") != {
+        "backup": {
+            "required": True,
+            "timing": "before-compose-or-activation",
+            "verification": "sha256sum",
+        },
+        "migration": {
+            "strategy": "forward-only",
+            "gate": "verified-production-backup",
+        },
+        "rollback": {
+            "strategy": "runtime-state-guarded",
+            "probe": "post-rollback-or-compensation",
+        },
+    }:
+        _reject("release record deployment plan is invalid")
+    return dict(item)
 
 
 class _StripAuthorizationRedirectHandler(HTTPRedirectHandler):
@@ -264,6 +510,18 @@ class GitHubApi:
     def workflow_run_jobs(self, repository: str, run_id: int) -> Mapping[str, Any]:
         return self._json(
             f"/repos/{quote(repository, safe='/')}/actions/runs/{run_id}/jobs?per_page=100"
+        )
+
+    def main_tip(self, repository: str) -> str:
+        payload = self._json(
+            f"/repos/{quote(repository, safe='/')}/git/ref/heads/main"
+        )
+        obj = _mapping(payload.get("object"), "main ref object")
+        return _required_text(obj, "sha", "main ref object")
+
+    def repository_content(self, repository: str, path: str, ref: str) -> Mapping[str, Any]:
+        return self._json(
+            f"/repos/{quote(repository, safe='/')}/contents/{quote(path, safe='/')}?ref={quote(ref, safe='')}"
         )
 
 
@@ -416,9 +674,13 @@ def validate_provenance(
     artifact_response = api.workflow_run_artifacts(expected_repository, run_id)
     artifacts = _response_items(artifact_response, "artifacts", "workflow run artifacts")
     expected_artifact_name = _required_text(request_config, "artifact", "request workflow")
-    if len(artifacts) != 1 or _required_text(artifacts[0], "name", "artifact") != expected_artifact_name:
+    request_artifacts = [artifact for artifact in artifacts if artifact.get("name") == expected_artifact_name]
+    if len(request_artifacts) != 1:
         _reject("workflow run artifacts do not match the fixed request artifact")
-    artifact = artifacts[0]
+    is_production_deploy = request_config.get("name") == "deploy-prod"
+    if len(artifacts) != (2 if is_production_deploy else 1):
+        _reject("workflow run artifacts contain an unexpected promotion proof")
+    artifact = request_artifacts[0]
     artifact_id = _required_int(artifact, "id", "artifact")
     if artifact.get("expired") is not False:
         _reject("request artifact must not be expired")
@@ -448,6 +710,43 @@ def validate_provenance(
             _reject("rollback request environment must be staging or prod")
     else:
         _assert_equal(request["environment"], expected_environment, "environment")
+
+    control_plane_sha = api.main_tip(expected_repository)
+    if _SHA_PATTERN.fullmatch(control_plane_sha) is None:
+        _reject("current main control-plane SHA is not a full lowercase SHA")
+    promotion_payload: bytes | None = None
+    if is_production_deploy and request["environment"] == "prod":
+        promotion_name = _required_text(request_config, "promotion_artifact", "request workflow")
+        promotion_artifacts = [artifact for artifact in artifacts if artifact.get("name") == promotion_name]
+        if len(promotion_artifacts) != 1 or promotion_artifacts[0].get("expired") is not False:
+            _reject("production promotion proof artifact is missing or expired")
+        promotion_artifact = promotion_artifacts[0]
+        promotion_artifact_id = _required_int(promotion_artifact, "id", "promotion artifact")
+        promotion_artifact_run = _mapping(
+            promotion_artifact.get("workflow_run"), "promotion artifact.workflow_run"
+        )
+        _assert_equal(promotion_artifact_run.get("id"), run_id, "promotion artifact run id")
+        _assert_equal(
+            promotion_artifact_run.get("repository_id"),
+            expected_repository_id,
+            "promotion artifact repository id",
+        )
+        _assert_equal(
+            promotion_artifact_run.get("head_repository_id"),
+            expected_repository_id,
+            "promotion artifact head repository id",
+        )
+        _assert_equal(
+            promotion_artifact_run.get("head_branch"),
+            run.get("head_branch"),
+            "promotion artifact head branch",
+        )
+        _assert_equal(
+            promotion_artifact_run.get("head_sha"),
+            run.get("head_sha"),
+            "promotion artifact head SHA",
+        )
+        promotion_payload = api.artifact_zip(expected_repository, promotion_artifact_id)
 
     ci_config = _mapping(allowlist.get("ci_workflow"), "allowlist.ci_workflow")
     ci_id = _registered_workflow_id(ci_config, "allowlist.ci_workflow")
@@ -549,6 +848,11 @@ def validate_provenance(
     publication_artifact_id = _required_int(publication_artifact, "id", "publication artifact")
     if publication_artifact.get("expired") is not False:
         _reject("ci publication artifact must not be expired")
+    publication_artifact_digest = _required_text(
+        publication_artifact, "digest", "publication artifact"
+    )
+    if _DIGEST_PATTERN.fullmatch(publication_artifact_digest) is None:
+        _reject("ci publication artifact digest is invalid")
     publication_artifact_run = _mapping(
         publication_artifact.get("workflow_run"), "publication artifact.workflow_run"
     )
@@ -605,6 +909,73 @@ def validate_provenance(
         "request.image_tag",
     )
 
+    current_main_ci = _response_items(
+        api.workflow_runs(expected_repository, ci_id, control_plane_sha),
+        "workflow_runs",
+        "current main ci runs",
+    )
+    matching_control_plane_runs: list[Mapping[str, Any]] = []
+    for control_plane_run in current_main_ci:
+        if (
+            control_plane_run.get("workflow_id") != ci_id
+            or control_plane_run.get("path") != ci_path
+            or control_plane_run.get("name") != ci_name
+            or control_plane_run.get("head_sha") != control_plane_sha
+            or control_plane_run.get("head_branch") != DEFAULT_BRANCH
+            or control_plane_run.get("event") != "push"
+            or control_plane_run.get("status") != "completed"
+            or control_plane_run.get("conclusion") != "success"
+        ):
+            continue
+        try:
+            _assert_run_common(
+                control_plane_run,
+                repository_id=expected_repository_id,
+                repository=expected_repository,
+                label="current main ci run",
+            )
+        except ProvenanceValidationError:
+            continue
+        matching_control_plane_runs.append(control_plane_run)
+    if len(matching_control_plane_runs) != 1:
+        _reject("current main control-plane SHA lacks one successful canonical CI run")
+    control_plane_run_id = _required_int(
+        matching_control_plane_runs[0], "id", "current main ci run"
+    )
+    control_plane_jobs = _response_items(
+        api.workflow_run_jobs(expected_repository, control_plane_run_id),
+        "jobs",
+        "current main ci jobs",
+    )
+    matching_control_plane_jobs = [
+        job
+        for job in control_plane_jobs
+        if job.get("name") == CI_JOB_NAME
+        and job.get("run_id", job.get("workflow_run_id")) == control_plane_run_id
+        and job.get("workflow_name") == ci_name
+        and job.get("head_branch") == DEFAULT_BRANCH
+        and job.get("status") == "completed"
+        and job.get("conclusion") == "success"
+        and job.get("head_sha") == control_plane_sha
+    ]
+    if len(matching_control_plane_jobs) != 1:
+        _reject("current main control-plane CI publication job is not successful")
+
+    if promotion_payload is not None:
+        _promotion_proof(
+            promotion_payload,
+            operation_sha=request["deploy_sha"],
+            control_plane_sha=control_plane_sha,
+            publication=publication,
+            publication_run_id=publication_run_id,
+            publication_run_attempt=publication_run_attempt,
+            publication_artifact_id=publication_artifact_id,
+            publication_artifact_digest=publication_artifact_digest,
+            ci_workflow_id=ci_id,
+            api=api,
+            repository=expected_repository,
+        )
+
     result: dict[str, Any] = {
         "verified": True,
         "request_type": request["request_type"],
@@ -617,6 +988,7 @@ def validate_provenance(
         "ci_run_attempt": publication_run_attempt,
         "publication_artifact_id": publication_artifact_id,
         "canonical_image_tag": publication["image_tag"],
+        "control_plane_sha": control_plane_sha,
     }
     for image_name in ("web", "api", "worker"):
         image = publication["images"][image_name]
@@ -645,6 +1017,16 @@ def _load_image_publication_validator() -> Any:
     return module
 
 
+def _load_receipt_validator() -> Any:
+    validator_path = Path(__file__).with_name("validate-trusted-shared-edge-receipts.py")
+    spec = importlib.util.spec_from_file_location("trusted_receipt_validator", validator_path)
+    if spec is None or spec.loader is None:
+        _reject("unable to load shared-edge receipt validator")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _write_outputs(path: str | Path, result: Mapping[str, Any]) -> None:
     lines = []
     for key in (
@@ -659,6 +1041,7 @@ def _write_outputs(path: str | Path, result: Mapping[str, Any]) -> None:
         "ci_run_attempt",
         "publication_artifact_id",
         "canonical_image_tag",
+        "control_plane_sha",
         "web_image_repository",
         "web_image_digest",
         "api_image_repository",

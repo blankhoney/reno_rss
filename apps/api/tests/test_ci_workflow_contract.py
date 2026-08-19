@@ -1,6 +1,8 @@
 """Static regression locks for the GitHub Actions CI delivery boundary."""
 
 import copy
+import base64
+import hashlib
 import importlib.util
 import io
 import json
@@ -123,6 +125,10 @@ def test_request_workflows_have_strict_dispatch_inputs_and_no_target_ref():
         inputs = dispatch["inputs"]
 
         expected_inputs = {"image_tag", "deploy_sha"}
+        if workflow_path.name == "deploy-prod.yml":
+            expected_inputs.update(
+                {"staging_receipt_run", "rollback_receipt_run", "forward_receipt_run", "rollback_target_sha", "release_record_ref", "release_record_digest", "control_plane_sha"}
+            )
         if workflow_path.name == "rollback.yml":
             expected_inputs.add("env")
         assert set(inputs) == expected_inputs
@@ -160,7 +166,12 @@ def test_request_workflows_emit_one_stable_data_schema():
         assert upload["uses"] == "actions/upload-artifact@v4"
         assert upload["with"]["if-no-files-found"] == "error"
         assert upload["with"]["retention-days"] == 7
-        assert set(validation["env"]) == {"REQUEST_TYPE", "DEPLOY_ENV", "IMAGE_TAG", "DEPLOY_SHA"}
+        expected_env = {"REQUEST_TYPE", "DEPLOY_ENV", "IMAGE_TAG", "DEPLOY_SHA"}
+        if workflow_path.name == "deploy-prod.yml":
+            expected_env.update(
+                {"STAGING_RECEIPT_RUN", "ROLLBACK_RECEIPT_RUN", "FORWARD_RECEIPT_RUN", "ROLLBACK_TARGET_SHA", "RELEASE_RECORD_REF", "RELEASE_RECORD_DIGEST", "CONTROL_PLANE_SHA"}
+            )
+        assert set(validation["env"]) == expected_env
         assert validation["env"]["IMAGE_TAG"] == "${{ inputs.image_tag }}"
         assert validation["env"]["DEPLOY_SHA"] == "${{ inputs.deploy_sha }}"
         assert "trusted-deploy-request/v1" in validation["run"]
@@ -232,10 +243,10 @@ def test_request_workflows_have_no_privileged_steps_on_any_dispatch_ref():
         assert "environment" not in workflow
         job = workflow["jobs"]["request"]
         assert "environment" not in job
-        assert [step.get("uses") for step in job["steps"]] == [
-            None,
-            "actions/upload-artifact@v4",
-        ]
+        expected_uses = [None, "actions/upload-artifact@v4"]
+        if workflow_path.name == "deploy-prod.yml":
+            expected_uses.append("actions/upload-artifact@v4")
+        assert [step.get("uses") for step in job["steps"]] == expected_uses
         assert all(step.get("uses") not in forbidden_actions for step in job["steps"])
         source = workflow_path.read_text(encoding="utf-8")
         assert "packages: write" not in source
@@ -271,12 +282,15 @@ def test_request_jobs_do_not_gate_or_execute_target_branch_code():
         assert "if" not in job
         assert "environment" not in job
         assert job["runs-on"] == "ubuntu-latest"
-        assert [step["name"] for step in job["steps"]] == [
+        expected_steps = [
             "Validate request inputs",
             "Upload trusted deploy request"
             if workflow_path.name != "rollback.yml"
             else "Upload trusted rollback request",
         ]
+        if workflow_path.name == "deploy-prod.yml":
+            expected_steps.append("Upload trusted production promotion proof")
+        assert [step["name"] for step in job["steps"]] == expected_steps
 
 
 def test_git_replace_and_legacy_grafts_can_rewrite_ancestry_without_remote_gates(
@@ -1148,6 +1162,121 @@ TRUSTED_TARGET_SHA = "a" * 40
 TRUSTED_REQUEST_HEAD_SHA = "b" * 40
 
 
+def _promotion_receipt(
+    phase: str, operation_sha: str, workflow_run: int, pre_runtime_sha: str
+) -> dict[str, Any]:
+    receipt: dict[str, Any] = {
+        "contractVersion": 1,
+        "owner": {"project": "rss", "repo": "blankhoney/reno_rss"},
+        "operation": {"fullSha": operation_sha},
+        "workflowRun": workflow_run,
+        "phase": phase,
+        "runtime": {
+            "fullSha": operation_sha if phase == "post-activation" else pre_runtime_sha
+        },
+        "timestamp": "2026-08-20T00:00:00Z",
+        "urls": [
+            {"name": "rss", "configuredURL": "https://ai-reader.blankhoney.xyz/", "status": 200,
+             "finalURL": "https://ai-reader.blankhoney.xyz/", "tls": True,
+             "redirect": {"required": True, "followed": True, "initialStatus": 302,
+                           "initialURL": "https://auth.blankhoney.xyz/login"}},
+            {"name": "blog", "configuredURL": "https://blog.blankhoney.xyz/zh", "status": 200,
+             "finalURL": "https://blog.blankhoney.xyz/zh", "tls": True,
+             "redirect": {"required": False, "followed": False, "initialStatus": 200,
+                           "initialURL": None}},
+        ],
+        "edge": {
+            "caddyContainer": "myrss-edge-caddy-1", "myrssAppAttached": True,
+            "brianstormEdgeAttached": True, "networkDriver": {"myrssApp": "bridge", "brianstormEdge": "bridge"},
+            "configLoaded": True, "rssUpstreamReachable": True, "blogUpstreamReachable": True,
+            "productionBlogWebAttachedToProductionEdge": True, "stagingWebAttachedToProductionEdge": False,
+        },
+    }
+    if phase in {"post-rollback", "post-compensation"}:
+        receipt["rollback"] = {
+            "rollbackFrom": pre_runtime_sha,
+            "target": operation_sha,
+        }
+        receipt["runtime"] = {
+            "fullSha": operation_sha if phase == "post-rollback" else pre_runtime_sha
+        }
+    return receipt
+
+
+def _promotion_receipt_zip(
+    operation_sha: str,
+    workflow_run: int,
+    *,
+    pre_runtime_sha: str,
+    rollback: bool = False,
+) -> bytes:
+    phases = (
+        ("pre-mutation", "pre-activation", "post-rollback")
+        if rollback
+        else ("pre-mutation", "pre-activation", "post-activation")
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for phase in phases:
+            archive.writestr(
+                f"{phase}.json",
+                json.dumps(
+                    _promotion_receipt(
+                        phase, operation_sha, workflow_run, pre_runtime_sha
+                    )
+                ),
+            )
+    return output.getvalue()
+
+
+def _production_release_record(
+    *,
+    operation_sha: str,
+    control_plane_sha: str,
+    rollback_target_sha: str,
+    staging_run: int,
+    rollback_run: int,
+    forward_run: int,
+    publication_artifact_digest: str,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": "rss-production-release/v1",
+        "repository": TRUSTED_REPOSITORY,
+        "operationSha": operation_sha,
+        "controlPlaneSha": control_plane_sha,
+        "canonicalCi": {
+            "workflowId": TRUSTED_CI_WORKFLOW_ID,
+            "runId": TRUSTED_CI_RUN_ID,
+            "runAttempt": TRUSTED_CI_RUN_ATTEMPT,
+            "publicationArtifactId": 8401,
+            "publicationArtifactDigest": publication_artifact_digest,
+            "imageTag": f"sha-{operation_sha}",
+            "images": copy.deepcopy(PUBLICATION_DIGESTS),
+        },
+        "staging": {"workflowRun": staging_run},
+        "rollback": {
+            "workflowRun": rollback_run,
+            "rollbackTargetSha": rollback_target_sha,
+        },
+        "forward": {"workflowRun": forward_run},
+        "plan": {
+            "backup": {
+                "required": True,
+                "timing": "before-compose-or-activation",
+                "verification": "sha256sum",
+            },
+            "migration": {
+                "strategy": "forward-only",
+                "gate": "verified-production-backup",
+            },
+            "rollback": {
+                "strategy": "runtime-state-guarded",
+                "probe": "post-rollback-or-compensation",
+            },
+        },
+    }
+
+
 def _trusted_image_publication() -> dict[str, Any]:
     publication = _valid_image_publication(run_attempt=str(TRUSTED_CI_RUN_ATTEMPT))
     publication.update(
@@ -1184,6 +1313,7 @@ def _trusted_workflow_allowlist(
                 "name": "deploy-prod",
                 "id": request_workflow_id,
                 "artifact": "trusted-production-deploy-request",
+                "promotion_artifact": "trusted-production-promotion-proof",
                 "request_type": "deploy",
                 "environment": "prod",
             },
@@ -1260,6 +1390,7 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
             f"trusted-image-publication-{TRUSTED_CI_RUN_ID}"
             f"-attempt-{TRUSTED_CI_RUN_ATTEMPT}"
         ),
+        "digest": f"sha256:{'e' * 64}",
         "expired": False,
         "workflow_run": {
             "id": TRUSTED_CI_RUN_ID,
@@ -1357,6 +1488,10 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
             assert run_id == TRUSTED_CI_RUN_ID
             return {"jobs": copy.deepcopy(self.jobs)}
 
+        def main_tip(self, repository_name):
+            assert repository_name == TRUSTED_REPOSITORY
+            return TRUSTED_TARGET_SHA
+
     return event, _trusted_workflow_allowlist(), FakeApi()
 
 
@@ -1429,7 +1564,7 @@ def test_trusted_workflow_verifies_read_only_then_executes_one_locked_transactio
     assert "trusted-remote-deploy.sh" in run
     assert "build-trusted-deploy-bundle.sh" in run
     assert '--request-type "$REQUEST_TYPE"' in run
-    assert 'CONTROL_PLANE_SHA="$(git rev-parse HEAD)"' in run
+    assert 'CONTROL_PLANE_SHA="${{ needs.verify.outputs.control_plane_sha }}"' in run
     assert '[[ "$CONTROL_PLANE_SHA" =~ ^[0-9a-f]{40}$ ]]' in run
     assert '--control-plane-sha "$CONTROL_PLANE_SHA"' in run
     assert 'tee "$ssh_stdout_file"' in run
@@ -1456,6 +1591,234 @@ def test_trusted_workflow_verifies_read_only_then_executes_one_locked_transactio
     assert upload["with"]["if-no-files-found"] == "warn"
     assert upload["with"]["retention-days"] == 30
     assert "ssh_stdout_file" not in upload["with"]["path"]
+
+
+def test_trusted_workflow_binds_execution_to_verified_control_plane_sha():
+    workflow_path = REPOSITORY_ROOT / ".github/workflows/trusted-deploy.yml"
+    workflow = _load_workflow(workflow_path)
+    verify = workflow["jobs"]["verify"]
+    execute = workflow["jobs"]["execute"]
+    assert verify["outputs"]["control_plane_sha"] == (
+        "${{ steps.provenance.outputs.control_plane_sha }}"
+    )
+    checkout = execute["steps"][0]
+    assert checkout["with"]["ref"] == "${{ needs.verify.outputs.control_plane_sha }}"
+    run = next(
+        step for step in execute["steps"] if step.get("name") == "Execute one locked VPS transaction"
+    )["run"]
+    assert 'CONTROL_PLANE_SHA="${{ needs.verify.outputs.control_plane_sha }}"' in run
+    assert 'CONTROL_PLANE_SHA="$(git rev-parse HEAD)"' not in run
+    assert '[[ "$(git rev-parse HEAD)" == "$CONTROL_PLANE_SHA" ]]' in run
+
+
+def test_production_request_requires_current_sha_promotion_evidence():
+    workflow = _load_workflow(REPOSITORY_ROOT / ".github/workflows/deploy-prod.yml")
+    inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+    for name in (
+        "staging_receipt_run",
+        "rollback_receipt_run",
+        "forward_receipt_run",
+        "rollback_target_sha",
+        "release_record_ref",
+        "release_record_digest",
+        "control_plane_sha",
+    ):
+        assert inputs[name]["required"] is True
+    source = (REPOSITORY_ROOT / ".github/workflows/deploy-prod.yml").read_text(encoding="utf-8")
+    assert "trusted-production-promotion/v1" in source
+    assert "staging_receipt_run" in source
+    assert "rollback_receipt_run" in source
+    assert "forward_receipt_run" in source
+    assert "release_record_ref" in source
+
+
+def _promotion_validation_fixture() -> tuple[dict[str, Any], Any, dict[str, Any]]:
+    operation = TRUSTED_TARGET_SHA
+    rollback_target = "b" * 40
+    control_plane = "c" * 40
+    runs = {"staging": 8302, "rollback": 8303, "forward": 8304}
+    artifact_ids = {8302: 8702, 8303: 8703, 8304: 8704}
+    publication_digest = f"sha256:{'e' * 64}"
+    record_object = _production_release_record(
+        operation_sha=operation,
+        control_plane_sha=control_plane,
+        rollback_target_sha=rollback_target,
+        staging_run=runs["staging"],
+        rollback_run=runs["rollback"],
+        forward_run=runs["forward"],
+        publication_artifact_digest=publication_digest,
+    )
+
+    class PromotionApi:
+        def __init__(self):
+            self.bad_path_run: int | None = None
+            self.failed_run: int | None = None
+            self.bad_archive_run: int | None = None
+            self.record = copy.deepcopy(record_object)
+
+        def workflow_run(self, repository, run_id):
+            assert repository == TRUSTED_REPOSITORY
+            return {
+                "id": run_id,
+                "path": (
+                    "other.yml"
+                    if run_id == self.bad_path_run
+                    else ".github/workflows/trusted-deploy.yml"
+                ),
+                "name": "trusted-deploy",
+                "event": "workflow_run",
+                "head_branch": "main",
+                "status": "completed",
+                "conclusion": "failure" if run_id == self.failed_run else "success",
+            }
+
+        def workflow_run_artifacts(self, repository, run_id):
+            expected_operation = rollback_target if run_id == runs["rollback"] else operation
+            request_type = "rollback" if run_id == runs["rollback"] else "deploy"
+            return {
+                "artifacts": [
+                    {
+                        "id": artifact_ids[run_id],
+                        "name": (
+                            "trusted-shared-edge-receipts-staging-"
+                            f"{request_type}-{run_id}-{expected_operation}"
+                        ),
+                        "expired": False,
+                    }
+                ]
+            }
+
+        def artifact_zip(self, repository, artifact_id):
+            run_id = {value: key for key, value in artifact_ids.items()}[artifact_id]
+            if run_id == self.bad_archive_run:
+                return b"not-a-zip"
+            if run_id == runs["rollback"]:
+                return _promotion_receipt_zip(
+                    rollback_target,
+                    run_id,
+                    pre_runtime_sha=operation,
+                    rollback=True,
+                )
+            return _promotion_receipt_zip(
+                operation,
+                run_id,
+                pre_runtime_sha=rollback_target,
+            )
+
+        def repository_content(self, repository, path, ref):
+            assert repository == TRUSTED_REPOSITORY
+            assert path == f"docs/releases/{operation}.json"
+            assert ref == control_plane
+            record = json.dumps(self.record, sort_keys=True).encode()
+            return {"content": base64.b64encode(record).decode()}
+
+    api = PromotionApi()
+    record_bytes = json.dumps(api.record, sort_keys=True).encode()
+    proof = {
+        "schema_version": "trusted-production-promotion/v1",
+        "operation_sha": operation,
+        "control_plane_sha": control_plane,
+        "rollback_target_sha": rollback_target,
+        "staging_receipt": {"workflow_run": runs["staging"], "status": "success"},
+        "rollback_receipt": {"workflow_run": runs["rollback"], "status": "success"},
+        "forward_receipt": {"workflow_run": runs["forward"], "status": "success"},
+        "release_record": {
+            "ref": f"{control_plane}:docs/releases/{operation}.json",
+            "digest": f"sha256:{hashlib.sha256(record_bytes).hexdigest()}",
+            "provenance": True,
+        },
+    }
+    kwargs = {
+        "operation_sha": operation,
+        "control_plane_sha": control_plane,
+        "publication": _trusted_image_publication(),
+        "publication_run_id": TRUSTED_CI_RUN_ID,
+        "publication_run_attempt": TRUSTED_CI_RUN_ATTEMPT,
+        "publication_artifact_id": 8401,
+        "publication_artifact_digest": publication_digest,
+        "ci_workflow_id": TRUSTED_CI_WORKFLOW_ID,
+        "api": api,
+        "repository": TRUSTED_REPOSITORY,
+    }
+    return proof, api, kwargs
+
+
+def _promotion_proof_zip(proof: dict[str, Any], *, extra_member: bool = False) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("trusted-production-promotion-proof.json", json.dumps(proof))
+        if extra_member:
+            archive.writestr("unexpected.json", "{}")
+    return output.getvalue()
+
+
+def test_production_promotion_validator_accepts_real_receipts_and_record():
+    proof, _, kwargs = _promotion_validation_fixture()
+    result = trusted_workflow_run_validator._promotion_proof(
+        _promotion_proof_zip(proof), **kwargs
+    )
+    assert result["operation_sha"] == TRUSTED_TARGET_SHA
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "duplicate-run",
+        "path",
+        "conclusion",
+        "receipt",
+        "receipt-runtime",
+        "record-digest",
+        "record-ci",
+        "record-plan",
+        "record-ref",
+        "extra-proof-member",
+    ),
+)
+def test_production_promotion_validator_rejects_tampered_evidence(mutation):
+    proof, api, kwargs = _promotion_validation_fixture()
+    extra_member = False
+    if mutation == "duplicate-run":
+        proof["forward_receipt"]["workflow_run"] = proof["staging_receipt"]["workflow_run"]
+    elif mutation == "path":
+        api.bad_path_run = proof["staging_receipt"]["workflow_run"]
+    elif mutation == "conclusion":
+        api.failed_run = proof["rollback_receipt"]["workflow_run"]
+    elif mutation == "receipt":
+        api.bad_archive_run = proof["forward_receipt"]["workflow_run"]
+    elif mutation == "receipt-runtime":
+        original = api.artifact_zip
+
+        def bad_receipt(repository, artifact_id):
+            if artifact_id == 8704:
+                return _promotion_receipt_zip(
+                    TRUSTED_TARGET_SHA,
+                    8304,
+                    pre_runtime_sha="d" * 40,
+                )
+            return original(repository, artifact_id)
+
+        api.artifact_zip = bad_receipt
+    elif mutation == "record-digest":
+        proof["release_record"]["digest"] = f"sha256:{'0' * 64}"
+    elif mutation == "record-ci":
+        api.record["canonicalCi"]["runId"] += 1
+        record_bytes = json.dumps(api.record, sort_keys=True).encode()
+        proof["release_record"]["digest"] = f"sha256:{hashlib.sha256(record_bytes).hexdigest()}"
+    elif mutation == "record-plan":
+        api.record["plan"]["backup"]["required"] = False
+        record_bytes = json.dumps(api.record, sort_keys=True).encode()
+        proof["release_record"]["digest"] = f"sha256:{hashlib.sha256(record_bytes).hexdigest()}"
+    elif mutation == "record-ref":
+        proof["release_record"]["ref"] = (
+            f"{'c' * 40}:docs/releases/not-the-candidate.json"
+        )
+    elif mutation == "extra-proof-member":
+        extra_member = True
+    with pytest.raises(trusted_workflow_run_validator.ProvenanceValidationError):
+        trusted_workflow_run_validator._promotion_proof(
+            _promotion_proof_zip(proof, extra_member=extra_member), **kwargs
+        )
 
 
 def test_shared_release_bootstrap_is_approved_bounded_and_has_no_remote_landing_zone():
@@ -1533,6 +1896,7 @@ def test_trusted_provenance_accepts_bound_request_and_ci_publication():
         "environment": "staging",
         "image_tag": f"sha-{TRUSTED_TARGET_SHA}",
         "canonical_image_tag": f"sha-{TRUSTED_TARGET_SHA}",
+        "control_plane_sha": TRUSTED_TARGET_SHA,
         "deploy_sha": TRUSTED_TARGET_SHA,
         "request_run_id": TRUSTED_REQUEST_RUN_ID,
         "artifact_id": 8301,
@@ -1650,6 +2014,22 @@ def _trusted_request_variant(
             },
         }
     )
+    api.promotion_artifact = {
+        "id": 8501,
+        "name": "trusted-production-promotion-proof",
+        "expired": False,
+        "workflow_run": {
+            "id": TRUSTED_REQUEST_RUN_ID,
+            "repository_id": TRUSTED_REPOSITORY_ID,
+            "head_repository_id": TRUSTED_REPOSITORY_ID,
+            "head_branch": "main",
+            "head_sha": TRUSTED_REQUEST_HEAD_SHA,
+        },
+    }
+    if workflow_name == "deploy-prod":
+        api.artifacts_for_request = [copy.deepcopy(api.artifact), copy.deepcopy(api.promotion_artifact)]
+    else:
+        api.artifacts_for_request = [copy.deepcopy(api.artifact)]
     request_workflow = {
         "id": TRUSTED_REQUEST_WORKFLOW_ID,
         "path": workflow_path,
@@ -1669,6 +2049,11 @@ def _trusted_request_variant(
             "name": "ci",
         },
     }
+    promotion_proof = None
+    promotion_api = None
+    if workflow_name == "deploy-prod":
+        promotion_proof, promotion_api, _ = _promotion_validation_fixture()
+
     def artifact_zip(repository_name, artifact_id):
         assert repository_name == TRUSTED_REPOSITORY
         if artifact_id == api.artifact["id"]:
@@ -1680,12 +2065,64 @@ def _trusted_request_variant(
                     else "trusted-deploy-request.json"
                 ),
             )
+        if artifact_id == api.promotion_artifact["id"]:
+            assert promotion_proof is not None
+            return _promotion_proof_zip(promotion_proof)
+        if artifact_id in {8702, 8703, 8704}:
+            assert promotion_api is not None
+            return promotion_api.artifact_zip(repository_name, artifact_id)
         assert artifact_id == api.publication_artifact["id"]
         return _trusted_request_zip(
             _trusted_image_publication(), member_name="trusted-image-publication.json"
         )
 
     api.artifact_zip = artifact_zip
+    def workflow_run_artifacts(repository_name, run_id):
+        assert repository_name == TRUSTED_REPOSITORY
+        if run_id == TRUSTED_REQUEST_RUN_ID:
+            return {"artifacts": copy.deepcopy(api.artifacts_for_request)}
+        if run_id == TRUSTED_CI_RUN_ID:
+            return {"artifacts": [copy.deepcopy(api.publication_artifact)]}
+        if run_id in {8302, 8303, 8304}:
+            assert promotion_api is not None
+            return promotion_api.workflow_run_artifacts(repository_name, run_id)
+        raise AssertionError(run_id)
+    api.workflow_run_artifacts = workflow_run_artifacts
+
+    if workflow_name == "deploy-prod":
+        assert promotion_api is not None
+        original_workflow_run = api.workflow_run
+        original_workflow_runs = api.workflow_runs
+        original_workflow_run_jobs = api.workflow_run_jobs
+        control_plane_sha = "c" * 40
+        control_plane_run_id = TRUSTED_CI_RUN_ID + 1
+
+        def workflow_run(repository_name, run_id):
+            if run_id in {8302, 8303, 8304}:
+                return promotion_api.workflow_run(repository_name, run_id)
+            return original_workflow_run(repository_name, run_id)
+
+        def workflow_runs(repository_name, workflow_id, head_sha):
+            if head_sha == control_plane_sha:
+                control_plane_run = copy.deepcopy(api.ci_run)
+                control_plane_run.update({"id": control_plane_run_id, "head_sha": control_plane_sha})
+                return {"workflow_runs": [control_plane_run]}
+            return original_workflow_runs(repository_name, workflow_id, head_sha)
+
+        def workflow_run_jobs(repository_name, run_id):
+            if run_id == control_plane_run_id:
+                control_plane_job = copy.deepcopy(api.jobs[0])
+                control_plane_job.update(
+                    {"run_id": control_plane_run_id, "head_sha": control_plane_sha}
+                )
+                return {"jobs": [control_plane_job]}
+            return original_workflow_run_jobs(repository_name, run_id)
+
+        api.main_tip = lambda repository_name: control_plane_sha
+        api.workflow_run = workflow_run
+        api.workflow_runs = workflow_runs
+        api.workflow_run_jobs = workflow_run_jobs
+        api.repository_content = promotion_api.repository_content
     return event, allowlist, api
 
 
@@ -1800,6 +2237,7 @@ def test_trusted_provenance_rejects_provenance_and_publication_failures(mutation
         ("sha", "publication.deploy_sha mismatch"),
         ("tag", "ci publication artifact failed schema validation"),
         ("digest", "ci publication artifact failed schema validation"),
+        ("archive-digest", "ci publication artifact digest is invalid"),
     ),
 )
 def test_trusted_provenance_rejects_unbound_or_unsafe_ci_publication(
@@ -1827,6 +2265,8 @@ def test_trusted_provenance_rejects_unbound_or_unsafe_ci_publication(
             f"trusted-image-publication-{TRUSTED_CI_RUN_ID}"
             f"-attempt-{TRUSTED_CI_RUN_ATTEMPT + 1}"
         )
+    elif mutation == "archive-digest":
+        api.publication_artifact["digest"] = "sha256:1234"
     else:
         publication = _trusted_image_publication()
         if mutation == "workflow":

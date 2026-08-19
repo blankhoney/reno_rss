@@ -21,6 +21,7 @@ jobs:
       request_type: ${{ steps.provenance.outputs.request_type }}
       environment: ${{ steps.provenance.outputs.environment }}
       deploy_sha: ${{ steps.provenance.outputs.deploy_sha }}
+      control_plane_sha: ${{ steps.provenance.outputs.control_plane_sha }}
       canonical_image_tag: ${{ steps.provenance.outputs.canonical_image_tag }}
       web_image_repository: ${{ steps.provenance.outputs.web_image_repository }}
       web_image_digest: ${{ steps.provenance.outputs.web_image_digest }}
@@ -65,7 +66,7 @@ jobs:
       - name: Checkout trusted transaction bundle from main
         uses: actions/checkout@v4
         with:
-          ref: refs/heads/main
+          ref: ${{ needs.verify.outputs.control_plane_sha }}
           persist-credentials: false
           fetch-depth: 1
 
@@ -113,9 +114,13 @@ jobs:
           [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
           [[ "$CANONICAL_IMAGE_TAG" == "sha-$DEPLOY_SHA" ]] || exit 1
           [[ "$WORKFLOW_RUN" =~ ^[1-9][0-9]*$ ]] || exit 1
-          CONTROL_PLANE_SHA="$(git rev-parse HEAD)"
+          CONTROL_PLANE_SHA="${{ needs.verify.outputs.control_plane_sha }}"
           [[ "$CONTROL_PLANE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             echo 'trusted control-plane checkout is not a full commit SHA' >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "$CONTROL_PLANE_SHA" ]] || {
+            echo 'trusted control-plane checkout does not match verified SHA' >&2
             exit 1
           }
           for digest in "$SHARED_RELEASE_LOCK_WRAPPER_SHA256" "$SHARED_RELEASE_LOCK_CORE_SHA256" "$SHARED_RELEASE_LOCK_TRANSACTION_SHA256"; do
@@ -202,7 +207,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trusted-shared-edge-receipts-${{ github.run_id }}-${{ needs.verify.outputs.deploy_sha }}
+          name: trusted-shared-edge-receipts-${{ needs.verify.outputs.environment }}-${{ needs.verify.outputs.request_type }}-${{ github.run_id }}-${{ needs.verify.outputs.deploy_sha }}
           path: output/evidence/trusted-shared-edge-receipts/
           if-no-files-found: warn
           retention-days: 30
