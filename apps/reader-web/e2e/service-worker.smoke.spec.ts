@@ -1654,7 +1654,12 @@ test("selection callbacks from an unmounted article cannot contaminate the next 
   await expect.poll(() => postStarted).toBe(true);
 
   await page.getByRole("link", { name: "返回工作台" }).click();
-  await expect(page).toHaveURL(/module=search.*q=fast/);
+  await expect(page).toHaveURL((url) => (
+    url.pathname === "/" &&
+    url.searchParams.get("module") === "search" &&
+    url.searchParams.get("q") === "fast"
+  ));
+  await expect(page.getByText("文章 1 · 划线/笔记 1", { exact: true })).toBeVisible();
   const fastResult = page.getByRole("link", { name: "Fast search result" }).first();
   await expect(fastResult).toBeVisible();
   await fastResult.click();

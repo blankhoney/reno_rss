@@ -22,6 +22,8 @@ test("ReviewQueue synchronously owns refresh and review attempts", () => {
   assert.match(source, /if \(!ownsReviewAttempt\(attempt\)\) return;/);
   assert.match(source, /setBusyAttempt\(\(current\) => current\?\.seq === attempt\.seq && current\.id === attempt\.id \? null : current\)/);
   assert.match(source, /const active = document\.activeElement;/);
+  assert.match(source, /restoreRefreshFocusRef\.current = attempt\.hadFocus;\s+setPendingRefreshSeq/);
+  assert.match(source, /if \(pendingRefreshSeq != null \|\| !restoreRefreshFocusRef\.current\) return;/);
   assert.match(source, /active === document\.body \|\| active === button \|\| active\?\.isConnected === false/);
   assert.match(source, /button\.focus\(\{ preventScroll: true \}\)/);
   assert.match(source, /aria-label="刷新队列"[\s\S]*aria-busy=\{pendingRefreshSeq != null\}[\s\S]*disabled=\{pendingRefreshSeq != null\}/);

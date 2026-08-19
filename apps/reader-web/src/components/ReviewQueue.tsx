@@ -27,6 +27,7 @@ export function ReviewQueue() {
   const mutationEpochRef = useRef(0);
   const pendingRefreshRef = useRef<PendingRefreshAttempt | null>(null);
   const refreshButtonRef = useRef<HTMLButtonElement | null>(null);
+  const restoreRefreshFocusRef = useRef(false);
   const reviewSeqRef = useRef(0);
   const pendingReviewRef = useRef<PendingReviewAttempt | null>(null);
 
@@ -63,18 +64,21 @@ export function ReviewQueue() {
       .finally(() => {
         if (!manual || pendingRefreshRef.current?.requestSeq !== attempt.requestSeq) return;
         pendingRefreshRef.current = null;
+        restoreRefreshFocusRef.current = attempt.hadFocus;
         setPendingRefreshSeq((current) => clearExactPendingSeq(current, attempt.requestSeq));
-        if (!attempt.hadFocus) return;
-        window.requestAnimationFrame(() => {
-          const button = refreshButtonRef.current;
-          const active = document.activeElement;
-          if (!mountedRef.current || button == null) return;
-          if (active === document.body || active === button || active?.isConnected === false) {
-            button.focus({ preventScroll: true });
-          }
-        });
       });
   }, [ownsLoadAttempt]);
+
+  useEffect(() => {
+    if (pendingRefreshSeq != null || !restoreRefreshFocusRef.current) return;
+    restoreRefreshFocusRef.current = false;
+    const button = refreshButtonRef.current;
+    const active = document.activeElement;
+    if (!mountedRef.current || button == null) return;
+    if (active === document.body || active === button || active?.isConnected === false) {
+      button.focus({ preventScroll: true });
+    }
+  }, [pendingRefreshSeq]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -83,6 +87,7 @@ export function ReviewQueue() {
       mountedRef.current = false;
       loadSeqRef.current += 1;
       pendingRefreshRef.current = null;
+      restoreRefreshFocusRef.current = false;
       reviewSeqRef.current += 1;
       pendingReviewRef.current = null;
     };
