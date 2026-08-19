@@ -28,7 +28,7 @@ DEFAULT_BRANCH = "main"
 MAIN_REF = "refs/heads/main"
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_WORKFLOW_NAME = "ci"
-CHECKS_JOB_NAME = "lint / test / compose-validate / trivy"
+BASELINE_PRODUCER_JOB_NAME = "canonical PostgreSQL performance baseline producer"
 BASELINE_MEMBER = "db-postgres-ci.json"
 EXPECTED_QUERY_LABELS = {
     "latest-articles",
@@ -476,9 +476,9 @@ def validate_run(
 def validate_jobs(
     jobs: Sequence[Mapping[str, Any]], *, run_id: int, run_attempt: int, head_sha: str
 ) -> None:
-    matches = [job for job in jobs if job.get("name") == CHECKS_JOB_NAME]
+    matches = [job for job in jobs if job.get("name") == BASELINE_PRODUCER_JOB_NAME]
     if len(matches) != 1:
-        _reject("attempt must contain exactly one checks display-name job")
+        _reject("attempt must contain exactly one baseline producer display-name job")
     job = matches[0]
     identity = {
         "run_id": run_id,
@@ -487,17 +487,17 @@ def validate_jobs(
     }
     for key, value in identity.items():
         if job.get(key) != value:
-            _reject(f"checks job {key} mismatch")
+            _reject(f"baseline producer job {key} mismatch")
     status = job.get("status")
     if status in {"queued", "in_progress", "requested", "waiting", "pending"}:
-        _candidate_reject(f"checks job for run {run_id} is not completed")
+        _candidate_reject(f"baseline producer job for run {run_id} is not completed")
     if status != "completed":
-        _reject("checks job status mismatch")
+        _reject("baseline producer job status mismatch")
     conclusion = job.get("conclusion")
     if conclusion in TERMINAL_NON_SUCCESS_CONCLUSIONS:
-        _candidate_reject(f"checks job for run {run_id} did not succeed")
+        _candidate_reject(f"baseline producer job for run {run_id} did not succeed")
     if conclusion != "success":
-        _reject("checks job conclusion mismatch")
+        _reject("baseline producer job conclusion mismatch")
 
 
 def _validate_artifact_workflow_run(

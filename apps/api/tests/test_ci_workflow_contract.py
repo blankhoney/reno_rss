@@ -2187,12 +2187,31 @@ def test_trusted_provenance_rejects_unbound_or_unsafe_ci_publication(
         )
 
 
-def test_postgres_performance_artifacts_separate_main_baseline_from_pr_candidate():
+def test_postgres_performance_producer_is_an_isolated_canonical_main_job():
     workflow = _load_workflow(CI_WORKFLOW)
-    steps = workflow["jobs"]["checks"]["steps"]
-    baseline = next(step for step in steps if step.get("name") == "Upload canonical-main PostgreSQL performance baseline")
-    candidate = next(step for step in steps if step.get("name") == "Upload PR PostgreSQL performance candidate")
+    checks = workflow["jobs"]["checks"]
+    producer = workflow["jobs"]["canonical_postgres_performance_baseline_producer"]
+    check_steps = checks["steps"]
+    producer_steps = producer["steps"]
+    baseline = next(
+        step
+        for step in producer_steps
+        if step.get("name") == "Upload canonical-main PostgreSQL performance baseline"
+    )
+    candidate = next(
+        step for step in check_steps if step.get("name") == "Upload PR PostgreSQL performance candidate"
+    )
 
+    assert producer["name"] == "canonical PostgreSQL performance baseline producer"
+    assert producer["runs-on"] == "ubuntu-latest"
+    assert producer["if"] == (
+        "github.event_name == 'push' && github.ref == 'refs/heads/main' && "
+        "github.repository == 'blankhoney/reno_rss'"
+    )
+    assert "needs" not in producer
+    assert "postgres" in producer["services"]
+    assert any(step.get("name") == "Prepare PostgreSQL schema for baseline" for step in producer_steps)
+    assert any(step.get("name") == "Seed PostgreSQL performance fixture" for step in producer_steps)
     assert baseline["uses"] == "actions/upload-artifact@v4"
     assert baseline["with"] == {
         "name": "db-postgres-performance-baseline-main",
@@ -2200,12 +2219,13 @@ def test_postgres_performance_artifacts_separate_main_baseline_from_pr_candidate
         "if-no-files-found": "error",
         "retention-days": 90,
     }
-    assert "github.event_name == 'push'" in baseline["if"]
-    assert "github.ref == 'refs/heads/main'" in baseline["if"]
-    assert "github.repository == 'blankhoney/reno_rss'" in baseline["if"]
     assert candidate["with"]["name"] == "db-postgres-performance-candidate"
     assert candidate["with"]["retention-days"] == 14
     assert candidate["if"] == "${{ github.event_name == 'pull_request' && !cancelled() }}"
+    assert not any(
+        step.get("name") == "Upload canonical-main PostgreSQL performance baseline"
+        for step in check_steps
+    )
 
 
 def test_postgres_performance_resolver_replaces_run_only_download_selector():
@@ -2230,7 +2250,11 @@ def test_postgres_performance_resolver_replaces_run_only_download_selector():
     assert "--github-output \"$GITHUB_OUTPUT\"" in command
     assert "actions/download-artifact" not in source
     assert "per_page: 1" not in source
-    assert compare["if"] == "${{ steps.performance_baseline.outputs.mode == 'comparison' }}"
+    assert resolver_step["if"] == "${{ github.event_name == 'pull_request' }}"
+    assert compare["if"] == (
+        "${{ github.event_name == 'pull_request' && "
+        "steps.performance_baseline.outputs.mode == 'comparison' }}"
+    )
     assert "--max-regression 3" in compare["run"]
 
 
@@ -2238,7 +2262,7 @@ def test_postgres_performance_producer_receives_attempt_scoped_identity():
     workflow = _load_workflow(CI_WORKFLOW)
     producer_step = next(
         step
-        for step in workflow["jobs"]["checks"]["steps"]
+        for step in workflow["jobs"]["canonical_postgres_performance_baseline_producer"]["steps"]
         if step.get("name") == "Run PostgreSQL performance baseline"
     )
     assert producer_step["env"] == {
@@ -2256,11 +2280,17 @@ def test_postgres_comparison_and_bootstrap_outputs_cannot_be_confused():
     bootstrap = next(step for step in steps if step.get("name") == "Upload PostgreSQL performance bootstrap status")
     summary = next(step for step in steps if step.get("name") == "Summarize PostgreSQL performance baseline")
 
-    assert comparison["if"] == "${{ steps.performance_baseline.outputs.mode == 'comparison' && !cancelled() }}"
+    assert comparison["if"] == (
+        "${{ github.event_name == 'pull_request' && "
+        "steps.performance_baseline.outputs.mode == 'comparison' && !cancelled() }}"
+    )
     assert comparison["with"]["retention-days"] == 90
     assert "db-postgres-comparison.json" in comparison["with"]["path"]
     assert "provenance.json" in comparison["with"]["path"]
-    assert bootstrap["if"] == "${{ steps.performance_baseline.outputs.mode == 'bootstrap' && !cancelled() }}"
+    assert bootstrap["if"] == (
+        "${{ github.event_name == 'pull_request' && "
+        "steps.performance_baseline.outputs.mode == 'bootstrap' && !cancelled() }}"
+    )
     assert bootstrap["with"]["name"] == "db-postgres-performance-bootstrap-status"
     assert bootstrap["with"]["path"] == "output/performance/main-baseline/provenance.json"
     assert "no regression comparison was possible" in summary["run"]
