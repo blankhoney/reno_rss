@@ -30,7 +30,9 @@ validate_path "$CANONICAL_LOCK_ROOT" directory 770
 validate_path "$lock_path" 'regular empty file' 660
 validate_path "$audit_dir" directory 770
 filesystem_type="$(stat -fLc '%T' -- "$CANONICAL_LOCK_ROOT")"
-case "$filesystem_type" in ext2|ext3|ext4|xfs|btrfs|tmpfs|overlayfs) ;; *) die "lock root must be on a local Linux flock filesystem" ;; esac
+# GNU stat reports the ext2/ext3 filesystem magic as the literal `ext2/ext3`
+# on some Linux runners.  It is a local filesystem type, not a wildcard.
+case "$filesystem_type" in 'ext2/ext3'|ext2|ext3|ext4|xfs|btrfs|tmpfs|overlayfs) ;; *) die "lock root must be on a local Linux flock filesystem" ;; esac
 [[ "$(stat -Lc '%d' -- "$CANONICAL_LOCK_ROOT")" == "$(stat -Lc '%d' -- "$lock_path")" && "$(stat -Lc '%d' -- "$CANONICAL_LOCK_ROOT")" == "$(stat -Lc '%d' -- "$audit_dir")" ]] || die 'shared-lock paths must share one filesystem'
 [[ -r "$lock_path" && -w "$lock_path" && -r "$audit_dir" && -w "$audit_dir" && -x "$audit_dir" ]] || die 'current deploy identity lacks shared-lock access'
 

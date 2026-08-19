@@ -94,7 +94,9 @@ create_lock_tree_once() {
 
 create_lock_tree_once
 filesystem_type="$(stat -fLc '%T' -- "$LOCK_ROOT")" || die 'cannot identify lock filesystem'
-case "$filesystem_type" in ext2|ext3|ext4|xfs|btrfs|tmpfs|overlayfs) ;; *) die "lock root must be on a local Linux flock filesystem, got $filesystem_type" ;; esac
+# GNU stat reports the ext2/ext3 filesystem magic as the literal `ext2/ext3`
+# on some Linux runners.  It is a local filesystem type, not a wildcard.
+case "$filesystem_type" in 'ext2/ext3'|ext2|ext3|ext4|xfs|btrfs|tmpfs|overlayfs) ;; *) die "lock root must be on a local Linux flock filesystem, got $filesystem_type" ;; esac
 root_device="$(stat -Lc '%d' -- "$LOCK_ROOT")"
 lock_device="$(stat -Lc '%d' -- "$LOCK_PATH")"
 audit_device="$(stat -Lc '%d' -- "$AUDIT_DIR")"

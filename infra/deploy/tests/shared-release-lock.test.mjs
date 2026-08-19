@@ -60,6 +60,32 @@ async function run(fix, overrides, command) {
   });
 }
 
+async function reportFilesystemType(t, fix, filesystemType) {
+  const bin = join(fix.directory, 'bin');
+  const realStat = execFileSync('bash', ['-lc', 'command -v stat'], { encoding: 'utf8' }).trim();
+  await mkdir(bin);
+  const statShim = join(bin, 'stat');
+  await writeFile(statShim, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-}" == '-fLc' && "\${2:-}" == '%T' ]]; then
+  printf '%s\\n' "\${SHARED_RELEASE_LOCK_TEST_FILESYSTEM_TYPE:?}"
+  exit 0
+fi
+exec "\${SHARED_RELEASE_LOCK_REAL_STAT:?}" "$@"
+`);
+  await chmod(statShim, 0o755);
+  t.after(() => rm(bin, { recursive: true, force: true }));
+  return {
+    ...fix,
+    environment: {
+      ...fix.environment,
+      PATH: `${bin}:${fix.environment.PATH}`,
+      SHARED_RELEASE_LOCK_REAL_STAT: realStat,
+      SHARED_RELEASE_LOCK_TEST_FILESYSTEM_TYPE: filesystemType,
+    },
+  };
+}
+
 async function auditEvents(fix) {
   const names = (await readdir(fix.audit)).filter((name) => !name.startsWith('quarantine-'));
   return Promise.all(names.map(async (name) => JSON.parse(await readFile(join(fix.audit, name), 'utf8'))));
@@ -159,6 +185,21 @@ flockTest('core fails closed on a world-writable lock or a symbolic-linked audit
   await rm(linked.audit, { recursive: true });
   await symlink(linked.directory, linked.audit);
   await assert.rejects(run(linked, [], ['true']), /must not be a symbolic link/);
+});
+
+flockTest('core accepts the literal ext2/ext3 Linux stat output and rejects distributed or unknown filesystems', {}, async (t) => {
+  const accepted = await reportFilesystemType(t, await fixture(), 'ext2/ext3');
+  t.after(() => rm(accepted.directory, { recursive: true, force: true }));
+  await run(accepted, [], ['bash', '-c', 'true']);
+
+  for (const filesystemType of ['nfs', 'ceph', 'unrecognized-local-type']) {
+    const rejected = await reportFilesystemType(t, await fixture(), filesystemType);
+    t.after(() => rm(rejected.directory, { recursive: true, force: true }));
+    await assert.rejects(
+      run(rejected, [], ['bash', '-c', 'exit 91']),
+      new RegExp(`local Linux flock filesystem, got ${filesystemType}`),
+    );
+  }
 });
 
 flockTest('SIGTERM keeps ownership through child termination and leaves an auditable release', {}, async (t) => {
@@ -340,6 +381,21 @@ test('public wrapper hard-codes the canonical root and privately injects it only
   assert.equal(source.includes('mkdir '), false);
   assert.equal(source.includes('chmod '), false);
   assert.equal(source.includes('chown '), false);
+});
+
+test('all lock entrypoints share the exact local-filesystem allowlist', async () => {
+  const allowlist = "'ext2/ext3'|ext2|ext3|ext4|xfs|btrfs|tmpfs|overlayfs";
+  for (const file of [
+    wrapper,
+    core,
+    resolve('infra/deploy/bootstrap-shared-release-v1.sh'),
+  ]) {
+    const source = await readFile(file, 'utf8');
+    assert.equal(source.includes(allowlist), true, `${file} must use the shared allowlist`);
+    assert.equal(source.includes("case \"$filesystem_type\" in 'ext2/ext3'"), file !== core);
+    assert.equal(source.includes("case \"$type\" in 'ext2/ext3'"), file === core);
+    assert.equal(source.includes('|nfs|'), false, `${file} must not allow NFS`);
+  }
 });
 
 test('invalid identity inputs are rejected before the transaction can run', async (t) => {
