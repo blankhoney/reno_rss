@@ -11,3 +11,7 @@
   run attempt, full candidate SHA, artifact digest, and freshness boundary.
 - Staging and production remain fail-closed until the shared-VPS lock and
   cross-site edge/probe contract are installed and tested.
+- Shared-edge recovery only restores the fixed Caddy container on the existing
+  RSS and Blog production bridge networks. It never mutates Blog containers,
+  refuses a missing production Blog member, and rejects staging membership on
+  the production Blog edge.
