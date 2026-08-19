@@ -1575,8 +1575,23 @@ TRUSTED_REQUEST_RUN_ID = 8001
 TRUSTED_REQUEST_WORKFLOW_ID = 8101
 TRUSTED_CI_WORKFLOW_ID = 8199
 TRUSTED_CI_RUN_ID = 8201
+TRUSTED_CI_RUN_ATTEMPT = 2
 TRUSTED_TARGET_SHA = "a" * 40
 TRUSTED_REQUEST_HEAD_SHA = "b" * 40
+
+
+def _trusted_image_publication() -> dict[str, Any]:
+    publication = _valid_image_publication(run_attempt=str(TRUSTED_CI_RUN_ATTEMPT))
+    publication.update(
+        {
+            "repository": TRUSTED_REPOSITORY,
+            "workflow_id": str(TRUSTED_CI_WORKFLOW_ID),
+            "run_id": str(TRUSTED_CI_RUN_ID),
+            "deploy_sha": TRUSTED_TARGET_SHA,
+            "image_tag": f"sha-{TRUSTED_TARGET_SHA}",
+        }
+    )
+    return publication
 
 
 def _trusted_workflow_allowlist(
@@ -1658,6 +1673,7 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
     }
     ci_run = {
         "id": TRUSTED_CI_RUN_ID,
+        "run_attempt": TRUSTED_CI_RUN_ATTEMPT,
         "workflow_id": TRUSTED_CI_WORKFLOW_ID,
         "path": ".github/workflows/ci.yml",
         "name": "ci",
@@ -1669,6 +1685,21 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
         "ref": "refs/heads/main",
         "repository": copy.deepcopy(repository),
         "head_repository": copy.deepcopy(repository),
+    }
+    publication_artifact = {
+        "id": 8401,
+        "name": (
+            f"trusted-image-publication-{TRUSTED_CI_RUN_ID}"
+            f"-attempt-{TRUSTED_CI_RUN_ATTEMPT}"
+        ),
+        "expired": False,
+        "workflow_run": {
+            "id": TRUSTED_CI_RUN_ID,
+            "repository_id": TRUSTED_REPOSITORY_ID,
+            "head_repository_id": TRUSTED_REPOSITORY_ID,
+            "head_branch": "main",
+            "head_sha": TRUSTED_TARGET_SHA,
+        },
     }
     workflows = {
         ".github/workflows/deploy-staging.yml": {
@@ -1699,6 +1730,7 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
             self.artifact = copy.deepcopy(artifact)
             self.workflows = copy.deepcopy(workflows)
             self.ci_run = copy.deepcopy(ci_run)
+            self.publication_artifact = copy.deepcopy(publication_artifact)
             self.jobs = [
                 {
                     "name": "build / push GHCR images",
@@ -1732,13 +1764,19 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
 
         def workflow_run_artifacts(self, repository_name, run_id):
             assert repository_name == TRUSTED_REPOSITORY
-            assert run_id == TRUSTED_REQUEST_RUN_ID
-            return {"artifacts": [copy.deepcopy(self.artifact)]}
+            if run_id == TRUSTED_REQUEST_RUN_ID:
+                return {"artifacts": [copy.deepcopy(self.artifact)]}
+            assert run_id == TRUSTED_CI_RUN_ID
+            return {"artifacts": [copy.deepcopy(self.publication_artifact)]}
 
         def artifact_zip(self, repository_name, artifact_id):
             assert repository_name == TRUSTED_REPOSITORY
-            assert artifact_id == self.artifact["id"]
-            return _trusted_request_zip(request)
+            if artifact_id == self.artifact["id"]:
+                return _trusted_request_zip(request)
+            assert artifact_id == self.publication_artifact["id"]
+            return _trusted_request_zip(
+                _trusted_image_publication(), member_name="trusted-image-publication.json"
+            )
 
         def workflow_runs(self, repository_name, workflow_id, head_sha):
             assert repository_name == TRUSTED_REPOSITORY
@@ -1817,10 +1855,19 @@ def test_trusted_provenance_accepts_bound_request_and_ci_publication():
         "request_type": "deploy",
         "environment": "staging",
         "image_tag": "sha-aaaaaaa",
+        "canonical_image_tag": f"sha-{TRUSTED_TARGET_SHA}",
         "deploy_sha": TRUSTED_TARGET_SHA,
         "request_run_id": TRUSTED_REQUEST_RUN_ID,
         "artifact_id": 8301,
         "ci_run_id": TRUSTED_CI_RUN_ID,
+        "ci_run_attempt": TRUSTED_CI_RUN_ATTEMPT,
+        "publication_artifact_id": 8401,
+        "web_image_repository": "ghcr.io/example/project/ai-reader-web",
+        "web_image_digest": PUBLICATION_DIGESTS["web"],
+        "api_image_repository": "ghcr.io/example/project/ai-reader-api",
+        "api_image_digest": PUBLICATION_DIGESTS["api"],
+        "worker_image_repository": "ghcr.io/example/project/ai-reader-worker",
+        "worker_image_digest": PUBLICATION_DIGESTS["worker"],
     }
 
 
@@ -1836,6 +1883,31 @@ def test_trusted_provenance_allows_event_payload_without_optional_path():
         api=api,
     )
     assert result["verified"] is True
+
+
+def test_trusted_provenance_writes_canonical_image_and_digest_outputs(tmp_path):
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    result = trusted_workflow_run_validator.validate_provenance(
+        event=event,
+        allowlist=allowlist,
+        expected_repository=TRUSTED_REPOSITORY,
+        expected_repository_id=TRUSTED_REPOSITORY_ID,
+        orchestrator_ref="refs/heads/main",
+        api=api,
+    )
+    output_path = tmp_path / "github-output"
+    trusted_workflow_run_validator._write_outputs(output_path, result)
+    outputs = dict(
+        line.split("=", 1) for line in output_path.read_text(encoding="utf-8").splitlines()
+    )
+    assert outputs["deploy_sha"] == TRUSTED_TARGET_SHA
+    assert outputs["canonical_image_tag"] == f"sha-{TRUSTED_TARGET_SHA}"
+    assert outputs["ci_run_attempt"] == str(TRUSTED_CI_RUN_ATTEMPT)
+    for image_name in ("web", "api", "worker"):
+        assert outputs[f"{image_name}_image_repository"] == (
+            f"ghcr.io/example/project/ai-reader-{image_name}"
+        )
+        assert outputs[f"{image_name}_image_digest"] == PUBLICATION_DIGESTS[image_name]
 
 
 @pytest.mark.parametrize(
@@ -1920,14 +1992,23 @@ def _trusted_request_variant(
             "name": "ci",
         },
     }
-    api.artifact_zip = lambda repository_name, artifact_id: _trusted_request_zip(
-        request,
-        member_name=(
-            "trusted-rollback-request.json"
-            if request_type == "rollback"
-            else "trusted-deploy-request.json"
-        ),
-    )
+    def artifact_zip(repository_name, artifact_id):
+        assert repository_name == TRUSTED_REPOSITORY
+        if artifact_id == api.artifact["id"]:
+            return _trusted_request_zip(
+                request,
+                member_name=(
+                    "trusted-rollback-request.json"
+                    if request_type == "rollback"
+                    else "trusted-deploy-request.json"
+                ),
+            )
+        assert artifact_id == api.publication_artifact["id"]
+        return _trusted_request_zip(
+            _trusted_image_publication(), member_name="trusted-image-publication.json"
+        )
+
+    api.artifact_zip = artifact_zip
     return event, allowlist, api
 
 
@@ -2012,6 +2093,89 @@ def test_trusted_provenance_rejects_provenance_and_publication_failures(mutation
         api.jobs[0]["head_sha"] = "c" * 40
     elif mutation == "ci-job-status":
         api.jobs[0]["status"] = "in_progress"
+    with pytest.raises(trusted_workflow_run_validator.ProvenanceValidationError, match=message):
+        trusted_workflow_run_validator.validate_provenance(
+            event=event,
+            allowlist=allowlist,
+            expected_repository=TRUSTED_REPOSITORY,
+            expected_repository_id=TRUSTED_REPOSITORY_ID,
+            orchestrator_ref="refs/heads/main",
+            api=api,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("expired", "ci publication artifact must not be expired"),
+        ("wrong-artifact-run", "publication artifact.workflow_run.id mismatch"),
+        (
+            "duplicate",
+            "ci publication artifacts do not contain exactly one expected publication artifact",
+        ),
+        (
+            "different-attempt-artifact",
+            "ci publication artifacts do not contain exactly one expected publication artifact",
+        ),
+        ("workflow", "publication.workflow_id mismatch"),
+        ("run", "publication.run_id mismatch"),
+        ("attempt", "publication.run_attempt mismatch"),
+        ("sha", "publication.deploy_sha mismatch"),
+        ("tag", "ci publication artifact failed schema validation"),
+        ("digest", "ci publication artifact failed schema validation"),
+    ),
+)
+def test_trusted_provenance_rejects_unbound_or_unsafe_ci_publication(
+    mutation, message
+):
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    if mutation == "expired":
+        api.publication_artifact["expired"] = True
+    elif mutation == "wrong-artifact-run":
+        api.publication_artifact["workflow_run"]["id"] = TRUSTED_CI_RUN_ID + 1
+    elif mutation == "duplicate":
+        original_artifacts = api.workflow_run_artifacts
+        api.workflow_run_artifacts = lambda repository_name, run_id: (
+            {
+                "artifacts": [
+                    copy.deepcopy(api.publication_artifact),
+                    copy.deepcopy(api.publication_artifact),
+                ]
+            }
+            if run_id == TRUSTED_CI_RUN_ID
+            else original_artifacts(repository_name, run_id)
+        )
+    elif mutation == "different-attempt-artifact":
+        api.publication_artifact["name"] = (
+            f"trusted-image-publication-{TRUSTED_CI_RUN_ID}"
+            f"-attempt-{TRUSTED_CI_RUN_ATTEMPT + 1}"
+        )
+    else:
+        publication = _trusted_image_publication()
+        if mutation == "workflow":
+            publication["workflow_id"] = str(TRUSTED_CI_WORKFLOW_ID + 1)
+        elif mutation == "run":
+            publication["run_id"] = str(TRUSTED_CI_RUN_ID + 1)
+        elif mutation == "attempt":
+            publication["run_attempt"] = str(TRUSTED_CI_RUN_ATTEMPT + 1)
+        elif mutation == "sha":
+            publication["deploy_sha"] = "b" * 40
+            publication["image_tag"] = f"sha-{'b' * 40}"
+        elif mutation == "tag":
+            publication["image_tag"] = f"sha-{'b' * 40}"
+        elif mutation == "digest":
+            publication["images"]["worker"]["digest"] = f"sha256:{'B' * 64}"
+        else:
+            raise AssertionError(f"unhandled mutation: {mutation}")
+        original_artifact_zip = api.artifact_zip
+        api.artifact_zip = lambda repository_name, artifact_id: (
+            _trusted_request_zip(
+                publication, member_name="trusted-image-publication.json"
+            )
+            if artifact_id == api.publication_artifact["id"]
+            else original_artifact_zip(repository_name, artifact_id)
+        )
+
     with pytest.raises(trusted_workflow_run_validator.ProvenanceValidationError, match=message):
         trusted_workflow_run_validator.validate_provenance(
             event=event,

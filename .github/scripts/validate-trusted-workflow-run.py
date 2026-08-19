@@ -499,9 +499,12 @@ def validate_provenance(
             matching_ci_runs.append(ci_run)
     if not matching_ci_runs:
         _reject("no successful canonical main ci publication run matches deploy_sha")
+    if len(matching_ci_runs) != 1:
+        _reject("canonical ci publication run is ambiguous")
 
     publication_run = matching_ci_runs[0]
     publication_run_id = _required_int(publication_run, "id", "ci run")
+    publication_run_attempt = _required_int(publication_run, "run_attempt", "ci run")
     jobs = _response_items(
         api.workflow_run_jobs(expected_repository, publication_run_id),
         "jobs",
@@ -525,7 +528,79 @@ def validate_provenance(
     if "path" in image_job:
         _assert_equal(image_job.get("path"), ci_path, "ci image job workflow path")
 
-    return {
+    publication_artifact_response = api.workflow_run_artifacts(
+        expected_repository, publication_run_id
+    )
+    publication_artifacts = _response_items(
+        publication_artifact_response, "artifacts", "ci publication artifacts"
+    )
+    expected_publication_artifact_name = (
+        f"trusted-image-publication-{publication_run_id}"
+        f"-attempt-{publication_run_attempt}"
+    )
+    matching_publication_artifacts = [
+        artifact
+        for artifact in publication_artifacts
+        if artifact.get("name") == expected_publication_artifact_name
+    ]
+    if len(matching_publication_artifacts) != 1:
+        _reject("ci publication artifacts do not contain exactly one expected publication artifact")
+    publication_artifact = matching_publication_artifacts[0]
+    publication_artifact_id = _required_int(publication_artifact, "id", "publication artifact")
+    if publication_artifact.get("expired") is not False:
+        _reject("ci publication artifact must not be expired")
+    publication_artifact_run = _mapping(
+        publication_artifact.get("workflow_run"), "publication artifact.workflow_run"
+    )
+    _assert_equal(
+        publication_artifact_run.get("id"),
+        publication_run_id,
+        "publication artifact.workflow_run.id",
+    )
+    _assert_equal(
+        publication_artifact_run.get("repository_id"),
+        expected_repository_id,
+        "publication artifact.workflow_run.repository_id",
+    )
+    _assert_equal(
+        publication_artifact_run.get("head_repository_id"),
+        expected_repository_id,
+        "publication artifact.workflow_run.head_repository_id",
+    )
+    _assert_equal(
+        publication_artifact_run.get("head_branch"),
+        DEFAULT_BRANCH,
+        "publication artifact head branch",
+    )
+    _assert_equal(
+        publication_artifact_run.get("head_sha"),
+        request["deploy_sha"],
+        "publication artifact head SHA",
+    )
+
+    publication_validator = _load_image_publication_validator()
+    try:
+        publication = publication_validator.validate_publication_zip_bytes(
+            api.artifact_zip(expected_repository, publication_artifact_id),
+            expected_repository=expected_repository,
+        )
+    except publication_validator.PublicationValidationError as error:
+        _reject(f"ci publication artifact failed schema validation: {error}")
+    _assert_equal(publication["workflow_id"], str(ci_id), "publication.workflow_id")
+    _assert_equal(publication["run_id"], str(publication_run_id), "publication.run_id")
+    _assert_equal(
+        publication["run_attempt"],
+        str(publication_run_attempt),
+        "publication.run_attempt",
+    )
+    _assert_equal(publication["deploy_sha"], request["deploy_sha"], "publication.deploy_sha")
+    _assert_equal(
+        publication["image_tag"],
+        f"sha-{request['deploy_sha']}",
+        "publication.image_tag",
+    )
+
+    result: dict[str, Any] = {
         "verified": True,
         "request_type": request["request_type"],
         "environment": request["environment"],
@@ -534,7 +609,15 @@ def validate_provenance(
         "request_run_id": run_id,
         "artifact_id": artifact_id,
         "ci_run_id": publication_run_id,
+        "ci_run_attempt": publication_run_attempt,
+        "publication_artifact_id": publication_artifact_id,
+        "canonical_image_tag": publication["image_tag"],
     }
+    for image_name in ("web", "api", "worker"):
+        image = publication["images"][image_name]
+        result[f"{image_name}_image_repository"] = image["repository"]
+        result[f"{image_name}_image_digest"] = image["digest"]
+    return result
 
 
 def _load_request_validator() -> Any:
@@ -542,6 +625,16 @@ def _load_request_validator() -> Any:
     spec = importlib.util.spec_from_file_location("trusted_request_validator", validator_path)
     if spec is None or spec.loader is None:
         _reject("unable to load trusted request validator")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_image_publication_validator() -> Any:
+    validator_path = Path(__file__).with_name("validate-trusted-image-publication.py")
+    spec = importlib.util.spec_from_file_location("trusted_image_publication_validator", validator_path)
+    if spec is None or spec.loader is None:
+        _reject("unable to load trusted image publication validator")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -558,6 +651,15 @@ def _write_outputs(path: str | Path, result: Mapping[str, Any]) -> None:
         "request_run_id",
         "artifact_id",
         "ci_run_id",
+        "ci_run_attempt",
+        "publication_artifact_id",
+        "canonical_image_tag",
+        "web_image_repository",
+        "web_image_digest",
+        "api_image_repository",
+        "api_image_digest",
+        "worker_image_repository",
+        "worker_image_digest",
     ):
         value = result[key]
         lines.append(f"{key}={str(value).lower() if isinstance(value, bool) else value}")
