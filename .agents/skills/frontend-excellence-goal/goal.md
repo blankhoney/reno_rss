@@ -72,7 +72,7 @@ A completed implementation must make these promises true:
 
 ## Hard constraints
 
-- Root `GOAL.md`, `CLAUDE.md`, and current API contracts outrank this package.
+- Root `GOAL.md`, `AGENTS.md`, and current API contracts outrank this package.
 - Miniflux remains the feed/entry source of truth.
 - Browser code never connects directly to Miniflux or PostgreSQL.
 - All untrusted article HTML passes through `sanitizeArticleHtml()` before rendering, including offline data.
