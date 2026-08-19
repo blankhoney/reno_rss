@@ -427,12 +427,22 @@ def test_not_yet_completed_producer_can_fall_back_to_older_valid_baseline(tmp_pa
     assert result["artifact"]["id"] == 4000
 
 
-def test_completed_failed_producer_can_fall_back_to_older_valid_baseline(tmp_path):
+def test_downstream_run_failure_keeps_successful_checks_producer_trusted(tmp_path):
+    api = FakeApi()
+    api.runs[RUN_ID]["conclusion"] = "failure"
+
+    result = _resolve(api, tmp_path)
+
+    assert result["artifact"]["id"] == ARTIFACT_ID
+
+
+def test_failed_checks_producer_can_fall_back_to_older_valid_baseline(tmp_path):
     newer = _artifact()
     older = _artifact(4000, run_id=3000)
     older["created_at"] = "2026-07-01T00:00:00Z"
     api = FakeApi([newer, older])
     api.runs[RUN_ID]["conclusion"] = "failure"
+    api.jobs_by_run[RUN_ID][0]["conclusion"] = "failure"
     api.runs[3000] = _run(3000)
     api.jobs_by_run[3000] = [_job(3000, 5000)]
     api.exact[4000] = copy.deepcopy(older)
@@ -443,11 +453,12 @@ def test_completed_failed_producer_can_fall_back_to_older_valid_baseline(tmp_pat
     assert result["artifact"]["id"] == 4000
 
 
-def test_stable_failed_producer_allows_canonical_main_bootstrap(tmp_path):
+def test_stable_failed_checks_producer_allows_canonical_main_bootstrap(tmp_path):
     failed = _artifact()
     api = FakeApi([failed])
     api.enumerations = [[copy.deepcopy(failed)], [copy.deepcopy(failed)]]
     api.runs[RUN_ID]["conclusion"] = "failure"
+    api.jobs_by_run[RUN_ID][0]["conclusion"] = "failure"
 
     result = _resolve(api, tmp_path, event="push", ref="refs/heads/main")
 
