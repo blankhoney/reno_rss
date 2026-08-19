@@ -504,7 +504,12 @@ jobs:
               )
           PY
 
+      - name: Prepare shared-contract Linux fixture image
+        timeout-minutes: 6
+        run: timeout --signal=TERM --kill-after=30s 5m docker pull node:22-bookworm
+
       - name: Test shared VPS contract
+        timeout-minutes: 15
         run: |
           bash -n \
             .github/scripts/validate-known-hosts.sh \
@@ -516,7 +521,7 @@ jobs:
             infra/deploy/ensure-shared-edge.sh \
             infra/deploy/verify-shared-edge.sh \
             infra/deploy/rollback-state.sh
-          node --test \
+          node --test --test-concurrency=1 \
             infra/deploy/tests/shared-release-lock.test.mjs \
             infra/deploy/tests/shared-release-bootstrap.test.mjs \
             infra/deploy/tests/ensure-shared-edge.test.mjs \

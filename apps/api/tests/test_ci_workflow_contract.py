@@ -136,6 +136,24 @@ def test_playwright_matrix_install_is_bounded_diagnostic_and_complete():
     assert "exit 1" in browsers["run"]
 
 
+def test_shared_contract_linux_fixtures_are_prepared_bounded_and_serial():
+    workflow = _load_workflow(CI_WORKFLOW)
+    steps = workflow["jobs"]["checks"]["steps"]
+    prepare = next(
+        step for step in steps if step.get("name") == "Prepare shared-contract Linux fixture image"
+    )
+    contract = next(step for step in steps if step.get("name") == "Test shared VPS contract")
+    assert prepare["timeout-minutes"] == 6
+    assert prepare["run"] == (
+        "timeout --signal=TERM --kill-after=30s 5m docker pull node:22-bookworm"
+    )
+    assert contract["timeout-minutes"] == 15
+    assert "node --test --test-concurrency=1" in contract["run"]
+    assert "shared-release-lock.test.mjs" in contract["run"]
+    assert "shared-release-bootstrap.test.mjs" in contract["run"]
+    assert "trusted-remote-transaction.test.mjs" in contract["run"]
+
+
 def test_request_workflows_have_strict_dispatch_inputs_and_no_target_ref():
     for workflow_path in (
         REPOSITORY_ROOT / ".github/workflows/deploy-staging.yml",

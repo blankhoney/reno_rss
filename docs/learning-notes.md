@@ -90,3 +90,7 @@
   installs the Chromium, Firefox, and WebKit dependencies separately, limits
   both steps, and retries bounded browser downloads so a stalled external CDN
   cannot occupy a runner indefinitely or hide which phase failed.
+- Linux shared-lock tests pre-pull their fixed fixture image under a hard timeout
+  and then run serially under a second timeout. This keeps signal/flock timing
+  deterministic and prevents an implicit Docker Hub pull from looking like a
+  hung lock implementation.
