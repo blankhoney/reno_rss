@@ -155,17 +155,20 @@ the public `with-shared-release-lock.sh` exactly once. The public wrapper opens
 and holds the canonical kernel flock for the entire transaction; there is no
 outer workflow flock and no per-step lock reacquisition.
 
-The lock covers bundle intake and validation, GHCR login, backup, Caddy/shared
-edge recovery, migration, activation, smoke checks, receipts, and rollback or
-compensation. The remote transaction fails closed if the VPS worktree is dirty,
+The lock covers bundle intake and validation, control-plane checkout, backup,
+Caddy/shared-edge recovery, GHCR login and image pulls, migration, activation,
+smoke checks, receipts, and rollback or compensation. The remote transaction fails closed if the VPS worktree is dirty,
 the fetched `refs/heads/main` tip is not the trusted control-plane SHA, the
 operation SHA is not its ancestor, an image digest/OCI revision is wrong, or a
 runtime check fails.
 
-For production, `infra/scripts/deploy.sh` performs and verifies a fresh database
-backup before its Compose pull/up, migration, or edge activation. A backup or
-checksum failure stops the transaction while the currently running revision is
-still intact.
+For production, the remote transaction creates exactly one fresh backup in an
+exclusive high-entropy directory and verifies its checksum before edge recovery,
+registry login, image pulls, migration, or activation. It writes a mode-0600
+evidence file bound to the workflow operation SHA and checksum digest.
+`infra/scripts/deploy.sh` consumes and revalidates that same evidence before its
+own first mutation; it never creates a second deployment backup. Missing or
+changed evidence stops the transaction while the current revision remains intact.
 
 The fixed lock contract is shared with Blog:
 

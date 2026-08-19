@@ -101,9 +101,11 @@ It captures the actual current runtime and its digest-qualified images as the
 rollback source before changing services. Image OCI revision and runtime SHA
 must agree with the requested target after activation.
 
-For a production rollback, `infra/scripts/deploy.sh` requires a fresh verified
-database backup before its Compose pull/up, migration, or edge activation. A
-backup or checksum failure stops the transaction before that deployment step.
+For a production rollback, the locked remote transaction creates and verifies
+one exclusive backup before edge recovery, registry login, image pull, migration,
+or activation. `infra/scripts/deploy.sh` revalidates the same operation-bound
+evidence and refuses missing or changed evidence; it does not create a second
+backup that could collide with the first.
 
 ## Runtime-bound rollback state machine
 

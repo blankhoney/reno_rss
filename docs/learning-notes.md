@@ -78,3 +78,11 @@
   `ext2/ext3`. All three shared-lock entrypoints accept that exact local value
   while continuing to reject network, distributed, or unknown filesystems and
   preserving the same-device and canonical-FD gates.
+- A production release transaction must have one backup authority. The locked
+  remote transaction creates an exclusive backup before shared-state mutation,
+  then passes operation-bound, mode-0600 evidence to `deploy.sh` for checksum
+  revalidation. Creating a second timestamp-only backup can overwrite the first.
+- Compensation before the `pre-activation` gate has a different truthful
+  receipt shape from activation failure: it records only `pre-mutation` and
+  `post-compensation`, preserving audit evidence without inventing a phase that
+  never completed.
