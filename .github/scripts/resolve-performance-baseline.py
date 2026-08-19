@@ -45,6 +45,16 @@ MAX_DOWNLOAD_ATTEMPTS = 3
 MAX_ZIP_BYTES = 10 * 1024 * 1024
 MAX_REPORT_BYTES = 5 * 1024 * 1024
 SAFETY_MARGIN = timedelta(hours=1)
+TERMINAL_NON_SUCCESS_CONCLUSIONS = {
+    "action_required",
+    "cancelled",
+    "failure",
+    "neutral",
+    "skipped",
+    "stale",
+    "startup_failure",
+    "timed_out",
+}
 
 
 class BaselineError(ValueError):
@@ -457,7 +467,10 @@ def validate_run(
         _candidate_reject(f"run {run_id} is not completed")
     if status != "completed":
         _reject("run.status mismatch")
-    if run.get("conclusion") != "success":
+    conclusion = run.get("conclusion")
+    if conclusion in TERMINAL_NON_SUCCESS_CONCLUSIONS:
+        _candidate_reject(f"run {run_id} did not succeed")
+    if conclusion != "success":
         _reject("run.conclusion mismatch")
     return run_id, run_attempt, head_sha
 

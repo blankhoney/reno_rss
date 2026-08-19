@@ -363,7 +363,6 @@ def test_digest_payload_or_zip_error_fails_closed_without_fallback(tmp_path):
     (
         ("fork", "canonical repository"),
         ("pr", "run.event mismatch"),
-        ("failed", "run.conclusion mismatch"),
         ("wrong-attempt", "checks job run_attempt mismatch"),
         ("duplicate-job", "exactly one checks"),
         ("artifact-sha", "artifact.workflow_run.head_sha mismatch"),
@@ -375,8 +374,6 @@ def test_untrusted_run_job_and_artifact_candidates_are_rejected(tmp_path, mutati
         api.runs[RUN_ID]["head_repository"]["id"] += 1
     elif mutation == "pr":
         api.runs[RUN_ID]["event"] = "pull_request"
-    elif mutation == "failed":
-        api.runs[RUN_ID]["conclusion"] = "failure"
     elif mutation == "wrong-attempt":
         api.jobs_by_run[RUN_ID][0]["run_attempt"] += 1
     elif mutation == "duplicate-job":
@@ -428,6 +425,35 @@ def test_not_yet_completed_producer_can_fall_back_to_older_valid_baseline(tmp_pa
 
     result = _resolve(api, tmp_path)
     assert result["artifact"]["id"] == 4000
+
+
+def test_completed_failed_producer_can_fall_back_to_older_valid_baseline(tmp_path):
+    newer = _artifact()
+    older = _artifact(4000, run_id=3000)
+    older["created_at"] = "2026-07-01T00:00:00Z"
+    api = FakeApi([newer, older])
+    api.runs[RUN_ID]["conclusion"] = "failure"
+    api.runs[3000] = _run(3000)
+    api.jobs_by_run[3000] = [_job(3000, 5000)]
+    api.exact[4000] = copy.deepcopy(older)
+    api.zips[4000] = _zip(_report(run_id=3000))
+    api._refresh_digests()
+
+    result = _resolve(api, tmp_path)
+    assert result["artifact"]["id"] == 4000
+
+
+def test_stable_failed_producer_allows_canonical_main_bootstrap(tmp_path):
+    failed = _artifact()
+    api = FakeApi([failed])
+    api.enumerations = [[copy.deepcopy(failed)], [copy.deepcopy(failed)]]
+    api.runs[RUN_ID]["conclusion"] = "failure"
+
+    result = _resolve(api, tmp_path, event="push", ref="refs/heads/main")
+
+    assert result["mode"] == "bootstrap"
+    assert result["enumeratedArtifactIds"] == [ARTIFACT_ID]
+    assert sum(call[0] == "artifacts" for call in api.calls) == 2
 
 
 def test_only_canonical_main_can_bootstrap_after_two_stable_complete_enumerations(tmp_path):
