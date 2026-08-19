@@ -3,6 +3,7 @@ import { execFile, execFileSync, spawn } from 'node:child_process';
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { kill as killProcess } from 'node:process';
 import test from 'node:test';
 import { promisify } from 'node:util';
@@ -103,6 +104,19 @@ async function waitForFile(path) {
   throw new Error(`timed out waiting for ${path}`);
 }
 
+async function waitForFileUntil(path, deadline) {
+  while (performance.now() < deadline) {
+    try {
+      await stat(path);
+      return;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await pause(50);
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function markerStops(path) {
@@ -148,17 +162,69 @@ async function assertProcessGroupStopped(pgid) {
   assert.fail(`live transaction process group ${pgid} survived wrapper completion`);
 }
 
-async function waitForLockRecovery(fix) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+async function lockDiagnostics(fix, wrapperPid, pgid, startedAt, exitObservedAt, failures) {
+  const lock = await stat(fix.lockPath);
+  const holders = [];
+  const identity = Buffer.from(`SHARED_RELEASE_LOCK_ROOT=${fix.root}\0`);
+  for (const entry of await readdir('/proc')) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    try {
+      const environment = await readFile(`/proc/${pid}/environ`);
+      if (!environment.includes(identity)) continue;
+      const raw = await readFile(`/proc/${pid}/stat`, 'utf8');
+      const fields = raw.slice(raw.lastIndexOf(')') + 1).trim().split(/\s+/);
+      const fds = [];
+      for (const fd of await readdir(`/proc/${pid}/fd`)) {
+        try {
+          const target = await stat(`/proc/${pid}/fd/${fd}`);
+          if (target.dev === lock.dev && target.ino === lock.ino) fds.push(Number(fd));
+        } catch (error) {
+          if (error.code !== 'ENOENT' && error.code !== 'EACCES') throw error;
+        }
+      }
+      holders.push({ pid, ppid: Number(fields[1]), pgid: Number(fields[2]), state: fields[0], fds });
+    } catch (error) {
+      if (!['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) throw error;
+    }
+  }
+  return {
+    wrapperPid,
+    transactionPid: pgid,
+    transactionPgid: pgid,
+    childStartedMonotonicMs: Math.round(startedAt),
+    childExitObservedMonotonicMs: exitObservedAt === null ? null : Math.round(exitObservedAt),
+    lock: { device: lock.dev, inode: lock.ino },
+    holders,
+    contenderFailures: failures,
+  };
+}
+
+async function waitForLockRecovery(fix, context) {
+  const failures = [];
+  while (performance.now() < context.deadline) {
     try {
       await run(fix, [], ['bash', '-c', 'true']);
       return;
     } catch (error) {
       if (error.code !== 75) throw error;
+      failures.push({
+        afterChildStartMs: Math.round(performance.now() - context.startedAt),
+        code: error.code,
+        reason: String(error.stderr).trim().replaceAll(fix.root, '<fixture-root>'),
+      });
     }
     await pause(100);
   }
-  assert.fail('transaction child did not release its inherited flock within 6 seconds');
+  const diagnostics = await lockDiagnostics(
+    fix,
+    context.wrapperPid,
+    context.pgid,
+    context.startedAt,
+    context.exitObservedAt,
+    failures,
+  );
+  assert.fail(`transaction child exited but the inherited flock remained held: ${JSON.stringify(diagnostics)}`);
 }
 
 flockTest('second owner fails closed while the first transaction holds the live flock', {}, async (t) => {
@@ -338,18 +404,37 @@ flockTest('a TERM-resistant transaction is escalated before its release is audit
 flockTest('a crashed wrapper cannot release a transaction-held flock; recovery starts only after the child exits', {}, async (t) => {
   const fix = await fixture();
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
-  const process = spawnLock([core, ...fix.args([], ['bash', '-c', 'sleep 2'])], fix.environment);
+  const started = join(fix.directory, 'crash-child-started');
+  const allowExit = join(fix.directory, 'crash-child-allow-exit');
+  const exited = join(fix.directory, 'crash-child-exited');
+  const command = [
+    'bash', '-c',
+    ': > "$1"; while [[ ! -f "$2" ]]; do sleep 0.02; done; sleep 2; : > "$3"',
+    '--', started, allowExit, exited,
+  ];
+  const process = spawnLock([core, ...fix.args([], command)], fix.environment);
+  const wrapperPid = process.pid;
   await waitForFile(fix.metadata);
   const pgid = await transactionPgid(fix);
-  const exited = waitForExit(process);
+  await waitForFile(started);
+  const startedAt = performance.now();
+  const wrapperExited = waitForExit(process);
   process.kill('SIGKILL');
-  assert.deepEqual(await exited, { code: null, signal: 'SIGKILL' });
+  assert.deepEqual(await wrapperExited, { code: null, signal: 'SIGKILL' });
   await assert.rejects(run(fix, [], ['bash', '-c', 'true']), (error) => error.code === 75);
 
-  // The child inherited the open flock FD. It must finish before a later
-  // transaction can recover the crash metadata. Polling accepts only the
-  // expected live-owner refusal and remains bounded on a loaded CI runner.
-  await waitForLockRecovery(fix);
+  // Start the fixed two-second runtime only after proving that another owner
+  // cannot enter. The runtime and runner scheduling budgets are independent.
+  await writeFile(allowExit, '');
+  await waitForFileUntil(exited, startedAt + 5000);
+  const exitObservedAt = performance.now();
+  await waitForLockRecovery(fix, {
+    wrapperPid,
+    pgid,
+    startedAt,
+    exitObservedAt,
+    deadline: exitObservedAt + 2000,
+  });
   const events = await auditEvents(fix);
   assert.equal(events.some((event) => event.event === 'quarantined-residual-metadata'), true);
   await assertProcessGroupStopped(pgid);
