@@ -1,6 +1,6 @@
 import type { components, paths } from "./generated/schema";
 
-type ApiMethod = "get" | "post" | "put";
+type ApiMethod = "get" | "post" | "put" | "delete";
 
 type PathsWithMethod<Method extends ApiMethod> = {
   [Path in keyof paths]: paths[Path] extends Record<Method, infer Operation>
@@ -19,9 +19,13 @@ type OperationFor<Path extends keyof paths, Method extends ApiMethod> = paths[Pa
   : never;
 
 type JsonSuccess<Operation> = Operation extends { responses: infer Responses }
-  ? Responses extends { 200: { content: { "application/json": infer Body } } }
-    ? Body
-    : unknown
+  ? {
+      [Status in keyof Responses]: Status extends 200 | 201 | 202 | 204
+        ? Responses[Status] extends { content: { "application/json": infer Body } }
+          ? Body
+          : never
+        : never;
+    }[keyof Responses]
   : unknown;
 
 type JsonRequestBody<Operation> = Operation extends {
@@ -151,6 +155,27 @@ export async function apiPut<ResponseBody = unknown, RequestBody = unknown>(
         : { accept: "application/json" },
     ),
     body: hasBody ? JSON.stringify(body) : undefined,
+  });
+  return parseJsonResponse<ResponseBody>(response);
+}
+
+export async function apiDelete<Path extends PathsWithMethod<"delete">>(
+  path: Path,
+  init?: ApiRequestInit,
+): Promise<JsonSuccess<OperationFor<Path, "delete">>>;
+export async function apiDelete<ResponseBody = unknown>(
+  path: string,
+  init?: ApiRequestInit,
+): Promise<ResponseBody>;
+export async function apiDelete<ResponseBody = unknown>(
+  path: string,
+  init: ApiRequestInit = {},
+): Promise<ResponseBody> {
+  const response = await fetch(sameOriginPath(path), {
+    ...init,
+    method: "DELETE",
+    credentials: "include",
+    headers: buildHeaders(init.headers, { accept: "application/json" }),
   });
   return parseJsonResponse<ResponseBody>(response);
 }

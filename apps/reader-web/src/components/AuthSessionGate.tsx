@@ -15,6 +15,7 @@ import {
   primeSessionCache,
   readCachedSessionUser,
 } from "@/lib/auth/sessionCache";
+import { clearAllAnnotationCreateJournalEntries } from "@/lib/articles/annotationCreateJournal";
 import { readCraftPreferences, writeCraftPreferences } from "@/lib/craft/preferences";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -243,6 +244,7 @@ export function AuthSessionGate({ children }: { children: ReactNode }) {
     setError(null);
     try {
       await logoutSession();
+      clearAllAnnotationCreateJournalEntries();
       clearSessionCache();
       setUser(null);
       setRecoveryCode(null);

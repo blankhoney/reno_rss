@@ -5,6 +5,7 @@ import {
   articleFromApiDetail,
   articleFromApiItem,
   createArticleAnnotation,
+  deleteArticleAnnotation,
   enqueueFetchContentJob,
   feedbackFromApi,
   getArticle,
@@ -16,6 +17,7 @@ import {
   saveArticleFeedback,
   scoreFromApi,
   terminalJobStatus,
+  updateArticleAnnotation,
   updateArticleState,
 } from "./articles";
 
@@ -528,6 +530,7 @@ test("createArticleAnnotation sends and maps a typed text quote anchor", async (
           tags: [],
           anchor,
           created_at: "2026-07-26T00:00:00Z",
+          updated_at: "2026-07-26T00:00:01Z",
           next_review_at: null,
           interval_days: 1,
           review_count: 0,
@@ -546,6 +549,138 @@ test("createArticleAnnotation sends and maps a typed text quote anchor", async (
 
     assert.deepEqual(JSON.parse(String(capturedInit?.body)).anchor, anchor);
     assert.deepEqual(created.anchor, anchor);
+    assert.equal(created.updatedAt, "2026-07-26T00:00:01Z");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("updateArticleAnnotation PUTs editable fields and preserves mapped metadata", async () => {
+  let capturedInput: RequestInfo | URL | undefined;
+  let capturedInit: RequestInit | undefined;
+  const anchor = {
+    kind: "text-quote" as const,
+    version: 1 as const,
+    exact: "quote",
+    prefix: "",
+    suffix: "",
+    start: 0,
+    end: 5,
+  };
+  const restoreFetch = withMockFetch((input, init) => {
+    capturedInput = input;
+    capturedInit = init;
+    return new Response(
+      JSON.stringify({
+        annotation: {
+          id: 7,
+          article_id: 42,
+          type: "comment",
+          selected_text: "quote",
+          content: "updated note",
+          color: "blue",
+          tags: ["AI", "research"],
+          anchor,
+          created_at: "2026-07-26T00:00:00Z",
+          updated_at: "2026-07-26T00:00:02Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  try {
+    const updated = await updateArticleAnnotation(7, {
+      content: "updated note",
+      color: "blue",
+      tags: ["AI", "research"],
+    });
+
+    assert.equal(capturedInput, "/api/annotations/7");
+    assert.equal(capturedInit?.method, "PUT");
+    assert.equal(headerValue(capturedInit?.headers, "content-type"), "application/json");
+    assert.deepEqual(JSON.parse(String(capturedInit?.body)), {
+      content: "updated note",
+      color: "blue",
+      tags: ["AI", "research"],
+    });
+    assert.equal(updated.content, "updated note");
+    assert.equal(updated.selectedText, "quote");
+    assert.deepEqual(updated.anchor, anchor);
+    assert.equal(updated.updatedAt, "2026-07-26T00:00:02Z");
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("updateArticleAnnotation keeps an uncolored annotation null", async () => {
+  let capturedInit: RequestInit | undefined;
+  const restoreFetch = withMockFetch((_input, init) => {
+    capturedInit = init;
+    return new Response(
+      JSON.stringify({
+        annotation: {
+          id: 8,
+          article_id: 42,
+          type: "annotation",
+          selected_text: null,
+          content: "body only",
+          color: null,
+          tags: [],
+          anchor: null,
+          created_at: "2026-07-26T00:00:00Z",
+          updated_at: "2026-07-26T00:00:03Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  try {
+    const updated = await updateArticleAnnotation(8, {
+      content: "body only",
+      color: null,
+      tags: [],
+    });
+
+    assert.deepEqual(JSON.parse(String(capturedInit?.body)), {
+      content: "body only",
+      color: null,
+      tags: [],
+    });
+    assert.equal(updated.color, null);
+    assert.deepEqual(updated.tags, []);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("deleteArticleAnnotation accepts repeated confirmed DELETEs and rejects an unconfirmed response", async () => {
+  let capturedInput: RequestInfo | URL | undefined;
+  let capturedInit: RequestInit | undefined;
+  let responseIsValid = true;
+  const restoreFetch = withMockFetch((input, init) => {
+    capturedInput = input;
+    capturedInit = init;
+    return new Response(
+      JSON.stringify(responseIsValid ? { deleted: true, id: 7 } : { deleted: false, id: 7 }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  try {
+    await deleteArticleAnnotation(7);
+    await deleteArticleAnnotation(7);
+    assert.equal(capturedInput, "/api/annotations/7");
+    assert.equal(capturedInit?.method, "DELETE");
+    responseIsValid = false;
+    await assert.rejects(deleteArticleAnnotation(7), /invalid annotation deletion/);
   } finally {
     restoreFetch();
   }

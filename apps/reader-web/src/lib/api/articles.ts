@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, type ApiRequestInit } from "./client";
+import { apiDelete, apiGet, apiPost, apiPut, type ApiRequestInit } from "./client";
 import type { components } from "./generated/schema";
 import {
   parseTextQuoteAnchor,
@@ -387,6 +387,7 @@ export type ArticleAnnotation = {
   tags: string[];
   anchor: ArticleAnnotationAnchor | null;
   createdAt: string | null;
+  updatedAt: string | null;
   nextReviewAt: string | null;
   intervalDays: number;
   reviewCount: number;
@@ -407,6 +408,7 @@ type AnnotationApiItem = {
   tags?: string[] | null;
   anchor?: unknown;
   created_at?: string | null;
+  updated_at?: string | null;
   next_review_at?: string | null;
   interval_days?: number;
   review_count?: number;
@@ -428,6 +430,7 @@ function annotationFromApi(item: AnnotationApiItem, fallbackArticleId = 0): Arti
     tags: Array.isArray(item.tags) ? item.tags.map(String) : [],
     anchor: parseTextQuoteAnchor(item.anchor),
     createdAt: item.created_at ?? null,
+    updatedAt: item.updated_at ?? null,
     nextReviewAt: item.next_review_at ?? null,
     intervalDays: typeof item.interval_days === "number" ? item.interval_days : 1,
     reviewCount: typeof item.review_count === "number" ? item.review_count : 0,
@@ -471,8 +474,8 @@ export async function reviewAnnotation(
   };
 }
 
-export async function createArticleAnnotation(
-  articleId: number,
+export type AnnotationCreateOperation = {
+  idempotencyKey: string;
   patch: {
     content: string;
     selectedText?: string | null;
@@ -480,8 +483,15 @@ export async function createArticleAnnotation(
     color?: string | null;
     tags?: string[];
     anchor?: ArticleAnnotationAnchor;
-  },
+  };
+};
+
+export async function createArticleAnnotation(
+  articleId: number,
+  operation: AnnotationCreateOperation | AnnotationCreateOperation["patch"],
 ): Promise<ArticleAnnotation> {
+  const idempotencyKey = "idempotencyKey" in operation ? operation.idempotencyKey : crypto.randomUUID();
+  const patch = "idempotencyKey" in operation ? operation.patch : operation;
   const payload = await apiPost<
     {
       annotation?: AnnotationApiItem;
@@ -494,19 +504,55 @@ export async function createArticleAnnotation(
       tags?: string[];
       anchor?: ArticleAnnotationAnchor;
     }
-  >(`/api/articles/${articleId}/annotations`, {
-    content: patch.content,
-    selected_text: patch.selectedText ?? null,
-    type: patch.type ?? "annotation",
-    color: patch.color ?? null,
-    tags: patch.tags ?? [],
-    anchor: patch.anchor,
-  });
+  >(
+    `/api/articles/${articleId}/annotations`,
+    {
+      content: patch.content,
+      selected_text: patch.selectedText ?? null,
+      type: patch.type ?? "annotation",
+      color: patch.color ?? null,
+      tags: patch.tags ?? [],
+      anchor: patch.anchor,
+    },
+    { headers: { "Idempotency-Key": idempotencyKey } },
+  );
   const annotation = annotationFromApi(payload.annotation ?? {}, articleId);
   if (annotation == null) {
     throw new Error("API returned invalid annotation");
   }
   return annotation;
+}
+
+export async function updateArticleAnnotation(
+  annotationId: number,
+  patch: {
+    content: string;
+    color?: string | null;
+    tags?: string[];
+  },
+): Promise<ArticleAnnotation> {
+  const payload = await apiPut<
+    { annotation?: AnnotationApiItem },
+    { content: string; color?: string | null; tags?: string[] }
+  >(`/api/annotations/${annotationId}`, {
+    content: patch.content,
+    color: patch.color ?? null,
+    tags: patch.tags ?? [],
+  });
+  const annotation = annotationFromApi(payload.annotation ?? {});
+  if (annotation == null) {
+    throw new Error("API returned invalid annotation update");
+  }
+  return annotation;
+}
+
+export async function deleteArticleAnnotation(annotationId: number): Promise<void> {
+  const payload = await apiDelete<components["schemas"]["AnnotationDeleteResponse"]>(
+    `/api/annotations/${annotationId}`,
+  );
+  if (payload.deleted !== true || payload.id !== annotationId) {
+    throw new Error("API returned invalid annotation deletion");
+  }
 }
 
 export async function listArticleAnnotations(articleId: number): Promise<ArticleAnnotation[]> {
