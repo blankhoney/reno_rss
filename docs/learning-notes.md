@@ -48,3 +48,12 @@
   control-plane SHA pins the current trusted `main` deployment scripts. This is
   especially important for rollback: old images never reintroduce old lock,
   edge, probe, or compensation behavior.
+- The canonical shared-lock bootstrap is a separately approved production
+  maintenance action. It streams a bounded three-file bundle directly into a
+  root-only bootstrap, serializes first use, takes the canonical flock before
+  unpacking, preserves the lock inode, and atomically installs checksum-bound
+  helpers without a pre-lock remote landing directory.
+- A selection-create retry compares the current color and ordered tags with its
+  immutable journal snapshot. It issues a follow-up update only when metadata
+  changed, avoiding a redundant request while preserving edits made before a
+  retry.

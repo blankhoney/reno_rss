@@ -1458,6 +1458,43 @@ def test_trusted_workflow_verifies_read_only_then_executes_one_locked_transactio
     assert "ssh_stdout_file" not in upload["with"]["path"]
 
 
+def test_shared_release_bootstrap_is_approved_bounded_and_has_no_remote_landing_zone():
+    workflow_path = REPOSITORY_ROOT / ".github/workflows/bootstrap-shared-release.yml"
+    workflow = _load_workflow(workflow_path)
+    assert workflow["permissions"] == {"contents": "read"}
+    dispatch = workflow["on"]["workflow_dispatch"]
+    assert dispatch["inputs"]["confirmation"]["required"] is True
+    job = workflow["jobs"]["install"]
+    assert job["environment"] == {"name": "production"}
+    validation = job["steps"][0]
+    assert validation["name"] == "Validate approved main invocation"
+    assert "refs/heads/main" in validation["run"]
+    assert "BOOTSTRAP_SHARED_RELEASE_V1" in validation["run"]
+    checkout = job["steps"][1]
+    assert checkout["with"] == {
+        "ref": "refs/heads/main",
+        "persist-credentials": False,
+        "fetch-depth": 1,
+    }
+    install = next(
+        step for step in job["steps"] if step.get("name") == "Install the canonical shared release helpers"
+    )
+    run = install["run"]
+    assert "bootstrap-shared-release-v1.sh" in run
+    assert "--bundle-stdin --create-group --add-sudo-user" in run
+    assert "with-shared-release-lock.sh" in run
+    assert "internal/shared-release-lock-core.sh" in run
+    assert "trusted-remote-deploy.sh" in run
+    assert ' -p "$VPS_PORT"' in run
+    assert "validate-known-hosts.sh" in run
+    assert "StrictHostKeyChecking=yes" in run
+    assert "ssh-keyscan" not in run
+    assert "scp " not in run
+    assert "/srv/brianstorm/" not in run
+    assert "/var/lib/reno-shared-vps/release.lock" not in run
+    assert "mktemp" not in run.split('remote_preflight="', 1)[1].split('"\n', 1)[0]
+
+
 def test_trusted_workflow_id_allowlist_fails_closed_when_ids_are_unregistered(tmp_path):
     allowlist_path = tmp_path / "trusted-workflow-ids.json"
     allowlist_path.write_text(

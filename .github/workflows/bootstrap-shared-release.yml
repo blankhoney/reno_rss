@@ -1,0 +1,98 @@
+name: bootstrap-shared-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type BOOTSTRAP_SHARED_RELEASE_V1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-vps-bootstrap-v1
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Validate approved main invocation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          INVOCATION_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$INVOCATION_REF" == refs/heads/main ]] || {
+            echo 'bootstrap must run from refs/heads/main' >&2
+            exit 1
+          }
+          [[ "$CONFIRMATION" == BOOTSTRAP_SHARED_RELEASE_V1 ]] || {
+            echo 'bootstrap confirmation is invalid' >&2
+            exit 1
+          }
+
+      - name: Checkout trusted bootstrap from main
+        uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install the canonical shared release helpers
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ ! "$VPS_PORT" =~ ^[1-9][0-9]{0,4}$ ]] || (( VPS_PORT > 65535 )); then
+            echo 'VPS_PORT must be a valid TCP port' >&2
+            exit 1
+          fi
+
+          key_file="$(mktemp)"
+          known_hosts_file="$(mktemp)"
+          bundle_dir="$(mktemp -d)"
+          trap 'rm -f "$key_file" "$known_hosts_file"; rm -rf "$bundle_dir"' EXIT
+          bash .github/scripts/write-ssh-key.sh "$key_file"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$known_hosts_file"
+          chmod 600 "$known_hosts_file"
+          VPS_KNOWN_HOSTS_FILE="$known_hosts_file" bash .github/scripts/validate-known-hosts.sh
+
+          install -D -m 0555 infra/deploy/with-shared-release-lock.sh \
+            "$bundle_dir/with-shared-release-lock.sh"
+          install -D -m 0555 infra/deploy/internal/shared-release-lock-core.sh \
+            "$bundle_dir/internal/shared-release-lock-core.sh"
+          install -D -m 0555 .github/scripts/remote-deploy.sh \
+            "$bundle_dir/trusted-remote-deploy.sh"
+          public_sha="$(sha256sum "$bundle_dir/with-shared-release-lock.sh" | cut -d ' ' -f 1)"
+          core_sha="$(sha256sum "$bundle_dir/internal/shared-release-lock-core.sh" | cut -d ' ' -f 1)"
+          transaction_sha="$(sha256sum "$bundle_dir/trusted-remote-deploy.sh" | cut -d ' ' -f 1)"
+          for digest in "$public_sha" "$core_sha" "$transaction_sha"; do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          done
+
+          quote() { printf '%q' "$1"; }
+          bootstrap_source="$(<infra/deploy/bootstrap-shared-release-v1.sh)"
+          remote_preflight="set -euo pipefail; command -v sudo >/dev/null; command -v bash >/dev/null; exec sudo -n bash -c $(quote "$bootstrap_source") bootstrap-shared-release-v1 --bundle-stdin --create-group --add-sudo-user --public-sha256 $(quote "$public_sha") --core-sha256 $(quote "$core_sha") --transaction-sha256 $(quote "$transaction_sha")"
+          remote_command="bash -c $(quote "$remote_preflight")"
+
+          tar -cf - -C "$bundle_dir" \
+            with-shared-release-lock.sh \
+            internal/shared-release-lock-core.sh \
+            trusted-remote-deploy.sh |
+            ssh -i "$key_file" -p "$VPS_PORT" \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$known_hosts_file" \
+              -o ServerAliveInterval=15 \
+              -o ServerAliveCountMax=4 \
+              "$VPS_USER@$VPS_HOST" "$remote_command"
