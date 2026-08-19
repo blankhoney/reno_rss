@@ -118,7 +118,9 @@ EOF
     done
 }
 
-# Production migrations are gated by a fresh backup artifact and its checksum evidence.
+# Production activation is gated by a fresh backup artifact and verified checksum evidence.
+# This gate must run before any Compose pull/up, migration, or edge activation.  A
+# backup failure therefore leaves the currently running production revision intact.
 run_prod_migration_backup() {
     if [[ "$ENV" != "prod" ]]; then
         echo "💾 $ENV 非生产环境：跳过迁移前备份 gate"
@@ -157,6 +159,14 @@ run_prod_migration_backup() {
     fi
     if [[ ! -f "$backup_sha256_file" ]]; then
         echo "❌ 备份校验文件不存在：$backup_sha256_file"
+        exit 1
+    fi
+    if [[ ! -d "$backup_path" ]]; then
+        echo "❌ 备份目录不存在：$backup_path"
+        exit 1
+    fi
+    if ! sha256sum -c "$backup_sha256_file"; then
+        echo "❌ prod 数据库备份校验失败，停止部署"
         exit 1
     fi
 
@@ -204,6 +214,12 @@ if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
 else
     echo "   镜像模式：local build"
 fi
+
+# These named markers are asserted by check-deploy-migrations.sh.
+# PROD_MIGRATION_BACKUP_GATE
+# Complete the production backup before starting any new edge/backend revision.
+# Staging remains an explicit no-op inside the gate.
+run_prod_migration_backup
 
 # Regenerate edge-auth assets before Caddy validates its mounted configuration.
 mkdir -p "$AUTHELIA_ASSETS_DIR"
@@ -261,10 +277,6 @@ if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
 else
     IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --build --remove-orphans
 fi
-
-# These named markers are asserted by check-deploy-migrations.sh.
-# PROD_MIGRATION_BACKUP_GATE
-run_prod_migration_backup
 
 # API_MIGRATION_READY_GATE
 wait_for_api_migration_ready

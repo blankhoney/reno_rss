@@ -79,19 +79,22 @@ if grep -q "s/^✅ 备份完成：" "$SCRIPT_PATH"; then
     exit 1
 fi
 
-# The order check catches accidental deploy refactors that start auth/smoke before schema readiness.
+# The order check catches a production deploy that starts a new revision before
+# a verified backup is complete, while preserving the migration readiness chain.
 if ! awk '
-    /\$\{BACKEND_COMPOSE\[@\]\}" up -d/ { backend_up = NR }
     /PROD_MIGRATION_BACKUP_GATE/ { backup = NR }
+    /\$\{BACKEND_COMPOSE\[@\]\}" pull reader-web ai-reader-api ai-reader-worker/ { pull = NR }
+    /\$\{BACKEND_COMPOSE\[@\]\}" up -d/ { backend_up = NR }
     /API_MIGRATION_READY_GATE/ { ready = NR }
     /exec -T ai-reader-api alembic upgrade head/ { migration = NR }
     /up -d --force-recreate --no-deps authelia/ { authelia = NR }
     END {
-        ok = backend_up && backup && ready && migration && authelia &&
-             backend_up < backup && backup < ready && ready < migration && migration < authelia
+        ok = backup && backend_up && ready && migration && authelia &&
+             (!pull || backup < pull) && backup < backend_up &&
+             backup < ready && ready < migration && migration < authelia
         exit !ok
     }
 ' "$SCRIPT_PATH"; then
-    echo "deploy.sh must run backup/readiness gates after backend up and before Alembic/Authelia" >&2
+    echo "deploy.sh must complete the prod backup before pull/up and retain migration readiness ordering" >&2
     exit 1
 fi
