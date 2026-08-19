@@ -20,7 +20,7 @@ assert_shared_lock_held(){
  [[ -f "$LOCK_METADATA" && ! -L "$LOCK_METADATA" ]]||die 'live shared-lock metadata is missing or unsafe'
  if flock -n "$LOCK_PATH" true 2>/dev/null;then die 'canonical kernel lock is not held by this transaction';fi
 }
-for command in flock python3 docker git base64 tr;do require "$command";done
+for command in flock python3 docker git base64 tr sha256sum realpath sed;do require "$command";done
 assert_shared_lock_held
 : "${VPS_APP_DIR:?VPS_APP_DIR is required}";: "${GHCR_USERNAME:?GHCR_USERNAME is required}"
 [[ "$VPS_APP_DIR" == /* && "$VPS_APP_DIR" != *$'\n'* ]]||die 'VPS_APP_DIR must be an absolute single-line path'
@@ -138,6 +138,26 @@ print(matches[0])
 verify_image(){ local image="$1" sha="$2" revision;docker pull "$image" >/dev/null;revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")";[[ "$revision" == "$sha" ]]||die "OCI revision mismatch for ${image%%@*}"; }
 reject_grafts(){ local path;path="$(git --no-replace-objects rev-parse --git-path info/grafts)"||return;[[ ! -s "$path" ]]||die 'legacy Git grafts are forbidden'; }
 prepare_control_plane(){ cd "$VPS_APP_DIR";[[ -d .git ]]||die 'VPS_APP_DIR is not a Git repository';[[ -z "$(git --no-replace-objects status --porcelain --untracked-files=all)" ]]||die 'VPS worktree is dirty';export GIT_NO_REPLACE_OBJECTS=1;reject_grafts;[[ "$(git --no-replace-objects rev-parse --is-shallow-repository)" == false ]]||die 'VPS repository is shallow';git --no-replace-objects fetch --no-tags origin 'refs/heads/main:refs/remotes/origin/main';reject_grafts;local main_tip;main_tip="$(git --no-replace-objects rev-parse --verify 'refs/remotes/origin/main^{commit}')";[[ "$main_tip" == "$control_plane_sha" ]]||die 'control-plane SHA is not the fetched trusted main tip';git --no-replace-objects cat-file -e "$operation_sha^{commit}";git --no-replace-objects merge-base --is-ancestor "$operation_sha" "$control_plane_sha"||die 'operation SHA is not on trusted main';git --no-replace-objects checkout --detach "$control_plane_sha"; }
+run_production_prebackup(){
+ [[ "$deploy_env" == prod ]]||return 0
+ local output backup_dir checksum_file backup_root
+ if ! output="$(cd "$VPS_APP_DIR" && bash "$(repo_script infra/scripts/backup.sh)" prod 2>&1)";then
+  printf '%s\n' "$output" >&2
+  die 'production pre-mutation backup failed'
+ fi
+ printf '%s\n' "$output"
+ mapfile -t backup_dirs < <(printf '%s\n' "$output"|sed -n 's/^BACKUP_DIR=//p')
+ mapfile -t checksum_files < <(printf '%s\n' "$output"|sed -n 's/^BACKUP_SHA256_FILE=//p')
+ (( ${#backup_dirs[@]}==1 && ${#checksum_files[@]}==1 ))||die 'production backup emitted ambiguous evidence markers'
+ backup_dir="${backup_dirs[0]}";checksum_file="${checksum_files[0]}"
+ [[ "$backup_dir" == /* && "$checksum_file" == /* ]]||die 'production backup evidence paths must be absolute'
+ [[ -d "$backup_dir" && ! -L "$backup_dir" && -f "$checksum_file" && ! -L "$checksum_file" ]]||die 'production backup evidence is missing or unsafe'
+ backup_root="$(realpath -e -- "$VPS_APP_DIR/backup")"||die 'production backup root is unavailable'
+ [[ "$(realpath -e -- "$backup_dir")" == "$backup_root/"* ]]||die 'production backup directory escaped the repository backup root'
+ [[ "$(realpath -e -- "$checksum_file")" == "$(realpath -e -- "$backup_dir")/"* ]]||die 'production checksum escaped its backup directory'
+ (cd "$backup_dir" && sha256sum -c -- "$checksum_file")||die 'production pre-mutation backup checksum verification failed'
+ printf 'trusted production pre-mutation backup verified: %s\n' "$backup_dir"
+}
 activate_release(){ local sha="$1" web="$2" api="$3" worker="$4";[[ "$(git --no-replace-objects rev-parse HEAD)" == "$control_plane_sha" ]]||return;IMAGE_REGISTRY="ghcr.io/${owner_repo,,}" AI_READER_WEB_IMAGE="$web" AI_READER_API_IMAGE="$api" AI_READER_WORKER_IMAGE="$worker" LOCAL_BUILD=0 bash "$(repo_script infra/scripts/deploy.sh)" "$deploy_env" "sha-${sha}"||return;bash "$(repo_script infra/scripts/smoke-test.sh)" "$deploy_env"||return;[[ "$(read_runtime_sha)" == "$sha" ]]; }
 compensation_probe(){ local phase="$1" runtime="$2" rollback_from="$3" target="$4";run_probe "$phase" "$runtime" --rollback-from-sha "$rollback_from" --rollback-target-sha "$target"; }
 rollback_web='';rollback_api='';rollback_worker=''
@@ -162,13 +182,16 @@ release_and_verify(){
  fi
 }
 locked_mutation(){
+ prepare_control_plane||return
+ # Production backup and checksum proof must exist before any edge mutation,
+ # registry login, image pull, backend start, migration, or activation.
+ run_production_prebackup||return
  ensure_shared_edge||return
  run_probe pre-activation "$rollback_from"||return
  local login_status=0
  printf '%s' "$token_b64"|base64 --decode|docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin >/dev/null||login_status=$?
  unset token_b64
  ((login_status==0))||return "$login_status"
- prepare_control_plane||return
  verify_image "$web_image" "$operation_sha"||return
  verify_image "$api_image" "$operation_sha"||return
  verify_image "$worker_image" "$operation_sha"||return

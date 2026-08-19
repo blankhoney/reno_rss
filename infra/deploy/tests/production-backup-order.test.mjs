@@ -7,6 +7,7 @@ import test from 'node:test';
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');
 const deployScript = path.join(repoRoot, 'infra/scripts/deploy.sh');
+const remoteTransaction = path.join(repoRoot, '.github/scripts/remote-deploy.sh');
 const ciWorkflow = path.join(repoRoot, '.github/workflows/ci.yml');
 
 test('canonical CI executes the production backup ordering gate', async () => {
@@ -36,6 +37,22 @@ test('production backup completes before any deployment mutation can start a rev
     'up -d --force-recreate --no-deps authelia',
   ]) {
     assert.ok(firstAfter(source, mutation, backupGate) > backupGate, `${mutation} must follow backup`);
+  }
+});
+
+test('trusted remote transaction verifies production backup before shared mutations', async () => {
+  const source = await readFile(remoteTransaction, 'utf8');
+  const transaction = source.indexOf('locked_mutation(){');
+  const prepare = firstAfter(source, 'prepare_control_plane||return', transaction);
+  const backup = firstAfter(source, 'run_production_prebackup||return', prepare);
+  assert.ok(prepare < backup);
+  for (const mutation of [
+    'ensure_shared_edge||return',
+    'docker login ghcr.io',
+    'verify_image "$web_image"',
+    'release_and_verify',
+  ]) {
+    assert.ok(firstAfter(source, mutation, backup) > backup, `${mutation} must follow backup`);
   }
 });
 

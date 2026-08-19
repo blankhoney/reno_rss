@@ -14,10 +14,10 @@ const rollbackFrom = 'b'.repeat(40);
 const digest = 'c'.repeat(64);
 const repo = 'blankhoney/reno_rss';
 
-function builderArguments(requestType = 'deploy') {
+function builderArguments(requestType = 'deploy', environment = 'staging') {
   return [
     '--request-type', requestType,
-    '--environment', 'staging',
+    '--environment', environment,
     '--owner-project', 'rss',
     '--owner-repo', repo,
     '--operation-sha', operationSha,
@@ -30,8 +30,8 @@ function builderArguments(requestType = 'deploy') {
   ];
 }
 
-function buildBundle(requestType = 'deploy') {
-  const result = spawnSync(builder, builderArguments(requestType), { cwd: repoRoot });
+function buildBundle(requestType = 'deploy', environment = 'staging') {
+  const result = spawnSync(builder, builderArguments(requestType, environment), { cwd: repoRoot });
   assert.equal(result.status, 0, result.stderr.toString());
   return result.stdout;
 }
@@ -81,7 +81,7 @@ test('transaction source gates its first mutation on the inherited canonical flo
   assert.equal(source.includes(': "${GHCR_TOKEN_B64:'), false);
   assert.match(source, /IFS= read -r credential_frame/);
   assert.match(source, /run_probe pre-mutation[\s\S]*locked_mutation/);
-  assert.match(source, /locked_mutation\(\)[\s\S]*ensure_shared_edge[\s\S]*run_probe pre-activation[\s\S]*prepare_control_plane/);
+  assert.match(source, /locked_mutation\(\)[\s\S]*prepare_control_plane[\s\S]*run_production_prebackup[\s\S]*ensure_shared_edge[\s\S]*run_probe pre-activation/);
   assert.match(source, /rollback_state_compensate/);
 });
 
@@ -90,7 +90,7 @@ async function executable(file, body) {
   await chmod(file, 0o755);
 }
 
-async function linuxFixture(requestType, { failTarget = false, failPostProbe = false } = {}) {
+async function linuxFixture(requestType, { environment = 'staging', failTarget = false, failPostProbe = false, failBackup = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'trusted-remote-'));
   const lockRoot = path.join(root, 'lock');
   const app = path.join(root, 'app');
@@ -99,6 +99,7 @@ async function linuxFixture(requestType, { failTarget = false, failPostProbe = f
   const log = path.join(root, 'calls.log');
   const marker = path.join(root, 'first-mutation-lock-held');
   const edgeState = path.join(root, 'edge-state');
+  const backupDir = path.join(app, 'backup', 'fixture');
   await mkdir(path.join(lockRoot, 'audit'), { recursive: true });
   await mkdir(path.join(app, '.git'), { recursive: true });
   await mkdir(path.join(app, 'infra/deploy'), { recursive: true });
@@ -176,13 +177,24 @@ set -euo pipefail
 sha="\${2#sha-}";printf 'activate %s\n' "$sha" >> "$CALL_LOG";printf '%s\n' "$sha" > "$RUNTIME_STATE";printf 'broken\n' > "$EDGE_STATE_TEST"
 if [[ "\${FAIL_TARGET_TEST:-0}" == 1 && "$sha" == "$OPERATION_SHA_TEST" && ! -e "$FAIL_ONCE_TEST" ]]; then : > "$FAIL_ONCE_TEST";exit 19;fi
 `);
+  await executable(path.join(app, 'infra/scripts/backup.sh'), `#!/usr/bin/env bash
+set -euo pipefail
+printf 'backup-start %s\n' "\${1:-}" >> "$CALL_LOG"
+[[ "\${FAIL_BACKUP_TEST:-0}" != 1 ]] || exit 47
+mkdir -p "$BACKUP_DIR_TEST"
+printf 'fixture backup\n' > "$BACKUP_DIR_TEST/scoring.dump"
+sha256sum "$BACKUP_DIR_TEST/scoring.dump" > "$BACKUP_DIR_TEST/checksums.txt"
+printf 'BACKUP_DIR=%s\n' "$BACKUP_DIR_TEST"
+printf 'BACKUP_SHA256_FILE=%s\n' "$BACKUP_DIR_TEST/checksums.txt"
+printf 'backup-complete\n' >> "$CALL_LOG"
+`);
   await executable(path.join(app, 'infra/scripts/smoke-test.sh'), '#!/usr/bin/env bash\nexit 0\n');
   await executable(path.join(app, 'infra/scripts/staging-runtime-proof.sh'), '#!/usr/bin/env bash\nexit 0\n');
   await writeFile(path.join(app, 'infra/deploy/rollback-state.sh'), await readFile(path.join(repoRoot, 'infra/deploy/rollback-state.sh')));
 
   const bundleDir = path.join(root, 'bundle');
   await mkdir(bundleDir);
-  const extracted = spawnSync('tar', ['-xf', '-', '-C', bundleDir], { input: buildBundle(requestType) });
+  const extracted = spawnSync('tar', ['-xf', '-', '-C', bundleDir], { input: buildBundle(requestType, environment) });
   assert.equal(extracted.status, 0, extracted.stderr.toString());
   await writeFile(path.join(bundleDir, 'verify-shared-edge.sh'), await readFile(path.join(app, 'infra/deploy/verify-shared-edge.sh')));
   await writeFile(path.join(bundleDir, 'ensure-shared-edge.sh'), await readFile(path.join(app, 'infra/deploy/ensure-shared-edge.sh')));
@@ -201,6 +213,7 @@ if [[ "\${FAIL_TARGET_TEST:-0}" == 1 && "$sha" == "$OPERATION_SHA_TEST" && ! -e 
       OPERATION_SHA_TEST: operationSha, RUNTIME_STATE: state, OWNER_REPO_TEST: repo,
       CONTROL_PLANE_SHA_TEST: controlPlaneSha, EDGE_STATE_TEST: edgeState,
       ROLLBACK_DIGEST_TEST: digest, FAIL_TARGET_TEST: failTarget ? '1' : '0',
+      BACKUP_DIR_TEST: backupDir, FAIL_BACKUP_TEST: failBackup ? '1' : '0',
       FAIL_ONCE_TEST: path.join(root, 'failed-once'),
       FAIL_POST_PROBE_TEST: failPostProbe ? '1' : '0', FAIL_POST_ONCE_TEST: path.join(root, 'failed-post-once'),
     },
@@ -227,9 +240,32 @@ test('Linux fixture holds the lock before temp/extract and wires deploy phases t
     assert.ok(item.calls.indexOf('--phase pre-activation') < item.calls.indexOf(`activate ${operationSha}`));
     assert.ok(item.calls.indexOf('--phase pre-mutation') < item.calls.indexOf('ensure lock=held'));
     assert.ok(item.calls.indexOf('ensure lock=held') < item.calls.indexOf('--phase pre-activation'));
+    assert.ok(item.calls.indexOf('--no-replace-objects fetch') < item.calls.indexOf('ensure lock=held'));
     assert.ok(item.calls.indexOf('--phase pre-activation') < item.calls.indexOf('docker login'));
-    assert.ok(item.calls.indexOf('docker login') < item.calls.indexOf('--no-replace-objects fetch'));
     assert.match(item.calls, new RegExp(`activate ${operationSha}[\\s\\S]*ensure lock=held[\\s\\S]*--phase post-activation`));
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
+test('Linux production transaction verifies backup before edge, login, pull, or activation', { skip: os.platform() !== 'linux' }, async () => {
+  const item = await linuxFixture('deploy', { environment: 'prod' });
+  try {
+    assert.equal(item.result.status, 0, item.result.stderr);
+    const backup = item.calls.indexOf('backup-complete');
+    assert.ok(item.calls.indexOf('--phase pre-mutation') < backup);
+    assert.ok(item.calls.indexOf('--no-replace-objects fetch') < backup);
+    for (const mutation of ['ensure lock=held', 'docker login', 'docker pull', `activate ${operationSha}`]) {
+      assert.ok(backup < item.calls.indexOf(mutation), `${mutation} must follow verified production backup`);
+    }
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
+test('Linux production backup failure prevents edge, image, and activation mutations', { skip: os.platform() !== 'linux' }, async () => {
+  const item = await linuxFixture('deploy', { environment: 'prod', failBackup: true });
+  try {
+    assert.notEqual(item.result.status, 0);
+    assert.equal(item.runtime, rollbackFrom);
+    assert.match(item.calls, /backup-start prod/);
+    assert.doesNotMatch(item.calls, /ensure lock=held|docker login|docker pull|activate /);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
 
