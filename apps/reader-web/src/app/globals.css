@@ -1536,6 +1536,12 @@ body:has(.focusReader) .toastHost {
   transform: translateY(0);
 }
 
+.readerToolbarBtn:not(:disabled):focus-visible,
+.readerToolbarBtnPrimary:not(:disabled):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .readerToolbarBtn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -2198,6 +2204,11 @@ body:has(.focusReader) .toastHost {
   background: var(--bg);
 }
 
+.focusOverflowOption:not(:disabled):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .focusOverflowOption:disabled {
   color: var(--muted);
   cursor: default;
@@ -2244,6 +2255,11 @@ body:has(.focusReader) .toastHost {
 .focusStatusAction:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.focusStatusAction:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .focusTranslationAlert {
@@ -2412,6 +2428,13 @@ body:has(.focusReader) .toastHost {
   background: var(--accent-muted);
 }
 
+.selectionPopover button:not(:disabled):focus-visible,
+.selectionPopover select:not(:disabled):focus-visible,
+.selectionPopover input:not(:disabled):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .agentDrawer {
   position: fixed;
   left: max(20px, calc((100vw - 760px) / 2));
@@ -2447,6 +2470,12 @@ body:has(.focusReader) .toastHost {
 
 .agentDrawerHandle:hover {
   background: var(--bg);
+}
+
+.agentDrawer button:not(:disabled):focus-visible,
+.agentDrawer textarea:not(:disabled):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .agentDrawerHandle span:first-child {
@@ -2888,7 +2917,7 @@ body:has(.focusReader) .toastHost {
   font-size: 1rem;
 }
 
-.commandPaletteInput:focus {
+.commandPaletteInput:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
