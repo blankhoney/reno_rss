@@ -19,3 +19,7 @@
   identity, strict Docker inspect parsing, and active Caddy Admin configuration
   evidence. A missing RSS auth redirect, Blog 200, TLS verification, upstream,
   network membership, bridge driver, or production route fails the transaction.
+- Cross-project mutations use one Linux `flock` wrapper around the complete
+  remote transaction. The live file descriptor is authoritative over TTL;
+  residual metadata is quarantined only after acquiring the lock, and release
+  requires the exact owner, repository, SHA, run, and random token.
