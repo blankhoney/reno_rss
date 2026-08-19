@@ -333,7 +333,9 @@ test('public wrapper owns the canonical root and rejects every caller path or te
 test('public wrapper hard-codes the canonical root and privately injects it only after rejecting overrides', async () => {
   const source = await readFile(wrapper, 'utf8');
   assert.match(source, /readonly CANONICAL_LOCK_ROOT='\/var\/lib\/reno-shared-vps\/release-lock-v1'/);
-  assert.match(source, /for forbidden in SHARED_RELEASE_LOCK_ROOT /);
+  assert.match(source, /readonly CANONICAL_LOCK_OWNER='root'/);
+  assert.match(source, /readonly CANONICAL_LOCK_GROUP='reno-deploy'/);
+  assert.match(source, /for forbidden in SHARED_RELEASE_LOCK_ROOT SHARED_RELEASE_LOCK_OWNER SHARED_RELEASE_LOCK_GROUP /);
   assert.match(source, /export SHARED_RELEASE_LOCK_ROOT="\$CANONICAL_LOCK_ROOT"/);
   assert.equal(source.includes('mkdir '), false);
   assert.equal(source.includes('chmod '), false);
