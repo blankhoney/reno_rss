@@ -107,7 +107,6 @@ jobs:
           uv run --isolated --with-editable . --extra dev alembic current --check-heads
 
       - name: Seed PostgreSQL performance fixture
-        if: ${{ github.event_name == 'pull_request' }}
         working-directory: apps/api
         env:
           SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
@@ -260,29 +259,58 @@ jobs:
           )"
           export MIGRATION_HEAD
           snapshot_dir="output/evidence/db-snapshot-restore-ci"
+          snapshot_database="snapshot_restore_verify"
           mkdir -p "$snapshot_dir"
+          cleanup_snapshot_database() {
+            docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
+              dropdb --host 127.0.0.1 --port 5432 --username postgres --if-exists "$snapshot_database"
+          }
+          trap cleanup_snapshot_database EXIT
+          # A prior failed attempt may have left the disposable database behind.
+          cleanup_snapshot_database
           docker run --rm --network host --volume "$PWD/$snapshot_dir:/snapshot" --env PGPASSWORD=postgres postgres:16 \
             pg_dump --host 127.0.0.1 --port 5432 --username postgres \
             --format=custom --no-owner --no-privileges --dbname postgres \
             --file /snapshot/postgres.dump
           docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
-            createdb --host 127.0.0.1 --port 5432 --username postgres snapshot_restore_verify
-          docker run --rm --network host --volume "$PWD/$snapshot_dir:/snapshot" --env PGPASSWORD=postgres postgres:16 \
+            createdb --host 127.0.0.1 --port 5432 --username postgres "$snapshot_database"
+          restore_stderr="$snapshot_dir/pg_restore.stderr"
+          if ! docker run --rm --network host --volume "$PWD/$snapshot_dir:/snapshot" --env PGPASSWORD=postgres postgres:16 \
             pg_restore --host 127.0.0.1 --port 5432 --username postgres \
-            --dbname snapshot_restore_verify --clean --if-exists --no-owner --no-privileges \
-            /snapshot/postgres.dump
-          docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
-            psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
-            --tuples-only --no-align --command "SELECT version_num FROM alembic_version" \
-            | grep -qx "$MIGRATION_HEAD"
-          docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
-            psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
-            --tuples-only --no-align --command "SELECT title FROM articles WHERE id = 990001" \
-            | grep -qx 'Baseline fixture article'
-          docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
-            psql --host 127.0.0.1 --port 5432 --username postgres --dbname snapshot_restore_verify \
-            --tuples-only --no-align --command "SELECT content FROM article_annotations WHERE id = 990001" \
-            | grep -qx 'Performance fixture'
+            --dbname "$snapshot_database" --clean --if-exists --no-owner --no-privileges \
+            /snapshot/postgres.dump 2> >(tee "$restore_stderr" >&2); then
+            echo "::error title=PostgreSQL snapshot restore failed::pg_restore failed; its stderr is retained in $restore_stderr" >&2
+            exit 1
+          fi
+          query_snapshot_database() {
+            docker run --rm --network host --env PGPASSWORD=postgres postgres:16 \
+              psql --host 127.0.0.1 --port 5432 --username postgres --dbname "$snapshot_database" \
+              --tuples-only --no-align --set ON_ERROR_STOP=1 --command "$1"
+          }
+          actual_migration_head="$(query_snapshot_database 'SELECT version_num FROM alembic_version')"
+          actual_article_title="$(query_snapshot_database 'SELECT title FROM articles WHERE id = 990001')"
+          actual_annotation_content="$(query_snapshot_database 'SELECT content FROM article_annotations WHERE id = 990001')"
+          actual_article_title_hash="$(printf '%s' "$actual_article_title" | sha256sum | awk '{print $1}')"
+          actual_annotation_content_hash="$(printf '%s' "$actual_annotation_content" | sha256sum | awk '{print $1}')"
+          expected_article_title='Baseline fixture article'
+          expected_annotation_content='Performance fixture'
+          expected_article_title_hash="$(printf '%s' "$expected_article_title" | sha256sum | awk '{print $1}')"
+          expected_annotation_content_hash="$(printf '%s' "$expected_annotation_content" | sha256sum | awk '{print $1}')"
+          printf 'snapshot restore observed migration head: %s\n' "$actual_migration_head"
+          printf 'snapshot restore observed article fixture: id=990001 title_sha256=%s\n' "$actual_article_title_hash"
+          printf 'snapshot restore observed annotation fixture: id=990001 content_sha256=%s\n' "$actual_annotation_content_hash"
+          if [[ "$actual_migration_head" != "$MIGRATION_HEAD" ]]; then
+            echo "::error title=Snapshot migration mismatch::expected migration head $MIGRATION_HEAD, got $actual_migration_head" >&2
+            exit 1
+          fi
+          if [[ "$actual_article_title" != "$expected_article_title" ]]; then
+            echo "::error title=Snapshot article fixture mismatch::article id 990001 title mismatch (expected sha256=$expected_article_title_hash, got sha256=$actual_article_title_hash)" >&2
+            exit 1
+          fi
+          if [[ "$actual_annotation_content" != "$expected_annotation_content" ]]; then
+            echo "::error title=Snapshot annotation fixture mismatch::annotation id 990001 content mismatch (expected sha256=$expected_annotation_content_hash, got sha256=$actual_annotation_content_hash)" >&2
+            exit 1
+          fi
           python - <<'PY'
           import json
           import os

@@ -105,11 +105,26 @@ def test_alembic_revision_ids_fit_version_table_column():
 
 def test_ci_snapshot_restore_checks_current_migration_head():
     ci_workflow = (Path(__file__).parents[3] / ".github/workflows/ci.yml").read_text()
+    snapshot_seed = ci_workflow.split("      - name: Seed PostgreSQL performance fixture\n", 1)[1].split(
+        "      - name: Run PostgreSQL performance baseline\n", 1
+    )[0]
 
     assert "ScriptDirectory.from_config" in ci_workflow
     assert "get_heads()" in ci_workflow
     assert 'len(heads) != 1' in ci_workflow
-    assert 'grep -qx "$MIGRATION_HEAD"' in ci_workflow
+    assert 'snapshot_database="snapshot_restore_verify"' in ci_workflow
+    assert 'trap cleanup_snapshot_database EXIT' in ci_workflow
+    assert 'dropdb --host 127.0.0.1 --port 5432 --username postgres --if-exists "$snapshot_database"' in ci_workflow
+    assert 'restore_stderr="$snapshot_dir/pg_restore.stderr"' in ci_workflow
+    assert '2> >(tee "$restore_stderr" >&2)' in ci_workflow
+    assert 'actual_migration_head="$(query_snapshot_database' in ci_workflow
+    assert "actual_annotation_content_hash" in ci_workflow
+    assert 'title=Snapshot migration mismatch' in ci_workflow
+    assert 'title=Snapshot article fixture mismatch' in ci_workflow
+    assert 'title=Snapshot annotation fixture mismatch' in ci_workflow
+    assert 'grep -qx "$MIGRATION_HEAD"' not in ci_workflow
+    assert "github.event_name == 'pull_request'" not in snapshot_seed
+    assert "INSERT INTO article_annotations" in snapshot_seed
     assert '"migration": os.environ["MIGRATION_HEAD"]' in ci_workflow
     assert "0012_translation_usage" not in ci_workflow
 
