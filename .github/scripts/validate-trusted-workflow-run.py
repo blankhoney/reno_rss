@@ -190,6 +190,70 @@ def _workflow_identity(
     _assert_equal(_required_text(workflow, "name", label), expected_name, f"{label}.name")
 
 
+def _assert_successful_canonical_ci_for_sha(
+    *,
+    api: Any,
+    repository: str,
+    repository_id: int,
+    workflow_id: int,
+    workflow_path: str,
+    workflow_name: str,
+    sha: str,
+    label: str,
+) -> int:
+    """Require one canonical main CI and publication job for an exact control-plane SHA."""
+    runs = _response_items(
+        api.workflow_runs(repository, workflow_id, sha),
+        "workflow_runs",
+        f"{label} ci runs",
+    )
+    matching: list[Mapping[str, Any]] = []
+    for run in runs:
+        if (
+            run.get("workflow_id") != workflow_id
+            or run.get("path") != workflow_path
+            or run.get("name") != workflow_name
+            or run.get("head_sha") != sha
+            or run.get("head_branch") != DEFAULT_BRANCH
+            or run.get("event") != "push"
+            or run.get("status") != "completed"
+            or run.get("conclusion") != "success"
+        ):
+            continue
+        try:
+            _assert_run_common(
+                run,
+                repository_id=repository_id,
+                repository=repository,
+                label=f"{label} ci run",
+            )
+        except ProvenanceValidationError:
+            continue
+        matching.append(run)
+    if len(matching) != 1:
+        _reject(f"{label} SHA lacks one successful canonical CI run")
+    run_id = _required_int(matching[0], "id", f"{label} ci run")
+    jobs = _response_items(
+        api.workflow_run_jobs(repository, run_id),
+        "jobs",
+        f"{label} ci jobs",
+    )
+    publication_jobs = [
+        job
+        for job in jobs
+        if job.get("name") == CI_JOB_NAME
+        and job.get("run_id", job.get("workflow_run_id")) == run_id
+        and job.get("workflow_name") == workflow_name
+        and job.get("head_branch") == DEFAULT_BRANCH
+        and job.get("status") == "completed"
+        and job.get("conclusion") == "success"
+        and job.get("head_sha") == sha
+    ]
+    if len(publication_jobs) != 1:
+        _reject(f"{label} canonical CI publication job is not successful")
+    return run_id
+
+
 def _promotion_proof(
     payload: bytes,
     *,
@@ -201,6 +265,9 @@ def _promotion_proof(
     publication_artifact_id: int,
     publication_artifact_digest: str,
     ci_workflow_id: int,
+    ci_workflow_path: str,
+    ci_workflow_name: str,
+    repository_id: int,
     api: Any,
     repository: str,
 ) -> dict[str, Any]:
@@ -270,10 +337,36 @@ def _promotion_proof(
         _assert_equal(run.get("name"), "trusted-deploy", f"{label} workflow name")
         _assert_equal(run.get("event"), "workflow_run", f"{label} workflow event")
         _assert_equal(run.get("head_branch"), DEFAULT_BRANCH, f"{label} workflow head_branch")
+        receipt_control_plane_sha = _assert_sha(run, "head_sha", f"{label} workflow run")
+        _assert_run_common(
+            run,
+            repository_id=repository_id,
+            repository=repository,
+            label=f"{label} workflow run",
+        )
+        _assert_successful_canonical_ci_for_sha(
+            api=api,
+            repository=repository,
+            repository_id=repository_id,
+            workflow_id=ci_workflow_id,
+            workflow_path=ci_workflow_path,
+            workflow_name=ci_workflow_name,
+            sha=receipt_control_plane_sha,
+            label=f"{label} control-plane",
+        )
         artifacts = _response_items(api.workflow_run_artifacts(repository, run_id), "artifacts", f"{label} artifacts")
         matching = [artifact for artifact in artifacts if artifact.get("name") == artifact_name]
         if len(matching) != 1 or matching[0].get("expired") is not False:
             _reject(f"promotion proof {label} artifact is missing or expired")
+        receipt_artifact_run = _mapping(
+            matching[0].get("workflow_run"), f"promotion proof {label} artifact.workflow_run"
+        )
+        _assert_equal(receipt_artifact_run.get("id"), run_id, f"{label} artifact run id")
+        _assert_equal(
+            receipt_artifact_run.get("head_sha"),
+            receipt_control_plane_sha,
+            f"{label} artifact head SHA",
+        )
         receipt_zip = api.artifact_zip(repository, _required_int(matching[0], "id", f"{label} artifact"))
         try:
             with ZipFile(BytesIO(receipt_zip), "r") as receipt_archive:
@@ -907,57 +1000,16 @@ def validate_provenance(
         "request.image_tag",
     )
 
-    current_main_ci = _response_items(
-        api.workflow_runs(expected_repository, ci_id, control_plane_sha),
-        "workflow_runs",
-        "current main ci runs",
+    _assert_successful_canonical_ci_for_sha(
+        api=api,
+        repository=expected_repository,
+        repository_id=expected_repository_id,
+        workflow_id=ci_id,
+        workflow_path=ci_path,
+        workflow_name=ci_name,
+        sha=control_plane_sha,
+        label="current main control-plane",
     )
-    matching_control_plane_runs: list[Mapping[str, Any]] = []
-    for control_plane_run in current_main_ci:
-        if (
-            control_plane_run.get("workflow_id") != ci_id
-            or control_plane_run.get("path") != ci_path
-            or control_plane_run.get("name") != ci_name
-            or control_plane_run.get("head_sha") != control_plane_sha
-            or control_plane_run.get("head_branch") != DEFAULT_BRANCH
-            or control_plane_run.get("event") != "push"
-            or control_plane_run.get("status") != "completed"
-            or control_plane_run.get("conclusion") != "success"
-        ):
-            continue
-        try:
-            _assert_run_common(
-                control_plane_run,
-                repository_id=expected_repository_id,
-                repository=expected_repository,
-                label="current main ci run",
-            )
-        except ProvenanceValidationError:
-            continue
-        matching_control_plane_runs.append(control_plane_run)
-    if len(matching_control_plane_runs) != 1:
-        _reject("current main control-plane SHA lacks one successful canonical CI run")
-    control_plane_run_id = _required_int(
-        matching_control_plane_runs[0], "id", "current main ci run"
-    )
-    control_plane_jobs = _response_items(
-        api.workflow_run_jobs(expected_repository, control_plane_run_id),
-        "jobs",
-        "current main ci jobs",
-    )
-    matching_control_plane_jobs = [
-        job
-        for job in control_plane_jobs
-        if job.get("name") == CI_JOB_NAME
-        and job.get("run_id", job.get("workflow_run_id")) == control_plane_run_id
-        and job.get("workflow_name") == ci_name
-        and job.get("head_branch") == DEFAULT_BRANCH
-        and job.get("status") == "completed"
-        and job.get("conclusion") == "success"
-        and job.get("head_sha") == control_plane_sha
-    ]
-    if len(matching_control_plane_jobs) != 1:
-        _reject("current main control-plane CI publication job is not successful")
 
     if promotion_payload is not None:
         _promotion_proof(
@@ -970,6 +1022,9 @@ def validate_provenance(
             publication_artifact_id=publication_artifact_id,
             publication_artifact_digest=publication_artifact_digest,
             ci_workflow_id=ci_id,
+            ci_workflow_path=ci_path,
+            ci_workflow_name=ci_name,
+            repository_id=expected_repository_id,
             api=api,
             repository=expected_repository,
         )

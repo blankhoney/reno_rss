@@ -1658,6 +1658,8 @@ def _promotion_validation_fixture() -> tuple[dict[str, Any], Any, dict[str, Any]
             self.bad_path_run: int | None = None
             self.failed_run: int | None = None
             self.bad_archive_run: int | None = None
+            self.bad_head_sha_run: int | None = None
+            self.failed_control_plane_ci = False
             self.record = copy.deepcopy(record_object)
 
         def workflow_run(self, repository, run_id):
@@ -1672,8 +1674,13 @@ def _promotion_validation_fixture() -> tuple[dict[str, Any], Any, dict[str, Any]
                 "name": "trusted-deploy",
                 "event": "workflow_run",
                 "head_branch": "main",
+                "head_sha": (
+                    "not-a-full-sha" if run_id == self.bad_head_sha_run else control_plane
+                ),
                 "status": "completed",
                 "conclusion": "failure" if run_id == self.failed_run else "success",
+                "repository": _trusted_repository_identity(),
+                "head_repository": _trusted_repository_identity(),
             }
 
         def workflow_run_artifacts(self, repository, run_id):
@@ -1688,6 +1695,49 @@ def _promotion_validation_fixture() -> tuple[dict[str, Any], Any, dict[str, Any]
                             f"{request_type}-{run_id}-{expected_operation}"
                         ),
                         "expired": False,
+                        "workflow_run": {
+                            "id": run_id,
+                            "head_sha": control_plane,
+                        },
+                    }
+                ]
+            }
+
+        def workflow_runs(self, repository, workflow_id, head_sha):
+            assert repository == TRUSTED_REPOSITORY
+            assert workflow_id == TRUSTED_CI_WORKFLOW_ID
+            assert head_sha == control_plane
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 8801,
+                        "workflow_id": TRUSTED_CI_WORKFLOW_ID,
+                        "path": ".github/workflows/ci.yml",
+                        "name": "ci",
+                        "event": "push",
+                        "head_branch": "main",
+                        "head_sha": control_plane,
+                        "status": "completed",
+                        "conclusion": "failure" if self.failed_control_plane_ci else "success",
+                        "repository": _trusted_repository_identity(),
+                        "head_repository": _trusted_repository_identity(),
+                    }
+                ]
+            }
+
+        def workflow_run_jobs(self, repository, run_id):
+            assert repository == TRUSTED_REPOSITORY
+            assert run_id == 8801
+            return {
+                "jobs": [
+                    {
+                        "name": "build / push GHCR images",
+                        "run_id": run_id,
+                        "workflow_name": "ci",
+                        "head_branch": "main",
+                        "head_sha": control_plane,
+                        "status": "completed",
+                        "conclusion": "success",
                     }
                 ]
             }
@@ -1741,6 +1791,9 @@ def _promotion_validation_fixture() -> tuple[dict[str, Any], Any, dict[str, Any]
         "publication_artifact_id": 8401,
         "publication_artifact_digest": publication_digest,
         "ci_workflow_id": TRUSTED_CI_WORKFLOW_ID,
+        "ci_workflow_path": ".github/workflows/ci.yml",
+        "ci_workflow_name": "ci",
+        "repository_id": TRUSTED_REPOSITORY_ID,
         "api": api,
         "repository": TRUSTED_REPOSITORY,
     }
@@ -1777,6 +1830,8 @@ def test_production_promotion_validator_accepts_real_receipts_and_record():
         "record-plan",
         "record-self-reference",
         "record-ref",
+        "receipt-head-sha",
+        "receipt-control-plane-ci",
         "extra-proof-member",
     ),
 )
@@ -1789,6 +1844,10 @@ def test_production_promotion_validator_rejects_tampered_evidence(mutation):
         api.bad_path_run = proof["staging_receipt"]["workflow_run"]
     elif mutation == "conclusion":
         api.failed_run = proof["rollback_receipt"]["workflow_run"]
+    elif mutation == "receipt-head-sha":
+        api.bad_head_sha_run = proof["staging_receipt"]["workflow_run"]
+    elif mutation == "receipt-control-plane-ci":
+        api.failed_control_plane_ci = True
     elif mutation == "receipt":
         api.bad_archive_run = proof["forward_receipt"]["workflow_run"]
     elif mutation == "receipt-runtime":
