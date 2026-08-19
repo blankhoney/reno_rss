@@ -44,7 +44,7 @@ if ! grep -q 'exec -T ai-reader-api alembic upgrade head' "$SCRIPT_PATH"; then
 fi
 
 if ! grep -q 'PROD_MIGRATION_BACKUP_GATE' "$SCRIPT_PATH"; then
-    echo "deploy.sh must gate prod migrations on backup.sh before Alembic upgrade" >&2
+    echo "deploy.sh must gate prod migrations on trusted backup evidence before Alembic upgrade" >&2
     exit 1
 fi
 
@@ -64,13 +64,18 @@ if ! grep -q 'echo "BACKUP_SHA256_FILE=' "$BACKUP_SCRIPT_PATH"; then
     exit 1
 fi
 
-if ! grep -q "s/^BACKUP_DIR=//p" "$SCRIPT_PATH"; then
-    echo "deploy.sh must parse BACKUP_DIR marker instead of localized backup output" >&2
+if ! grep -q 'trusted-production-backup/v1' "$SCRIPT_PATH"; then
+    echo "deploy.sh must validate the trusted production backup evidence contract" >&2
     exit 1
 fi
 
-if ! grep -q "s/^BACKUP_SHA256_FILE=//p" "$SCRIPT_PATH"; then
-    echo "deploy.sh must parse BACKUP_SHA256_FILE marker instead of assuming checksums path" >&2
+if ! grep -q 'TRUSTED_PRODUCTION_BACKUP_EVIDENCE' "$SCRIPT_PATH"; then
+    echo "deploy.sh must require trusted production backup evidence" >&2
+    exit 1
+fi
+
+if grep -q '"$SCRIPT_DIR/backup.sh" prod' "$SCRIPT_PATH"; then
+    echo "deploy.sh must not create a second production backup" >&2
     exit 1
 fi
 

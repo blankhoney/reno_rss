@@ -23,12 +23,12 @@
 #   backup directories older than seven days. Dumps use pg_dump -Fc for pg_restore.
 
 set -euo pipefail
+umask 077
 
 # PG 容器名（prod 环境）
 PG_CONTAINER="myrss-prod-postgres-1"
-BACKUP_DIR="./backup/$(date +%Y-%m-%d_%H-%M-%S)"
-
-mkdir -p "$BACKUP_DIR"
+mkdir -p ./backup
+BACKUP_DIR="$(mktemp -d "./backup/$(date +%Y-%m-%d_%H-%M-%S).XXXXXXXX")"
 BACKUP_PATH="$(cd "$BACKUP_DIR" && pwd)"
 
 echo "💾 开始备份到 $BACKUP_PATH ..."

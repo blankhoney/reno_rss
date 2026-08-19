@@ -18,7 +18,7 @@ PREVIOUS_SHA = "b" * 40
 
 
 def _receipt(phase: str, runtime: str) -> dict:
-    return {
+    receipt = {
         "contractVersion": 1,
         "owner": {"project": "rss", "repo": "blankhoney/reno_rss"},
         "operation": {"fullSha": OPERATION_SHA},
@@ -66,6 +66,9 @@ def _receipt(phase: str, runtime: str) -> dict:
             "stagingWebAttachedToProductionEdge": False,
         },
     }
+    if phase in {"post-rollback", "post-compensation"}:
+        receipt["rollback"] = {"rollbackFrom": PREVIOUS_SHA, "target": OPERATION_SHA}
+    return receipt
 
 
 def _frame(phase: str, runtime: str) -> str:
@@ -153,3 +156,23 @@ def test_rejects_existing_output_and_wrong_request_final_phase(tmp_path):
 
     fresh = tmp_path / "fresh"
     assert validator.main(_arguments(stdout, fresh)) == 1
+
+
+def test_persists_strict_early_compensation_without_fake_pre_activation(tmp_path):
+    stdout = tmp_path / "ssh.stdout"
+    stdout.write_text(
+        "\n".join(
+            (
+                _frame("pre-mutation", PREVIOUS_SHA),
+                _frame("post-compensation", PREVIOUS_SHA),
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    receipt_dir = tmp_path / "receipts"
+    assert validator.main(_arguments(stdout, receipt_dir, "compensation")) == 0
+    assert sorted(path.name for path in receipt_dir.iterdir()) == [
+        "post-compensation.json",
+        "pre-mutation.json",
+    ]

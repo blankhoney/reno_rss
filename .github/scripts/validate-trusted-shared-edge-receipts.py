@@ -225,20 +225,28 @@ def main(argv: list[str] | None = None) -> int:
             frames[phase] = validate_receipt(
                 receipt, operation_sha=operation_sha, workflow_run=workflow_run, phase=phase
             )
-        required = {"pre-mutation", "pre-activation"}
+        required = {"pre-mutation"}
         final = "post-activation" if args.request_type == "deploy" else "post-rollback"
-        required.add(final if args.expect == "success" else "post-compensation")
+        if args.expect == "success":
+            required.update(("pre-activation", final))
+        else:
+            required.add("post-compensation")
         if not required.issubset(frames):
             reject("missing required shared-edge receipt phase")
         pre_runtime = frames["pre-mutation"]["runtime"]["fullSha"]
-        if pre_runtime != frames["pre-activation"]["runtime"]["fullSha"]:
+        if (
+            "pre-activation" in frames
+            and pre_runtime != frames["pre-activation"]["runtime"]["fullSha"]
+        ):
             reject("pre-mutation and pre-activation runtime must match")
         if pre_runtime == operation_sha:
             reject("pre-activation runtime must differ from operation")
         allowed = {"pre-mutation", "pre-activation", final}
         if args.expect == "compensation":
-            allowed = {"pre-mutation", "pre-activation", "post-compensation"}
-            allowed.add(final)
+            if "pre-activation" not in frames:
+                allowed = {"pre-mutation", "post-compensation"}
+            else:
+                allowed = {"pre-mutation", "pre-activation", "post-compensation", final}
         if not set(frames).issubset(allowed):
             reject("receipt phase is not valid for the transaction outcome")
         for rollback_phase in ("post-rollback", "post-compensation"):

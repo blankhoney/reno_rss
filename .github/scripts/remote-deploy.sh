@@ -138,9 +138,10 @@ print(matches[0])
 verify_image(){ local image="$1" sha="$2" revision;docker pull "$image" >/dev/null;revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")";[[ "$revision" == "$sha" ]]||die "OCI revision mismatch for ${image%%@*}"; }
 reject_grafts(){ local path;path="$(git --no-replace-objects rev-parse --git-path info/grafts)"||return;[[ ! -s "$path" ]]||die 'legacy Git grafts are forbidden'; }
 prepare_control_plane(){ cd "$VPS_APP_DIR";[[ -d .git ]]||die 'VPS_APP_DIR is not a Git repository';[[ -z "$(git --no-replace-objects status --porcelain --untracked-files=all)" ]]||die 'VPS worktree is dirty';export GIT_NO_REPLACE_OBJECTS=1;reject_grafts;[[ "$(git --no-replace-objects rev-parse --is-shallow-repository)" == false ]]||die 'VPS repository is shallow';git --no-replace-objects fetch --no-tags origin 'refs/heads/main:refs/remotes/origin/main';reject_grafts;local main_tip;main_tip="$(git --no-replace-objects rev-parse --verify 'refs/remotes/origin/main^{commit}')";[[ "$main_tip" == "$control_plane_sha" ]]||die 'control-plane SHA is not the fetched trusted main tip';git --no-replace-objects cat-file -e "$operation_sha^{commit}";git --no-replace-objects merge-base --is-ancestor "$operation_sha" "$control_plane_sha"||die 'operation SHA is not on trusted main';git --no-replace-objects checkout --detach "$control_plane_sha"; }
+production_backup_evidence=''
 run_production_prebackup(){
  [[ "$deploy_env" == prod ]]||return 0
- local output backup_dir checksum_file backup_root
+ local output backup_dir checksum_file backup_root checksum_digest
  if ! output="$(cd "$VPS_APP_DIR" && bash "$(repo_script infra/scripts/backup.sh)" prod 2>&1)";then
   printf '%s\n' "$output" >&2
   die 'production pre-mutation backup failed'
@@ -156,9 +157,27 @@ run_production_prebackup(){
  [[ "$(realpath -e -- "$backup_dir")" == "$backup_root/"* ]]||die 'production backup directory escaped the repository backup root'
  [[ "$(realpath -e -- "$checksum_file")" == "$(realpath -e -- "$backup_dir")/"* ]]||die 'production checksum escaped its backup directory'
  (cd "$backup_dir" && sha256sum -c -- "$checksum_file")||die 'production pre-mutation backup checksum verification failed'
+ read -r checksum_digest _ < <(sha256sum -- "$checksum_file")
+ [[ "$checksum_digest" =~ ^[0-9a-f]{64}$ ]]||die 'production checksum evidence digest is invalid'
+ production_backup_evidence="$transaction_dir/production-backup-evidence.json"
+ python3 - "$production_backup_evidence" "$operation_sha" "$backup_dir" "$checksum_file" "$checksum_digest" <<'PY'
+import json,os,sys
+path,operation,backup_dir,checksum_file,digest=sys.argv[1:]
+payload={
+ "contractVersion":"trusted-production-backup/v1",
+ "workflowOperationSha":operation,
+ "environment":"prod",
+ "backupDir":backup_dir,
+ "checksumFile":checksum_file,
+ "checksumDigest":f"sha256:{digest}",
+}
+fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+with os.fdopen(fd,"w",encoding="utf-8") as output:
+ json.dump(payload,output,sort_keys=True,separators=(",",":"));output.write("\n")
+PY
  printf 'trusted production pre-mutation backup verified: %s\n' "$backup_dir"
 }
-activate_release(){ local sha="$1" web="$2" api="$3" worker="$4";[[ "$(git --no-replace-objects rev-parse HEAD)" == "$control_plane_sha" ]]||return;IMAGE_REGISTRY="ghcr.io/${owner_repo,,}" AI_READER_WEB_IMAGE="$web" AI_READER_API_IMAGE="$api" AI_READER_WORKER_IMAGE="$worker" LOCAL_BUILD=0 bash "$(repo_script infra/scripts/deploy.sh)" "$deploy_env" "sha-${sha}"||return;bash "$(repo_script infra/scripts/smoke-test.sh)" "$deploy_env"||return;[[ "$(read_runtime_sha)" == "$sha" ]]; }
+activate_release(){ local sha="$1" web="$2" api="$3" worker="$4";[[ "$(git --no-replace-objects rev-parse HEAD)" == "$control_plane_sha" ]]||return;IMAGE_REGISTRY="ghcr.io/${owner_repo,,}" AI_READER_WEB_IMAGE="$web" AI_READER_API_IMAGE="$api" AI_READER_WORKER_IMAGE="$worker" LOCAL_BUILD=0 TRUSTED_PRODUCTION_BACKUP_EVIDENCE="$production_backup_evidence" TRUSTED_DEPLOY_OPERATION_SHA="$operation_sha" bash "$(repo_script infra/scripts/deploy.sh)" "$deploy_env" "sha-${sha}"||return;bash "$(repo_script infra/scripts/smoke-test.sh)" "$deploy_env"||return;[[ "$(read_runtime_sha)" == "$sha" ]]; }
 compensation_probe(){ local phase="$1" runtime="$2" rollback_from="$3" target="$4";run_probe "$phase" "$runtime" --rollback-from-sha "$rollback_from" --rollback-target-sha "$target"; }
 rollback_web='';rollback_api='';rollback_worker=''
 ensure_shared_edge(){ bash "$(contract_script ensure-shared-edge.sh)"; }
