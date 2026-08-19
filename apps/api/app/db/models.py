@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     MetaData,
     Numeric,
+    String,
     Table,
     Text,
     UniqueConstraint,
@@ -275,6 +276,8 @@ article_annotations = Table(
     Column("type", Text, nullable=False),
     Column("selected_text", Text),
     Column("content", Text, nullable=False),
+    Column("create_idempotency_key", Text),
+    Column("create_request_fingerprint", String(64)),
     Column("next_review_at", DateTime(timezone=True)),
     Column("interval_days", Integer, nullable=False, server_default=text("1")),
     Column("review_count", Integer, nullable=False, server_default=text("0")),
@@ -284,6 +287,14 @@ article_annotations = Table(
     Column("deleted_by", UUID(as_uuid=True), ForeignKey("app_users.id")),
     Column("delete_reason", Text),
     CheckConstraint("type IN ('annotation', 'comment', 'review')", name="ck_annotations_type"),
+    CheckConstraint(
+        "(create_idempotency_key IS NULL) = (create_request_fingerprint IS NULL)",
+        name="ck_annotations_create_idempotency_pair",
+    ),
+    CheckConstraint(
+        "create_request_fingerprint IS NULL OR create_request_fingerprint ~ '^[0-9a-f]{64}$'",
+        name="ck_annotations_create_request_fingerprint",
+    ),
 )
 
 user_memories = Table(
@@ -532,6 +543,13 @@ Index(
     postgresql_where=article_annotations.c.deleted_at.is_(None),
 )
 Index("ix_annotations_user", article_annotations.c.user_id)
+Index(
+    "uq_annotations_user_create_idempotency_key",
+    article_annotations.c.user_id,
+    article_annotations.c.create_idempotency_key,
+    unique=True,
+    postgresql_where=article_annotations.c.create_idempotency_key.is_not(None),
+)
 Index(
     "ix_annotations_user_next_review",
     article_annotations.c.user_id,

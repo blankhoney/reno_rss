@@ -141,6 +141,19 @@ class AnnotationDeleteResult(StrEnum):
     NOT_FOUND_OR_NOT_OWNER = "not_found_or_not_owner"
 
 
+class AnnotationCreateResultKind(StrEnum):
+    CREATED = "created"
+    REPLAYED = "replayed"
+    MISSING_ARTICLE = "missing_article"
+    CONFLICT = "conflict"
+
+
+@dataclass(frozen=True)
+class AnnotationCreateResult:
+    kind: AnnotationCreateResultKind
+    annotation: AnnotationRecord | None = None
+
+
 @dataclass(frozen=True)
 class AnnotationRecord:
     id: int
@@ -157,6 +170,8 @@ class AnnotationRecord:
     deleted_at: datetime | None = None
     deleted_by: UUID | None = None
     delete_reason: str | None = None
+    create_idempotency_key: str | None = None
+    create_request_fingerprint: str | None = None
 
 
 class ArticleStore(Protocol):
@@ -265,6 +280,18 @@ class ArticleStore(Protocol):
         selected_text: str | None = None,
         annotation_type: str = "annotation",
     ) -> AnnotationRecord | None: ...
+
+    def create_annotation_idempotent(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        idempotency_key: str,
+        request_fingerprint: str,
+        content: str,
+        selected_text: str | None = None,
+        annotation_type: str = "annotation",
+    ) -> AnnotationCreateResult: ...
 
     def get_feedback(self, user_id: UUID, article_id: int) -> ArticleFeedbackRecord | None: ...
 
@@ -418,6 +445,7 @@ class MemoryArticleRepository:
         self._states: dict[tuple[UUID, int], ArticleStateRecord] = {}
         self._feedbacks: dict[tuple[UUID, int], ArticleFeedbackRecord] = {}
         self._annotations: dict[int, AnnotationRecord] = {}
+        self._annotation_ids_by_create_key: dict[tuple[UUID, str], int] = {}
         # user_id -> feed_id -> {hidden, quality_score, user_priority}
         self._feed_governance: dict[tuple[UUID, int], dict[str, object]] = {}
         self._next_id = 1
@@ -797,6 +825,7 @@ class MemoryArticleRepository:
         self._annotations[annotation_id] = updated
         return updated
 
+    @_with_memory_article_lock
     def create_annotation(
         self,
         user_id: UUID,
@@ -830,6 +859,56 @@ class MemoryArticleRepository:
         self._annotations[record.id] = record
         self._next_annotation_id += 1
         return record
+
+    @_with_memory_article_lock
+    def create_annotation_idempotent(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        idempotency_key: str,
+        request_fingerprint: str,
+        content: str,
+        selected_text: str | None = None,
+        annotation_type: str = "annotation",
+    ) -> AnnotationCreateResult:
+        from app.domain.spaced_review import initial_review_schedule
+
+        if article_id not in self._articles:
+            return AnnotationCreateResult(AnnotationCreateResultKind.MISSING_ARTICLE)
+        existing_id = self._annotation_ids_by_create_key.get((user_id, idempotency_key))
+        if existing_id is not None:
+            existing = self._annotations[existing_id]
+            if (
+                existing.article_id != article_id
+                or existing.create_request_fingerprint != request_fingerprint
+                or existing.deleted_at is not None
+            ):
+                return AnnotationCreateResult(AnnotationCreateResultKind.CONFLICT)
+            return AnnotationCreateResult(AnnotationCreateResultKind.REPLAYED, existing)
+        if annotation_type not in {"annotation", "comment", "review"}:
+            raise ValueError("unsupported annotation type")
+        now = datetime.now(UTC)
+        schedule = initial_review_schedule(now)
+        record = AnnotationRecord(
+            id=self._next_annotation_id,
+            article_id=article_id,
+            user_id=user_id,
+            type=annotation_type,
+            selected_text=selected_text,
+            content=content,
+            created_at=now,
+            updated_at=now,
+            next_review_at=schedule.next_review_at,
+            interval_days=schedule.interval_days,
+            review_count=schedule.review_count,
+            create_idempotency_key=idempotency_key,
+            create_request_fingerprint=request_fingerprint,
+        )
+        self._annotations[record.id] = record
+        self._annotation_ids_by_create_key[(user_id, idempotency_key)] = record.id
+        self._next_annotation_id += 1
+        return AnnotationCreateResult(AnnotationCreateResultKind.CREATED, record)
 
     def get_feedback(self, user_id: UUID, article_id: int) -> ArticleFeedbackRecord | None:
         return self._feedbacks.get((user_id, article_id))
@@ -1426,6 +1505,86 @@ class DatabaseArticleRepository:
             )
         return _annotation_from_row(row)
 
+    def create_annotation_idempotent(
+        self,
+        user_id: UUID,
+        article_id: int,
+        *,
+        idempotency_key: str,
+        request_fingerprint: str,
+        content: str,
+        selected_text: str | None = None,
+        annotation_type: str = "annotation",
+    ) -> AnnotationCreateResult:
+        from app.domain.spaced_review import initial_review_schedule
+
+        if annotation_type not in {"annotation", "comment", "review"}:
+            raise ValueError("unsupported annotation type")
+        now = datetime.now(UTC)
+        schedule = initial_review_schedule(now)
+        with self.engine.begin() as connection:
+            article_exists = connection.execute(
+                select(articles.c.id).where(articles.c.id == article_id)
+            ).scalar_one_or_none()
+            if article_exists is None:
+                return AnnotationCreateResult(AnnotationCreateResultKind.MISSING_ARTICLE)
+            if self.engine.dialect.name != "postgresql":
+                raise RuntimeError("idempotent annotation create requires PostgreSQL")
+            row = (
+                connection.execute(
+                    pg_insert(article_annotations)
+                    .values(
+                        article_id=article_id,
+                        user_id=user_id,
+                        type=annotation_type,
+                        selected_text=selected_text,
+                        content=content,
+                        create_idempotency_key=idempotency_key,
+                        create_request_fingerprint=request_fingerprint,
+                        created_at=now,
+                        updated_at=now,
+                        next_review_at=schedule.next_review_at,
+                        interval_days=schedule.interval_days,
+                        review_count=schedule.review_count,
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=[
+                            article_annotations.c.user_id,
+                            article_annotations.c.create_idempotency_key,
+                        ],
+                        index_where=article_annotations.c.create_idempotency_key.is_not(None),
+                    )
+                    .returning(article_annotations)
+                )
+                .mappings()
+                .first()
+            )
+            if row is not None:
+                return AnnotationCreateResult(
+                    AnnotationCreateResultKind.CREATED,
+                    _annotation_from_row(row),
+                )
+            existing = (
+                connection.execute(
+                    select(article_annotations)
+                    .where(
+                        article_annotations.c.user_id == user_id,
+                        article_annotations.c.create_idempotency_key == idempotency_key,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .one()
+            )
+            record = _annotation_from_row(existing)
+            if (
+                record.article_id != article_id
+                or record.create_request_fingerprint != request_fingerprint
+                or record.deleted_at is not None
+            ):
+                return AnnotationCreateResult(AnnotationCreateResultKind.CONFLICT)
+            return AnnotationCreateResult(AnnotationCreateResultKind.REPLAYED, record)
+
     def get_states(self, user_id: UUID, article_ids: list[int]) -> dict[int, ArticleStateRecord]:
         unique_article_ids = _unique_article_ids(article_ids)
         if not unique_article_ids:
@@ -2006,6 +2165,8 @@ def _annotation_from_row(row) -> AnnotationRecord:
         deleted_at=_row_get(row, "deleted_at"),
         deleted_by=_row_get(row, "deleted_by"),
         delete_reason=_row_get(row, "delete_reason"),
+        create_idempotency_key=_row_get(row, "create_idempotency_key"),
+        create_request_fingerprint=_row_get(row, "create_request_fingerprint"),
     )
 
 

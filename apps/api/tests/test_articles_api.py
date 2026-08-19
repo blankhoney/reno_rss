@@ -378,6 +378,132 @@ async def test_article_annotations_are_private_to_current_user(app, client):
     assert listed.json()["items"][0]["id"] == created.json()["annotation"]["id"]
     assert listed.json()["items"][0]["anchor"] == anchor
     assert missing.status_code == 404
+    assert created.json()["replayed"] is False
+
+
+@pytest.mark.asyncio
+async def test_annotation_create_idempotency_replays_and_is_owner_scoped(app, client):
+    from app.core.security import SESSION_COOKIE_NAME
+
+    owner, owner_token, _ = app.state.auth_store.create_user("Idempotency Owner")
+    _, other_token, _ = app.state.auth_store.create_user("Idempotency Other")
+    article = app.state.article_repository.upsert_from_source(
+        {
+            "feed_id": 1,
+            "miniflux_entry_id": 308,
+            "url": "https://example.com/annotation-idempotency",
+            "title": "Annotation idempotency",
+        }
+    )
+    payload = {"content": "same note", "type": "comment", "tags": ["ai"]}
+    key = "annotation-key-001"
+    client.cookies.set(SESSION_COOKIE_NAME, owner_token)
+    created = await client.post(f"/api/articles/{article.id}/annotations", json=payload, headers={"Idempotency-Key": key})
+    replayed = await client.post(f"/api/articles/{article.id}/annotations", json=payload, headers={"Idempotency-Key": key})
+    assert created.status_code == 201
+    assert created.json()["replayed"] is False
+    assert replayed.status_code == 200
+    assert replayed.json()["replayed"] is True
+    assert replayed.json()["annotation"]["id"] == created.json()["annotation"]["id"]
+    assert len((await client.get(f"/api/articles/{article.id}/annotations")).json()["items"]) == 1
+
+    client.cookies.set(SESSION_COOKIE_NAME, other_token)
+    other = await client.post(f"/api/articles/{article.id}/annotations", json=payload, headers={"Idempotency-Key": key})
+    assert other.status_code == 201
+    assert other.json()["annotation"]["id"] != created.json()["annotation"]["id"]
+    assert [item["id"] for item in (await client.get(f"/api/articles/{article.id}/annotations")).json()["items"]] == [other.json()["annotation"]["id"]]
+    assert owner.id != app.state.auth_store.get_user_by_session(other_token).id
+
+
+@pytest.mark.asyncio
+async def test_annotation_create_idempotency_conflict_and_soft_delete(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Idempotency Conflict"})
+    first_article = app.state.article_repository.upsert_from_source(
+        {"feed_id": 1, "miniflux_entry_id": 309, "url": "https://example.com/annotation-conflict-1", "title": "Conflict 1"}
+    )
+    second_article = app.state.article_repository.upsert_from_source(
+        {"feed_id": 1, "miniflux_entry_id": 310, "url": "https://example.com/annotation-conflict-2", "title": "Conflict 2"}
+    )
+    key = "annotation-key-002"
+    payload = {"content": "note", "selected_text": "quote", "type": "comment", "color": "yellow", "tags": ["ai"]}
+    created = await client.post(f"/api/articles/{first_article.id}/annotations", json=payload, headers={"Idempotency-Key": key})
+    changed = await client.post(f"/api/articles/{first_article.id}/annotations", json={**payload, "content": "changed"}, headers={"Idempotency-Key": key})
+    other_article = await client.post(f"/api/articles/{second_article.id}/annotations", json=payload, headers={"Idempotency-Key": key})
+    assert created.status_code == 201
+    assert changed.status_code == other_article.status_code == 409
+    assert changed.json()["error"]["code"] == "idempotency_conflict"
+    assert len((await client.get(f"/api/articles/{first_article.id}/annotations")).json()["items"]) == 1
+    annotation_id = created.json()["annotation"]["id"]
+    assert (await client.delete(f"/api/annotations/{annotation_id}")).status_code == 200
+    deleted_retry = await client.post(f"/api/articles/{first_article.id}/annotations", json=payload, headers={"Idempotency-Key": key})
+    assert deleted_retry.status_code == 409
+    assert len((await client.get(f"/api/articles/{first_article.id}/annotations")).json()["items"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_annotation_create_without_key_keeps_legacy_duplicate_behavior(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Legacy Annotation"})
+    article = app.state.article_repository.upsert_from_source(
+        {"feed_id": 1, "miniflux_entry_id": 311, "url": "https://example.com/annotation-legacy", "title": "Legacy"}
+    )
+    payload = {"content": "same note"}
+    first = await client.post(f"/api/articles/{article.id}/annotations", json=payload)
+    second = await client.post(f"/api/articles/{article.id}/annotations", json=payload)
+    assert first.status_code == second.status_code == 201
+    assert first.json()["replayed"] is second.json()["replayed"] is False
+    assert first.json()["annotation"]["id"] != second.json()["annotation"]["id"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["short", "has space annotation", "annotation,key-001", "annotation/key-001", "x" * 129])
+async def test_annotation_create_rejects_invalid_idempotency_key(app, client, key):
+    from app.core.security import SESSION_COOKIE_NAME
+
+    await client.post("/api/auth/login", json={"display_name": "Invalid Idempotency"})
+    article = app.state.article_repository.upsert_from_source(
+        {"feed_id": 1, "miniflux_entry_id": 312, "url": f"https://example.com/invalid-key-{len(key)}", "title": "Invalid key"}
+    )
+    response = await client.post(f"/api/articles/{article.id}/annotations", json={"content": "note"}, headers={"Idempotency-Key": key})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "unprocessable"
+    assert response.json()["error"]["details"]["errors"][0]["loc"] == ["header", "Idempotency-Key"]
+    assert app.state.article_repository.list_annotations_for_articles(
+        app.state.auth_store.get_user_by_session(client.cookies.get(SESSION_COOKIE_NAME)).id, [article.id]
+    ) == {}
+
+
+@pytest.mark.asyncio
+async def test_annotation_create_rejects_duplicate_raw_header_and_malformed_body(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Raw Header"})
+    article = app.state.article_repository.upsert_from_source(
+        {"feed_id": 1, "miniflux_entry_id": 313, "url": "https://example.com/raw-header", "title": "Raw header"}
+    )
+    duplicate = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        content=b'{"content":"note"}',
+        headers=[("Content-Type", "application/json"), ("Idempotency-Key", "annotation-key-003"), ("Idempotency-Key", "annotation-key-004")],
+    )
+    malformed = await client.post(
+        f"/api/articles/{article.id}/annotations",
+        content=b'{"content":"note",',
+        headers={"Content-Type": "application/json"},
+    )
+    assert duplicate.status_code == malformed.status_code == 422
+    assert duplicate.json()["error"]["details"]["errors"][0]["loc"] == ["header", "Idempotency-Key"]
+    malformed_location = malformed.json()["error"]["details"]["errors"][0]["loc"]
+    assert malformed_location[0] == "body"
+    assert isinstance(malformed_location[1], int) and malformed_location[1] >= 0
+
+
+@pytest.mark.asyncio
+async def test_annotation_create_rejects_extra_body_fields(app, client):
+    await client.post("/api/auth/login", json={"display_name": "Extra Annotation"})
+    article = app.state.article_repository.upsert_from_source(
+        {"feed_id": 1, "miniflux_entry_id": 314, "url": "https://example.com/extra-body", "title": "Extra body"}
+    )
+    response = await client.post(f"/api/articles/{article.id}/annotations", json={"content": "note", "request_fingerprint": "bad"})
+    assert response.status_code == 422
+    assert response.json()["error"]["details"]["errors"][0]["loc"] == ["body", "request_fingerprint"]
 
 
 @pytest.mark.asyncio
@@ -512,6 +638,16 @@ async def test_annotation_edit_and_soft_delete_preserve_anchor_and_visibility(ap
     assert (await client.get("/api/annotations/review")).json()["items"] == []
 
 
+def test_annotation_create_openapi_declares_typed_errors(app):
+    operation = app.openapi()["paths"]["/api/articles/{article_id}/annotations"]["post"]
+    for status in ("404", "409", "422"):
+        response = operation["responses"][status]
+        assert response["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ApiErrorResponse"
+        }
+    assert app.openapi()["components"]["schemas"]["ApiErrorResponse"]["required"] == ["error"]
+
+
 def test_annotation_delete_openapi_declares_typed_success_and_not_found(app):
     operation = app.openapi()["paths"]["/api/annotations/{annotation_id}"]["delete"]
     assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
@@ -522,6 +658,45 @@ def test_annotation_delete_openapi_declares_typed_success_and_not_found(app):
     assert schema["required"] == ["id"]
     assert schema["properties"]["deleted"]["const"] is True
     assert schema["properties"]["id"]["type"] == "integer"
+
+
+def test_memory_annotation_create_idempotency_is_atomic():
+    from app.db.repositories.articles import AnnotationCreateResultKind, MemoryArticleRepository
+    from app.domain.annotation_create import prepare_annotation_create
+    from uuid import uuid4
+
+    repository = MemoryArticleRepository()
+    owner_id = uuid4()
+    article = repository.upsert_from_source(
+        {"feed_id": 1, "miniflux_entry_id": 9010, "url": "https://example.com/memory-create-race", "title": "Memory create race"}
+    )
+    prepared = prepare_annotation_create(
+        content="race", selected_text=None, annotation_type="annotation", color=None, tags=[], anchor=None
+    )
+    barrier = Barrier(2)
+    results = []
+    errors = []
+
+    def create() -> None:
+        try:
+            barrier.wait()
+            results.append(repository.create_annotation_idempotent(
+                owner_id, article.id, idempotency_key="memory-key-001",
+                request_fingerprint=prepared.request_fingerprint, content=prepared.stored_content,
+            ))
+        except BaseException as error:
+            errors.append(error)
+
+    threads = [Thread(target=create), Thread(target=create)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+    assert errors == []
+    assert [result.kind for result in results].count(AnnotationCreateResultKind.CREATED) == 1
+    assert [result.kind for result in results].count(AnnotationCreateResultKind.REPLAYED) == 1
+    assert len(repository.list_annotations(owner_id, article.id)) == 1
 
 
 def test_memory_annotation_delete_is_atomic_and_typed():

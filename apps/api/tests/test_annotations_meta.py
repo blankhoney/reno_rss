@@ -122,3 +122,48 @@ def test_searchable_annotation_body_excludes_encoded_meta():
     )
 
     assert searchable_annotation_body(stored) == "current body"
+
+
+def test_prepare_annotation_create_fingerprint_is_canonical_and_field_sensitive():
+    from app.domain.annotation_create import prepare_annotation_create
+
+    anchor = {
+        "kind": "text-quote",
+        "version": 1,
+        "exact": "quoted",
+        "prefix": "before",
+        "suffix": "after",
+        "start": 4,
+        "end": 10,
+    }
+    first = prepare_annotation_create(
+        content="note",
+        selected_text="quoted",
+        annotation_type="comment",
+        color="yellow",
+        tags=["ai", "research"],
+        anchor=anchor,
+    )
+    reordered = prepare_annotation_create(
+        anchor={"end": 10, "start": 4, "suffix": "after", "prefix": "before", "exact": "quoted", "version": 1, "kind": "text-quote"},
+        content="note",
+        selected_text="quoted",
+        annotation_type="comment",
+        color="yellow",
+        tags=["ai", "research"],
+    )
+    assert first.request_fingerprint == reordered.request_fingerprint
+    assert first.stored_content != first.content
+    assert all(
+        prepare_annotation_create(
+            content="changed" if field == "content" else first.content,
+            selected_text="changed" if field == "selected_text" else first.selected_text,
+            annotation_type="annotation" if field == "type" else first.annotation_type,
+            color="blue" if field == "color" else first.color,
+            tags=["other"] if field == "tags" else list(first.tags),
+            anchor=None if field == "anchor" else anchor,
+        ).request_fingerprint != first.request_fingerprint
+        for field in ("content", "selected_text", "type", "color", "tags", "anchor")
+    )
+    assert first.anchor == anchor
+    assert first.tags == ("ai", "research")
