@@ -474,6 +474,7 @@ jobs:
       - name: Test shared VPS contract
         run: |
           bash -n \
+            .github/scripts/validate-known-hosts.sh \
             infra/deploy/with-shared-release-lock.sh \
             infra/deploy/ensure-shared-edge.sh \
             infra/deploy/verify-shared-edge.sh
@@ -481,7 +482,8 @@ jobs:
             infra/deploy/tests/shared-release-lock.test.mjs \
             infra/deploy/tests/ensure-shared-edge.test.mjs \
             infra/deploy/tests/cross-site-probe.test.mjs \
-            infra/deploy/tests/shared-edge-compose.test.mjs
+            infra/deploy/tests/shared-edge-compose.test.mjs \
+            infra/deploy/tests/known-hosts-contract.test.mjs
 
       - name: Build Docker images
         run: |

@@ -32,3 +32,6 @@
 - Shared Caddy compose declares both production networks and no longer performs
   an unconditional force-recreate during an RSS business deploy. Any required
   compose activation is followed by the fixed recovery gate before reload.
+- SSH trust is pre-provisioned rather than learned at deploy time. The exact
+  OpenSSH host token must exist for the configured port (`host` for 22 or
+  `[host]:port` otherwise); bare-host fallback on a non-default port is rejected.
