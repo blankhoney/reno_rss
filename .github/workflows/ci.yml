@@ -480,7 +480,8 @@ jobs:
           node --test \
             infra/deploy/tests/shared-release-lock.test.mjs \
             infra/deploy/tests/ensure-shared-edge.test.mjs \
-            infra/deploy/tests/cross-site-probe.test.mjs
+            infra/deploy/tests/cross-site-probe.test.mjs \
+            infra/deploy/tests/shared-edge-compose.test.mjs
 
       - name: Build Docker images
         run: |

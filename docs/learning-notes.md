@@ -29,3 +29,6 @@
 - CI runs the lock, recovery, and cross-site contract fixtures together on
   Ubuntu so macOS environments without `flock` cannot be mistaken for release
   evidence.
+- Shared Caddy compose declares both production networks and no longer performs
+  an unconditional force-recreate during an RSS business deploy. Any required
+  compose activation is followed by the fixed recovery gate before reload.

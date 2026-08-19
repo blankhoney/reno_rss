@@ -28,9 +28,9 @@ services:
       - caddy_data:/data         # 证书缓存，重建容器不丢证书
       - caddy_config:/config
       - /srv/caddy-conf.d:/etc/caddy/conf.d:ro
-      - /srv/caddy-conf.d:/etc/caddy/conf.d:ro
     networks:
       - app                      # 通过此网络访问后端服务别名
+      - brianstorm_edge         # Blog production edge; external lifecycle
     deploy:
       resources:
         limits:
@@ -41,6 +41,9 @@ networks:
   app:
     name: myrss-app              # 全局共享网络，prod/staging 后端也接入这个网络
     driver: bridge
+  brianstorm_edge:
+    name: brianstorm-edge
+    external: true
 
 volumes:
   caddy_data:

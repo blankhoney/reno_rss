@@ -225,7 +225,12 @@ IMAGE_TAG="$TAG" docker compose \
     -p "myrss-edge" \
     --env-file "$REPO_ROOT/.env" \
     -f "$REPO_ROOT/infra/compose/docker-compose.edge.yml" \
-    up -d --force-recreate --remove-orphans
+    up -d --remove-orphans
+
+# Compose declares both production edge networks, and this recovery closes any
+# attachment drift caused by an interrupted recreate without touching Blog
+# containers or creating a competing network lifecycle.
+bash "$REPO_ROOT/infra/deploy/ensure-shared-edge.sh"
 
 echo "🔁 校验并重载 Caddy 配置..."
 docker compose \
