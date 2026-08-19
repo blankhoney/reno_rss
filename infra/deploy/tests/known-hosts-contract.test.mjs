@@ -70,4 +70,8 @@ test('fails closed on invalid identity, port, empty file, or symlinked known_hos
 
   const source = await readFile(validator, 'utf8');
   assert.equal(source.includes('ssh-keyscan'), false);
+  assert.ok(
+    source.indexOf("stat -c '%a'") < source.indexOf("stat -f '%Lp'"),
+    'Linux must use GNU stat directly instead of treating GNU stat -f output as a BSD mode',
+  );
 });

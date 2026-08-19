@@ -25,7 +25,13 @@ die() {
 [[ -f "$VPS_KNOWN_HOSTS_FILE" && -s "$VPS_KNOWN_HOSTS_FILE" ]] \
     || die 'known_hosts must be a non-empty regular file'
 
-mode="$(stat -f '%Lp' "$VPS_KNOWN_HOSTS_FILE" 2>/dev/null || stat -c '%a' "$VPS_KNOWN_HOSTS_FILE")"
+if mode="$(stat -c '%a' "$VPS_KNOWN_HOSTS_FILE" 2>/dev/null)"; then
+    : # GNU stat (Linux)
+elif mode="$(stat -f '%Lp' "$VPS_KNOWN_HOSTS_FILE" 2>/dev/null)"; then
+    : # BSD stat (macOS)
+else
+    die 'known_hosts mode could not be inspected'
+fi
 [[ "$mode" == '600' ]] || die 'known_hosts must have mode 0600'
 command -v ssh-keygen >/dev/null 2>&1 || die 'ssh-keygen is required'
 
