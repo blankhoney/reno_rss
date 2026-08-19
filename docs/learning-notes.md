@@ -23,3 +23,6 @@
   remote transaction. The live file descriptor is authoritative over TTL;
   residual metadata is quarantined only after acquiring the lock, and release
   requires the exact owner, repository, SHA, run, and random token.
+- CI runs the lock, recovery, and cross-site contract fixtures together on
+  Ubuntu so macOS environments without `flock` cannot be mistaken for release
+  evidence.
