@@ -35,3 +35,8 @@
 - SSH trust is pre-provisioned rather than learned at deploy time. The exact
   OpenSSH host token must exist for the configured port (`host` for 22 or
   `[host]:port` otherwise); bare-host fallback on a non-default port is rejected.
+- PostgreSQL snapshot-restore evidence retains `pg_restore` stderr and logs
+  safe observed migration/fixture identifiers before exact fail-closed checks,
+  so a failed restore artifact is diagnostic evidence rather than a success
+  receipt. The disposable verification database is dropped before and after
+  every attempt.
