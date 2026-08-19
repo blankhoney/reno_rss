@@ -55,6 +55,7 @@ TERMINAL_NON_SUCCESS_CONCLUSIONS = {
     "startup_failure",
     "timed_out",
 }
+TERMINAL_CONCLUSIONS = TERMINAL_NON_SUCCESS_CONCLUSIONS | {"success"}
 
 
 class BaselineError(ValueError):
@@ -467,10 +468,7 @@ def validate_run(
         _candidate_reject(f"run {run_id} is not completed")
     if status != "completed":
         _reject("run.status mismatch")
-    conclusion = run.get("conclusion")
-    if conclusion in TERMINAL_NON_SUCCESS_CONCLUSIONS:
-        _candidate_reject(f"run {run_id} did not succeed")
-    if conclusion != "success":
+    if run.get("conclusion") not in TERMINAL_CONCLUSIONS:
         _reject("run.conclusion mismatch")
     return run_id, run_attempt, head_sha
 
@@ -482,16 +480,24 @@ def validate_jobs(
     if len(matches) != 1:
         _reject("attempt must contain exactly one checks display-name job")
     job = matches[0]
-    expected = {
+    identity = {
         "run_id": run_id,
         "run_attempt": run_attempt,
         "head_sha": head_sha,
-        "status": "completed",
-        "conclusion": "success",
     }
-    for key, value in expected.items():
+    for key, value in identity.items():
         if job.get(key) != value:
             _reject(f"checks job {key} mismatch")
+    status = job.get("status")
+    if status in {"queued", "in_progress", "requested", "waiting", "pending"}:
+        _candidate_reject(f"checks job for run {run_id} is not completed")
+    if status != "completed":
+        _reject("checks job status mismatch")
+    conclusion = job.get("conclusion")
+    if conclusion in TERMINAL_NON_SUCCESS_CONCLUSIONS:
+        _candidate_reject(f"checks job for run {run_id} did not succeed")
+    if conclusion != "success":
+        _reject("checks job conclusion mismatch")
 
 
 def _validate_artifact_workflow_run(
