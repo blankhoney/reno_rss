@@ -350,7 +350,6 @@ def _promotion_proof(
         "schemaVersion",
         "repository",
         "operationSha",
-        "controlPlaneSha",
         "canonicalCi",
         "staging",
         "rollback",
@@ -363,7 +362,6 @@ def _promotion_proof(
         record_object.get("schemaVersion") != RELEASE_RECORD_SCHEMA
         or record_object.get("repository") != repository
         or record_object.get("operationSha") != operation_sha
-        or record_object.get("controlPlaneSha") != control_plane_sha
     ):
         _reject("release record is not bound to the operation provenance")
 

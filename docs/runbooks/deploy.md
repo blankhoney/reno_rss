@@ -90,16 +90,21 @@ digest, and rejects a proof whose inputs only assert success without matching
 current GitHub evidence.
 
 The release record uses strict schema `rss-production-release/v1`. It records
-the repository, candidate and control-plane full SHAs; canonical candidate CI
-workflow/run/attempt; publication artifact ID and GitHub SHA-256 digest; the
-full image tag and three image digests; the three staging run IDs and rollback
-target; and this exact plan contract:
+the repository and candidate full SHA; canonical candidate CI workflow/run/
+attempt; publication artifact ID and GitHub SHA-256 digest; the full image tag
+and three image digests; the three staging run IDs and rollback target; and this
+exact plan contract:
 
 - verified production backup before Compose or activation, checked by SHA-256;
 - forward-only migrations gated by that verified backup;
 - runtime-state-guarded rollback with post-rollback or post-compensation probe.
 
 Unknown or incomplete release-record fields fail closed.
+The record does not contain the SHA of the commit that contains it, which would
+be an impossible Git hash self-reference. Instead, the promotion proof binds
+the fetched record externally through the exact
+`<current-control-plane SHA>:docs/releases/<candidate SHA>.json` ref and its
+content digest.
 
 ## Creating a release request
 

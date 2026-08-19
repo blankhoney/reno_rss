@@ -109,8 +109,15 @@ def test_ci_concurrency_cancels_only_superseded_pr_runs():
 def test_ci_ignores_only_root_plans_and_docs_for_prs_and_main_pushes():
     source = _workflow_source()
 
-    assert _paths_ignore_entries(source, "pull_request") == ["PLANS.md", "docs/**"]
-    assert _paths_ignore_entries(source, "push") == ["PLANS.md", "docs/**"]
+    assert _paths_ignore_entries(source, "pull_request") == ["PLANS.md"]
+    assert _paths_ignore_entries(source, "push") == ["PLANS.md"]
+    assert "docs/**" not in source
+
+
+def test_release_record_commit_cannot_be_excluded_from_canonical_ci():
+    source = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "docs/**" not in source
+    assert "docs/releases" not in _paths_ignore_entries(source, "push")
     assert "**/*.md" not in source
 
 
@@ -1232,7 +1239,6 @@ def _promotion_receipt_zip(
 def _production_release_record(
     *,
     operation_sha: str,
-    control_plane_sha: str,
     rollback_target_sha: str,
     staging_run: int,
     rollback_run: int,
@@ -1243,7 +1249,6 @@ def _production_release_record(
         "schemaVersion": "rss-production-release/v1",
         "repository": TRUSTED_REPOSITORY,
         "operationSha": operation_sha,
-        "controlPlaneSha": control_plane_sha,
         "canonicalCi": {
             "workflowId": TRUSTED_CI_WORKFLOW_ID,
             "runId": TRUSTED_CI_RUN_ID,
@@ -1641,7 +1646,6 @@ def _promotion_validation_fixture() -> tuple[dict[str, Any], Any, dict[str, Any]
     publication_digest = f"sha256:{'e' * 64}"
     record_object = _production_release_record(
         operation_sha=operation,
-        control_plane_sha=control_plane,
         rollback_target_sha=rollback_target,
         staging_run=runs["staging"],
         rollback_run=runs["rollback"],
@@ -1771,6 +1775,7 @@ def test_production_promotion_validator_accepts_real_receipts_and_record():
         "record-digest",
         "record-ci",
         "record-plan",
+        "record-self-reference",
         "record-ref",
         "extra-proof-member",
     ),
@@ -1807,6 +1812,10 @@ def test_production_promotion_validator_rejects_tampered_evidence(mutation):
         proof["release_record"]["digest"] = f"sha256:{hashlib.sha256(record_bytes).hexdigest()}"
     elif mutation == "record-plan":
         api.record["plan"]["backup"]["required"] = False
+        record_bytes = json.dumps(api.record, sort_keys=True).encode()
+        proof["release_record"]["digest"] = f"sha256:{hashlib.sha256(record_bytes).hexdigest()}"
+    elif mutation == "record-self-reference":
+        api.record["controlPlaneSha"] = "c" * 40
         record_bytes = json.dumps(api.record, sort_keys=True).encode()
         proof["release_record"]["digest"] = f"sha256:{hashlib.sha256(record_bytes).hexdigest()}"
     elif mutation == "record-ref":

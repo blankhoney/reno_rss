@@ -5,13 +5,11 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - PLANS.md
-      - docs/**
   push:
     branches:
       - main
     paths-ignore:
       - PLANS.md
-      - docs/**
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}

@@ -71,7 +71,9 @@
   that target from the candidate, and forward activates the candidate again.
   The release record lives at the later pinned control-plane SHA and binds the
   candidate CI run/attempt, GitHub artifact digest, image digests, run IDs, and
-  backup/migration/rollback plan before production approval can execute.
+  backup/migration/rollback plan before production approval can execute. Its
+  Git ref binds the containing control-plane commit externally; the JSON must
+  not attempt an impossible self-reference to its own containing commit SHA.
 - GNU `stat -fLc %T` may report the local ext filesystem magic literally as
   `ext2/ext3`. All three shared-lock entrypoints accept that exact local value
   while continuing to reject network, distributed, or unknown filesystems and
