@@ -1174,6 +1174,7 @@ test("annotation selection retry uses current color and tags without changing it
   await resetFixtures(page);
   let postCount = 0;
   let submitted: Record<string, unknown> | null = null;
+  let updated: Record<string, unknown> | null = null;
   await page.route("**/api/articles/7/annotations", async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
@@ -1210,6 +1211,34 @@ test("annotation selection retry uses current color and tags without changing it
       }),
     });
   });
+  await page.route("**/api/annotations/65", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.fallback();
+      return;
+    }
+    updated = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 65,
+          article_id: 7,
+          type: "annotation",
+          selected_text: submitted?.selected_text,
+          content: updated.content,
+          color: updated.color,
+          tags: updated.tags,
+          anchor: submitted?.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          updated_at: "2026-07-27T00:00:01Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
 
   await page.goto("/read/7?module=all&sort=default&lang=zh");
   await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
@@ -1231,8 +1260,10 @@ test("annotation selection retry uses current color and tags without changing it
   expect(postCount).toBe(2);
   expect(submitted?.content).toBe("Evidence persists.");
   expect(submitted?.selected_text).toBe("Evidence persists.");
-  expect(submitted?.color).toBe("green");
-  expect(submitted?.tags).toEqual(["latest", "retry"]);
+  expect(submitted?.color).toBe("yellow");
+  expect(submitted?.tags).toEqual(["old"]);
+  expect(updated?.color).toBe("green");
+  expect(updated?.tags).toEqual(["latest", "retry"]);
   expect((submitted?.anchor as Record<string, unknown>).exact).toBe("Evidence persists.");
   await expect(page.locator('mark[data-annotation-id="65"]')).toBeVisible();
 });

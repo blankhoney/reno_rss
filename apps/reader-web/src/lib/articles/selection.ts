@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   buildTextQuoteAnchor,
   type ArticleAnnotationAnchor,
@@ -63,17 +63,20 @@ export function selectionAnchorWithinContainer(
 export function useArticleSelection(
   containerRef: RefObject<HTMLElement | null>,
   anchorContentRef?: RefObject<HTMLElement | null>,
+  beforeRevisionChangeRef?: RefObject<((nextRevision: number) => void) | null>,
 ) {
   const [selectedText, setSelectedText] = useState("");
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [settledAnchor, setSettledAnchor] = useState<ArticleAnnotationAnchor | null>(null);
   const [selectionRevision, setSelectionRevision] = useState(0);
+  const selectionRevisionRef = useRef(0);
 
   useEffect(() => {
     // While dragging, keep the captured text current but never show or reposition
     // the popover: a fixed popover that appears under the moving cursor flickers and
     // can intercept the gesture, collapsing the selection on pointer release.
     function syncSelectedText() {
+      if (document.activeElement?.closest(".selectionPopover, aside[aria-label=\"笔记双栏\"]") != null) return;
       const text = selectionTextWithinContainer(containerRef.current, window.getSelection());
       if (text != null) {
         setSelectedText(text);
@@ -94,7 +97,10 @@ export function useArticleSelection(
       const anchorSource = anchorContentRef?.current ?? containerRef.current;
       setSettledAnchor(selectionAnchorWithinContainer(anchorSource, range));
       setSelectionRect(selectionRectWithinContainer(containerRef.current, selection));
-      setSelectionRevision((revision) => revision + 1);
+      const nextRevision = selectionRevisionRef.current + 1;
+      beforeRevisionChangeRef?.current?.(nextRevision);
+      selectionRevisionRef.current = nextRevision;
+      setSelectionRevision(nextRevision);
     }
 
     function hidePopover() {
