@@ -148,6 +148,19 @@ async function assertProcessGroupStopped(pgid) {
   assert.fail(`live transaction process group ${pgid} survived wrapper completion`);
 }
 
+async function waitForLockRecovery(fix) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      await run(fix, [], ['bash', '-c', 'true']);
+      return;
+    } catch (error) {
+      if (error.code !== 75) throw error;
+    }
+    await pause(100);
+  }
+  assert.fail('transaction child did not release its inherited flock within 6 seconds');
+}
+
 flockTest('second owner fails closed while the first transaction holds the live flock', {}, async (t) => {
   const fix = await fixture();
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
@@ -333,11 +346,10 @@ flockTest('a crashed wrapper cannot release a transaction-held flock; recovery s
   assert.deepEqual(await exited, { code: null, signal: 'SIGKILL' });
   await assert.rejects(run(fix, [], ['bash', '-c', 'true']), (error) => error.code === 75);
 
-  // The child inherited the open flock FD.  It must finish before a later
-  // transaction can recover the crash metadata; sleeping past its bounded
-  // transaction demonstrates that recovery never steals a live mutation.
-  await new Promise((resolve) => setTimeout(resolve, 2200));
-  await run(fix, [], ['bash', '-c', 'true']);
+  // The child inherited the open flock FD. It must finish before a later
+  // transaction can recover the crash metadata. Polling accepts only the
+  // expected live-owner refusal and remains bounded on a loaded CI runner.
+  await waitForLockRecovery(fix);
   const events = await auditEvents(fix);
   assert.equal(events.some((event) => event.event === 'quarantined-residual-metadata'), true);
   await assertProcessGroupStopped(pgid);
