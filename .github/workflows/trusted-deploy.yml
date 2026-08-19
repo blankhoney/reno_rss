@@ -98,10 +98,10 @@ jobs:
           set -euo pipefail
           umask 077
           bash .github/scripts/validate-deploy-env.sh
-          [[ "$VPS_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( VPS_PORT <= 65535 )) || {
+          if [[ ! "$VPS_PORT" =~ ^[1-9][0-9]{0,4}$ ]] || (( VPS_PORT > 65535 )); then
             echo 'VPS_PORT must be a valid TCP port' >&2
             exit 1
-          }
+          fi
           [[ "$REQUEST_TYPE" == deploy || "$REQUEST_TYPE" == rollback ]] || {
             echo 'trusted request type is invalid' >&2
             exit 1
