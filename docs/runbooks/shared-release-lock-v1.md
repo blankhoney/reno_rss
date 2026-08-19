@@ -12,17 +12,23 @@ The fixed contract paths are:
 - `/usr/local/lib/reno-shared-vps/release-lock-v1/`
 
 Create the `reno-deploy` group through the separately approved host bootstrap.
-Then run the bootstrap as root with three checked-in, non-symlink sources:
+For remote installation, send a reviewed bounded tar bundle on stdin. It must
+contain exactly `with-shared-release-lock.sh`,
+`internal/shared-release-lock-core.sh`, and `trusted-remote-deploy.sh` as
+regular files, plus the independently reviewed SHA-256 values:
 
 ```sh
-sudo infra/deploy/bootstrap-shared-release-v1.sh \
-  --public-source infra/deploy/with-shared-release-lock.sh \
+tar -cf - with-shared-release-lock.sh internal/shared-release-lock-core.sh trusted-remote-deploy.sh |
+sudo infra/deploy/bootstrap-shared-release-v1.sh --bundle-stdin \
   --public-sha256 EXPECTED_PUBLIC_SHA256 \
-  --core-source infra/deploy/internal/shared-release-lock-core.sh \
   --core-sha256 EXPECTED_CORE_SHA256 \
-  --transaction-source /approved/path/to/trusted-remote-deploy.sh \
   --transaction-sha256 EXPECTED_TRANSACTION_SHA256
 ```
+
+On an initial host, add `--create-group`; `--add-sudo-user` adds only the
+strictly validated invoking `SUDO_USER` to `reno-deploy` and records only a
+boolean in audit. Local maintenance may use the three `--*-source` arguments
+instead of `--bundle-stdin`, with the same expected checksums.
 
 It creates root and audit as `root:reno-deploy` mode `0770`, and the lock as
 `root:reno-deploy` mode `0660`. Existing unsafe ownership, modes, or symlinks
