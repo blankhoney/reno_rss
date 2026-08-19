@@ -13,6 +13,19 @@ export type AnnotationCreatePayload = {
   anchor?: ArticleAnnotationAnchor;
 };
 
+export type AnnotationCreateMetadata = Pick<AnnotationCreatePayload, "color" | "tags">;
+
+export function annotationCreateMetadataChanged(
+  payload: AnnotationCreatePayload,
+  desired: AnnotationCreateMetadata,
+): boolean {
+  return (
+    payload.color !== desired.color ||
+    payload.tags.length !== desired.tags.length ||
+    payload.tags.some((tag, index) => tag !== desired.tags[index])
+  );
+}
+
 export type AnnotationCreateJournalEntry = {
   storageVersion: 1;
   operationKind: "note" | "selection";

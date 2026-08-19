@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  annotationCreateMetadataChanged,
   clearAllAnnotationCreateJournalEntries,
   loadAnnotationCreateJournalEntries,
   persistAnnotationCreateJournalEntry,
@@ -36,6 +37,25 @@ const entry: AnnotationCreateJournalEntry = {
     tags: ["tag"],
   },
 };
+
+test("selection retry updates metadata only when the current values changed", () => {
+  assert.equal(
+    annotationCreateMetadataChanged(entry.payload, { color: "yellow", tags: ["tag"] }),
+    false,
+  );
+  assert.equal(
+    annotationCreateMetadataChanged(entry.payload, { color: "blue", tags: ["tag"] }),
+    true,
+  );
+  assert.equal(
+    annotationCreateMetadataChanged(entry.payload, { color: "yellow", tags: ["other"] }),
+    true,
+  );
+  assert.equal(
+    annotationCreateMetadataChanged(entry.payload, { color: "yellow", tags: ["tag", "other"] }),
+    true,
+  );
+});
 
 test("journal round-trips owner-scoped operation and removes exact entry", () => {
   const storage = new MemoryStorage();

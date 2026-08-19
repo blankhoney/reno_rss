@@ -221,6 +221,7 @@ test("FocusedArticleReader preserves edit and selection retry contracts", () => 
   assert.match(source, /color: highlightColorRef\.current \|\| null/);
   assert.match(source, /retryAnnotationSaveRef\.current = desiredMetadata == null/);
   assert.match(source, /retrySelectionCreateWithCurrentMetadata\(snapshot\)/);
+  assert.match(source, /annotationCreateMetadataChanged\(snapshot\.payload, desiredMetadata\)/);
   assert.match(source, /await updateArticleAnnotation\(created\.id/);
   assert.match(source, /annotationArticleIdRef\.current !== requestArticleId/);
 });

@@ -33,6 +33,7 @@ import {
 } from "@/lib/articles/annotationAsync";
 import type { ArticleAnnotationAnchor } from "@/lib/articles/annotationAnchor";
 import {
+  annotationCreateMetadataChanged,
   loadAnnotationCreateJournalEntries,
   persistAnnotationCreateJournalEntry,
   removeAnnotationCreateJournalEntry,
@@ -722,7 +723,10 @@ export function FocusedArticleReader({
       ) {
         annotationMutationEpochRef.current += 1;
       }
-      if (desiredMetadata != null) {
+      if (
+        desiredMetadata != null &&
+        annotationCreateMetadataChanged(snapshot.payload, desiredMetadata)
+      ) {
         created = await updateArticleAnnotation(created.id, {
           content: snapshot.payload.content,
           color: desiredMetadata.color,
