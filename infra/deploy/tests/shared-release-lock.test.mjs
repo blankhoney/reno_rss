@@ -43,7 +43,7 @@ async function run(fix, overrides, command) {
 }
 
 async function auditEvents(fix) {
-  const names = await readdir(fix.audit);
+  const names = (await readdir(fix.audit)).filter((name) => !name.startsWith('quarantine-'));
   return Promise.all(names.map(async (name) => JSON.parse(await readFile(join(fix.audit, name), 'utf8'))));
 }
 
@@ -97,6 +97,29 @@ flockTest('only an exact owner and token can remove metadata; mismatch is audite
   const events = await auditEvents(fix);
   assert.equal(events.some((event) => event.event === 'quarantined-residual-metadata'), true);
   assert.equal(events.some((event) => event.event === 'released' && event.detail === 'exact-owner-token-match'), true);
+});
+
+flockTest('missing or invalid metadata refuses release, preserves evidence, and is quarantined by the next owner', {}, async (t) => {
+  for (const mutation of [
+    'rm -- "$SHARED_RELEASE_LOCK_PATH.metadata.json"',
+    'printf %s not-json > "$SHARED_RELEASE_LOCK_PATH.metadata.json"',
+  ]) {
+    const fix = await fixture();
+    t.after(() => rm(fix.directory, { recursive: true, force: true }));
+    await run(fix, [], ['bash', '-c', mutation]);
+    let events = await auditEvents(fix);
+    assert.equal(
+      events.some((event) => event.event === 'release-refused' && event.detail === 'metadata-mismatch-or-missing'),
+      true,
+    );
+
+    await run(fix, [], ['bash', '-c', 'true']);
+    events = await auditEvents(fix);
+    if (mutation.startsWith('printf')) {
+      assert.equal(events.some((event) => event.event === 'quarantined-residual-metadata'), true);
+    }
+    assert.equal(events.some((event) => event.event === 'released'), true);
+  }
 });
 
 flockTest('SIGTERM keeps ownership through child termination and leaves an auditable release', {}, async (t) => {

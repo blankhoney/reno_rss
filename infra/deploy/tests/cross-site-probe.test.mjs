@@ -199,11 +199,18 @@ test('fails closed without a success receipt for public, edge, driver, config, u
 });
 
 test('rejects unsafe redirect targets and a production edge without the production Blog web member', async () => {
-  const unsafeRedirect = await fixture({ env: { FAKE_RSS_REDIRECT_URL: 'https://attacker.example/' } });
-  try {
-    assert.notEqual(unsafeRedirect.run().status, 0);
-    await assert.rejects(readFile(unsafeRedirect.receipt));
-  } finally { await unsafeRedirect.cleanup(); }
+  for (const target of [
+    'https://attacker.example/',
+    'https://user@auth.blankhoney.xyz/',
+    'https://auth.blankhoney.xyz:4443/',
+    'https://127.0.0.1/',
+  ]) {
+    const unsafeRedirect = await fixture({ env: { FAKE_RSS_REDIRECT_URL: target } });
+    try {
+      assert.notEqual(unsafeRedirect.run().status, 0);
+      await assert.rejects(readFile(unsafeRedirect.receipt));
+    } finally { await unsafeRedirect.cleanup(); }
+  }
 
   const wrongBlogNetwork = await fixture({ blogNetworks: { 'brianstorm-staging-edge': {} } });
   try {

@@ -119,7 +119,16 @@ try {
     "auth.blankhoney.xyz",
     "blog.blankhoney.xyz",
   ]);
-  process.exit(url.protocol === "https:" && allowed.has(url.hostname) ? 0 : 1);
+  const defaultHttpsPort = url.port === "" || url.port === "443";
+  const noUserInfo = url.username === "" && url.password === "";
+  process.exit(
+    url.protocol === "https:"
+      && allowed.has(url.hostname)
+      && defaultHttpsPort
+      && noUserInfo
+      ? 0
+      : 1
+  );
 } catch { process.exit(1); }
 ' "$candidate"
 }

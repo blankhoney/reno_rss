@@ -19,6 +19,9 @@
   identity, strict Docker inspect parsing, and active Caddy Admin configuration
   evidence. A missing RSS auth redirect, Blog 200, TLS verification, upstream,
   network membership, bridge driver, or production route fails the transaction.
+- Redirect allowlisting happens before every HTTPS request and rejects userinfo,
+  IP literals, non-443 ports, and unknown hosts; final URL validation is not a
+  substitute for pre-request SSRF prevention.
 - Cross-project mutations use one Linux `flock` wrapper around the complete
   remote transaction. The live file descriptor is authoritative over TTL;
   residual metadata is quarantined only after acquiring the lock, and release
