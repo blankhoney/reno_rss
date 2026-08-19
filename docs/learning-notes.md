@@ -15,3 +15,7 @@
   RSS and Blog production bridge networks. It never mutates Blog containers,
   refuses a missing production Blog member, and rejects staging membership on
   the production Blog edge.
+- Shared-edge receipts use contract v1, fixed HTTPS GET allowlists, full SHA
+  identity, strict Docker inspect parsing, and active Caddy Admin configuration
+  evidence. A missing RSS auth redirect, Blog 200, TLS verification, upstream,
+  network membership, bridge driver, or production route fails the transaction.
