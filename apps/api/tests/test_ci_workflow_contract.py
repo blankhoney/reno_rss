@@ -148,6 +148,9 @@ def test_shared_contract_linux_fixtures_are_prepared_bounded_and_serial():
         "timeout --signal=TERM --kill-after=30s 5m docker pull node:22-bookworm"
     )
     assert contract["timeout-minutes"] == 15
+    assert "for test_file in" in contract["run"]
+    assert "Running bounded shared-contract fixture" in contract["run"]
+    assert "timeout --signal=TERM --kill-after=10s 2m" in contract["run"]
     assert "node --test --test-concurrency=1" in contract["run"]
     assert "shared-release-lock.test.mjs" in contract["run"]
     assert "shared-release-bootstrap.test.mjs" in contract["run"]

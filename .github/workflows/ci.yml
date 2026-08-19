@@ -521,7 +521,7 @@ jobs:
             infra/deploy/ensure-shared-edge.sh \
             infra/deploy/verify-shared-edge.sh \
             infra/deploy/rollback-state.sh
-          node --test --test-concurrency=1 \
+          for test_file in \
             infra/deploy/tests/shared-release-lock.test.mjs \
             infra/deploy/tests/shared-release-bootstrap.test.mjs \
             infra/deploy/tests/ensure-shared-edge.test.mjs \
@@ -531,6 +531,11 @@ jobs:
             infra/deploy/tests/shared-edge-compose.test.mjs \
             infra/deploy/tests/production-backup-order.test.mjs \
             infra/deploy/tests/known-hosts-contract.test.mjs
+          do
+            printf 'Running bounded shared-contract fixture: %s\n' "$test_file"
+            timeout --signal=TERM --kill-after=10s 2m \
+              node --test --test-concurrency=1 "$test_file"
+          done
 
       - name: Build Docker images
         run: |

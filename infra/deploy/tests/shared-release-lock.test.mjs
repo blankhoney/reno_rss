@@ -115,26 +115,65 @@ function waitForExit(process) {
   return new Promise((resolve) => process.once('exit', (code, signal) => resolve({ code, signal })));
 }
 
+function spawnLock(args, environment) {
+  // Do not let a deliberately crashed wrapper's inherited stdio keep the
+  // Node test worker alive. Process-group assertions below remain the
+  // authority for proving that the mutation tree itself has stopped.
+  return spawn('bash', args, { env: environment, stdio: 'ignore' });
+}
+
+async function transactionPgid(fix) {
+  return JSON.parse(await readFile(fix.metadata, 'utf8')).childPgid;
+}
+
+async function assertProcessGroupStopped(pgid) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    let liveMember = false;
+    for (const entry of await readdir('/proc')) {
+      if (!/^\d+$/.test(entry)) continue;
+      try {
+        const raw = await readFile(`/proc/${entry}/stat`, 'utf8');
+        const fields = raw.slice(raw.lastIndexOf(')') + 1).trim().split(/\s+/);
+        if (Number(fields[2]) === pgid && fields[0] !== 'Z') {
+          liveMember = true;
+          break;
+        }
+      } catch (error) {
+        if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error;
+      }
+    }
+    if (!liveMember) return;
+    await pause(50);
+  }
+  assert.fail(`live transaction process group ${pgid} survived wrapper completion`);
+}
+
 flockTest('second owner fails closed while the first transaction holds the live flock', {}, async (t) => {
   const fix = await fixture();
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
-  const first = spawn('bash', [core, ...fix.args([], ['bash', '-c', 'sleep 2'])], { env: fix.environment });
+  const first = spawnLock([core, ...fix.args([], ['bash', '-c', 'sleep 2'])], fix.environment);
+  const firstExited = waitForExit(first);
   await waitForFile(fix.metadata);
+  const pgid = await transactionPgid(fix);
   await assert.rejects(
     run(fix, ['--owner', 'blog', '--repo', 'blankhoney/reno_blog'], ['bash', '-c', 'exit 99']),
     (error) => error.code === 75 && /another release transaction/.test(error.stderr),
   );
-  assert.equal(await new Promise((resolve) => first.once('exit', resolve)), 0);
+  assert.deepEqual(await firstExited, { code: 0, signal: null });
+  await assertProcessGroupStopped(pgid);
 });
 
 flockTest('a live flock is authoritative even after its diagnostic TTL expires', {}, async (t) => {
   const fix = await fixture();
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
-  const first = spawn('bash', [core, ...fix.args(['--ttl-seconds', '1'], ['bash', '-c', 'sleep 3'])], { env: fix.environment });
+  const first = spawnLock([core, ...fix.args(['--ttl-seconds', '1'], ['bash', '-c', 'sleep 3'])], fix.environment);
+  const firstExited = waitForExit(first);
   await waitForFile(fix.metadata);
+  const pgid = await transactionPgid(fix);
   await new Promise((resolve) => setTimeout(resolve, 1200));
   await assert.rejects(run(fix, [], ['bash', '-c', 'true']), (error) => error.code === 75);
-  assert.equal(await new Promise((resolve) => first.once('exit', resolve)), 0);
+  assert.deepEqual(await firstExited, { code: 0, signal: null });
+  await assertProcessGroupStopped(pgid);
 });
 
 flockTest('only an exact owner and token can remove metadata; mismatch is audited and quarantined', {}, async (t) => {
@@ -205,8 +244,9 @@ flockTest('core accepts the literal ext2/ext3 Linux stat output and rejects dist
 flockTest('SIGTERM keeps ownership through child termination and leaves an auditable release', {}, async (t) => {
   const fix = await fixture();
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
-  const process = spawn('bash', [core, ...fix.args([], ['bash', '-c', 'sleep 10'])], { env: fix.environment });
+  const process = spawnLock([core, ...fix.args([], ['bash', '-c', 'sleep 10'])], fix.environment);
   await waitForFile(fix.metadata);
+  const pgid = await transactionPgid(fix);
   const exited = waitForExit(process);
   process.kill('SIGTERM');
   const result = await exited;
@@ -215,6 +255,7 @@ flockTest('SIGTERM keeps ownership through child termination and leaves an audit
   assert.equal(events.some((event) => event.event === 'signal' && event.detail === 'TERM'), true);
   assert.equal(events.some((event) => event.event === 'released'), true);
   await assert.rejects(stat(fix.metadata));
+  await assertProcessGroupStopped(pgid);
 });
 
 flockTest('TERM, INT, and HUP retain the flock until a marker-writing transaction tree stops', {}, async (t) => {
@@ -228,9 +269,10 @@ flockTest('TERM, INT, and HUP retain the flock until a marker-writing transactio
       'trap "sleep 0.25; exit 0" TERM INT HUP; (trap "sleep 0.25; exit 0" TERM INT HUP; while :; do date +%s%N >> "$1"; sleep 0.02; done) & worker=$!; echo $$ > "$2"; wait "$worker"',
       '--', marker, childPid,
     ];
-    const process = spawn('bash', [core, ...fix.args([], command)], { env: fix.environment });
+    const process = spawnLock([core, ...fix.args([], command)], fix.environment);
     await waitForFile(marker);
     await waitForFile(fix.metadata);
+    const pgid = await transactionPgid(fix);
     const exited = waitForExit(process);
     process.kill(signal);
     await pause(80);
@@ -241,6 +283,7 @@ flockTest('TERM, INT, and HUP retain the flock until a marker-writing transactio
     assert.equal(events.some((event) => event.event === 'signal' && event.detail === signal.slice(3)), true);
     assert.equal(events.some((event) => event.event === 'released'), true);
     await markerStops(marker);
+    await assertProcessGroupStopped(pgid);
   }
 });
 
@@ -249,7 +292,7 @@ flockTest('simultaneous parent and transaction signals do not release before mut
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
   const marker = join(fix.directory, 'simultaneous.marker');
   const childPid = join(fix.directory, 'simultaneous.child-pid');
-  const process = spawn('bash', [core, ...fix.args([], ['bash', '-c', 'echo $$ > "$2"; trap "exit 0" TERM; while :; do date +%s%N >> "$1"; sleep 0.02; done', '--', marker, childPid])], { env: fix.environment });
+  const process = spawnLock([core, ...fix.args([], ['bash', '-c', 'echo $$ > "$2"; trap "exit 0" TERM; while :; do date +%s%N >> "$1"; sleep 0.02; done', '--', marker, childPid])], fix.environment);
   await waitForFile(marker);
   await waitForFile(childPid);
   await waitForFile(fix.metadata);
@@ -259,27 +302,32 @@ flockTest('simultaneous parent and transaction signals do not release before mut
   const events = await auditEvents(fix);
   assert.equal(events.some((event) => event.event === 'released'), true);
   await markerStops(marker);
+  await assertProcessGroupStopped(Number((await readFile(childPid, 'utf8')).trim()));
 });
 
 flockTest('a TERM-resistant transaction is escalated before its release is audited', {}, async (t) => {
   const fix = await fixture();
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
   const marker = join(fix.directory, 'stubborn.marker');
-  const process = spawn('bash', [core, ...fix.args([], ['bash', '-c', 'trap "" TERM INT HUP; while :; do date +%s%N >> "$1"; sleep 0.02; done', '--', marker])], { env: fix.environment });
+  const process = spawnLock([core, ...fix.args([], ['bash', '-c', 'trap "" TERM INT HUP; while :; do date +%s%N >> "$1"; sleep 0.02; done', '--', marker])], fix.environment);
   await waitForFile(marker);
+  await waitForFile(fix.metadata);
+  const pgid = await transactionPgid(fix);
   process.kill('SIGTERM');
   assert.deepEqual(await waitForExit(process), { code: 143, signal: null });
   const events = await auditEvents(fix);
   assert.equal(events.some((event) => event.event === 'signal-escalated'), true);
   assert.equal(events.some((event) => event.event === 'released'), true);
   await markerStops(marker);
+  await assertProcessGroupStopped(pgid);
 });
 
 flockTest('a crashed wrapper cannot release a transaction-held flock; recovery starts only after the child exits', {}, async (t) => {
   const fix = await fixture();
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
-  const process = spawn('bash', [core, ...fix.args([], ['bash', '-c', 'sleep 2'])], { env: fix.environment });
+  const process = spawnLock([core, ...fix.args([], ['bash', '-c', 'sleep 2'])], fix.environment);
   await waitForFile(fix.metadata);
+  const pgid = await transactionPgid(fix);
   const exited = waitForExit(process);
   process.kill('SIGKILL');
   assert.deepEqual(await exited, { code: null, signal: 'SIGKILL' });
@@ -292,6 +340,7 @@ flockTest('a crashed wrapper cannot release a transaction-held flock; recovery s
   await run(fix, [], ['bash', '-c', 'true']);
   const events = await auditEvents(fix);
   assert.equal(events.some((event) => event.event === 'quarantined-residual-metadata'), true);
+  await assertProcessGroupStopped(pgid);
 });
 
 flockTest('metadata schema and audit bind the complete v1 identity; source has no force deletion', {}, async (t) => {
@@ -329,14 +378,16 @@ flockTest('metadata schema and audit bind the complete v1 identity; source has n
 flockTest('core holds an explicitly inherited canonical FD for the complete transaction', {}, async (t) => {
   const fix = await fixture();
   t.after(() => rm(fix.directory, { recursive: true, force: true }));
-  const holder = spawn(
-    'bash',
+  const holder = spawnLock(
     ['-c', 'exec 9>"$1"; export SHARED_RELEASE_LOCK_CORE_FD=9; exec bash "$2" "${@:3}"', '--', fix.lockPath, core, ...fix.args([], ['bash', '-c', 'sleep 1'])],
-    { env: fix.environment },
+    fix.environment,
   );
+  const holderExited = waitForExit(holder);
   await waitForFile(fix.metadata);
+  const pgid = await transactionPgid(fix);
   await assert.rejects(run(fix, [], ['true']), (error) => error.code === 75);
-  assert.equal(await new Promise((resolve) => holder.once('exit', resolve)), 0);
+  assert.deepEqual(await holderExited, { code: 0, signal: null });
+  await assertProcessGroupStopped(pgid);
 });
 
 flockTest('core rejects an inherited FD whose inode is not the configured canonical lock', {}, async (t) => {
