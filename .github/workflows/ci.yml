@@ -509,6 +509,7 @@ jobs:
             infra/deploy/tests/rollback-state.test.mjs \
             infra/deploy/tests/trusted-remote-transaction.test.mjs \
             infra/deploy/tests/shared-edge-compose.test.mjs \
+            infra/deploy/tests/production-backup-order.test.mjs \
             infra/deploy/tests/known-hosts-contract.test.mjs
 
       - name: Build Docker images

@@ -7,6 +7,12 @@ import test from 'node:test';
 
 const repoRoot = path.resolve(import.meta.dirname, '../../..');
 const deployScript = path.join(repoRoot, 'infra/scripts/deploy.sh');
+const ciWorkflow = path.join(repoRoot, '.github/workflows/ci.yml');
+
+test('canonical CI executes the production backup ordering gate', async () => {
+  const ci = await readFile(ciWorkflow, 'utf8');
+  assert.match(ci, /infra\/deploy\/tests\/production-backup-order\.test\.mjs/);
+});
 
 function firstAfter(source, needle, offset) {
   const index = source.indexOf(needle, offset);
