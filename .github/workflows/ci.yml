@@ -493,13 +493,21 @@ jobs:
         run: |
           bash -n \
             .github/scripts/validate-known-hosts.sh \
+            .github/scripts/build-trusted-deploy-bundle.sh \
+            .github/scripts/remote-deploy.sh \
+            infra/deploy/bootstrap-shared-release-v1.sh \
             infra/deploy/with-shared-release-lock.sh \
+            infra/deploy/internal/shared-release-lock-core.sh \
             infra/deploy/ensure-shared-edge.sh \
-            infra/deploy/verify-shared-edge.sh
+            infra/deploy/verify-shared-edge.sh \
+            infra/deploy/rollback-state.sh
           node --test \
             infra/deploy/tests/shared-release-lock.test.mjs \
+            infra/deploy/tests/shared-release-bootstrap.test.mjs \
             infra/deploy/tests/ensure-shared-edge.test.mjs \
             infra/deploy/tests/cross-site-probe.test.mjs \
+            infra/deploy/tests/rollback-state.test.mjs \
+            infra/deploy/tests/trusted-remote-transaction.test.mjs \
             infra/deploy/tests/shared-edge-compose.test.mjs \
             infra/deploy/tests/known-hosts-contract.test.mjs
 
