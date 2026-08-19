@@ -599,6 +599,11 @@ def validate_provenance(
         f"sha-{request['deploy_sha']}",
         "publication.image_tag",
     )
+    _assert_equal(
+        request["image_tag"],
+        publication["image_tag"],
+        "request.image_tag",
+    )
 
     result: dict[str, Any] = {
         "verified": True,

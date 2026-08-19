@@ -40,7 +40,7 @@ MAX_CENTRAL_DIRECTORY_BYTES = 64 * 1024
 MAX_ARCHIVE_ENTRIES = 16
 _EOCD_STRUCT = struct.Struct("<4s4H2LH")
 _SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
-_IMAGE_TAG_PATTERN = re.compile(r"sha-[0-9a-f]{7}")
+_IMAGE_TAG_PATTERN = re.compile(r"sha-[0-9a-f]{40}")
 
 
 Request = dict[str, str]
@@ -102,9 +102,9 @@ def validate_request(request: object) -> Request:
     if _SHA_PATTERN.fullmatch(deploy_sha) is None:
         _reject("deploy_sha must be a 40-character lowercase hexadecimal SHA")
     if _IMAGE_TAG_PATTERN.fullmatch(image_tag) is None:
-        _reject("image_tag must use the sha-<7 lowercase hexadecimal> format")
-    if image_tag != f"sha-{deploy_sha[:7]}":
-        _reject("image_tag must match the deploy_sha prefix")
+        _reject("image_tag must use the sha-<40 lowercase hexadecimal> format")
+    if image_tag != f"sha-{deploy_sha}":
+        _reject("image_tag must equal deploy_sha")
 
     return values
 

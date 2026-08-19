@@ -1,4 +1,4 @@
-name: trusted-deploy-verify
+name: trusted-deploy
 
 on:
   workflow_run:
@@ -16,6 +16,18 @@ jobs:
   verify:
     name: verify trusted request provenance
     runs-on: ubuntu-latest
+    outputs:
+      verified: ${{ steps.provenance.outputs.verified }}
+      request_type: ${{ steps.provenance.outputs.request_type }}
+      environment: ${{ steps.provenance.outputs.environment }}
+      deploy_sha: ${{ steps.provenance.outputs.deploy_sha }}
+      canonical_image_tag: ${{ steps.provenance.outputs.canonical_image_tag }}
+      web_image_repository: ${{ steps.provenance.outputs.web_image_repository }}
+      web_image_digest: ${{ steps.provenance.outputs.web_image_digest }}
+      api_image_repository: ${{ steps.provenance.outputs.api_image_repository }}
+      api_image_digest: ${{ steps.provenance.outputs.api_image_digest }}
+      worker_image_repository: ${{ steps.provenance.outputs.worker_image_repository }}
+      worker_image_digest: ${{ steps.provenance.outputs.worker_image_digest }}
 
     steps:
       - name: Checkout trusted verifier from main
@@ -26,6 +38,7 @@ jobs:
           fetch-depth: 1
 
       - name: Validate workflow run, artifact, and CI publication provenance
+        id: provenance
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -36,3 +49,160 @@ jobs:
           --event "$GITHUB_EVENT_PATH"
           --allowlist .github/scripts/trusted-workflow-ids.json
           --output "$GITHUB_OUTPUT"
+
+  execute:
+    name: execute verified release transaction
+    needs: verify
+    if: >-
+      needs.verify.result == 'success' &&
+      needs.verify.outputs.verified == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.verify.outputs.environment == 'prod' && 'production' || 'staging' }}
+      url: ${{ needs.verify.outputs.environment == 'prod' && 'https://ai-reader.blankhoney.xyz' || 'https://staging-ai-reader.blankhoney.xyz' }}
+
+    steps:
+      - name: Checkout trusted transaction bundle from main
+        uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Execute one locked VPS transaction
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          SHARED_RELEASE_LOCK_WRAPPER_SHA256: ${{ vars.SHARED_RELEASE_LOCK_WRAPPER_SHA256 }}
+          SHARED_RELEASE_LOCK_CORE_SHA256: ${{ vars.SHARED_RELEASE_LOCK_CORE_SHA256 }}
+          SHARED_RELEASE_LOCK_TRANSACTION_SHA256: ${{ vars.SHARED_RELEASE_LOCK_TRANSACTION_SHA256 }}
+          REQUEST_TYPE: ${{ needs.verify.outputs.request_type }}
+          DEPLOY_ENV: ${{ needs.verify.outputs.environment }}
+          DEPLOY_SHA: ${{ needs.verify.outputs.deploy_sha }}
+          CANONICAL_IMAGE_TAG: ${{ needs.verify.outputs.canonical_image_tag }}
+          WEB_IMAGE_REPOSITORY: ${{ needs.verify.outputs.web_image_repository }}
+          WEB_IMAGE_DIGEST: ${{ needs.verify.outputs.web_image_digest }}
+          API_IMAGE_REPOSITORY: ${{ needs.verify.outputs.api_image_repository }}
+          API_IMAGE_DIGEST: ${{ needs.verify.outputs.api_image_digest }}
+          WORKER_IMAGE_REPOSITORY: ${{ needs.verify.outputs.worker_image_repository }}
+          WORKER_IMAGE_DIGEST: ${{ needs.verify.outputs.worker_image_digest }}
+          WORKFLOW_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          bash .github/scripts/validate-deploy-env.sh
+          [[ "$VPS_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( VPS_PORT <= 65535 )) || {
+            echo 'VPS_PORT must be a valid TCP port' >&2
+            exit 1
+          }
+          [[ "$REQUEST_TYPE" == deploy || "$REQUEST_TYPE" == rollback ]] || {
+            echo 'trusted request type is invalid' >&2
+            exit 1
+          }
+          [[ "$DEPLOY_ENV" == staging || "$DEPLOY_ENV" == prod ]] || {
+            echo 'trusted deployment environment is invalid' >&2
+            exit 1
+          }
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$CANONICAL_IMAGE_TAG" == "sha-$DEPLOY_SHA" ]] || exit 1
+          [[ "$WORKFLOW_RUN" =~ ^[1-9][0-9]*$ ]] || exit 1
+          CONTROL_PLANE_SHA="$(git rev-parse HEAD)"
+          [[ "$CONTROL_PLANE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'trusted control-plane checkout is not a full commit SHA' >&2
+            exit 1
+          }
+          for digest in "$SHARED_RELEASE_LOCK_WRAPPER_SHA256" "$SHARED_RELEASE_LOCK_CORE_SHA256" "$SHARED_RELEASE_LOCK_TRANSACTION_SHA256"; do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || {
+              echo 'pre-provisioned shared-lock checksum is invalid' >&2
+              exit 1
+            }
+          done
+          for digest in "$WEB_IMAGE_DIGEST" "$API_IMAGE_DIGEST" "$WORKER_IMAGE_DIGEST"; do
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo 'trusted image digest is invalid' >&2
+              exit 1
+            }
+          done
+
+          key_file="$(mktemp)"
+          known_hosts_file="$(mktemp)"
+          token_file="$(mktemp)"
+          ssh_stdout_file="$(mktemp)"
+          receipt_dir="output/evidence/trusted-shared-edge-receipts"
+          [[ ! -e "$receipt_dir" || ! -L "$receipt_dir" ]] || {
+            echo 'shared-edge receipt directory must not be a symlink' >&2
+            exit 1
+          }
+          mkdir -p "$(dirname "$receipt_dir")"
+          chmod 600 "$ssh_stdout_file"
+          trap 'rm -f "$key_file" "$known_hosts_file" "$token_file" "$ssh_stdout_file"' EXIT
+          bash .github/scripts/write-ssh-key.sh "$key_file"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$known_hosts_file"
+          chmod 600 "$known_hosts_file"
+          VPS_KNOWN_HOSTS_FILE="$known_hosts_file" bash .github/scripts/validate-known-hosts.sh
+          printf '%s' "$GHCR_TOKEN" | base64 -w0 > "$token_file"
+          unset GHCR_TOKEN
+
+          quote() { printf '%q' "$1"; }
+          remote_env="VPS_APP_DIR=$(quote "$VPS_APP_DIR") GHCR_USERNAME=$(quote "$GHCR_USERNAME")"
+          remote_preflight="set -euo pipefail; root=/usr/local/lib/reno-shared-vps/release-lock-v1; wrapper=/usr/local/lib/reno-shared-vps/release-lock-v1/with-shared-release-lock.sh; core=/usr/local/lib/reno-shared-vps/release-lock-v1/internal/shared-release-lock-core.sh; transaction=/usr/local/lib/reno-shared-vps/release-lock-v1/trusted-remote-deploy.sh; for path in \"\$root\" \"\$wrapper\" \"\$core\" \"\$transaction\"; do [[ -e \"\$path\" && ! -L \"\$path\" ]] || { echo \"shared-lock preflight refused unsafe path\" >&2; exit 64; }; done; [[ -d \"\$root\" && -f \"\$wrapper\" && -f \"\$core\" && -f \"\$transaction\" ]] || { echo \"shared-lock preflight refused unexpected file type\" >&2; exit 64; }; expected_wrapper=$(quote "$SHARED_RELEASE_LOCK_WRAPPER_SHA256"); expected_core=$(quote "$SHARED_RELEASE_LOCK_CORE_SHA256"); expected_transaction=$(quote "$SHARED_RELEASE_LOCK_TRANSACTION_SHA256"); [[ \"\$(sha256sum \"\$wrapper\" | cut -d ' ' -f 1)\" == \"\$expected_wrapper\" && \"\$(sha256sum \"\$core\" | cut -d ' ' -f 1)\" == \"\$expected_core\" && \"\$(sha256sum \"\$transaction\" | cut -d ' ' -f 1)\" == \"\$expected_transaction\" ]] || { echo \"shared-lock preflight checksum mismatch\" >&2; exit 64; }; exec env $remote_env \"\$wrapper\" --owner rss --repo blankhoney/reno_rss --sha $(quote "$DEPLOY_SHA") --run $(quote "$WORKFLOW_RUN") --ttl-seconds 3600 -- \"\$transaction\""
+          remote_command="bash -c $(quote "$remote_preflight")"
+
+          token_b64="$(<"$token_file")"
+          set +e
+          {
+            printf 'GHCR_TOKEN_B64 %s\n' "$token_b64"
+            bash .github/scripts/build-trusted-deploy-bundle.sh \
+              --request-type "$REQUEST_TYPE" \
+              --environment "$DEPLOY_ENV" \
+              --owner-project rss \
+              --owner-repo blankhoney/reno_rss \
+              --operation-sha "$DEPLOY_SHA" \
+              --control-plane-sha "$CONTROL_PLANE_SHA" \
+              --workflow-run "$WORKFLOW_RUN" \
+              --image-tag "$CANONICAL_IMAGE_TAG" \
+              --web-image "$WEB_IMAGE_REPOSITORY@$WEB_IMAGE_DIGEST" \
+              --api-image "$API_IMAGE_REPOSITORY@$API_IMAGE_DIGEST" \
+              --worker-image "$WORKER_IMAGE_REPOSITORY@$WORKER_IMAGE_DIGEST"
+          } | ssh -i "$key_file" -p "$VPS_PORT" \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts_file" \
+            "$VPS_USER@$VPS_HOST" "$remote_command" | tee "$ssh_stdout_file"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          unset token_b64
+          bundle_status="${pipeline_status[0]}"
+          ssh_status="${pipeline_status[1]}"
+          tee_status="${pipeline_status[2]}"
+          (( tee_status == 0 )) || exit "$tee_status"
+          receipt_expect=success
+          (( ssh_status == 0 )) || receipt_expect=compensation
+          set +e
+          python .github/scripts/validate-trusted-shared-edge-receipts.py \
+            --stdout "$ssh_stdout_file" \
+            --receipt-dir "$receipt_dir" \
+            --operation-sha "$DEPLOY_SHA" \
+            --workflow-run "$WORKFLOW_RUN" \
+            --request-type "$REQUEST_TYPE" \
+            --expect "$receipt_expect"
+          receipt_status=$?
+          set -e
+          (( bundle_status == 0 )) || exit "$bundle_status"
+          (( ssh_status == 0 )) || exit "$ssh_status"
+          exit "$receipt_status"
+
+      - name: Upload verified shared-edge receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusted-shared-edge-receipts-${{ github.run_id }}-${{ needs.verify.outputs.deploy_sha }}
+          path: output/evidence/trusted-shared-edge-receipts/
+          if-no-files-found: warn
+          retention-days: 30
