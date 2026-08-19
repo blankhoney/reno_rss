@@ -539,6 +539,24 @@
               "exclusiveMinimum": 0,
               "title": "Article Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional in Release A; when provided, retries are owner-scoped and idempotent.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Optional in Release A; when provided, retries are owner-scoped and idempotent."
           }
         ],
         "requestBody": {
@@ -557,19 +575,47 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Create Article Annotation Api Articles  Article Id  Annotations Post"
+                  "$ref": "#/components/schemas/ArticleAnnotationCreateResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleAnnotationCreateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Article not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency key conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Validation error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -2335,6 +2381,42 @@
         ],
         "title": "AnnotationReviewRequest"
       },
+      "ApiErrorBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "title": "ApiErrorBody"
+      },
+      "ApiErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ApiErrorBody"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "ApiErrorResponse"
+      },
       "ArticleAnnotationAnchor": {
         "properties": {
           "kind": {
@@ -2374,6 +2456,7 @@
             "title": "End"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "kind",
@@ -2385,6 +2468,23 @@
           "end"
         ],
         "title": "ArticleAnnotationAnchor"
+      },
+      "ArticleAnnotationCreateResponse": {
+        "properties": {
+          "annotation": {
+            "$ref": "#/components/schemas/ArticleAnnotationResponse"
+          },
+          "replayed": {
+            "type": "boolean",
+            "title": "Replayed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "annotation",
+          "replayed"
+        ],
+        "title": "ArticleAnnotationCreateResponse"
       },
       "ArticleAnnotationRequest": {
         "properties": {
@@ -2415,8 +2515,7 @@
           "color": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 20
+                "type": "string"
               },
               {
                 "type": "null"
@@ -2425,18 +2524,11 @@
             "title": "Color"
           },
           "tags": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array",
-                "maxItems": 12
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 12,
             "title": "Tags"
           },
           "anchor": {
@@ -2450,11 +2542,131 @@
             ]
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "content"
         ],
         "title": "ArticleAnnotationRequest"
+      },
+      "ArticleAnnotationResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "article_id": {
+            "type": "integer",
+            "title": "Article Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "selected_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Text"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "anchor": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "next_review_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Review At"
+          },
+          "interval_days": {
+            "type": "integer",
+            "title": "Interval Days"
+          },
+          "review_count": {
+            "type": "integer",
+            "title": "Review Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "article_id",
+          "type",
+          "selected_text",
+          "content",
+          "color",
+          "tags",
+          "anchor",
+          "created_at",
+          "updated_at",
+          "next_review_at",
+          "interval_days",
+          "review_count"
+        ],
+        "title": "ArticleAnnotationResponse"
       },
       "ArticleAnnotationUpdateRequest": {
         "properties": {

@@ -908,6 +908,21 @@ export interface components {
             /** Remembered */
             remembered: boolean;
         };
+        /** ApiErrorBody */
+        ApiErrorBody: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+        };
+        /** ApiErrorResponse */
+        ApiErrorResponse: {
+            error: components["schemas"]["ApiErrorBody"];
+        };
         /** ArticleAnnotationAnchor */
         ArticleAnnotationAnchor: {
             /**
@@ -931,6 +946,12 @@ export interface components {
             /** End */
             end: number;
         };
+        /** ArticleAnnotationCreateResponse */
+        ArticleAnnotationCreateResponse: {
+            annotation: components["schemas"]["ArticleAnnotationResponse"];
+            /** Replayed */
+            replayed: boolean;
+        };
         /** ArticleAnnotationRequest */
         ArticleAnnotationRequest: {
             /** Content */
@@ -945,8 +966,39 @@ export interface components {
             /** Color */
             color?: string | null;
             /** Tags */
-            tags?: string[] | null;
+            tags?: string[];
             anchor?: components["schemas"]["ArticleAnnotationAnchor"] | null;
+        };
+        /** ArticleAnnotationResponse */
+        ArticleAnnotationResponse: {
+            /** Id */
+            id: number;
+            /** Article Id */
+            article_id: number;
+            /** Type */
+            type: string;
+            /** Selected Text */
+            selected_text: string | null;
+            /** Content */
+            content: string;
+            /** Color */
+            color: string | null;
+            /** Tags */
+            tags: string[];
+            /** Anchor */
+            anchor: {
+                [key: string]: unknown;
+            } | null;
+            /** Created At */
+            created_at: string | null;
+            /** Updated At */
+            updated_at: string | null;
+            /** Next Review At */
+            next_review_at: string | null;
+            /** Interval Days */
+            interval_days: number;
+            /** Review Count */
+            review_count: number;
         };
         /** ArticleAnnotationUpdateRequest */
         ArticleAnnotationUpdateRequest: {
@@ -1673,7 +1725,10 @@ export interface operations {
     create_article_annotation_api_articles__article_id__annotations_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional in Release A; when provided, retries are owner-scoped and idempotent. */
+                "Idempotency-Key"?: string | null;
+            };
             path: {
                 article_id: number;
             };
@@ -1685,24 +1740,49 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Idempotent replay */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArticleAnnotationCreateResponse"];
+                };
+            };
             /** @description Successful Response */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ArticleAnnotationCreateResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Article not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Idempotency key conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };
