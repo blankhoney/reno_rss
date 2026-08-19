@@ -196,6 +196,12 @@ printf 'backup-complete\n' >> "$CALL_LOG"
   await mkdir(bundleDir);
   const extracted = spawnSync('tar', ['-xf', '-', '-C', bundleDir], { input: buildBundle(requestType, environment) });
   assert.equal(extracted.status, 0, extracted.stderr.toString());
+  // Production contract scripts are intentionally archived read-only (0555).
+  // Replace the extracted members rather than relying on root being able to
+  // overwrite them, so this fixture behaves the same for an unprivileged CI user.
+  await rm(path.join(bundleDir, 'verify-shared-edge.sh'));
+  await rm(path.join(bundleDir, 'ensure-shared-edge.sh'));
+  await rm(path.join(bundleDir, 'rollback-state.sh'));
   await writeFile(path.join(bundleDir, 'verify-shared-edge.sh'), await readFile(path.join(app, 'infra/deploy/verify-shared-edge.sh')));
   await writeFile(path.join(bundleDir, 'ensure-shared-edge.sh'), await readFile(path.join(app, 'infra/deploy/ensure-shared-edge.sh')));
   await writeFile(path.join(bundleDir, 'rollback-state.sh'), await readFile(path.join(repoRoot, 'infra/deploy/rollback-state.sh')));
