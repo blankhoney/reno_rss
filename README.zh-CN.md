@@ -203,15 +203,16 @@ git diff --check
 
 ## 部署
 
-当前三个手工部署 workflow 是 request-only。GitHub 仍从用户选定的 dispatch ref 加载 workflow YAML，但 request job 不 checkout 或执行目标 repository code、不读取部署 secret、不申请 environment 审批、不 SSH 到 VPS，也不执行 `infra/scripts/deploy.sh` / `rollback.sh`。负责消费 artifact 并执行携带 secret 部署的 trusted orchestrator 尚未启用，因此创建 request 不会自动部署或回滚环境；未来 orchestrator 必须先校验 workflow-run/ref/artifact provenance。
+三个手工 request workflow 都是 request-only：它们不 checkout 目标代码、不读取部署 secret、不申请 Environment 审批，也不 SSH 到 VPS。completed run 会触发 `trusted-deploy.yml`；其只读 verifier 先校验 allowlisted workflow/run/artifact、canonical image publication 与固定的 current-main control plane，之后 Environment-gated job 才可执行一次完整加锁远程事务。request artifact 或 verify 成功本身都不是 runtime evidence。
 
-常规 staging 路径仍是 `ci.yml` 在检查和镜像发布后的 `main` push 路径。不要把直接 SSH 或 `infra/scripts/deploy.sh` / `rollback.sh` 命令当作 request 的常规替代；这些命令只作为归档的授权 break-glass 知识，必须另有事故授权。
+常规 staging 路径是为已由 canonical main CI 发布的完整 SHA 手动创建 `deploy-staging.yml` request；main push 只发布、不部署。不要把直接 SSH 或 `infra/scripts/deploy.sh` / `rollback.sh` 命令当作 request 的常规替代；这些命令只作为归档的授权 break-glass 知识，必须另有事故授权。
 
 手工 request 输入：
 
-- `deploy-staging.yml` 和 `deploy-prod.yml`：`image_tag` 加匹配的完整 40 位小写 `deploy_sha`。
+- `deploy-staging.yml`：`image_tag` 加匹配的完整 40 位小写 `deploy_sha`。
+- `deploy-prod.yml`：除 candidate 字段外，还要提供 staging/rollback/forward 三个 run ID、rollback target、固定 control-plane SHA，以及精确 release-record ref/digest。
 - `rollback.yml`：`env`（`staging` 或 `prod`）、`image_tag` 和匹配的完整 `deploy_sha`。
-- `image_tag` 必须是 `sha-<7 位小写十六进制>`，并匹配 `deploy_sha` 前七位。不接受 `git_ref`。
+- `image_tag` 必须是 `sha-<完整 40 位小写十六进制>`，并等于 `sha-` 加完整 `deploy_sha`。不接受 `git_ref`。
 
 每个 request artifact 使用固定的 `trusted-deploy-request/v1` schema，且只含 `schema_version`、`request_type`、`environment`、`image_tag` 和 `deploy_sha`。固定 artifact 名称为 `trusted-staging-deploy-request`、`trusted-production-deploy-request` 和 `trusted-rollback-request`。artifact 是数据，不能执行其内容。
 

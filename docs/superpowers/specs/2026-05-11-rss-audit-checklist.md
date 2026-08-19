@@ -1,6 +1,6 @@
 # RSS 轻量审计清单（发布前）
 
-> **当前交付边界（2026-08）**：本文早期审计记录中的直接 `infra/scripts/deploy.sh` / `rollback.sh` 命令已归档，禁止作为当前 workflow 或常规旁路执行。手工 workflow 现在只创建 `trusted-deploy-request/v1` request artifact；trusted orchestrator 尚未启用，request 不会自动部署或回滚。当前输入和停止条件以根目录 `SPEC-CICD.md`、`SPEC-CICD.zh-CN.md` 与 `docs/runbooks/` 为准。
+> **当前交付边界（2026-08）**：本文早期审计记录中的直接 `infra/scripts/deploy.sh` / `rollback.sh` 命令已归档，禁止作为当前 workflow 或常规旁路执行。手工 workflow 只创建 `trusted-deploy-request/v1` request artifact；completed request 由已启用的 `trusted-deploy.yml` 验证，并仅在 Environment、canonical shared lock 与 runtime gates 通过后执行。当前输入和停止条件以根目录 `SPEC-CICD.md`、`SPEC-CICD.zh-CN.md` 与 `docs/runbooks/` 为准。
 
 日期：2026-05-11<br>
 版本：v2（v3 hardening 同步）<br>
@@ -78,8 +78,8 @@
 |---|---|---|---|---|---|
 | CICD-01 | PR 必须通过 lint/test/security scan 才可合并 | Medium | PASS | CI 绿色，PR #1 通过 lint/test/compose-validate/trivy 后合并 | Ref: `.github/workflows/ci.yml` |
 | CICD-02 | `main/develop` 分支保护生效（禁止直接 push，`main` 要求 Code Owner review） | Medium | FAIL | 当前仓库事实显示 `main` 未启用 branch protection/ruleset；不能声称 PR + Code Owner review 已强制。 | 需由仓库管理员配置并单独验证；未完成前禁止把 main 当完整 trusted release root。 |
-| CICD-03 | 生产部署支持按 tag 回滚并验证健康检查（内部 `readyz` 探针） | Medium | N/A | 当前 `deploy-prod.yml`/`rollback.yml` 只创建 `trusted-deploy-request/v1` artifact；trusted orchestrator 尚未启用，没有当前执行证据。 | 旧 staging→prod→rollback 记录是 historical / DO NOT EXECUTE，不代表当前部署或回滚已完成。 |
-| CICD-04 | `deploy-prod.yml` job 配置 `environment: production`，GitHub Environment 保护规则已启用 | Medium | FAIL | production environment 已配置 required reviewer，但 deployment branch policy 未配置；当前 request-only `deploy-prod.yml` 不含 `environment:` gate，也不绑定或触发该 environment。 | trusted orchestrator 启用前 production 不应改变；配置 deployment branch policy 后需重新验证。 |
+| CICD-03 | 生产部署支持按 tag 回滚并验证健康检查（内部 `readyz` 探针） | Medium | N/A | trusted rollback/compensation 与双站 receipt 代码已启用，但本历史清单不含当前 SHA 的 staging→rollback→forward→production runtime evidence。 | 旧执行记录仍不能替代当前 SHA 证据。 |
+| CICD-04 | production 执行 job 配置 `environment: production` | Medium | PASS | request job 保持无 secret；`trusted-deploy.yml` execute 根据验证后的 prod 环境选择 `production` Environment。 | Environment policy 的当前 API 状态仍需发布时另行记录。 |
 | CICD-05 | CI 使用的 `trivy-action` 版本 ≥ 0.35.0（低于该版本存在已知供应链风险） | Medium | PASS | `.github/workflows/ci.yml` L39: `uses: aquasecurity/trivy-action@0.35.0` |  |
 
 ### 3.7 服务可用性与 Authelia 配置（High）
@@ -140,13 +140,13 @@
 
 ### Staging → Prod request 审计流程（当前）
 
-当前手工入口只创建 request artifact，不执行部署。审计时记录以下数据契约，不要执行旧的 direct-VPS 命令：
+当前手工入口只创建 request artifact；真实执行由后续 trusted workflow 完成。审计时记录以下数据契约，不要执行旧的 direct-VPS 命令：
 
-1. 为 `deploy-staging.yml` 记录 `image_tag=sha-<7 位小写十六进制>` 与匹配的完整 40 位小写 `deploy_sha`。
-2. 为 `deploy-prod.yml` 记录同样的 `image_tag` 与 `deploy_sha`；production 只有在未来 trusted orchestrator 启用并完成 `production` 审批后才可能改变。
+1. 为 `deploy-staging.yml` 记录 `image_tag=sha-<完整 40 位小写十六进制>` 与匹配的完整 `deploy_sha`。
+2. 为 `deploy-prod.yml` 另外记录三段 staging run、rollback target、pinned control-plane SHA 与精确 release-record ref/digest；production 只有在 `production` Environment 审批及全部 gate 通过后才可能改变。
 3. 为 `rollback.yml` 记录 `env=staging|prod`、immutable `image_tag` 和匹配的完整 `deploy_sha`；不得使用 `git_ref`。
 4. 验证 artifact 名称和固定 schema `trusted-deploy-request/v1`，字段必须严格为 `schema_version`、`request_type`、`environment`、`image_tag`、`deploy_sha`。
-5. 在 trusted orchestrator 尚未启用期间，request 只证明数据生成成功，不证明部署或回滚成功；真实部署证据和健康检查必须另行记录。
+5. request 或 verify 只证明控制面数据验证成功，不证明部署或回滚成功；真实 runtime receipt 与健康检查必须另行记录。
 
 仅在已确认某个受信任执行路径实际完成部署后，才可运行只读 readiness 检查：
 

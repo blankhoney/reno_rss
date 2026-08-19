@@ -66,3 +66,13 @@
   application revision starts. A backup failure therefore leaves the running
   revision untouched instead of producing a snapshot after new code may have
   written to the old schema.
+- Production promotion is a three-transition proof, not one claimed drill:
+  staging activates the candidate from a different target, rollback restores
+  that target from the candidate, and forward activates the candidate again.
+  The release record lives at the later pinned control-plane SHA and binds the
+  candidate CI run/attempt, GitHub artifact digest, image digests, run IDs, and
+  backup/migration/rollback plan before production approval can execute.
+- GNU `stat -fLc %T` may report the local ext filesystem magic literally as
+  `ext2/ext3`. All three shared-lock entrypoints accept that exact local value
+  while continuing to reject network, distributed, or unknown filesystems and
+  preserving the same-device and canonical-FD gates.
