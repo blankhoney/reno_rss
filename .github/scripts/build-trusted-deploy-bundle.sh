@@ -5,6 +5,8 @@ set -euo pipefail
 
 declare request_type='' environment='' owner_project='' owner_repo='' operation_sha='' control_plane_sha=''
 declare workflow_run='' image_tag='' web_image='' api_image='' worker_image=''
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 die() { printf '%s\n' "trusted deploy bundle: $*" >&2; exit 64; }
 need() { [[ -n "${2:-}" ]] || die "$1 requires a value"; }
 while (( $# )); do
@@ -24,14 +26,16 @@ while (( $# )); do
     esac
 done
 
-python3 - "$request_type" "$environment" "$owner_project" "$owner_repo" "$operation_sha" "$control_plane_sha" "$workflow_run" "$image_tag" "$web_image" "$api_image" "$worker_image" <<'PY'
+python3 - "$request_type" "$environment" "$owner_project" "$owner_repo" "$operation_sha" "$control_plane_sha" "$workflow_run" "$image_tag" "$web_image" "$api_image" "$worker_image" "$REPO_ROOT" <<'PY'
 import io
 import json
+import os
 import re
+import stat
 import sys
 import tarfile
 
-request_type, environment, project, repo, sha, control_plane_sha, run_raw, tag, web, api, worker = sys.argv[1:]
+request_type, environment, project, repo, sha, control_plane_sha, run_raw, tag, web, api, worker, root = sys.argv[1:]
 if request_type not in {"deploy", "rollback"}:
     raise SystemExit("request type must be deploy or rollback")
 if environment not in {"staging", "prod"}:
@@ -69,6 +73,21 @@ manifest = {
     "images": images,
 }
 payload = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
+contract_sources = {
+    "verify-shared-edge.sh": os.path.join(root, "infra/deploy/verify-shared-edge.sh"),
+    "ensure-shared-edge.sh": os.path.join(root, "infra/deploy/ensure-shared-edge.sh"),
+    "rollback-state.sh": os.path.join(root, "infra/deploy/rollback-state.sh"),
+}
+contract_payloads = {}
+for name, path in contract_sources.items():
+    info = os.lstat(path)
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise SystemExit(f"{name} must be a non-symbolic regular file")
+    with open(path, "rb") as source:
+        value = source.read(65537)
+    if not value or len(value) > 65536:
+        raise SystemExit(f"{name} must be non-empty and at most 64 KiB")
+    contract_payloads[name] = value
 archive = io.BytesIO()
 with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as output:
     member = tarfile.TarInfo("manifest.json")
@@ -77,5 +96,13 @@ with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as out
     member.uid = member.gid = member.mtime = 0
     member.uname = member.gname = ""
     output.addfile(member, io.BytesIO(payload))
+    for name in sorted(contract_payloads):
+        contract_payload = contract_payloads[name]
+        member = tarfile.TarInfo(name)
+        member.size = len(contract_payload)
+        member.mode = 0o555
+        member.uid = member.gid = member.mtime = 0
+        member.uname = member.gname = ""
+        output.addfile(member, io.BytesIO(contract_payload))
 sys.stdout.buffer.write(archive.getvalue())
 PY

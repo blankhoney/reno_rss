@@ -218,6 +218,13 @@ test('fails closed without a success receipt for public, edge, driver, config, u
       { match: [{ host: ['blog.blankhoney.xyz'] }], handle: [{ upstreams: [{ dial: 'brianstorm-web:3000' }, { dial: 'brianstorm-staging-web:3000' }] }] },
     ] } } } } } },
     { activeConfig: { apps: { http: { servers: { srv0: { routes: [
+      { match: [{ host: ['ai-reader.blankhoney.xyz'] }], handle: [
+        { handler: 'headers', response: { set: { 'X-Decoy-Upstream': ['api-prod:8000'] } } },
+        { handler: 'reverse_proxy', upstreams: [{ dial: 'api-staging:8000' }] },
+      ] },
+      { match: [{ host: ['blog.blankhoney.xyz'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'brianstorm-web:3000' }] }] },
+    ] } } } } } },
+    { activeConfig: { apps: { http: { servers: { srv0: { routes: [
       { match: [{ host: ['ai-reader.blankhoney.xyz'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'api-prod:8000' }] }] },
       { match: [{ host: ['blog.blankhoney.xyz'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'brianstorm-web:3000' }] }] },
       { match: [{ host: ['staging.blog.blankhoney.xyz'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'brianstorm-staging-web:3000' }] }] },

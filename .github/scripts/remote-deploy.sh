@@ -31,7 +31,7 @@ trap cleanup EXIT;trap 'exit 129' HUP;trap 'exit 130' INT;trap 'exit 143' TERM
 
 # First remote filesystem mutation: the public wrapper already owns the flock.
 umask 077;transaction_dir="$(mktemp -d --tmpdir trusted-rss-deploy.XXXXXXXX)"
-bundle_path="$transaction_dir/bundle.tar";manifest_path="$transaction_dir/manifest.json";receipt_dir="$transaction_dir/receipts";docker_config_dir="$transaction_dir/docker-config"
+bundle_path="$transaction_dir/bundle.tar";manifest_path="$transaction_dir/manifest.json";contract_dir="$transaction_dir/contract";receipt_dir="$transaction_dir/receipts";docker_config_dir="$transaction_dir/docker-config"
 mkdir -- "$receipt_dir" "$docker_config_dir";chmod 700 "$docker_config_dir"
 
 IFS= read -r credential_frame||die 'credential frame is missing'
@@ -44,19 +44,27 @@ if not payload:raise SystemExit("trusted deploy bundle is empty")
 if len(payload)>int(maximum_raw):raise SystemExit("trusted deploy bundle exceeds size limit")
 with open(path,"xb") as output:output.write(payload)
 ' "$bundle_path" "$MAX_BUNDLE_BYTES"
-python3 - "$bundle_path" "$manifest_path" <<'PY'
-import sys,tarfile
-archive_path,output_path=sys.argv[1:]
+python3 - "$bundle_path" "$manifest_path" "$contract_dir" <<'PY'
+import os,sys,tarfile
+archive_path,output_path,contract_dir=sys.argv[1:]
+expected={"manifest.json","verify-shared-edge.sh","ensure-shared-edge.sh","rollback-state.sh"}
 try:
  with tarfile.open(archive_path,mode="r:") as archive:
   members=archive.getmembers()
-  if len(members)!=1 or members[0].name!="manifest.json":raise SystemExit("bundle members must be exactly manifest.json")
-  member=members[0]
-  if not member.isfile() or member.issym() or member.islnk() or not 0<member.size<=65536:raise SystemExit("manifest.json must be a bounded regular member")
-  source=archive.extractfile(member);payload=source.read(65537) if source else b""
-  if len(payload)!=member.size:raise SystemExit("manifest.json size mismatch")
+  if len(members)!=len(expected) or {member.name for member in members}!=expected:raise SystemExit("bundle members do not match the trusted contract")
+  payloads={}
+  for member in members:
+   if not member.isfile() or member.issym() or member.islnk() or not 0<member.size<=65536:raise SystemExit(f"{member.name} must be a bounded regular member")
+   source=archive.extractfile(member);payload=source.read(65537) if source else b""
+   if len(payload)!=member.size:raise SystemExit(f"{member.name} size mismatch")
+   payloads[member.name]=payload
 except (tarfile.TarError,OSError) as error:raise SystemExit(f"invalid trusted deploy bundle: {error}") from None
-with open(output_path,"xb") as output:output.write(payload)
+os.mkdir(contract_dir,0o700)
+with open(output_path,"xb") as output:output.write(payloads.pop("manifest.json"))
+for name,payload in payloads.items():
+ path=os.path.join(contract_dir,name)
+ fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o500)
+ with os.fdopen(fd,"wb") as output:output.write(payload)
 PY
 
 mapfile -d '' fields < <(python3 - "$manifest_path" "$LOCK_METADATA" <<'PY'
@@ -92,10 +100,11 @@ request_type="${fields[0]}";deploy_env="${fields[1]}";owner_project="${fields[2]
 
 export DOCKER_CONFIG="$docker_config_dir"
 repo_script(){ printf '%s/%s' "$VPS_APP_DIR" "$1"; }
+contract_script(){ printf '%s/%s' "$contract_dir" "$1"; }
 run_probe(){
  local phase="$1" runtime="$2" receipt="$receipt_dir/${1}.json" encoded
  shift 2
- bash "$(repo_script infra/deploy/verify-shared-edge.sh)" --owner-project "$owner_project" --owner-repo "$owner_repo" --operation-sha "$operation_sha" --workflow-run "$workflow_run" --phase "$phase" --runtime-sha "$runtime" "$@" --receipt "$receipt"||return
+ bash "$(contract_script verify-shared-edge.sh)" --owner-project "$owner_project" --owner-repo "$owner_repo" --operation-sha "$operation_sha" --workflow-run "$workflow_run" --phase "$phase" --runtime-sha "$runtime" "$@" --receipt "$receipt"||return
  [[ -f "$receipt" && ! -L "$receipt" ]]||die "shared-edge probe did not write a safe $phase receipt"
  encoded="$(base64 < "$receipt"|tr -d '\n')"
  [[ -n "$encoded" ]]||die "shared-edge $phase receipt is empty"
@@ -132,19 +141,17 @@ prepare_control_plane(){ cd "$VPS_APP_DIR";[[ -d .git ]]||die 'VPS_APP_DIR is no
 activate_release(){ local sha="$1" web="$2" api="$3" worker="$4";[[ "$(git --no-replace-objects rev-parse HEAD)" == "$control_plane_sha" ]]||return;IMAGE_REGISTRY="ghcr.io/${owner_repo,,}" AI_READER_WEB_IMAGE="$web" AI_READER_API_IMAGE="$api" AI_READER_WORKER_IMAGE="$worker" LOCAL_BUILD=0 bash "$(repo_script infra/scripts/deploy.sh)" "$deploy_env" "sha-${sha}"||return;bash "$(repo_script infra/scripts/smoke-test.sh)" "$deploy_env"||return;[[ "$(read_runtime_sha)" == "$sha" ]]; }
 compensation_probe(){ local phase="$1" runtime="$2" rollback_from="$3" target="$4";run_probe "$phase" "$runtime" --rollback-from-sha "$rollback_from" --rollback-target-sha "$target"; }
 rollback_web='';rollback_api='';rollback_worker=''
-activate_rollback(){ local rollback_from="$1" expected_target="$2";[[ "$expected_target" == "$operation_sha" ]]||return 1;activate_release "$rollback_from" "$rollback_web" "$rollback_api" "$rollback_worker"||return;bash "$(repo_script infra/deploy/ensure-shared-edge.sh)"; }
+ensure_shared_edge(){ bash "$(contract_script ensure-shared-edge.sh)"; }
+activate_rollback(){ local rollback_from="$1" expected_target="$2";[[ "$expected_target" == "$operation_sha" ]]||return 1;activate_release "$rollback_from" "$rollback_web" "$rollback_api" "$rollback_worker"||return;ensure_shared_edge; }
 
-login_status=0;printf '%s' "$token_b64"|base64 --decode|docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin >/dev/null||login_status=$?;unset token_b64;((login_status==0))||exit "$login_status"
-prepare_control_plane
 rollback_from="$(read_runtime_sha)"||die 'cannot establish actual pre-activation runtime SHA';[[ "$rollback_from" != "$operation_sha" ]]||die 'operation SHA is already active'
 mapfile -t rollback_images < <(capture_runtime_images);(( ${#rollback_images[@]}==3 ))||die 'cannot capture three digest-qualified rollback images';rollback_web="${rollback_images[0]}";rollback_api="${rollback_images[1]}";rollback_worker="${rollback_images[2]}"
-run_probe pre-mutation "$rollback_from";bash "$(repo_script infra/deploy/ensure-shared-edge.sh)";run_probe pre-activation "$rollback_from"
-verify_image "$web_image" "$operation_sha";verify_image "$api_image" "$operation_sha";verify_image "$worker_image" "$operation_sha"
+run_probe pre-mutation "$rollback_from"
 release_and_verify(){
  activate_release "$operation_sha" "$web_image" "$api_image" "$worker_image"||return
  # deploy.sh may recreate Caddy; repair both production memberships again before
  # any successful post-activation/rollback receipt is allowed.
- bash "$(repo_script infra/deploy/ensure-shared-edge.sh)"||return
+ ensure_shared_edge||return
  if [[ "$request_type" == rollback ]];then
   run_probe post-rollback "$operation_sha" --rollback-from-sha "$rollback_from" --rollback-target-sha "$operation_sha"||return
  else
@@ -154,6 +161,19 @@ release_and_verify(){
   bash "$(repo_script infra/scripts/staging-runtime-proof.sh)" staging||return
  fi
 }
-set +e;release_and_verify;activation_status=$?;set -e
-if ((activation_status!=0));then source "$(repo_script infra/deploy/rollback-state.sh)";rollback_state_compensate "$rollback_from" "$operation_sha" read_runtime_sha activate_rollback compensation_probe;exit "$activation_status";fi
+locked_mutation(){
+ ensure_shared_edge||return
+ run_probe pre-activation "$rollback_from"||return
+ local login_status=0
+ printf '%s' "$token_b64"|base64 --decode|docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin >/dev/null||login_status=$?
+ unset token_b64
+ ((login_status==0))||return "$login_status"
+ prepare_control_plane||return
+ verify_image "$web_image" "$operation_sha"||return
+ verify_image "$api_image" "$operation_sha"||return
+ verify_image "$worker_image" "$operation_sha"||return
+ release_and_verify
+}
+set +e;locked_mutation;activation_status=$?;set -e
+if ((activation_status!=0));then source "$(contract_script rollback-state.sh)";rollback_state_compensate "$rollback_from" "$operation_sha" read_runtime_sha activate_rollback compensation_probe;exit "$activation_status";fi
 printf '%s\n' "trusted remote deploy complete: $request_type $deploy_env @ $operation_sha"

@@ -51,6 +51,11 @@ test('builder emits one strict secret-free manifest with full-SHA digest referen
   assert.equal(manifest.imageTag, `sha-${operationSha}`);
   assert.equal(JSON.stringify(manifest).includes('token'), false);
   assert.match(manifest.images.web, /@sha256:[0-9a-f]{64}$/);
+  const members = spawnSync('tar', ['-tf', '-'], { input: bundle, encoding: 'utf8' });
+  assert.equal(members.status, 0, members.stderr);
+  assert.deepEqual(members.stdout.trim().split('\n').sort(), [
+    'ensure-shared-edge.sh', 'manifest.json', 'rollback-state.sh', 'verify-shared-edge.sh',
+  ]);
 });
 
 test('builder rejects legacy tags, tag-only images, and unknown request types', () => {
@@ -75,7 +80,8 @@ test('transaction source gates its first mutation on the inherited canonical flo
   assert.ok(firstMutation > assertionCall);
   assert.equal(source.includes(': "${GHCR_TOKEN_B64:'), false);
   assert.match(source, /IFS= read -r credential_frame/);
-  assert.match(source, /run_probe pre-mutation .*ensure-shared-edge\.sh.*run_probe pre-activation/s);
+  assert.match(source, /run_probe pre-mutation[\s\S]*locked_mutation/);
+  assert.match(source, /locked_mutation\(\)[\s\S]*ensure_shared_edge[\s\S]*run_probe pre-activation[\s\S]*prepare_control_plane/);
   assert.match(source, /rollback_state_compensate/);
 });
 
@@ -174,7 +180,16 @@ if [[ "\${FAIL_TARGET_TEST:-0}" == 1 && "$sha" == "$OPERATION_SHA_TEST" && ! -e 
   await executable(path.join(app, 'infra/scripts/staging-runtime-proof.sh'), '#!/usr/bin/env bash\nexit 0\n');
   await writeFile(path.join(app, 'infra/deploy/rollback-state.sh'), await readFile(path.join(repoRoot, 'infra/deploy/rollback-state.sh')));
 
-  const bundle = buildBundle(requestType);
+  const bundleDir = path.join(root, 'bundle');
+  await mkdir(bundleDir);
+  const extracted = spawnSync('tar', ['-xf', '-', '-C', bundleDir], { input: buildBundle(requestType) });
+  assert.equal(extracted.status, 0, extracted.stderr.toString());
+  await writeFile(path.join(bundleDir, 'verify-shared-edge.sh'), await readFile(path.join(app, 'infra/deploy/verify-shared-edge.sh')));
+  await writeFile(path.join(bundleDir, 'ensure-shared-edge.sh'), await readFile(path.join(app, 'infra/deploy/ensure-shared-edge.sh')));
+  await writeFile(path.join(bundleDir, 'rollback-state.sh'), await readFile(path.join(repoRoot, 'infra/deploy/rollback-state.sh')));
+  const packed = spawnSync('tar', ['-cf', '-', 'manifest.json', 'verify-shared-edge.sh', 'ensure-shared-edge.sh', 'rollback-state.sh'], { cwd: bundleDir });
+  assert.equal(packed.status, 0, packed.stderr.toString());
+  const bundle = packed.stdout;
   const transport = Buffer.concat([Buffer.from('GHCR_TOKEN_B64 dG9rZW4=\n'), bundle]);
   const shell = `exec 9>"$LOCK_PATH_TEST"; /usr/bin/flock -n 9; SHARED_RELEASE_LOCK_CORE_FD=9 exec "$TRANSACTION_TEST"`;
   const result = spawnSync('bash', ['-c', shell], {
@@ -210,6 +225,10 @@ test('Linux fixture holds the lock before temp/extract and wires deploy phases t
     assert.match(item.calls, new RegExp(`probe .*--phase pre-activation --runtime-sha ${rollbackFrom}`));
     assert.match(item.calls, new RegExp(`probe .*--phase post-activation --runtime-sha ${operationSha}`));
     assert.ok(item.calls.indexOf('--phase pre-activation') < item.calls.indexOf(`activate ${operationSha}`));
+    assert.ok(item.calls.indexOf('--phase pre-mutation') < item.calls.indexOf('ensure lock=held'));
+    assert.ok(item.calls.indexOf('ensure lock=held') < item.calls.indexOf('--phase pre-activation'));
+    assert.ok(item.calls.indexOf('--phase pre-activation') < item.calls.indexOf('docker login'));
+    assert.ok(item.calls.indexOf('docker login') < item.calls.indexOf('--no-replace-objects fetch'));
     assert.match(item.calls, new RegExp(`activate ${operationSha}[\\s\\S]*ensure lock=held[\\s\\S]*--phase post-activation`));
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });

@@ -332,10 +332,22 @@ validate_active_caddy_config() {
 let raw = "";
 process.stdin.on("data", (chunk) => { raw += chunk; });
 process.stdin.on("end", () => {
-  const strings = (value, output = []) => {
-    if (typeof value === "string") output.push(value);
-    else if (Array.isArray(value)) value.forEach((item) => strings(item, output));
-    else if (value && typeof value === "object") Object.values(value).forEach((item) => strings(item, output));
+  const reverseProxyDials = (value, output = []) => {
+    if (Array.isArray(value)) value.forEach((item) => reverseProxyDials(item, output));
+    else if (value && typeof value === "object") {
+      if (value.handler === "reverse_proxy") {
+        if (!Array.isArray(value.upstreams) || value.upstreams.length === 0) {
+          throw new Error("reverse_proxy handler has no upstreams");
+        }
+        for (const upstream of value.upstreams) {
+          if (!upstream || typeof upstream !== "object" || typeof upstream.dial !== "string") {
+            throw new Error("reverse_proxy upstream has no exact dial");
+          }
+          output.push(upstream.dial);
+        }
+      }
+      Object.values(value).forEach((item) => reverseProxyDials(item, output));
+    }
     return output;
   };
   const hostMatches = (route, host) => Array.isArray(route?.match)
@@ -355,14 +367,15 @@ process.stdin.on("end", () => {
     const requireProductionRoute = (host, expectedUpstream, forbiddenUpstream) => {
       const candidates = routes.filter((route) => hostMatches(route, host));
       if (candidates.length === 0) throw new Error(`no active route matches ${host}`);
-      const values = candidates.flatMap((route) => strings(route));
-      if (!values.includes(expectedUpstream)) throw new Error(`${host} does not route to ${expectedUpstream}`);
-      if (values.includes(forbiddenUpstream)) throw new Error(`${host} routes to forbidden ${forbiddenUpstream}`);
+      const dials = candidates.flatMap((route) => reverseProxyDials(route.handle));
+      if (dials.length === 0 || !dials.includes(expectedUpstream)) throw new Error(`${host} does not reverse_proxy to ${expectedUpstream}`);
+      if (dials.includes(forbiddenUpstream)) throw new Error(`${host} reverse_proxies to forbidden ${forbiddenUpstream}`);
+      if (dials.some((dial) => dial !== expectedUpstream)) throw new Error(`${host} has an unexpected reverse_proxy upstream`);
     };
     requireProductionRoute("ai-reader.blankhoney.xyz", "api-prod:8000", "api-staging:8000");
     requireProductionRoute("blog.blankhoney.xyz", "brianstorm-web:3000", "brianstorm-staging-web:3000");
-    const allRouteValues = routes.flatMap((route) => strings(route));
-    if (allRouteValues.includes("brianstorm-staging-web:3000")) {
+    const allRouteDials = routes.flatMap((route) => reverseProxyDials(route.handle));
+    if (allRouteDials.includes("brianstorm-staging-web:3000")) {
       throw new Error("active Caddy configuration exposes the staging Blog web upstream");
     }
   } catch (error) {

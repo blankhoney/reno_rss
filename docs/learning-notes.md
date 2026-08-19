@@ -57,3 +57,12 @@
   immutable journal snapshot. It issues a follow-up update only when metadata
   changed, avoiding a redundant request while preserving edits made before a
   retry.
+- The trusted deploy bundle carries the exact provenance-bound edge verifier,
+  edge recovery helper, and rollback state machine alongside its manifest.
+  This permits a read-only `pre-mutation` receipt before edge repair, Git
+  checkout, registry login, image pull, backup, migration, or activation; all
+  later failures still use the same bundled compensation contract.
+- Production backup and checksum verification complete before any new Caddy or
+  application revision starts. A backup failure therefore leaves the running
+  revision untouched instead of producing a snapshot after new code may have
+  written to the old schema.
