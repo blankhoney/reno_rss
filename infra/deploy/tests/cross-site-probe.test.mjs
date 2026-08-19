@@ -8,6 +8,9 @@ import { spawnSync } from 'node:child_process';
 const repoRoot = path.resolve(import.meta.dirname, '../../..');
 const probe = path.join(repoRoot, 'infra/deploy/verify-shared-edge.sh');
 const sha = 'a'.repeat(40);
+const rollbackFrom = 'b'.repeat(40);
+const rollbackTarget = 'c'.repeat(40);
+const currentRuntime = 'd'.repeat(40);
 
 async function fixture(overrides = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'shared-edge-probe-'));
@@ -88,13 +91,22 @@ exit 1
   return {
     receipt,
     root,
-    run(extra = [], phase = 'pre-mutation') {
+    run(extra = [], phase = 'pre-mutation', runtimeSha = undefined) {
+      const isRollbackPhase = phase === 'post-rollback' || phase === 'post-compensation';
+      const runtimeTarget = runtimeSha ?? (phase === 'post-rollback' ? rollbackTarget
+        : phase === 'post-compensation' ? rollbackFrom
+          : sha);
       return spawnSync('bash', [probe,
         '--owner-project', 'rss',
         '--owner-repo', 'blankhoney/reno_rss',
-        '--full-sha', sha,
+        '--operation-sha', sha,
         '--workflow-run', '32292226657',
         '--phase', phase,
+        '--runtime-sha', runtimeTarget,
+        ...(isRollbackPhase ? [
+          '--rollback-from-sha', rollbackFrom,
+          '--rollback-target-sha', rollbackTarget,
+        ] : []),
         '--receipt', receipt,
         ...extra,
       ], { cwd: repoRoot, env, encoding: 'utf8' });
@@ -103,16 +115,25 @@ exit 1
   };
 }
 
-test('writes a v1 receipt for every permitted phase after both sites and shared Caddy pass', async () => {
+test('transaction fixture preserves operation/runtime values at every release boundary', async () => {
   const item = await fixture();
   try {
-    for (const phase of ['pre-mutation', 'post-activation', 'post-rollback', 'post-compensation']) {
-      const result = item.run([], phase);
+    const phases = [
+      { phase: 'pre-mutation', runtimeSha: currentRuntime },
+      { phase: 'pre-activation', runtimeSha: currentRuntime },
+      { phase: 'post-activation', runtimeSha: sha },
+      { phase: 'post-rollback', runtimeSha: rollbackTarget },
+      { phase: 'post-compensation', runtimeSha: rollbackFrom },
+    ];
+    for (const { phase, runtimeSha } of phases) {
+      const result = item.run([], phase, runtimeSha);
       assert.equal(result.status, 0, result.stderr || result.stdout);
       const receipt = JSON.parse(await readFile(item.receipt, 'utf8'));
       assert.deepEqual(receipt.owner, { project: 'rss', repo: 'blankhoney/reno_rss' });
-      assert.deepEqual(receipt.candidate, { fullSha: sha });
-      assert.deepEqual(Object.keys(receipt).sort(), ['candidate', 'contractVersion', 'edge', 'owner', 'phase', 'timestamp', 'urls', 'workflowRun']);
+      assert.deepEqual(receipt.operation, { fullSha: sha });
+      assert.deepEqual(Object.keys(receipt).sort(), isRollbackPhase(phase)
+        ? ['contractVersion', 'edge', 'operation', 'owner', 'phase', 'rollback', 'runtime', 'timestamp', 'urls', 'workflowRun']
+        : ['contractVersion', 'edge', 'operation', 'owner', 'phase', 'runtime', 'timestamp', 'urls', 'workflowRun']);
       assert.deepEqual(Object.keys(receipt.edge).sort(), [
         'blogUpstreamReachable',
         'brianstormEdgeAttached',
@@ -132,6 +153,10 @@ test('writes a v1 receipt for every permitted phase after both sites and shared 
       assert.equal(receipt.contractVersion, 1);
       assert.equal(receipt.workflowRun, 32292226657);
       assert.equal(receipt.phase, phase);
+      assert.deepEqual(receipt.runtime, { fullSha: runtimeSha });
+      if (isRollbackPhase(phase)) {
+        assert.deepEqual(receipt.rollback, { rollbackFrom, target: rollbackTarget });
+      }
       assert.match(receipt.timestamp, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
       assert.equal(receipt.urls.length, 2);
       assert.equal(receipt.urls.find((entry) => entry.name === 'rss').redirect.required, true);
@@ -155,8 +180,18 @@ test('rejects malformed or unknown CLI inputs before a receipt can be accepted',
   const item = await fixture();
   try {
     for (const args of [
-      ['--full-sha', 'abc'],
+      ['--operation-sha', 'abc'],
+      ['--runtime-sha', 'abc'],
+      ['--full-sha', sha],
+      ['--runtime-target-sha', sha],
+      ['--sha', sha],
       ['--phase', 'after-lunch'],
+      ['--phase', 'post-rollback'],
+      ['--phase', 'post-rollback', '--runtime-sha', sha],
+      ['--phase', 'post-rollback', '--runtime-sha', rollbackFrom],
+      ['--phase', 'post-compensation', '--runtime-sha', rollbackTarget],
+      ['--phase', 'post-activation', '--runtime-sha', rollbackTarget],
+      ['--rollback-from-sha', rollbackFrom],
       ['--unexpected', 'value'],
     ]) {
       const result = item.run(args);
@@ -182,6 +217,11 @@ test('fails closed without a success receipt for public, edge, driver, config, u
       { match: [{ host: ['ai-reader.blankhoney.xyz'] }], handle: [{ upstreams: [{ dial: 'api-prod:8000' }] }] },
       { match: [{ host: ['blog.blankhoney.xyz'] }], handle: [{ upstreams: [{ dial: 'brianstorm-web:3000' }, { dial: 'brianstorm-staging-web:3000' }] }] },
     ] } } } } } },
+    { activeConfig: { apps: { http: { servers: { srv0: { routes: [
+      { match: [{ host: ['ai-reader.blankhoney.xyz'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'api-prod:8000' }] }] },
+      { match: [{ host: ['blog.blankhoney.xyz'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'brianstorm-web:3000' }] }] },
+      { match: [{ host: ['staging.blog.blankhoney.xyz'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: 'brianstorm-staging-web:3000' }] }] },
+    ] } } } } } },
     { env: { FAKE_RSS_UPSTREAM_FAIL: '1' } },
     { env: { FAKE_BLOG_UPSTREAM_FAIL: '1' } },
     { env: { FAKE_STAGING_JSON: JSON.stringify([{ NetworkSettings: { Networks: { 'brianstorm-edge': {} } } }]) } },
@@ -197,6 +237,27 @@ test('fails closed without a success receipt for public, edge, driver, config, u
     }
   }
 });
+
+test('records an existing runtime separately before activation, then requires the operation SHA after activation', async () => {
+  const item = await fixture();
+  try {
+    const before = item.run([], 'pre-activation', currentRuntime);
+    assert.equal(before.status, 0, before.stderr || before.stdout);
+    const preActivationReceipt = JSON.parse(await readFile(item.receipt, 'utf8'));
+    assert.deepEqual(preActivationReceipt.operation, { fullSha: sha });
+    assert.deepEqual(preActivationReceipt.runtime, { fullSha: currentRuntime });
+
+    const mismatchedPostActivation = item.run([], 'post-activation', rollbackFrom);
+    assert.notEqual(mismatchedPostActivation.status, 0);
+    assert.match(mismatchedPostActivation.stderr, /post-activation runtime\.fullSha must equal operation\.fullSha/);
+  } finally {
+    await item.cleanup();
+  }
+});
+
+function isRollbackPhase(phase) {
+  return phase === 'post-rollback' || phase === 'post-compensation';
+}
 
 test('rejects unsafe redirect targets and a production edge without the production Blog web member', async () => {
   for (const target of [

@@ -22,9 +22,12 @@ readonly CURL_MAX_REDIRECTS=5
 
 owner_project=''
 owner_repo=''
-full_sha=''
+operation_sha=''
 workflow_run=''
 phase=''
+runtime_sha=''
+rollback_from_sha=''
+rollback_target_sha=''
 receipt_path=''
 
 usage() {
@@ -33,9 +36,11 @@ Usage:
   verify-shared-edge.sh \
     --owner-project <project> \
     --owner-repo <owner/repo> \
-    --full-sha <40-lowercase-hex> \
+    --operation-sha <40-lowercase-hex> \
     --workflow-run <positive-integer> \
-    --phase <pre-mutation|post-activation|post-rollback|post-compensation> \
+    --phase <pre-mutation|pre-activation|post-activation|post-rollback|post-compensation> \
+    --runtime-sha <40-lowercase-hex> \
+    [--rollback-from-sha <40-lowercase-hex> --rollback-target-sha <40-lowercase-hex>] \
     --receipt <path>
 EOF
 }
@@ -63,9 +68,9 @@ while (( $# > 0 )); do
             owner_repo="$2"
             shift 2
             ;;
-        --full-sha)
+        --operation-sha)
             require_value "$1" "${2:-}"
-            full_sha="$2"
+            operation_sha="$2"
             shift 2
             ;;
         --workflow-run)
@@ -76,6 +81,21 @@ while (( $# > 0 )); do
         --phase)
             require_value "$1" "${2:-}"
             phase="$2"
+            shift 2
+            ;;
+        --runtime-sha)
+            require_value "$1" "${2:-}"
+            runtime_sha="$2"
+            shift 2
+            ;;
+        --rollback-from-sha)
+            require_value "$1" "${2:-}"
+            rollback_from_sha="$2"
+            shift 2
+            ;;
+        --rollback-target-sha)
+            require_value "$1" "${2:-}"
+            rollback_target_sha="$2"
             shift 2
             ;;
         --receipt)
@@ -96,11 +116,28 @@ done
 
 [[ "$owner_project" =~ ^[a-z][a-z0-9-]{1,63}$ ]] || die 'owner.project must be a lowercase project name'
 [[ "$owner_repo" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$ ]] || die 'owner.repo must be a GitHub owner/repository pair'
-[[ "$full_sha" =~ ^[0-9a-f]{40}$ ]] || die 'candidate.fullSha must be 40 lowercase hexadecimal characters'
+[[ "$operation_sha" =~ ^[0-9a-f]{40}$ ]] || die 'operation.fullSha must be 40 lowercase hexadecimal characters'
 [[ "$workflow_run" =~ ^[1-9][0-9]*$ ]] || die 'workflowRun must be a positive integer'
+[[ "$runtime_sha" =~ ^[0-9a-f]{40}$ ]] || die 'runtime.fullSha must be 40 lowercase hexadecimal characters'
 case "$phase" in
-    pre-mutation|post-activation|post-rollback|post-compensation) ;;
-    *) die 'phase must be pre-mutation, post-activation, post-rollback, or post-compensation' ;;
+    pre-mutation|pre-activation)
+        [[ -z "$rollback_from_sha" && -z "$rollback_target_sha" ]] || die 'rollback SHA fields are only valid for post-rollback or post-compensation'
+        ;;
+    post-activation)
+        [[ -z "$rollback_from_sha" && -z "$rollback_target_sha" ]] || die 'rollback SHA fields are only valid for post-rollback or post-compensation'
+        [[ "$runtime_sha" == "$operation_sha" ]] || die 'post-activation runtime.fullSha must equal operation.fullSha'
+        ;;
+    post-rollback|post-compensation)
+        [[ "$rollback_from_sha" =~ ^[0-9a-f]{40}$ ]] || die 'rollback.rollbackFrom must be 40 lowercase hexadecimal characters'
+        [[ "$rollback_target_sha" =~ ^[0-9a-f]{40}$ ]] || die 'rollback.target must be 40 lowercase hexadecimal characters'
+        [[ "$rollback_from_sha" != "$rollback_target_sha" ]] || die 'rollback.rollbackFrom and rollback.target must differ'
+        if [[ "$phase" == 'post-rollback' ]]; then
+            [[ "$runtime_sha" == "$rollback_target_sha" ]] || die 'post-rollback runtime.fullSha must equal rollback.target'
+        else
+            [[ "$runtime_sha" == "$rollback_from_sha" ]] || die 'post-compensation runtime.fullSha must equal rollback.rollbackFrom'
+        fi
+        ;;
+    *) die 'phase must be pre-mutation, pre-activation, post-activation, post-rollback, or post-compensation' ;;
 esac
 [[ -n "$receipt_path" ]] || die 'receipt path is required'
 
@@ -324,6 +361,10 @@ process.stdin.on("end", () => {
     };
     requireProductionRoute("ai-reader.blankhoney.xyz", "api-prod:8000", "api-staging:8000");
     requireProductionRoute("blog.blankhoney.xyz", "brianstorm-web:3000", "brianstorm-staging-web:3000");
+    const allRouteValues = routes.flatMap((route) => strings(route));
+    if (allRouteValues.includes("brianstorm-staging-web:3000")) {
+      throw new Error("active Caddy configuration exposes the staging Blog web upstream");
+    }
   } catch (error) {
     console.error(`invalid active Caddy configuration: ${error.message}`);
     process.exit(1);
@@ -369,8 +410,9 @@ receipt_tmp="$(mktemp "${receipt_path}.tmp.XXXXXX")"
 cleanup_receipt_tmp() { rm -f -- "$receipt_tmp"; }
 trap cleanup_receipt_tmp EXIT
 
-RECEIPT_CONTRACT_VERSION="$CONTRACT_VERSION" OWNER_PROJECT="$owner_project" OWNER_REPO="$owner_repo" FULL_SHA="$full_sha" \
-    WORKFLOW_RUN="$workflow_run" PHASE="$phase" TIMESTAMP="$timestamp" RSS_URL_RESULT="$rss_url_result" \
+RECEIPT_CONTRACT_VERSION="$CONTRACT_VERSION" OWNER_PROJECT="$owner_project" OWNER_REPO="$owner_repo" OPERATION_SHA="$operation_sha" \
+    WORKFLOW_RUN="$workflow_run" PHASE="$phase" RUNTIME_SHA="$runtime_sha" \
+    ROLLBACK_FROM_SHA="$rollback_from_sha" ROLLBACK_TARGET_SHA="$rollback_target_sha" TIMESTAMP="$timestamp" RSS_URL_RESULT="$rss_url_result" \
     BLOG_URL_RESULT="$blog_url_result" RECEIPT_CADDY_CONTAINER="$CADDY_CONTAINER" MYRSS_ATTACHED="$myrss_app_attached" \
     BRIANSTORM_ATTACHED="$brianstorm_edge_attached" MYRSS_DRIVER="$myrss_driver" BRIANSTORM_DRIVER="$brianstorm_driver" \
     PRODUCTION_BLOG_ATTACHED="$production_blog_attached" STAGING_WEB_ATTACHED="$staging_web_attached" \
@@ -379,9 +421,10 @@ const urlResults = [JSON.parse(process.env.RSS_URL_RESULT), JSON.parse(process.e
 const receipt = {
   contractVersion: Number(process.env.RECEIPT_CONTRACT_VERSION),
   owner: { project: process.env.OWNER_PROJECT, repo: process.env.OWNER_REPO },
-  candidate: { fullSha: process.env.FULL_SHA },
+  operation: { fullSha: process.env.OPERATION_SHA },
   workflowRun: Number(process.env.WORKFLOW_RUN),
   phase: process.env.PHASE,
+  runtime: { fullSha: process.env.RUNTIME_SHA },
   timestamp: process.env.TIMESTAMP,
   urls: urlResults,
   edge: {
@@ -399,6 +442,12 @@ const receipt = {
     stagingWebAttachedToProductionEdge: process.env.STAGING_WEB_ATTACHED === "true",
   },
 };
+if (process.env.PHASE === "post-rollback" || process.env.PHASE === "post-compensation") {
+  receipt.rollback = {
+    rollbackFrom: process.env.ROLLBACK_FROM_SHA,
+    target: process.env.ROLLBACK_TARGET_SHA,
+  };
+}
 process.stdout.write(`${JSON.stringify(receipt)}\n`);
 ' > "$receipt_tmp"
 
