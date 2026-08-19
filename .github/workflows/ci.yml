@@ -107,6 +107,7 @@ jobs:
           uv run --isolated --with-editable . --extra dev alembic current --check-heads
 
       - name: Seed PostgreSQL performance fixture
+        if: ${{ github.event_name == 'pull_request' }}
         working-directory: apps/api
         env:
           SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
@@ -147,6 +148,7 @@ jobs:
           PY
 
       - name: Run PostgreSQL performance baseline
+        if: ${{ github.event_name == 'pull_request' }}
         working-directory: apps/worker
         env:
           DB_PERF_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
@@ -159,19 +161,6 @@ jobs:
           --iterations 5 --warmups 1
           --output ../../output/performance/db-postgres-ci.json
 
-      - name: Upload canonical-main PostgreSQL performance baseline
-        if: >-
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main' &&
-          github.repository == 'blankhoney/reno_rss' &&
-          !cancelled()
-        uses: actions/upload-artifact@v4
-        with:
-          name: db-postgres-performance-baseline-main
-          path: output/performance/db-postgres-ci.json
-          if-no-files-found: error
-          retention-days: 90
-
       - name: Upload PR PostgreSQL performance candidate
         if: ${{ github.event_name == 'pull_request' && !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -183,6 +172,7 @@ jobs:
 
       - name: Resolve trusted canonical-main PostgreSQL baseline
         id: performance_baseline
+        if: ${{ github.event_name == 'pull_request' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_API_URL: ${{ github.api_url }}
@@ -199,7 +189,7 @@ jobs:
           --github-output "$GITHUB_OUTPUT"
 
       - name: Compare PostgreSQL performance baseline
-        if: ${{ steps.performance_baseline.outputs.mode == 'comparison' }}
+        if: ${{ github.event_name == 'pull_request' && steps.performance_baseline.outputs.mode == 'comparison' }}
         run: >-
           python infra/scripts/check-performance-baseline.py
           --baseline output/performance/main-baseline/db-postgres-ci.json
@@ -208,7 +198,7 @@ jobs:
           --output output/performance/db-postgres-comparison.json
 
       - name: Upload PostgreSQL performance comparison
-        if: ${{ steps.performance_baseline.outputs.mode == 'comparison' && !cancelled() }}
+        if: ${{ github.event_name == 'pull_request' && steps.performance_baseline.outputs.mode == 'comparison' && !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: db-postgres-performance-comparison
@@ -219,7 +209,7 @@ jobs:
           retention-days: 90
 
       - name: Upload PostgreSQL performance bootstrap status
-        if: ${{ steps.performance_baseline.outputs.mode == 'bootstrap' && !cancelled() }}
+        if: ${{ github.event_name == 'pull_request' && steps.performance_baseline.outputs.mode == 'bootstrap' && !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: db-postgres-performance-bootstrap-status
@@ -228,7 +218,7 @@ jobs:
           retention-days: 90
 
       - name: Summarize PostgreSQL performance baseline
-        if: ${{ !cancelled() }}
+        if: ${{ github.event_name == 'pull_request' && !cancelled() }}
         env:
           BASELINE_MODE: ${{ steps.performance_baseline.outputs.mode }}
           BASELINE_RUN_ID: ${{ steps.performance_baseline.outputs.run_id }}
@@ -491,6 +481,110 @@ jobs:
           format: "table"
           exit-code: "1"
           severity: "CRITICAL,HIGH"
+
+  canonical_postgres_performance_baseline_producer:
+    name: canonical PostgreSQL performance baseline producer
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      github.repository == 'blankhoney/reno_rss'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            apps/api/pyproject.toml
+            apps/worker/pyproject.toml
+
+      - name: Prepare PostgreSQL schema for baseline
+        working-directory: apps/api
+        env:
+          SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: uv run --isolated --with-editable . --extra dev alembic upgrade head
+
+      - name: Seed PostgreSQL performance fixture
+        working-directory: apps/api
+        env:
+          SCORING_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: |
+          uv run --isolated --with-editable . --extra dev python - <<'PY'
+          from sqlalchemy import create_engine, text
+
+          engine = create_engine("postgresql+psycopg://postgres:postgres@localhost:5432/postgres")
+          with engine.begin() as connection:
+              connection.execute(text("""
+                  INSERT INTO app_users (id, display_name, session_token_hash, recovery_code_hash)
+                  VALUES ('00000000-0000-0000-0000-000000000901', 'Performance fixture',
+                          'performance-fixture-session', 'performance-fixture-recovery')
+                  ON CONFLICT (id) DO NOTHING
+              """))
+              connection.execute(text("""
+                  INSERT INTO feeds (id, feed_url, title)
+                  VALUES (990001, 'https://baseline.invalid/feed', 'Performance fixture')
+                  ON CONFLICT (id) DO NOTHING
+              """))
+              connection.execute(text("""
+                  INSERT INTO articles (id, primary_feed_id, title, url, published_at)
+                  VALUES (990001, 990001, 'Baseline fixture article',
+                          'https://baseline.invalid/article', NOW())
+                  ON CONFLICT (id) DO NOTHING
+              """))
+              connection.execute(text("""
+                  INSERT INTO jobs (id, job_type, status, payload, dedupe_key)
+                  VALUES (990001, 'score_article', 'queued', '{}'::jsonb, 'performance-fixture-job')
+                  ON CONFLICT (id) DO NOTHING
+              """))
+              connection.execute(text("""
+                  INSERT INTO article_annotations (id, article_id, user_id, type, content, next_review_at)
+                  VALUES (990001, 990001, '00000000-0000-0000-0000-000000000901',
+                          'review', 'Performance fixture', NOW())
+                  ON CONFLICT (id) DO NOTHING
+              """))
+          PY
+
+      - name: Run PostgreSQL performance baseline
+        working-directory: apps/worker
+        env:
+          DB_PERF_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: >-
+          uv run --isolated --with-editable . --extra dev
+          python scripts/db-performance-baseline.py
+          --iterations 5 --warmups 1
+          --output ../../output/performance/db-postgres-ci.json
+
+      - name: Upload canonical-main PostgreSQL performance baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-postgres-performance-baseline-main
+          path: output/performance/db-postgres-ci.json
+          if-no-files-found: error
+          retention-days: 90
 
   images:
     name: build / push GHCR images

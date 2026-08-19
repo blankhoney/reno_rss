@@ -122,7 +122,7 @@ def _run(run_id=RUN_ID):
 def _job(run_id=RUN_ID, job_id=JOB_ID):
     return {
         "id": job_id,
-        "name": resolver.CHECKS_JOB_NAME,
+        "name": resolver.BASELINE_PRODUCER_JOB_NAME,
         "run_id": run_id,
         "run_attempt": RUN_ATTEMPT,
         "head_sha": HEAD_SHA,
@@ -363,8 +363,8 @@ def test_digest_payload_or_zip_error_fails_closed_without_fallback(tmp_path):
     (
         ("fork", "canonical repository"),
         ("pr", "run.event mismatch"),
-        ("wrong-attempt", "checks job run_attempt mismatch"),
-        ("duplicate-job", "exactly one checks"),
+        ("wrong-attempt", "baseline producer job run_attempt mismatch"),
+        ("duplicate-job", "exactly one baseline producer"),
         ("artifact-sha", "artifact.workflow_run.head_sha mismatch"),
     ),
 )
@@ -427,16 +427,19 @@ def test_not_yet_completed_producer_can_fall_back_to_older_valid_baseline(tmp_pa
     assert result["artifact"]["id"] == 4000
 
 
-def test_downstream_run_failure_keeps_successful_checks_producer_trusted(tmp_path):
+@pytest.mark.parametrize("workflow_conclusion", ("failure", "cancelled"))
+def test_downstream_workflow_terminal_state_keeps_successful_producer_trusted(
+    tmp_path, workflow_conclusion
+):
     api = FakeApi()
-    api.runs[RUN_ID]["conclusion"] = "failure"
+    api.runs[RUN_ID]["conclusion"] = workflow_conclusion
 
     result = _resolve(api, tmp_path)
 
     assert result["artifact"]["id"] == ARTIFACT_ID
 
 
-def test_failed_checks_producer_can_fall_back_to_older_valid_baseline(tmp_path):
+def test_failed_baseline_producer_can_fall_back_to_older_valid_baseline(tmp_path):
     newer = _artifact()
     older = _artifact(4000, run_id=3000)
     older["created_at"] = "2026-07-01T00:00:00Z"
@@ -453,7 +456,7 @@ def test_failed_checks_producer_can_fall_back_to_older_valid_baseline(tmp_path):
     assert result["artifact"]["id"] == 4000
 
 
-def test_stable_failed_checks_producer_allows_canonical_main_bootstrap(tmp_path):
+def test_stable_failed_baseline_producer_allows_canonical_main_bootstrap(tmp_path):
     failed = _artifact()
     api = FakeApi([failed])
     api.enumerations = [[copy.deepcopy(failed)], [copy.deepcopy(failed)]]
