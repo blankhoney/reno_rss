@@ -1616,6 +1616,8 @@ def test_trusted_workflow_verifies_read_only_then_executes_one_locked_transactio
     assert 'mkdir -p "$(dirname "$receipt_dir")"' in run
     assert 'remote_command="bash -c $(quote "$remote_preflight")"' in run
     assert ' "$remote_command" | tee "$ssh_stdout_file"' in run
+    assert "exec 8<&0" in run
+    assert "RENO_SHARED_RELEASE_BUNDLE_FD=8" in run
     assert "SHARED_RELEASE_LOCK_INHERITED_FD" not in run
     assert "SHARED_RELEASE_LOCK_ROOT" not in run
     assert "flock " not in run
