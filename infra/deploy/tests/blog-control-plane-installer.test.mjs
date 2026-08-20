@@ -213,18 +213,25 @@ test('Linux deploy runtime resolver uses only fixed install roots and the highes
   await chmod(fakeNode, 0o555);
   await chmod(olderNode, 0o555);
   const python = spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim();
-  const program = `import importlib.util, os, types
+  const program = `import importlib.util, os, pathlib, types
 spec=importlib.util.spec_from_file_location('installer', 'infra/deploy/install-blog-control-plane-transaction.py')
 module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
 account=types.SimpleNamespace(pw_dir='${root}', pw_name='fixture', pw_uid=${process.getuid()})
 args=types.SimpleNamespace(probe_uid=${process.getuid()}, probe_gid=${process.getgid()})
-fd,version=module.resolve_probe_node(args, account)
+fd,version=module.resolve_probe_node(args, account, ())
 print(os.readlink(f'/proc/self/fd/{fd}'), '.'.join(map(str, version)))
 os.close(fd)
 `;
   const result = spawnSync(python, ['-c', program], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), `${fakeNode} 99.14.0`);
+  const unsafeSystemDir = path.join(root, 'unsafe-system');
+  await mkdir(unsafeSystemDir); await chmod(unsafeSystemDir, 0o777);
+  const unsafeSystemProgram = program.replace('account, ())',
+    `account, (tuple(part for part in pathlib.PurePosixPath('${unsafeSystemDir}').parts if part != '/'),))`);
+  const unsafeSystem = spawnSync(python, ['-c', unsafeSystemProgram], { encoding: 'utf8' });
+  assert.notEqual(unsafeSystem.status, 0);
+  assert.match(unsafeSystem.stderr, /probe_node_directory/);
   const unsafe = path.join(root, '.nvm', 'versions', 'node', 'v99.0.0');
   await symlink(root, unsafe);
   const rejected = spawnSync(python, ['-c', program], { encoding: 'utf8' });

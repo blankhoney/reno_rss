@@ -267,23 +267,27 @@ def probe_node_version(fd: int, args: argparse.Namespace) -> tuple[int, int, int
 
 
 def resolve_probe_node(args: argparse.Namespace,
-                       account: pwd.struct_passwd | None = None) -> tuple[int, tuple[int, int, int]]:
+                       account: pwd.struct_passwd | None = None,
+                       system_parts: tuple[tuple[str, ...], ...] = (
+                           ('usr', 'local', 'bin'), ('usr', 'bin'),
+                       )) -> tuple[int, tuple[int, int, int]]:
     account = account or pwd.getpwuid(args.probe_uid)
     home = pathlib.PurePosixPath(account.pw_dir)
     if not home.is_absolute() or '..' in home.parts:
         raise RuntimeError('probe_home')
     candidates: list[int] = []
     try:
-        for parts in (('usr', 'local', 'bin'), ('usr', 'bin')):
+        for parts in system_parts:
             directory_fd = -1
             try:
                 directory_fd = open_directory_chain(parts, 0)
-                candidates.append(open_node_at(directory_fd, 0))
-            except RuntimeError:
-                pass
-            except OSError as error:
-                if error.errno not in (errno.ENOENT, errno.ELOOP):
-                    raise
+                try:
+                    candidates.append(open_node_at(directory_fd, 0))
+                except RuntimeError:
+                    pass
+                except OSError as error:
+                    if error.errno not in (errno.ENOENT, errno.ELOOP):
+                        raise
             finally:
                 if directory_fd >= 0:
                     os.close(directory_fd)
