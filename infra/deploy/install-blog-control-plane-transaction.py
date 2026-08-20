@@ -268,6 +268,40 @@ def probe_node_version(fd: int, args: argparse.Namespace) -> tuple[int, int, int
     return version
 
 
+def collect_versioned_candidates(home_fd: int, owner: int, layout: tuple[str, ...],
+                                version_pattern: re.Pattern[str],
+                                bin_parts: tuple[str, ...], candidates: list[int]) -> None:
+    base_fd = home_fd
+    opened: list[int] = []
+    try:
+        try:
+            for part in layout:
+                base_fd = open_directory_at(base_fd, part, owner)
+                opened.append(base_fd)
+        except FileNotFoundError:
+            return
+        for name in os.listdir(base_fd):
+            if version_pattern.fullmatch(name) is None:
+                continue
+            version_fd = open_directory_at(base_fd, name, owner)
+            try:
+                bin_fd = version_fd
+                bin_opened: list[int] = []
+                try:
+                    for part in bin_parts:
+                        bin_fd = open_directory_at(bin_fd, part, owner)
+                        bin_opened.append(bin_fd)
+                    candidates.append(open_node_at(bin_fd, owner))
+                finally:
+                    for fd in reversed(bin_opened):
+                        os.close(fd)
+            finally:
+                os.close(version_fd)
+    finally:
+        for fd in reversed(opened):
+            os.close(fd)
+
+
 def resolve_probe_node(args: argparse.Namespace,
                        account: pwd.struct_passwd | None = None,
                        system_parts: tuple[tuple[str, ...], ...] = (
@@ -296,34 +330,15 @@ def resolve_probe_node(args: argparse.Namespace,
 
         home_fd = open_directory_chain(tuple(part for part in home.parts if part != '/'), account.pw_uid)
         try:
-            try:
-                nvm_fd = open_directory_at(home_fd, '.nvm', account.pw_uid)
-            except FileNotFoundError:
-                nvm_fd = -1
-            if nvm_fd >= 0:
-                try:
-                    versions_fd = open_directory_at(nvm_fd, 'versions', account.pw_uid)
-                    try:
-                        node_versions_fd = open_directory_at(versions_fd, 'node', account.pw_uid)
-                        try:
-                            for name in os.listdir(node_versions_fd):
-                                if re.fullmatch(r'v\d+\.\d+\.\d+', name) is None:
-                                    continue
-                                version_fd = open_directory_at(node_versions_fd, name, account.pw_uid)
-                                try:
-                                    bin_fd = open_directory_at(version_fd, 'bin', account.pw_uid)
-                                    try:
-                                        candidates.append(open_node_at(bin_fd, account.pw_uid))
-                                    finally:
-                                        os.close(bin_fd)
-                                finally:
-                                    os.close(version_fd)
-                        finally:
-                            os.close(node_versions_fd)
-                    finally:
-                        os.close(versions_fd)
-                finally:
-                    os.close(nvm_fd)
+            layouts = (
+                (('.nvm', 'versions', 'node'), re.compile(r'v\d+\.\d+\.\d+'), ('bin',)),
+                (('.asdf', 'installs', 'nodejs'), re.compile(r'\d+\.\d+\.\d+'), ('bin',)),
+                (('.local', 'share', 'mise', 'installs', 'node'), re.compile(r'\d+\.\d+\.\d+'), ('bin',)),
+                (('.local', 'share', 'fnm', 'node-versions'), re.compile(r'v\d+\.\d+\.\d+'), ('installation', 'bin')),
+            )
+            for layout, version_pattern, bin_parts in layouts:
+                collect_versioned_candidates(home_fd, account.pw_uid, layout,
+                                             version_pattern, bin_parts, candidates)
         finally:
             os.close(home_fd)
 
