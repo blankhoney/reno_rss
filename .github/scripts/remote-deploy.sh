@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # Installed as /usr/local/lib/reno-shared-vps/release-lock-v1/trusted-remote-deploy.sh.
-# It must be invoked only by the canonical public lock wrapper. stdin is a
-# one-line credential frame followed by the secret-free manifest tar.
+# It must be invoked only by the canonical public lock wrapper.  The remote
+# preflight preserves the credential frame and secret-free manifest tar on a
+# dedicated descriptor because the lock core starts this process in a
+# background session, where fd 0 cannot be relied on.
 set -euo pipefail
 
 readonly LOCK_ROOT='/var/lib/reno-shared-vps/release-lock-v1'
@@ -25,6 +27,9 @@ assert_shared_lock_held
 : "${VPS_APP_DIR:?VPS_APP_DIR is required}";: "${GHCR_USERNAME:?GHCR_USERNAME is required}"
 [[ "$VPS_APP_DIR" == /* && "$VPS_APP_DIR" != *$'\n'* ]]||die 'VPS_APP_DIR must be an absolute single-line path'
 [[ "$GHCR_USERNAME" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,38}$ ]]||die 'GHCR_USERNAME is invalid'
+bundle_fd="${RENO_SHARED_RELEASE_BUNDLE_FD:-}"
+[[ "$bundle_fd" == 8 && -r "/proc/self/fd/$bundle_fd" ]]||die 'authenticated bundle FD 8 was not inherited'
+[[ "$bundle_fd" != "${SHARED_RELEASE_LOCK_CORE_FD:-}" ]]||die 'bundle FD must be distinct from the canonical lock FD'
 
 transaction_dir='';cleanup(){ local status=$?;trap - EXIT HUP INT TERM;unset token_b64;[[ -z "$transaction_dir" ]]||rm -rf -- "$transaction_dir";exit "$status"; }
 trap cleanup EXIT;trap 'exit 129' HUP;trap 'exit 130' INT;trap 'exit 143' TERM
@@ -34,7 +39,7 @@ umask 077;transaction_dir="$(mktemp -d --tmpdir trusted-rss-deploy.XXXXXXXX)"
 bundle_path="$transaction_dir/bundle.tar";manifest_path="$transaction_dir/manifest.json";contract_dir="$transaction_dir/contract";receipt_dir="$transaction_dir/receipts";docker_config_dir="$transaction_dir/docker-config"
 mkdir -- "$receipt_dir" "$docker_config_dir";chmod 700 "$docker_config_dir"
 
-IFS= read -r credential_frame||die 'credential frame is missing'
+IFS= read -r -u "$bundle_fd" credential_frame||die 'credential frame is missing'
 [[ "$credential_frame" =~ ^GHCR_TOKEN_B64\ ([A-Za-z0-9+/]+={0,2})$ ]]||die 'credential frame is invalid'
 token_b64="${BASH_REMATCH[1]}";unset credential_frame
 python3 -c '
@@ -43,7 +48,9 @@ path,maximum_raw=sys.argv[1:];payload=sys.stdin.buffer.read(int(maximum_raw)+1)
 if not payload:raise SystemExit("trusted deploy bundle is empty")
 if len(payload)>int(maximum_raw):raise SystemExit("trusted deploy bundle exceeds size limit")
 with open(path,"xb") as output:output.write(payload)
-' "$bundle_path" "$MAX_BUNDLE_BYTES"
+' "$bundle_path" "$MAX_BUNDLE_BYTES" <&"$bundle_fd"
+exec 8<&-
+unset RENO_SHARED_RELEASE_BUNDLE_FD bundle_fd
 python3 - "$bundle_path" "$manifest_path" "$contract_dir" <<'PY'
 import os,sys,tarfile
 archive_path,output_path,contract_dir=sys.argv[1:]

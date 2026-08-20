@@ -79,7 +79,9 @@ test('transaction source gates its first mutation on the inherited canonical flo
   assert.ok(assertionCall > assertion);
   assert.ok(firstMutation > assertionCall);
   assert.equal(source.includes(': "${GHCR_TOKEN_B64:'), false);
-  assert.match(source, /IFS= read -r credential_frame/);
+  assert.match(source, /RENO_SHARED_RELEASE_BUNDLE_FD/);
+  assert.match(source, /read -r -u "\$bundle_fd" credential_frame/);
+  assert.match(source, /"\$bundle_path" "\$MAX_BUNDLE_BYTES" <&"\$bundle_fd"/);
   assert.match(source, /run_probe pre-mutation[\s\S]*locked_mutation/);
   assert.match(source, /locked_mutation\(\)[\s\S]*prepare_control_plane[\s\S]*run_production_prebackup[\s\S]*ensure_shared_edge[\s\S]*run_probe pre-activation/);
   assert.match(source, /rollback_state_compensate/);
@@ -90,7 +92,10 @@ async function executable(file, body) {
   await chmod(file, 0o755);
 }
 
-async function linuxFixture(requestType, { environment = 'staging', failTarget = false, failPostProbe = false, failBackup = false } = {}) {
+async function linuxFixture(requestType, {
+  environment = 'staging', failTarget = false, failPostProbe = false, failBackup = false,
+  preserveBundleFd = true,
+} = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'trusted-remote-'));
   const lockRoot = path.join(root, 'lock');
   const app = path.join(root, 'app');
@@ -209,7 +214,13 @@ printf 'backup-complete\n' >> "$CALL_LOG"
   assert.equal(packed.status, 0, packed.stderr.toString());
   const bundle = packed.stdout;
   const transport = Buffer.concat([Buffer.from('GHCR_TOKEN_B64 dG9rZW4=\n'), bundle]);
-  const shell = `exec 9>"$LOCK_PATH_TEST"; /usr/bin/flock -n 9; SHARED_RELEASE_LOCK_CORE_FD=9 exec "$TRANSACTION_TEST"`;
+  // Match the production core: the transaction is a background session, so
+  // fd 0 is not a safe transport.  The remote preflight must preserve the
+  // authenticated stream on a dedicated inherited descriptor.
+  const bundleSetup = preserveBundleFd
+    ? 'exec 8<&0; export RENO_SHARED_RELEASE_BUNDLE_FD=8;'
+    : 'unset RENO_SHARED_RELEASE_BUNDLE_FD;';
+  const shell = `${bundleSetup} exec 9>"$LOCK_PATH_TEST"; /usr/bin/flock -n 9; export SHARED_RELEASE_LOCK_CORE_FD=9; setsid -- bash -c 'exec "$@"' bash "$TRANSACTION_TEST" & child=$!; wait "$child"`;
   const result = spawnSync('bash', ['-c', shell], {
     input: transport,
     env: {
@@ -229,9 +240,19 @@ printf 'backup-complete\n' >> "$CALL_LOG"
     root, result,
     calls: await readFile(log, 'utf8'),
     runtime: (await readFile(state, 'utf8')).trim(),
-    marker: await readFile(marker, 'utf8'),
+    marker: await readFile(marker, 'utf8').catch(() => ''),
   };
 }
+
+test('Linux background session rejects a missing dedicated bundle FD before its first mutation', { skip: os.platform() !== 'linux' }, async () => {
+  const item = await linuxFixture('deploy', { preserveBundleFd: false });
+  try {
+    assert.equal(item.result.status, 64);
+    assert.match(item.result.stderr, /authenticated bundle FD 8 was not inherited/);
+    assert.equal(item.marker, '');
+    assert.equal(item.calls, '');
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
 
 test('Linux fixture holds the lock before temp/extract and wires deploy phases to actual runtime', { skip: os.platform() !== 'linux' }, async () => {
   const item = await linuxFixture('deploy');

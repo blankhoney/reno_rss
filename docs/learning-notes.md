@@ -62,6 +62,10 @@
   This permits a read-only `pre-mutation` receipt before edge repair, Git
   checkout, registry login, image pull, backup, migration, or activation; all
   later failures still use the same bundled compensation contract.
+- The trusted workflow duplicates its authenticated SSH input onto descriptor
+  8 before entering the public release-lock wrapper. The locked transaction
+  reads only that explicit inherited descriptor: a background `setsid` child
+  cannot safely depend on non-interactive shell stdin remaining attached.
 - Production backup and checksum verification complete before any new Caddy or
   application revision starts. A backup failure therefore leaves the running
   revision untouched instead of producing a snapshot after new code may have
