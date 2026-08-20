@@ -51,8 +51,8 @@ test('installer authenticates RSS parity and executes only the canonical Blog in
 test('remote installer enters the canonical wrapper before any remote write', () => {
   const remote = readFileSync('infra/deploy/install-blog-control-plane-remote.sh', 'utf8');
   const transaction = readFileSync('infra/deploy/install-blog-control-plane-transaction.py', 'utf8');
-  assert.match(remote, /exec sudo -n env INSTALLER_PROBE_UID=/);
-  assert.doesNotMatch(remote, /command -v node|INSTALLER_PROBE_NODE|--probe-node/);
+  assert.match(remote, /exec sudo -n bash -c/);
+  assert.doesNotMatch(remote, /command -v node|INSTALLER_PROBE_NODE|INSTALLER_PROBE_UID|--probe-node|--probe-uid|--probe-gid/);
   assert.match(remote, /with-shared-release-lock\.sh/);
   assert.match(remote, /exec 8<&0/);
   assert.match(transaction, /'user': args\.probe_uid, 'group': args\.probe_gid/);
@@ -61,6 +61,10 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   assert.match(transaction, /open_directory_at/);
   assert.match(transaction, /os\.O_DIRECTORY \| os\.O_NOFOLLOW/);
   assert.match(transaction, /pass_fds=\(fd,\)/);
+  assert.match(transaction, /PROBE_ACCOUNT = 'deploy'/);
+  assert.match(transaction, /pwd\.getpwnam\(PROBE_ACCOUNT\)/);
+  assert.match(transaction, /deploy_group not in os\.getgrouplist/);
+  assert.match(transaction, /probe_identity_override/);
   assert.doesNotMatch(transaction, /-lic|\.pw_shell/);
   assert.match(transaction, /os\.open\(source, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
   assert.match(transaction, /file_identity\(before\) != file_identity\(after\)/);
@@ -296,8 +300,9 @@ chmod 600 "$receipt"
     .replace("LOCK_ROOT = pathlib.Path('/var/lib/reno-shared-vps/release-lock-v1')", `LOCK_ROOT = pathlib.Path('${lockRoot}')`)
     .replace("HELPER_ROOT = pathlib.Path('/usr/local/lib/reno-shared-vps/release-lock-v1')", `HELPER_ROOT = pathlib.Path('${helper}')`)
     .replace("APP_ROOT = pathlib.Path('/srv/brianstorm')", `APP_ROOT = pathlib.Path('${path.join(root, 'app')}')`)
+    .replace("PROBE_ACCOUNT = 'deploy'", `PROBE_ACCOUNT = '${probeUid === 1000 ? 'node' : os.userInfo().username}'`)
     .replace("if os.geteuid() != 0 or os.uname().sysname != 'Linux':", "if os.uname().sysname != 'Linux':")
-    .replace("deploy_group = grp.getgrnam('reno-deploy').gr_gid", `deploy_group = ${probeGid}`)
+    .replaceAll("deploy_group = grp.getgrnam('reno-deploy').gr_gid", `deploy_group = ${probeGid}`)
     .replace('(HELPER_ROOT, stat.S_IFDIR, 0, 0o755)', '(HELPER_ROOT, stat.S_IFDIR, os.getgid(), 0o755)')
     .replaceAll('value.st_uid != 0', 'value.st_uid != os.getuid()')
     .replaceAll('before.st_uid != 0', 'before.st_uid != os.getuid()')
@@ -318,17 +323,15 @@ chmod 600 "$receipt"
     '--rss-installer-sha', 'c'.repeat(40), '--control-ci-run', '20', '--control-ci-attempt', '1',
     '--producer-run', '30', '--producer-attempt', '1', '--artifact-id', '40',
     '--artifact-digest', `sha256:${'4'.repeat(64)}`, '--web-image-digest', `sha256:${'5'.repeat(64)}`,
-    '--companion-image-digest', `sha256:${'6'.repeat(64)}`,
-    '--probe-uid', String(probeUid), '--probe-gid', String(probeGid)];
-  const run = (workflowRun) => spawnSync('bash', ['-c',
+    '--companion-image-digest', `sha256:${'6'.repeat(64)}`];
+  const run = (workflowRun, extraEnv = {}) => spawnSync('bash', ['-c',
     'exec 9>"$1"; flock -n 9; exec 8<"$2"; export SHARED_RELEASE_LOCK_CORE_FD=9 RENO_SHARED_RELEASE_BUNDLE_FD=8; shift 2; exec "$@"',
     '--', path.join(lockRoot, 'release.lock'), tar, core, '--owner', 'blog', '--repo', 'blankhoney/my_blog',
     '--sha', 'a'.repeat(40), '--run', String(workflowRun), '--ttl-seconds', '30', '--',
     'python3', inner, ...baseArgs, '--installer-run', String(workflowRun)], {
     encoding: 'utf8', env: { ...process.env, SHARED_RELEASE_LOCK_ROOT: lockRoot,
-      SUDO_UID: String(probeUid), SUDO_GID: String(probeGid), SUDO_USER: probeUid === 1000 ? 'node' : os.userInfo().username,
       SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
-      SHARED_RELEASE_LOCK_GROUP: probeGroup },
+      SHARED_RELEASE_LOCK_GROUP: probeGroup, ...extraEnv },
   });
 
   const success = run(7001);
@@ -350,6 +353,11 @@ chmod 600 "$receipt"
   await assertProbeEvidence(legacyReceipt.probes.after.receiptPath, 'pre-activation', legacyReceipt.runtime.fullSha);
   for (const [name, body] of Object.entries(values)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
   assert.equal((await readdir(audit)).filter((name) => name.endsWith('-installed.json')).length, 1);
+
+  const overriddenIdentity = run(7008, { INSTALLER_PROBE_UID: String(probeUid) });
+  assert.notEqual(overriddenIdentity.status, 0);
+  assert.match(overriddenIdentity.stderr, /probe_identity_override/);
+  assert.equal((await readdir(audit)).filter((name) => name.includes('7008-1-installed')).length, 0);
 
   const provenanceRelease = path.join(releases, `prod-${'a'.repeat(40)}`);
   await mkdir(provenanceRelease);
@@ -392,7 +400,6 @@ chmod 600 "$receipt"
     'bash', '-c', 'rm -- "$1"; ln -s "$2" "$1"; shift 2; exec "$@"', 'bash',
     path.join(lockRoot, 'metadata.json'), poison, 'python3', inner, ...baseArgs, '--installer-run', '7003'], {
     encoding: 'utf8', env: { ...process.env,
-      SUDO_UID: String(probeUid), SUDO_GID: String(probeGid), SUDO_USER: probeUid === 1000 ? 'node' : os.userInfo().username,
       SHARED_RELEASE_LOCK_ROOT: lockRoot, SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
       SHARED_RELEASE_LOCK_GROUP: probeGroup,
       RENO_SHARED_RELEASE_BUNDLE_FD: '8' },
@@ -409,7 +416,6 @@ chmod 600 "$receipt"
     'bash', '-c', 'rm -- "$1"; cp "$2" "$1"; chmod 0644 "$1"; shift 2; exec "$@"', 'bash',
     path.join(lockRoot, 'metadata.json'), poison, 'python3', inner, ...baseArgs, '--installer-run', '7004'], {
     encoding: 'utf8', env: { ...process.env,
-      SUDO_UID: String(probeUid), SUDO_GID: String(probeGid), SUDO_USER: probeUid === 1000 ? 'node' : os.userInfo().username,
       SHARED_RELEASE_LOCK_ROOT: lockRoot, SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
       SHARED_RELEASE_LOCK_GROUP: probeGroup,
       RENO_SHARED_RELEASE_BUNDLE_FD: '8' },

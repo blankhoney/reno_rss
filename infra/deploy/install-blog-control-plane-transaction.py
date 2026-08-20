@@ -35,6 +35,7 @@ WRAPPER_SHA = '2cf87eb5d54e626fd96bef70ea7b8543ef721a12bb610b31dd2578fb80c296a5'
 CORE_SHA = 'd54485e473c7729e74628105c0f0ca6f75bcc63e65d4b71c2f14f1e2f3b51429'
 LEGACY_RUNTIME_SHA = '1667b3c891958c65426d9f3ed7dd0426f012cefc'
 LEGACY_RELEASE_ID = '20260719-201357-1667b3c'
+PROBE_ACCOUNT = 'deploy'
 SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^sha256:[a-f0-9]{64}$')
 
@@ -156,8 +157,7 @@ def parser() -> argparse.ArgumentParser:
                  'companion-image-digest', 'installer-transaction-sha256'):
         value.add_argument(f'--{name}', required=True)
     for name in ('bundle-fd', 'installer-run', 'installer-attempt', 'control-ci-run',
-                 'control-ci-attempt', 'producer-run', 'producer-attempt', 'artifact-id',
-                 'probe-uid', 'probe-gid'):
+                 'control-ci-attempt', 'producer-run', 'producer-attempt', 'artifact-id'):
         value.add_argument(f'--{name}', required=True, type=int)
     return value
 
@@ -183,13 +183,16 @@ def validate_args(args: argparse.Namespace) -> None:
         raise RuntimeError('installer_transaction_digest')
     if args.repo != 'blankhoney/my_blog' or args.rss_source_sha != '2b29cfafaafa0795401c7b226a159572f9af6729':
         raise RuntimeError('frozen_identity')
-    if args.probe_uid <= 0 or args.probe_gid < 0:
+    for name in ('INSTALLER_PROBE_UID', 'INSTALLER_PROBE_GID', 'INSTALLER_PROBE_USER'):
+        if name in os.environ:
+            raise RuntimeError('probe_identity_override')
+    account = pwd.getpwnam(PROBE_ACCOUNT)
+    deploy_group = grp.getgrnam('reno-deploy').gr_gid
+    if (account.pw_uid <= 0 or account.pw_gid < 0
+            or deploy_group not in os.getgrouplist(account.pw_name, account.pw_gid)):
         raise RuntimeError('probe_identity')
-    account = pwd.getpwuid(args.probe_uid)
-    if (account.pw_gid != args.probe_gid or os.environ.get('SUDO_UID') != str(args.probe_uid)
-            or os.environ.get('SUDO_GID') != str(args.probe_gid)
-            or os.environ.get('SUDO_USER') != account.pw_name):
-        raise RuntimeError('probe_sudo_identity')
+    args.probe_uid = account.pw_uid
+    args.probe_gid = account.pw_gid
 
 
 def validate_directory_fd(fd: int, owner: int) -> None:

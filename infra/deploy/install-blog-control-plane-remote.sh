@@ -47,8 +47,7 @@ inner_command="exec python3 -c $(quote "$inner_source") --bundle-fd 8 --repo $(q
 --control-ci-run $(quote "$CONTROL_CI_RUN") --control-ci-attempt $(quote "$CONTROL_CI_ATTEMPT") \
 --producer-run $(quote "$PRODUCER_RUN") --producer-attempt $(quote "$PRODUCER_ATTEMPT") \
 --artifact-id $(quote "$ARTIFACT_ID") --artifact-digest $(quote "$ARTIFACT_DIGEST") \
---web-image-digest $(quote "$WEB_DIGEST") --companion-image-digest $(quote "$COMPANION_DIGEST") \
---probe-uid \$INSTALLER_PROBE_UID --probe-gid \$INSTALLER_PROBE_GID"
+--web-image-digest $(quote "$WEB_DIGEST") --companion-image-digest $(quote "$COMPANION_DIGEST")"
 sudo_command="exec 8<&0; exec env RENO_SHARED_RELEASE_BUNDLE_FD=8 $(quote "$WRAPPER") \
 --owner blog --repo $(quote "$REPO") --sha $(quote "$OPERATION_SHA") --run $(quote "$INSTALL_RUN") \
 --ttl-seconds 900 -- bash -c $(quote "$inner_command")"
@@ -61,10 +60,7 @@ done
 [[ \"\$(sha256sum \"\$wrapper\" | cut -d ' ' -f 1)\" == $(quote "$WRAPPER_SHA256") ]] || exit 65
 [[ \"\$(sha256sum \"\$core\" | cut -d ' ' -f 1)\" == $(quote "$CORE_SHA256") ]] || exit 65
 command -v sudo >/dev/null
-probe_uid=\"\$(id -u)\"; probe_gid=\"\$(id -g)\"
-[[ \"\$probe_uid\" =~ ^[1-9][0-9]*$ && \"\$probe_gid\" =~ ^[0-9]+$ ]] || exit 69
-exec sudo -n env INSTALLER_PROBE_UID=\"\$probe_uid\" \
-  INSTALLER_PROBE_GID=\"\$probe_gid\" bash -c $(quote "$sudo_command")"
+exec sudo -n bash -c $(quote "$sudo_command")"
 
 exec ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile="$DEPLOY_KNOWN_HOSTS_PATH" -i "$DEPLOY_SSH_KEY_PATH" \
