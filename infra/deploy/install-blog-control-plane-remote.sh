@@ -48,7 +48,7 @@ inner_command="exec python3 -c $(quote "$inner_source") --bundle-fd 8 --repo $(q
 --producer-run $(quote "$PRODUCER_RUN") --producer-attempt $(quote "$PRODUCER_ATTEMPT") \
 --artifact-id $(quote "$ARTIFACT_ID") --artifact-digest $(quote "$ARTIFACT_DIGEST") \
 --web-image-digest $(quote "$WEB_DIGEST") --companion-image-digest $(quote "$COMPANION_DIGEST") \
---probe-node \$INSTALLER_PROBE_NODE --probe-uid \$INSTALLER_PROBE_UID --probe-gid \$INSTALLER_PROBE_GID"
+--probe-uid \$INSTALLER_PROBE_UID --probe-gid \$INSTALLER_PROBE_GID"
 sudo_command="exec 8<&0; exec env RENO_SHARED_RELEASE_BUNDLE_FD=8 $(quote "$WRAPPER") \
 --owner blog --repo $(quote "$REPO") --sha $(quote "$OPERATION_SHA") --run $(quote "$INSTALL_RUN") \
 --ttl-seconds 900 -- bash -c $(quote "$inner_command")"
@@ -61,12 +61,9 @@ done
 [[ \"\$(sha256sum \"\$wrapper\" | cut -d ' ' -f 1)\" == $(quote "$WRAPPER_SHA256") ]] || exit 65
 [[ \"\$(sha256sum \"\$core\" | cut -d ' ' -f 1)\" == $(quote "$CORE_SHA256") ]] || exit 65
 command -v sudo >/dev/null
-node_candidate=\"\$(command -v node)\"
-probe_node=\"\$(readlink -f -- \"\$node_candidate\")\"
-[[ \"\$probe_node\" == /* && -f \"\$probe_node\" && ! -L \"\$probe_node\" && -x \"\$probe_node\" ]] || exit 69
 probe_uid=\"\$(id -u)\"; probe_gid=\"\$(id -g)\"
 [[ \"\$probe_uid\" =~ ^[1-9][0-9]*$ && \"\$probe_gid\" =~ ^[0-9]+$ ]] || exit 69
-exec sudo -n env INSTALLER_PROBE_NODE=\"\$probe_node\" INSTALLER_PROBE_UID=\"\$probe_uid\" \
+exec sudo -n env INSTALLER_PROBE_UID=\"\$probe_uid\" \
   INSTALLER_PROBE_GID=\"\$probe_gid\" bash -c $(quote "$sudo_command")"
 
 exec ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
