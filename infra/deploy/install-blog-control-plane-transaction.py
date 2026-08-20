@@ -115,6 +115,27 @@ def validate_args(args: argparse.Namespace) -> None:
         raise RuntimeError('frozen_identity')
 
 
+def read_lock_metadata() -> dict:
+    fd = os.open(METADATA_PATH, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_gid != 0
+                or stat.S_IMODE(before.st_mode) != 0o600):
+            raise RuntimeError('lock_metadata_permissions')
+        with os.fdopen(os.dup(fd), 'r', encoding='utf-8') as source:
+            value = json.load(source)
+        after = os.fstat(fd)
+        current = METADATA_PATH.lstat()
+        identity_before = (before.st_dev, before.st_ino, before.st_mode, before.st_uid, before.st_gid)
+        identity_after = (after.st_dev, after.st_ino, after.st_mode, after.st_uid, after.st_gid)
+        identity_current = (current.st_dev, current.st_ino, current.st_mode, current.st_uid, current.st_gid)
+        if identity_before != identity_after or identity_after != identity_current:
+            raise RuntimeError('lock_metadata_changed')
+        return value
+    finally:
+        os.close(fd)
+
+
 def validate_lock(args: argparse.Namespace) -> tuple[dict, str, str]:
     fd_raw = os.environ.get('SHARED_RELEASE_LOCK_CORE_FD', '')
     if not fd_raw.isdigit() or os.environ.get('SHARED_RELEASE_LOCK_ROOT') != str(LOCK_ROOT):
@@ -123,7 +144,7 @@ def validate_lock(args: argparse.Namespace) -> tuple[dict, str, str]:
     fd_target = pathlib.Path(f'/proc/self/fd/{fd}').resolve(strict=True)
     if fd_target != LOCK_PATH or os.stat(fd).st_dev != LOCK_PATH.stat().st_dev or os.stat(fd).st_ino != LOCK_PATH.stat().st_ino:
         raise RuntimeError('lock_inode')
-    metadata = exact(json.loads(METADATA_PATH.read_text()), {
+    metadata = exact(read_lock_metadata(), {
         'contractVersion', 'owner', 'repo', 'fullSha', 'workflowRun', 'token',
         'acquiredAt', 'expiresAt', 'pid', 'childPid', 'childPgid', 'lock', 'audit'}, 'lock')
     if (metadata['contractVersion'] != 1 or metadata['owner'] != 'blog' or metadata['repo'] != args.repo
@@ -370,5 +391,5 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except Exception as error:
-        print(f'Blog control-plane installer failed closed: {type(error).__name__}', file=sys.stderr)
+        print(f'Blog control-plane installer failed closed: {type(error).__name__}:{error}', file=sys.stderr)
         raise SystemExit(64)

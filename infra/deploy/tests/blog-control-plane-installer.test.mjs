@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
+import { chmod, chown, copyFile, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -50,6 +50,8 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   const remoteBody = remote.slice(remote.indexOf('remote="'), remote.indexOf('exec ssh'));
   assert.doesNotMatch(remoteBody, /mktemp|mkdir|tar\s+-x|cat\s*>/);
   assert.ok(transaction.indexOf('validate_lock(args)') < transaction.indexOf('tempfile.mkdtemp'));
+  assert.match(transaction, /os\.open\(METADATA_PATH, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
+  assert.match(transaction, /identity_before != identity_after or identity_after != identity_current/);
   assert.ok(transaction.indexOf("'pre-mutation'") < transaction.indexOf('atomic_install(files)'));
   assert.ok(transaction.indexOf('atomic_install(files)') < transaction.indexOf("'pre-activation'"));
   assert.match(transaction, /restore\(previous\)/);
@@ -181,6 +183,8 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   await chmod(path.join(lockRoot, 'release.lock'), 0o660); await chmod(helper, 0o755);
   await copyFile('infra/deploy/with-shared-release-lock.sh', path.join(helper, 'with-shared-release-lock.sh'));
   await copyFile('infra/deploy/internal/shared-release-lock-core.sh', path.join(helper, 'internal/shared-release-lock-core.sh'));
+  await chown(path.join(helper, 'with-shared-release-lock.sh'), process.getuid(), process.getgid());
+  await chown(path.join(helper, 'internal/shared-release-lock-core.sh'), process.getuid(), process.getgid());
   await chmod(path.join(helper, 'with-shared-release-lock.sh'), 0o555);
   await chmod(path.join(helper, 'internal/shared-release-lock-core.sh'), 0o555);
   await writeFile(path.join(release, 'release-provenance.json'), JSON.stringify({
@@ -218,7 +222,10 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
     .replace("APP_ROOT = pathlib.Path('/srv/brianstorm')", `APP_ROOT = pathlib.Path('${path.join(root, 'app')}')`)
     .replace("if os.geteuid() != 0 or os.uname().sysname != 'Linux':", "if os.uname().sysname != 'Linux':")
     .replace("deploy_group = grp.getgrnam('reno-deploy').gr_gid", 'deploy_group = os.getgid()')
+    .replace('(HELPER_ROOT, stat.S_IFDIR, 0, 0o755)', '(HELPER_ROOT, stat.S_IFDIR, os.getgid(), 0o755)')
     .replaceAll('value.st_uid != 0', 'value.st_uid != os.getuid()')
+    .replaceAll('before.st_uid != 0', 'before.st_uid != os.getuid()')
+    .replaceAll('before.st_gid != 0', 'before.st_gid != os.getgid()')
     .replaceAll('group: int = 0', 'group: int = os.getgid()')
     .replaceAll('owner: int = 0', 'owner: int = os.getuid()')
     .replaceAll('os.chown(stage, 0, 0)', 'os.chown(stage, os.getuid(), os.getgid())')
@@ -256,10 +263,44 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
   const old = { 'trusted-blog-remote-transaction.sh': 'old transaction\n',
     'verify-shared-edge.sh': 'old probe\n', 'verify-shared-edge-receipt.mjs': 'old verifier\n' };
   for (const [name, body] of Object.entries(old)) {
+    await chmod(path.join(helper, name), 0o755);
     await writeFile(path.join(helper, name), body); await chmod(path.join(helper, name), 0o555);
   }
   const failed = run(7002, true);
   assert.notEqual(failed.status, 0);
   for (const [name, body] of Object.entries(old)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
   assert.equal((await readdir(audit)).filter((name) => name.includes('7002-1-failed')).length, 1);
+
+  const poison = path.join(root, 'poison-metadata.json');
+  await writeFile(poison, '{}'); await chmod(poison, 0o600);
+  const poisoned = spawnSync('bash', ['-c',
+    'exec 9>"$1"; flock -n 9; exec 8<"$2"; export SHARED_RELEASE_LOCK_CORE_FD=9 RENO_SHARED_RELEASE_BUNDLE_FD=8; shift 2; exec "$@"',
+    '--', path.join(lockRoot, 'release.lock'), tar, core, '--owner', 'blog', '--repo', 'blankhoney/my_blog',
+    '--sha', 'a'.repeat(40), '--run', '7003', '--ttl-seconds', '30', '--',
+    'bash', '-c', 'rm -- "$1"; ln -s "$2" "$1"; shift 2; exec "$@"', 'bash',
+    path.join(lockRoot, 'metadata.json'), poison, 'python3', inner, ...baseArgs, '--installer-run', '7003'], {
+    encoding: 'utf8', env: { ...process.env, PROBE_LOG: path.join(root, 'probe-7003.log'),
+      SHARED_RELEASE_LOCK_ROOT: lockRoot, SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
+      SHARED_RELEASE_LOCK_GROUP: spawnSync('id', ['-gn'], { encoding: 'utf8' }).stdout.trim(),
+      RENO_SHARED_RELEASE_BUNDLE_FD: '8' },
+  });
+  assert.notEqual(poisoned.status, 0);
+  assert.match(poisoned.stderr, /failed closed/);
+  assert.equal((await readdir(audit)).filter((name) => name.includes('7003-1-installed')).length, 0);
+  for (const [name, body] of Object.entries(old)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
+
+  const wrongMode = spawnSync('bash', ['-c',
+    'exec 9>"$1"; flock -n 9; exec 8<"$2"; export SHARED_RELEASE_LOCK_CORE_FD=9 RENO_SHARED_RELEASE_BUNDLE_FD=8; shift 2; exec "$@"',
+    '--', path.join(lockRoot, 'release.lock'), tar, core, '--owner', 'blog', '--repo', 'blankhoney/my_blog',
+    '--sha', 'a'.repeat(40), '--run', '7004', '--ttl-seconds', '30', '--',
+    'bash', '-c', 'rm -- "$1"; cp "$2" "$1"; chmod 0644 "$1"; shift 2; exec "$@"', 'bash',
+    path.join(lockRoot, 'metadata.json'), poison, 'python3', inner, ...baseArgs, '--installer-run', '7004'], {
+    encoding: 'utf8', env: { ...process.env, PROBE_LOG: path.join(root, 'probe-7004.log'),
+      SHARED_RELEASE_LOCK_ROOT: lockRoot, SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
+      SHARED_RELEASE_LOCK_GROUP: spawnSync('id', ['-gn'], { encoding: 'utf8' }).stdout.trim(),
+      RENO_SHARED_RELEASE_BUNDLE_FD: '8' },
+  });
+  assert.notEqual(wrongMode.status, 0);
+  assert.match(wrongMode.stderr, /failed closed/);
+  assert.equal((await readdir(audit)).filter((name) => name.includes('7004-1-installed')).length, 0);
 });
