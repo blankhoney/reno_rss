@@ -217,8 +217,12 @@ test('Linux deploy runtime resolver uses only fixed install roots and the highes
   await mkdir(path.dirname(olderNode), { recursive: true });
   await writeFile(fakeNode, '#!/bin/sh\nprintf "v99.14.0\\n"\n');
   await writeFile(olderNode, '#!/bin/sh\nprintf "v20.19.0\\n"\n');
+  const asdfNode = path.join(root, '.asdf', 'installs', 'nodejs', '100.1.0', 'bin', 'node');
+  await mkdir(path.dirname(asdfNode), { recursive: true });
+  await writeFile(asdfNode, '#!/bin/sh\nprintf "v100.1.0\\n"\n');
   await chmod(fakeNode, 0o555);
   await chmod(olderNode, 0o555);
+  await chmod(asdfNode, 0o555);
   const python = spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim();
   const program = `import importlib.util, os, pathlib, types
 spec=importlib.util.spec_from_file_location('installer', 'infra/deploy/install-blog-control-plane-transaction.py')
@@ -231,7 +235,7 @@ os.close(fd)
 `;
   const result = spawnSync(python, ['-c', program], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), `${fakeNode} 99.14.0`);
+  assert.equal(result.stdout.trim(), `${asdfNode} 100.1.0`);
   const unsafeSystemDir = path.join(root, 'unsafe-system');
   await mkdir(unsafeSystemDir); await chmod(unsafeSystemDir, 0o777);
   const unsafeSystemProgram = program.replace('account, ())',

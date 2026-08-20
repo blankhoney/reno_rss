@@ -114,3 +114,7 @@
   root-owned 0555 Node snapshot in a root-owned `/run` work directory. Requiring
   probe membership in the lock group incorrectly blocks hosts where lock access
   and application runtime access are intentionally separated.
+- Non-root Node discovery must not depend on a login shell or arbitrary PATH.
+  The locked resolver uses only fixed, descriptor-walked version-manager layouts
+  (`.nvm`, `.asdf`, mise, and fnm), validates ownership/mode and real semver,
+  then freezes the selected descriptor before running probes.
