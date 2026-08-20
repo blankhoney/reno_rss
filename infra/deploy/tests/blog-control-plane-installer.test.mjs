@@ -75,6 +75,7 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   assert.match(transaction, /WORK_ROOT = pathlib\.Path\('\/run'\)/);
   assert.match(transaction, /tempfile\.mkdtemp\(prefix='\.blog-control-plane-v2\.', dir=WORK_ROOT\)/);
   assert.match(transaction, /failure\['nodeResolution'\] = error\.diagnostics/);
+  assert.match(transaction, /json\.dumps\(error\.diagnostics, sort_keys=True, separators=/);
   assert.match(transaction, /'system_usr_local_bin'.*'system_usr_bin'.*'nvm'.*'asdf'.*'mise'.*'fnm'/s);
   assert.match(transaction, /os\.open\(METADATA_PATH, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
   assert.match(transaction, /identity_before != identity_after or identity_after != identity_current/);

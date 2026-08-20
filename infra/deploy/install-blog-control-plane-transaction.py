@@ -736,5 +736,8 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except Exception as error:
-        print(f'Blog control-plane installer failed closed: {type(error).__name__}:{error}', file=sys.stderr)
+        detail = ''
+        if isinstance(error, NodeResolutionError):
+            detail = ':' + json.dumps(error.diagnostics, sort_keys=True, separators=(',', ':'))
+        print(f'Blog control-plane installer failed closed: {type(error).__name__}:{error}{detail}', file=sys.stderr)
         raise SystemExit(64)
