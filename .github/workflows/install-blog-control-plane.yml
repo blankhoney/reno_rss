@@ -86,8 +86,8 @@ jobs:
           RSS_SOURCE_SHA: 2b29cfafaafa0795401c7b226a159572f9af6729
           WRAPPER_SHA256: 2cf87eb5d54e626fd96bef70ea7b8543ef721a12bb610b31dd2578fb80c296a5
           CORE_SHA256: d54485e473c7729e74628105c0f0ca6f75bcc63e65d4b71c2f14f1e2f3b51429
-          PROBE_SHA256: 8ad9f32344ab8007c503850a7c3b0f680ccf13cd3b06d95fa673221ac5d73766
-          PROBE_VERIFIER_SHA256: 6102cf625a0b604c0d1ab52226139727fa287811928e4b33dc53f527dd75262c
+          PROBE_SHA256: a40dfa790be224d43a2054e1c972476d605a62d0b49154b7e0e8b87e3c39e712
+          PROBE_VERIFIER_SHA256: d6c988c14399d8562a4ad79ced3f9dcac500316f21e97cca41bfd98463be8926
         run: |
           set -euo pipefail
           [[ "$(git -C blog-control-plane rev-parse HEAD)" == "$BLOG_CONTROL_PLANE_SHA" ]]
@@ -98,15 +98,15 @@ jobs:
             > "$RUNNER_TEMP/blog-installer-source-contract.json"
           for contract in \
             "infra/deploy/with-shared-release-lock.sh:$WRAPPER_SHA256" \
-            "infra/deploy/internal/shared-release-lock-core.sh:$CORE_SHA256" \
-            "infra/deploy/verify-shared-edge.sh:$PROBE_SHA256" \
-            "infra/deploy/verify-shared-edge-receipt.mjs:$PROBE_VERIFIER_SHA256"
+            "infra/deploy/internal/shared-release-lock-core.sh:$CORE_SHA256"
           do
             path="${contract%%:*}"
             expected="${contract#*:}"
             [[ "$(sha256sum "rss-canonical/$path" | cut -d ' ' -f 1)" == "$expected" ]]
             [[ "$(sha256sum "blog-control-plane/$path" | cut -d ' ' -f 1)" == "$expected" ]]
           done
+          [[ "$(sha256sum infra/deploy/verify-shared-edge.py | cut -d ' ' -f 1)" == "$PROBE_SHA256" ]]
+          [[ "$(sha256sum infra/deploy/verify-shared-edge-receipt.py | cut -d ' ' -f 1)" == "$PROBE_VERIFIER_SHA256" ]]
 
       - name: Authenticate the Blog control plane and frozen artifact
         env:
@@ -176,8 +176,12 @@ jobs:
           set -euo pipefail
           bundle="$RUNNER_TEMP/trusted-blog-transaction.tar"
           receipt="$RUNNER_TEMP/trusted-blog-install-receipt.json"
-          tar -C blog-control-plane/infra/deploy -cf "$bundle" \
-            trusted-blog-remote-transaction.sh verify-shared-edge.sh verify-shared-edge-receipt.mjs
+          bundle_dir="$RUNNER_TEMP/trusted-blog-transaction"
+          install -m 700 -d "$bundle_dir"
+          install -m 600 blog-control-plane/infra/deploy/trusted-blog-remote-transaction.sh "$bundle_dir/"
+          install -m 600 infra/deploy/verify-shared-edge.py infra/deploy/verify-shared-edge-receipt.py "$bundle_dir/"
+          tar -C "$bundle_dir" -cf "$bundle" \
+            trusted-blog-remote-transaction.sh verify-shared-edge.py verify-shared-edge-receipt.py
           DEPLOY_SSH_KEY_PATH="$HOME/.ssh/id_ed25519" \
           DEPLOY_KNOWN_HOSTS_PATH="$HOME/.ssh/known_hosts" \
           bash infra/deploy/install-blog-control-plane-remote.sh \
@@ -190,8 +194,8 @@ jobs:
           wrapper_sha="$(sha256sum blog-control-plane/infra/deploy/with-shared-release-lock.sh | cut -d ' ' -f 1)"
           core_sha="$(sha256sum blog-control-plane/infra/deploy/internal/shared-release-lock-core.sh | cut -d ' ' -f 1)"
           transaction_sha="$(sha256sum blog-control-plane/infra/deploy/trusted-blog-remote-transaction.sh | cut -d ' ' -f 1)"
-          probe_sha="$(sha256sum blog-control-plane/infra/deploy/verify-shared-edge.sh | cut -d ' ' -f 1)"
-          probe_verifier_sha="$(sha256sum blog-control-plane/infra/deploy/verify-shared-edge-receipt.mjs | cut -d ' ' -f 1)"
+          probe_sha="$(sha256sum infra/deploy/verify-shared-edge.py | cut -d ' ' -f 1)"
+          probe_verifier_sha="$(sha256sum infra/deploy/verify-shared-edge-receipt.py | cut -d ' ' -f 1)"
           installer_transaction_sha="$(python3 - <<'PY'
           import hashlib
           from pathlib import Path

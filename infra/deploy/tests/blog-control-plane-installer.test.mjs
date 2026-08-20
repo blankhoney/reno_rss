@@ -23,8 +23,8 @@ test('root-capable installer pins the reviewed Blog control plane and frozen art
   assert.match(workflow, /LEGACY_RUNTIME_SHA: 1667b3c891958c65426d9f3ed7dd0426f012cefc/);
   assert.match(workflow, /WRAPPER_SHA256: 2cf87eb5d54e626fd96bef70ea7b8543ef721a12bb610b31dd2578fb80c296a5/);
   assert.match(workflow, /CORE_SHA256: d54485e473c7729e74628105c0f0ca6f75bcc63e65d4b71c2f14f1e2f3b51429/);
-  assert.match(workflow, /PROBE_SHA256: 8ad9f32344ab8007c503850a7c3b0f680ccf13cd3b06d95fa673221ac5d73766/);
-  assert.match(workflow, /PROBE_VERIFIER_SHA256: 6102cf625a0b604c0d1ab52226139727fa287811928e4b33dc53f527dd75262c/);
+  assert.match(workflow, /PROBE_SHA256: a40dfa790be224d43a2054e1c972476d605a62d0b49154b7e0e8b87e3c39e712/);
+  assert.match(workflow, /PROBE_VERIFIER_SHA256: d6c988c14399d8562a4ad79ced3f9dcac500316f21e97cca41bfd98463be8926/);
   assert.doesNotMatch(workflow, /refs\/heads\/main.*blankhoney\/my_blog/);
 });
 
@@ -57,10 +57,9 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   assert.match(remote, /exec 8<&0/);
   assert.match(transaction, /'user': args\.probe_uid, 'group': args\.probe_gid/);
   assert.match(transaction, /os\.getgrouplist/);
-  assert.match(transaction, /freeze_probe_node/);
-  assert.match(transaction, /open_directory_at/);
-  assert.match(transaction, /os\.O_DIRECTORY \| os\.O_NOFOLLOW/);
-  assert.match(transaction, /pass_fds=\(fd,\)/);
+  assert.doesNotMatch(transaction, /resolve_probe_node|freeze_probe_node|command -v node/);
+  assert.match(transaction, /pathlib\.Path\('\/proc\/self\/exe'\)\.resolve\(strict=True\)/);
+  assert.match(transaction, /probe_python_drift/);
   assert.match(transaction, /PROBE_ACCOUNT = 'deploy'/);
   assert.match(transaction, /pwd\.getpwnam\(PROBE_ACCOUNT\)/);
   assert.match(transaction, /account\.pw_uid <= 0 or account\.pw_gid < 0/);
@@ -74,9 +73,8 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   assert.ok(transaction.indexOf('validate_lock(args)') < transaction.indexOf('tempfile.mkdtemp'));
   assert.match(transaction, /WORK_ROOT = pathlib\.Path\('\/run'\)/);
   assert.match(transaction, /tempfile\.mkdtemp\(prefix='\.blog-control-plane-v2\.', dir=WORK_ROOT\)/);
-  assert.match(transaction, /failure\['nodeResolution'\] = error\.diagnostics/);
-  assert.match(transaction, /json\.dumps\(error\.diagnostics, sort_keys=True, separators=/);
-  assert.match(transaction, /'system_usr_local_bin'.*'system_usr_bin'.*'nvm'.*'asdf'.*'mise'.*'fnm'/s);
+  assert.match(transaction, /verify-shared-edge\.py/);
+  assert.match(transaction, /verify-shared-edge-receipt\.py/);
   assert.match(transaction, /os\.open\(METADATA_PATH, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
   assert.match(transaction, /identity_before != identity_after or identity_after != identity_current/);
   assert.ok(transaction.indexOf("'pre-mutation'") < transaction.indexOf('atomic_install(files)'));
@@ -154,7 +152,7 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
     installerSha: '4'.repeat(40), wrapperSha: '5'.repeat(64), coreSha: '6'.repeat(64),
     transactionSha: '7'.repeat(64), probeSha: '8'.repeat(64), probeVerifierSha: '9'.repeat(64),
     installerTransactionSha: 'd'.repeat(64),
-    probeNodeSha: 'e'.repeat(64),
+    probePythonSha: 'e'.repeat(64),
     runtimeSha: '1667b3c891958c65426d9f3ed7dd0426f012cefc',
   };
   const receipt = {
@@ -172,7 +170,7 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
     source: { rssSourceSha: expected.rssSourceSha,
       installerTransactionSha256: expected.installerTransactionSha, wrapperSha256: expected.wrapperSha,
       coreSha256: expected.coreSha, transactionSha256: expected.transactionSha,
-      probeNodeSha256: expected.probeNodeSha,
+      probePythonSha256: expected.probePythonSha,
       probeSha256: expected.probeSha, probeVerifierSha256: expected.probeVerifierSha },
     installed: { wrapperSha256: expected.wrapperSha, coreSha256: expected.coreSha,
       transactionSha256: expected.transactionSha, probeSha256: expected.probeSha,
@@ -197,7 +195,7 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
   for (const mutate of [
     (value) => { value.controlPlane.fullSha = value.operation.fullSha; },
     (value) => { value.installed.probeSha256 = '0'.repeat(64); },
-    (value) => { value.source.probeNodeSha256 = 'short'; },
+    (value) => { value.source.probePythonSha256 = 'short'; },
     (value) => { value.canonical.lockPath = '/srv/brianstorm/shared/release-lock-v1/release.lock'; },
     (value) => { value.probes.after.phase = 'post-activation'; },
     (value) => { value.runtime.fullSha = value.operation.fullSha; },
@@ -210,87 +208,6 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
   }
 });
 
-test('Linux deploy runtime resolver uses only fixed install roots and the highest supported version', {
-  skip: process.platform !== 'linux',
-}, async () => {
-  const root = await mkdtemp(path.join(os.homedir(), '.rss-blog-node-resolver-'));
-  const fakeNode = path.join(root, '.nvm', 'versions', 'node', 'v99.14.0', 'bin', 'node');
-  const olderNode = path.join(root, '.nvm', 'versions', 'node', 'v20.19.0', 'bin', 'node');
-  await mkdir(path.dirname(fakeNode), { recursive: true });
-  await mkdir(path.dirname(olderNode), { recursive: true });
-  await writeFile(fakeNode, '#!/bin/sh\nprintf "v99.14.0\\n"\n');
-  await writeFile(olderNode, '#!/bin/sh\nprintf "v20.19.0\\n"\n');
-  const asdfNode = path.join(root, '.asdf', 'installs', 'nodejs', '100.1.0', 'bin', 'node');
-  await mkdir(path.dirname(asdfNode), { recursive: true });
-  await writeFile(asdfNode, '#!/bin/sh\nprintf "v100.1.0\\n"\n');
-  await chmod(fakeNode, 0o555);
-  await chmod(olderNode, 0o555);
-  await chmod(asdfNode, 0o555);
-  const python = spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim();
-  const program = `import importlib.util, os, pathlib, types
-spec=importlib.util.spec_from_file_location('installer', 'infra/deploy/install-blog-control-plane-transaction.py')
-module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-account=types.SimpleNamespace(pw_dir='${root}', pw_name='fixture', pw_uid=${process.getuid()})
-args=types.SimpleNamespace(probe_uid=${process.getuid()}, probe_gid=${process.getgid()})
-fd,version=module.resolve_probe_node(args, account, ())
-print(os.readlink(f'/proc/self/fd/{fd}'), '.'.join(map(str, version)))
-os.close(fd)
-`;
-  const result = spawnSync(python, ['-c', program], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), `${asdfNode} 100.1.0`);
-  // Keep the empty home under the already-owned fixture root.  The resolver
-  // intentionally rejects unsafe shared parents such as /tmp before it can
-  // produce nodeResolution diagnostics.
-  const emptyRoot = await mkdtemp(path.join(root, '.rss-blog-empty-node-'));
-  const diagnosticProgram = `import importlib.util, json, os, pathlib, types
-spec=importlib.util.spec_from_file_location('installer', 'infra/deploy/install-blog-control-plane-transaction.py')
-module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-uid=os.getuid(); gid=os.getgid(); args=types.SimpleNamespace(probe_uid=uid, probe_gid=gid)
-account=types.SimpleNamespace(pw_dir='${emptyRoot}', pw_name='fixture', pw_uid=uid, pw_gid=gid)
-try: module.resolve_probe_node(args, account, ())
-except Exception as error: print(json.dumps(getattr(error, 'diagnostics', {}), sort_keys=True)); raise SystemExit(0)
-raise SystemExit(1)
-`;
-  const diagnostic = spawnSync(python, ['-c', diagnosticProgram], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
-  assert.equal(diagnostic.status, 0, diagnostic.stderr);
-  const diagnostics = JSON.parse(diagnostic.stdout);
-  assert.equal(diagnostics.nvm.missing, 1);
-  assert.equal(diagnostics.asdf.missing, 1);
-  assert.equal(diagnostics.fnm.missing, 1);
-  const unsupportedRoot = await mkdtemp(path.join(root, '.rss-blog-unsupported-node-'));
-  const unsupportedNode = path.join(unsupportedRoot, '.nvm', 'versions', 'node', 'v16.20.0', 'bin', 'node');
-  await mkdir(path.dirname(unsupportedNode), { recursive: true });
-  await writeFile(unsupportedNode, '#!/bin/sh\nprintf "v16.20.0\\n"\n');
-  await chmod(unsupportedNode, 0o555);
-  const unsupportedProgram = diagnosticProgram.replace(emptyRoot, unsupportedRoot);
-  const unsupported = spawnSync(python, ['-c', unsupportedProgram], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
-  assert.equal(unsupported.status, 0, unsupported.stderr);
-  const unsupportedDiagnostics = JSON.parse(unsupported.stdout);
-  assert.equal(unsupportedDiagnostics.nvm.unsupported_version, 1);
-  const procFailureRoot = await mkdtemp(path.join(root, '.rss-blog-proc-failure-'));
-  const procFailureNode = path.join(procFailureRoot, '.nvm', 'versions', 'node', 'v20.0.0', 'bin', 'node');
-  await mkdir(path.dirname(procFailureNode), { recursive: true });
-  await writeFile(procFailureNode, '#!/definitely/missing-interpreter\n');
-  await chmod(procFailureNode, 0o555);
-  const procFailureProgram = diagnosticProgram.replace(emptyRoot, procFailureRoot);
-  const procFailure = spawnSync(python, ['-c', procFailureProgram], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
-  assert.equal(procFailure.status, 0, procFailure.stderr);
-  const procFailureDiagnostics = JSON.parse(procFailure.stdout);
-  assert.equal(procFailureDiagnostics.nvm.proc_fd_exec_failure, 1);
-  const unsafeSystemDir = path.join(root, 'unsafe-system');
-  await mkdir(unsafeSystemDir); await chmod(unsafeSystemDir, 0o777);
-  const unsafeSystemProgram = program.replace('account, ())',
-    `account, (tuple(part for part in pathlib.PurePosixPath('${unsafeSystemDir}').parts if part != '/'),))`);
-  const unsafeSystem = spawnSync(python, ['-c', unsafeSystemProgram], { encoding: 'utf8' });
-  assert.notEqual(unsafeSystem.status, 0);
-  assert.match(unsafeSystem.stderr, /probe_node_directory/);
-  const unsafe = path.join(root, '.nvm', 'versions', 'node', 'v99.0.0');
-  await symlink(root, unsafe);
-  const rejected = spawnSync(python, ['-c', program], { encoding: 'utf8' });
-  assert.notEqual(rejected.status, 0);
-});
-
 test('Linux lock-held transaction runs both probes and restores every old byte on post-probe failure', {
   skip: process.platform !== 'linux',
 }, async () => {
@@ -300,7 +217,7 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   const probeGid = process.getgid() === 0 ? 1000 : process.getgid();
   const lockGid = process.getuid() === 0 ? 65534 : probeGid;
   const lockGroup = spawnSync('id', ['-gn', String(lockGid)], { encoding: 'utf8' }).stdout.trim();
-  const probeNode = spawnSync('readlink', ['-f', process.execPath], { encoding: 'utf8' }).stdout.trim();
+  const probePython = spawnSync('sh', ['-c', 'readlink -f "$(command -v python3)"'], { encoding: 'utf8' }).stdout.trim();
   const lockRoot = path.join(root, 'lock');
   const audit = path.join(lockRoot, 'audit');
   const helper = path.join(root, 'helper');
@@ -325,21 +242,21 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
 
   const fixture = path.join(root, 'fixture'); await mkdir(fixture);
   const transaction = '#!/usr/bin/env bash\nexit 0\n';
-  const probe = `#!/usr/bin/env bash
-set -euo pipefail
-phase=''; receipt=''; runtime=''; workflow=''
-while (($#)); do case "$1" in --phase) phase="$2"; shift 2;; --runtime-sha) runtime="$2"; shift 2;; --workflow-run) workflow="$2"; shift 2;; --receipt) receipt="$2"; shift 2;; *) shift 2;; esac; done
-printf 'probe diagnostic on stdout\\n'
-[[ "$workflow" != 7002 || "$phase" != pre-activation ]] || exit 19
-if [[ "$workflow" == 7007 ]]; then ln -s /etc/passwd "$receipt"; exit 0; fi
-node_path="$(command -v node)"; node_sha="$(sha256sum "$node_path" | cut -d ' ' -f 1)"
-printf '{"phase":"%s","runtime":"%s","uid":%s,"gid":%s,"groups":"%s","nodePath":"%s","nodeSha256":"%s"}\\n' \
-  "$phase" "$runtime" "$(id -u)" "$(id -g)" "$(id -G)" "$node_path" "$node_sha" > "$receipt"
-chmod 600 "$receipt"
+  const probe = `#!/usr/bin/env python3
+import argparse, hashlib, json, os, pathlib, sys
+p=argparse.ArgumentParser()
+for name in ('owner-project','owner-repo','operation-sha','runtime-sha','workflow-run','phase','receipt'): p.add_argument('--'+name, required=True)
+a=p.parse_args()
+print('probe diagnostic on stdout')
+if a.workflow_run == '7002' and a.phase == 'pre-activation': raise SystemExit(19)
+if a.workflow_run == '7007': pathlib.Path(a.receipt).symlink_to('/etc/passwd'); raise SystemExit(0)
+binary=pathlib.Path(sys.executable).resolve(); digest=hashlib.sha256(binary.read_bytes()).hexdigest()
+pathlib.Path(a.receipt).write_text(json.dumps({'phase':a.phase,'runtime':a.runtime_sha,'uid':os.getuid(),'gid':os.getgid(),'groups':' '.join(map(str,os.getgroups())),'pythonPath':str(binary),'pythonSha256':digest})+'\\n')
+os.chmod(a.receipt,0o600)
 `;
-  const verifier = '#!/usr/bin/env node\nimport { readFileSync } from "node:fs";\nconsole.log("verifier diagnostic on stdout");\nconst value=JSON.parse(readFileSync(process.argv[2],"utf8"));\nprocess.exit(value.runtime===process.argv[7]&&value.phase===process.argv[9]?0:1);\n';
+  const verifier = '#!/usr/bin/env python3\nimport json,pathlib,sys\nprint("verifier diagnostic on stdout")\nv=json.loads(pathlib.Path(sys.argv[1]).read_text())\nraise SystemExit(0 if v["runtime"]==sys.argv[6] and v["phase"]==sys.argv[8] else 1)\n';
   const values = { 'trusted-blog-remote-transaction.sh': transaction,
-    'verify-shared-edge.sh': probe, 'verify-shared-edge-receipt.mjs': verifier };
+    'verify-shared-edge.py': probe, 'verify-shared-edge-receipt.py': verifier };
   for (const [name, body] of Object.entries(values)) await writeFile(path.join(fixture, name), body);
   const digest = (file) => spawnSync('sha256sum', [file], { encoding: 'utf8' }).stdout.split(/\s+/)[0];
   const tar = path.join(root, 'bundle.tar');
@@ -363,9 +280,10 @@ chmod 600 "$receipt"
     .replaceAll('owner: int = 0', 'owner: int = os.getuid()')
     .replaceAll('os.chown(stage, 0, 0)', 'os.chown(stage, os.getuid(), os.getgid())')
     .replace('45c326fdd266311df5ac1114c4c47207429efc6b47bd795db4d6f06b0f602892', digest(path.join(fixture, 'trusted-blog-remote-transaction.sh')))
-    .replace('8ad9f32344ab8007c503850a7c3b0f680ccf13cd3b06d95fa673221ac5d73766', digest(path.join(fixture, 'verify-shared-edge.sh')))
-    .replace('6102cf625a0b604c0d1ab52226139727fa287811928e4b33dc53f527dd75262c', digest(path.join(fixture, 'verify-shared-edge-receipt.mjs')))
-    .replace('probe_node_fd, _ = resolve_probe_node(args)', `probe_node_fd = os.open('${probeNode}', os.O_RDONLY | os.O_NOFOLLOW)`);
+    .replace('a40dfa790be224d43a2054e1c972476d605a62d0b49154b7e0e8b87e3c39e712', digest(path.join(fixture, 'verify-shared-edge.py')))
+    .replace('d6c988c14399d8562a4ad79ced3f9dcac500316f21e97cca41bfd98463be8926', digest(path.join(fixture, 'verify-shared-edge-receipt.py')))
+    .replaceAll('python_before.st_uid != 0', 'python_before.st_uid != os.getuid()')
+    .replaceAll('python_before.st_gid != 0', 'python_before.st_gid != os.getgid()');
   const inner = path.join(root, 'inner.py'); await writeFile(inner, source);
   const core = path.resolve('infra/deploy/internal/shared-release-lock-core.sh');
   const baseArgs = ['--bundle-fd', '8', '--repo', 'blankhoney/my_blog',
@@ -399,8 +317,8 @@ chmod 600 "$receipt"
     const expectedGroups = spawnSync('id', ['-G', String(probeUid)], { encoding: 'utf8' }).stdout;
     assert.deepEqual(normalizeGroups(value.groups), normalizeGroups(expectedGroups));
     if (process.getuid() === 0) assert.ok(!normalizeGroups(value.groups).includes(lockGid));
-    assert.match(value.nodePath, /\/node$/); assert.notEqual(value.nodePath, probeNode);
-    assert.equal(value.nodeSha256, digest(probeNode));
+    assert.equal(value.pythonPath, probePython);
+    assert.equal(value.pythonSha256, digest(probePython));
   };
   await assertProbeEvidence(legacyReceipt.probes.before.receiptPath, 'pre-mutation', legacyReceipt.runtime.fullSha);
   await assertProbeEvidence(legacyReceipt.probes.after.receiptPath, 'pre-activation', legacyReceipt.runtime.fullSha);
@@ -434,7 +352,7 @@ chmod 600 "$receipt"
   await symlink(release, path.join(root, 'app', 'current'));
 
   const old = { 'trusted-blog-remote-transaction.sh': 'old transaction\n',
-    'verify-shared-edge.sh': 'old probe\n', 'verify-shared-edge-receipt.mjs': 'old verifier\n' };
+    'verify-shared-edge.py': 'old probe\n', 'verify-shared-edge-receipt.py': 'old verifier\n' };
   for (const [name, body] of Object.entries(old)) {
     await chmod(path.join(helper, name), 0o755);
     await writeFile(path.join(helper, name), body); await chmod(path.join(helper, name), 0o555);
