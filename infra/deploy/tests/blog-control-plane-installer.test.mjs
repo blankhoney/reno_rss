@@ -297,7 +297,9 @@ chmod 600 "$receipt"
     const value = JSON.parse(await readFile(receiptPath, 'utf8'));
     assert.equal(value.phase, phase); assert.equal(value.runtime, runtime);
     assert.equal(value.uid, probeUid); assert.equal(value.gid, probeGid);
-    assert.equal(value.groups, spawnSync('id', ['-G', String(probeUid)], { encoding: 'utf8' }).stdout.trim());
+    const normalizeGroups = (groups) => groups.trim().split(/\s+/).map(Number).sort((a, b) => a - b);
+    const expectedGroups = spawnSync('id', ['-G', String(probeUid)], { encoding: 'utf8' }).stdout;
+    assert.deepEqual(normalizeGroups(value.groups), normalizeGroups(expectedGroups));
     assert.match(value.nodePath, /\/node$/); assert.notEqual(value.nodePath, probeNode);
     assert.equal(value.nodeSha256, digest(probeNode));
   };
