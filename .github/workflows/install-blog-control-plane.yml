@@ -135,6 +135,7 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
