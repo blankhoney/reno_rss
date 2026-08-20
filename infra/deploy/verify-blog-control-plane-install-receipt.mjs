@@ -22,7 +22,7 @@ export function verifyReceipt(receipt, expected) {
       || !exact(receipt.installer, ['repo', 'fullSha', 'workflowRun', 'workflowRunAttempt'])
       || !exact(receipt.runtime, ['fullSha', 'evidence', 'releaseId'])
       || !exact(receipt.source, ['rssSourceSha', 'installerTransactionSha256', 'wrapperSha256', 'coreSha256',
-        'transactionSha256', 'probeSha256', 'probeVerifierSha256'])
+        'transactionSha256', 'probeNodeSha256', 'probeSha256', 'probeVerifierSha256'])
       || !exact(receipt.installed, ['wrapperSha256', 'coreSha256', 'transactionSha256',
         'probeSha256', 'probeVerifierSha256'])
       || !exact(receipt.canonical, ['root', 'lockPath', 'lockDeviceInode', 'owner', 'group',
@@ -64,6 +64,7 @@ export function verifyReceipt(receipt, expected) {
   same(receipt.source.rssSourceSha, expected.rssSourceSha, 'RSS source');
   same(receipt.source.installerTransactionSha256, expected.installerTransactionSha, 'installer transaction hash');
   if (!SHA256.test(receipt.source.installerTransactionSha256)) fail('installer transaction hash shape');
+  if (!SHA256.test(receipt.source.probeNodeSha256)) fail('probe node hash shape');
   for (const name of ['wrapperSha256', 'coreSha256', 'transactionSha256', 'probeSha256', 'probeVerifierSha256']) {
     if (!SHA256.test(receipt.source[name]) || receipt.installed[name] !== receipt.source[name]) fail(`${name} drift`);
   }
