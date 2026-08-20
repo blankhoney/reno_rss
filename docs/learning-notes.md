@@ -98,6 +98,11 @@
   and then run serially under a second timeout. This keeps signal/flock timing
   deterministic and prevents an implicit Docker Hub pull from looking like a
   hung lock implementation.
+- The Blog deployment identity intentionally has no general passwordless root.
+  Installing its root-owned trusted transaction is therefore an RSS-owned,
+  separately approved maintenance workflow: it authenticates a fixed Blog
+  control-plane SHA and frozen release artifact before using the RSS bootstrap
+  identity, while the canonical wrapper holds the complete remote mutation.
 - The RSS and Blog locked transactions consume byte-identical shared-edge probe
   and receipt-verifier sources. Operational probe failures write and verify a
   strict `overallStatus=failure` receipt before returning nonzero; invalid

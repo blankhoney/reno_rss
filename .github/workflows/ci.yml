@@ -530,7 +530,8 @@ jobs:
             infra/deploy/tests/trusted-remote-transaction.test.mjs \
             infra/deploy/tests/shared-edge-compose.test.mjs \
             infra/deploy/tests/production-backup-order.test.mjs \
-            infra/deploy/tests/known-hosts-contract.test.mjs
+            infra/deploy/tests/known-hosts-contract.test.mjs \
+            infra/deploy/tests/blog-control-plane-installer.test.mjs
           do
             printf 'Running bounded shared-contract fixture: %s\n' "$test_file"
             timeout --signal=TERM --kill-after=10s 2m \
