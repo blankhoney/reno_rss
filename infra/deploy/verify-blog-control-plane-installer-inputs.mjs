@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 
 export const blogInstallerContract = Object.freeze({
   repository: 'blankhoney/my_blog',
+  repositoryId: 1236581850,
+  workflowId: 275301410,
   controlPlane: Object.freeze({
     fullSha: '48a12b8cfd4c33a20d0d9ded922e5c8616a4b803',
     workflowRun: 32351611647,
@@ -24,6 +26,11 @@ function validRun(run, expected) {
     run?.run_attempt === expected.workflowRunAttempt &&
     run?.name === 'ci' && run?.event === 'push' && run?.status === 'completed' &&
     run?.conclusion === 'success' && run?.head_branch === 'main' &&
+    run?.workflow_id === blogInstallerContract.workflowId &&
+    run?.path === '.github/workflows/ci.yml' &&
+    run?.repository?.id === blogInstallerContract.repositoryId &&
+    run?.repository?.full_name === blogInstallerContract.repository &&
+    run?.head_repository?.id === blogInstallerContract.repositoryId &&
     run?.head_repository?.full_name === blogInstallerContract.repository &&
     run?.head_sha === expected.fullSha;
 }

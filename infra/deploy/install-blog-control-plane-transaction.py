@@ -220,9 +220,11 @@ def run_probe(probe: pathlib.Path, verifier: pathlib.Path, receipt: pathlib.Path
               args: argparse.Namespace, runtime: str, phase: str) -> str:
     subprocess.run(['bash', str(probe), '--owner-project', 'blog', '--owner-repo', args.repo,
         '--operation-sha', args.operation_sha, '--runtime-sha', runtime,
-        '--workflow-run', str(args.installer_run), '--phase', phase, '--receipt', str(receipt)], check=True)
+        '--workflow-run', str(args.installer_run), '--phase', phase, '--receipt', str(receipt)],
+        check=True, stdout=subprocess.DEVNULL)
     subprocess.run(['node', str(verifier), str(receipt), 'success', 'blog', args.repo,
-        args.operation_sha, runtime, str(args.installer_run), phase], check=True)
+        args.operation_sha, runtime, str(args.installer_run), phase],
+        check=True, stdout=subprocess.DEVNULL)
     return sha256_file(receipt)
 
 

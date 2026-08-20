@@ -74,8 +74,9 @@ export function verifyReceipt(receipt, expected) {
       || !RFC3339.test(receipt.lock.acquiredAt)) fail('lock evidence');
   for (const [position, phase] of [['before', 'pre-mutation'], ['after', 'pre-activation']]) {
     const probe = receipt.probes[position];
+    const expectedPath = `${LOCK_ROOT}/audit/blog-control-plane-v2-${expected.installerRun}-${expected.installerAttempt}-${position}.json`;
     if (probe.phase !== phase || !SHA256.test(probe.sha256)
-        || !new RegExp(`^${LOCK_ROOT}/audit/blog-control-plane-v2-[1-9][0-9]*-[1-9][0-9]*-${position}\\.json$`).test(probe.receiptPath)) fail(`${position} probe`);
+        || probe.receiptPath !== expectedPath) fail(`${position} probe`);
   }
   if (!RFC3339.test(receipt.timestamp)) fail('timestamp');
   if (![receipt.controlPlane.fullSha, receipt.operation.fullSha, receipt.installer.fullSha].every((value) => SHA.test(value))

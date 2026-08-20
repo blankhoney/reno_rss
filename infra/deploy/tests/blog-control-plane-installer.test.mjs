@@ -74,7 +74,9 @@ function fixtures() {
     id: identity.workflowRun,
     run_attempt: identity.workflowRunAttempt,
     name: 'ci', event: 'push', status: 'completed', conclusion: 'success', head_branch: 'main',
-    head_repository: { full_name: repository }, head_sha: identity.fullSha,
+    workflow_id: 275301410, path: '.github/workflows/ci.yml',
+    repository: { id: 1236581850, full_name: repository },
+    head_repository: { id: 1236581850, full_name: repository }, head_sha: identity.fullSha,
   });
   return {
     control: run(controlPlane),
@@ -93,6 +95,8 @@ test('metadata verifier accepts only the exact current control plane and frozen 
   for (const mutate of [
     (value) => { value.control.head_sha = '0'.repeat(40); },
     (value) => { value.control.run_attempt = 2; },
+    (value) => { value.control.path = '.github/workflows/release.yml'; },
+    (value) => { value.producer.repository.id += 1; },
     (value) => { value.producer.id += 1; },
     (value) => { value.artifact.expired = true; },
     (value) => { value.artifact.digest = `sha256:${'0'.repeat(64)}`; },
@@ -195,10 +199,11 @@ set -euo pipefail
 phase=''; receipt=''
 while (($#)); do case "$1" in --phase) phase="$2"; shift 2;; --receipt) receipt="$2"; shift 2;; *) shift 2;; esac; done
 printf '%s\\n' "$phase" >> "$PROBE_LOG"
+printf 'probe diagnostic on stdout\\n'
 [[ "\${FAIL_AFTER:-0}" != 1 || "$phase" != pre-activation ]] || exit 19
 printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
 `;
-  const verifier = '#!/usr/bin/env node\nimport { existsSync } from "node:fs";\nprocess.exit(existsSync(process.argv[2]) ? 0 : 1);\n';
+  const verifier = '#!/usr/bin/env node\nimport { existsSync } from "node:fs";\nconsole.log("verifier diagnostic on stdout");\nprocess.exit(existsSync(process.argv[2]) ? 0 : 1);\n';
   const values = { 'trusted-blog-remote-transaction.sh': transaction,
     'verify-shared-edge.sh': probe, 'verify-shared-edge-receipt.mjs': verifier };
   for (const [name, body] of Object.entries(values)) await writeFile(path.join(fixture, name), body);
@@ -243,6 +248,7 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
 
   const success = run(7001);
   assert.equal(success.status, 0, success.stderr);
+  assert.doesNotThrow(() => JSON.parse(success.stdout));
   assert.equal(await readFile(path.join(root, 'probe-7001.log'), 'utf8'), 'pre-mutation\npre-activation\n');
   for (const [name, body] of Object.entries(values)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
   assert.equal((await readdir(audit)).filter((name) => name.endsWith('-installed.json')).length, 1);
