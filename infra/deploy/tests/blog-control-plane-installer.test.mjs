@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { chmod, chown, copyFile, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
+import { chmod, chown, copyFile, mkdir, mkdtemp, readFile, readdir, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -20,6 +20,7 @@ test('root-capable installer pins the reviewed Blog control plane and frozen art
   assert.match(workflow, /PRODUCER_RUN: '32339806061'/);
   assert.match(workflow, /ARTIFACT_ID: '9396499072'/);
   assert.match(workflow, /ARTIFACT_DIGEST: sha256:d5929e143256f83d9c2cb0d7254d1f1181e02045ac43916795857913aabd8378/);
+  assert.match(workflow, /LEGACY_RUNTIME_SHA: 1667b3c891958c65426d9f3ed7dd0426f012cefc/);
   assert.match(workflow, /WRAPPER_SHA256: 2cf87eb5d54e626fd96bef70ea7b8543ef721a12bb610b31dd2578fb80c296a5/);
   assert.match(workflow, /CORE_SHA256: d54485e473c7729e74628105c0f0ca6f75bcc63e65d4b71c2f14f1e2f3b51429/);
   assert.match(workflow, /PROBE_SHA256: 8ad9f32344ab8007c503850a7c3b0f680ccf13cd3b06d95fa673221ac5d73766/);
@@ -94,12 +95,14 @@ function fixtures() {
       digest: operation.artifactDigest,
       workflow_run: { id: operation.workflowRun, head_branch: 'main', head_sha: operation.fullSha },
     },
+    runtime: { sha: blogInstallerContract.runtime.fullSha,
+      html_url: `https://github.com/${repository}/commit/${blogInstallerContract.runtime.fullSha}` },
   };
 }
 
 test('metadata verifier accepts only the exact current control plane and frozen artifact', () => {
   const valid = fixtures();
-  assert.doesNotThrow(() => verifyBlogInstallerInputs(valid.control, valid.producer, valid.artifact));
+  assert.doesNotThrow(() => verifyBlogInstallerInputs(valid.control, valid.producer, valid.artifact, valid.runtime));
   for (const mutate of [
     (value) => { value.control.head_sha = '0'.repeat(40); },
     (value) => { value.control.run_attempt = 2; },
@@ -109,11 +112,12 @@ test('metadata verifier accepts only the exact current control plane and frozen 
     (value) => { value.artifact.expired = true; },
     (value) => { value.artifact.digest = `sha256:${'0'.repeat(64)}`; },
     (value) => { value.artifact.workflow_run.head_sha = '0'.repeat(40); },
+    (value) => { value.runtime.sha = '0'.repeat(40); },
   ]) {
     const value = structuredClone(valid);
     mutate(value);
     assert.throws(
-      () => verifyBlogInstallerInputs(value.control, value.producer, value.artifact),
+      () => verifyBlogInstallerInputs(value.control, value.producer, value.artifact, value.runtime),
       /identity contract mismatch/,
     );
   }
@@ -130,6 +134,7 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
     installerSha: '4'.repeat(40), wrapperSha: '5'.repeat(64), coreSha: '6'.repeat(64),
     transactionSha: '7'.repeat(64), probeSha: '8'.repeat(64), probeVerifierSha: '9'.repeat(64),
     installerTransactionSha: 'd'.repeat(64),
+    runtimeSha: '1667b3c891958c65426d9f3ed7dd0426f012cefc',
   };
   const receipt = {
     contractVersion: 2, event: 'blog-control-plane-installed',
@@ -141,6 +146,8 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
       webImageDigest: expected.webDigest, companionImageDigest: expected.companionDigest },
     installer: { repo: 'blankhoney/reno_rss', fullSha: expected.installerSha,
       workflowRun: 7001, workflowRunAttempt: 1 },
+    runtime: { fullSha: expected.runtimeSha, evidence: 'legacy-release-id',
+      releaseId: '20260719-201357-1667b3c' },
     source: { rssSourceSha: expected.rssSourceSha,
       installerTransactionSha256: expected.installerTransactionSha, wrapperSha256: expected.wrapperSha,
       coreSha256: expected.coreSha, transactionSha256: expected.transactionSha,
@@ -154,16 +161,24 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
     lock: { authority: 'live-flock', tokenSha256: 'a'.repeat(64),
       audit: { state: 'held', lastEvent: 'acquired' }, acquiredAt: '2026-08-20T01:02:03Z' },
     probes: {
-      before: { phase: 'pre-mutation', receiptPath: '/var/lib/reno-shared-vps/release-lock-v1/audit/blog-control-plane-v2-7001-1-before.json', sha256: 'b'.repeat(64) },
-      after: { phase: 'pre-activation', receiptPath: '/var/lib/reno-shared-vps/release-lock-v1/audit/blog-control-plane-v2-7001-1-after.json', sha256: 'c'.repeat(64) },
+      before: { phase: 'pre-mutation', runtimeSha: expected.runtimeSha, receiptPath: '/var/lib/reno-shared-vps/release-lock-v1/audit/blog-control-plane-v2-7001-1-before.json', sha256: 'b'.repeat(64) },
+      after: { phase: 'pre-activation', runtimeSha: expected.runtimeSha, receiptPath: '/var/lib/reno-shared-vps/release-lock-v1/audit/blog-control-plane-v2-7001-1-after.json', sha256: 'c'.repeat(64) },
     }, timestamp: '2026-08-20T01:03:04Z',
   };
   assert.doesNotThrow(() => verifyReceipt(receipt, expected));
+  const provenanceReceipt = structuredClone(receipt);
+  provenanceReceipt.runtime = { fullSha: expected.operationSha, evidence: 'release-provenance',
+    releaseId: `prod-${expected.operationSha}` };
+  provenanceReceipt.probes.before.runtimeSha = expected.operationSha;
+  provenanceReceipt.probes.after.runtimeSha = expected.operationSha;
+  assert.doesNotThrow(() => verifyReceipt(provenanceReceipt, expected));
   for (const mutate of [
     (value) => { value.controlPlane.fullSha = value.operation.fullSha; },
     (value) => { value.installed.probeSha256 = '0'.repeat(64); },
     (value) => { value.canonical.lockPath = '/srv/brianstorm/shared/release-lock-v1/release.lock'; },
     (value) => { value.probes.after.phase = 'post-activation'; },
+    (value) => { value.runtime.fullSha = value.operation.fullSha; },
+    (value) => { value.runtime.evidence = 'release-provenance'; },
     (value) => { value.lock.audit.state = 'released'; },
     (value) => { value.unknown = true; },
   ]) {
@@ -180,7 +195,7 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   const audit = path.join(lockRoot, 'audit');
   const helper = path.join(root, 'helper');
   const releases = path.join(root, 'app', 'releases');
-  const release = path.join(releases, `prod-${'a'.repeat(40)}`);
+  const release = path.join(releases, '20260719-201357-1667b3c');
   await mkdir(path.join(helper, 'internal'), { recursive: true });
   await mkdir(audit, { recursive: true });
   await mkdir(release, { recursive: true });
@@ -193,22 +208,15 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   await chown(path.join(helper, 'internal/shared-release-lock-core.sh'), process.getuid(), process.getgid());
   await chmod(path.join(helper, 'with-shared-release-lock.sh'), 0o555);
   await chmod(path.join(helper, 'internal/shared-release-lock-core.sh'), 0o555);
-  await writeFile(path.join(release, 'release-provenance.json'), JSON.stringify({
-    candidateSha: 'a'.repeat(40), companionImage: { id: `sha256:${'6'.repeat(64)}`,
-      reference: `brianstorm-vps-companion:production-${'a'.repeat(40)}` }, imageArchiveSha256: '1'.repeat(64),
-    repository: 'blankhoney/my_blog', schemaVersion: 1, sourceArchiveSha256: '2'.repeat(64),
-    webImage: { id: `sha256:${'5'.repeat(64)}`, reference: `brianstorm-web:${'a'.repeat(40)}` }, workflowRunId: 30,
-  }));
-  await chmod(path.join(release, 'release-provenance.json'), 0o644);
   await symlink(release, path.join(root, 'app', 'current'));
 
   const fixture = path.join(root, 'fixture'); await mkdir(fixture);
   const transaction = '#!/usr/bin/env bash\nexit 0\n';
   const probe = `#!/usr/bin/env bash
 set -euo pipefail
-phase=''; receipt=''
-while (($#)); do case "$1" in --phase) phase="$2"; shift 2;; --receipt) receipt="$2"; shift 2;; *) shift 2;; esac; done
-printf '%s\\n' "$phase" >> "$PROBE_LOG"
+phase=''; receipt=''; runtime=''
+while (($#)); do case "$1" in --phase) phase="$2"; shift 2;; --runtime-sha) runtime="$2"; shift 2;; --receipt) receipt="$2"; shift 2;; *) shift 2;; esac; done
+printf '%s %s\\n' "$phase" "$runtime" >> "$PROBE_LOG"
 printf 'probe diagnostic on stdout\\n'
 [[ "\${FAIL_AFTER:-0}" != 1 || "$phase" != pre-activation ]] || exit 19
 printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
@@ -261,10 +269,34 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
 
   const success = run(7001);
   assert.equal(success.status, 0, success.stderr);
-  assert.doesNotThrow(() => JSON.parse(success.stdout));
-  assert.equal(await readFile(path.join(root, 'probe-7001.log'), 'utf8'), 'pre-mutation\npre-activation\n');
+  const legacyReceipt = JSON.parse(success.stdout);
+  assert.deepEqual(legacyReceipt.runtime, { fullSha: '1667b3c891958c65426d9f3ed7dd0426f012cefc',
+    evidence: 'legacy-release-id', releaseId: '20260719-201357-1667b3c' });
+  assert.equal(await readFile(path.join(root, 'probe-7001.log'), 'utf8'),
+    `pre-mutation ${legacyReceipt.runtime.fullSha}\npre-activation ${legacyReceipt.runtime.fullSha}\n`);
   for (const [name, body] of Object.entries(values)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
   assert.equal((await readdir(audit)).filter((name) => name.endsWith('-installed.json')).length, 1);
+
+  const provenanceRelease = path.join(releases, `prod-${'a'.repeat(40)}`);
+  await mkdir(provenanceRelease);
+  await writeFile(path.join(provenanceRelease, 'release-provenance.json'), JSON.stringify({
+    candidateSha: 'a'.repeat(40), companionImage: { id: `sha256:${'6'.repeat(64)}`,
+      reference: `brianstorm-vps-companion:production-${'a'.repeat(40)}` }, imageArchiveSha256: '1'.repeat(64),
+    repository: 'blankhoney/my_blog', schemaVersion: 1, sourceArchiveSha256: '2'.repeat(64),
+    webImage: { id: `sha256:${'5'.repeat(64)}`, reference: `brianstorm-web:${'a'.repeat(40)}` }, workflowRunId: 30,
+  }));
+  await chmod(path.join(provenanceRelease, 'release-provenance.json'), 0o644);
+  await unlink(path.join(root, 'app', 'current'));
+  await symlink(provenanceRelease, path.join(root, 'app', 'current'));
+  const provenanceSuccess = run(7006);
+  assert.equal(provenanceSuccess.status, 0, provenanceSuccess.stderr);
+  const provenanceReceipt = JSON.parse(provenanceSuccess.stdout);
+  assert.deepEqual(provenanceReceipt.runtime, { fullSha: 'a'.repeat(40),
+    evidence: 'release-provenance', releaseId: `prod-${'a'.repeat(40)}` });
+  assert.equal(await readFile(path.join(root, 'probe-7006.log'), 'utf8'),
+    `pre-mutation ${'a'.repeat(40)}\npre-activation ${'a'.repeat(40)}\n`);
+  await unlink(path.join(root, 'app', 'current'));
+  await symlink(release, path.join(root, 'app', 'current'));
 
   const old = { 'trusted-blog-remote-transaction.sh': 'old transaction\n',
     'verify-shared-edge.sh': 'old probe\n', 'verify-shared-edge-receipt.mjs': 'old verifier\n' };
@@ -309,4 +341,14 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
   assert.notEqual(wrongMode.status, 0);
   assert.match(wrongMode.stderr, /failed closed/);
   assert.equal((await readdir(audit)).filter((name) => name.includes('7004-1-installed')).length, 0);
+
+  const mismatchedLegacy = path.join(releases, '20260719-201357-deadbee');
+  await mkdir(mismatchedLegacy);
+  await unlink(path.join(root, 'app', 'current'));
+  await symlink(mismatchedLegacy, path.join(root, 'app', 'current'));
+  const mismatched = run(7005);
+  assert.notEqual(mismatched.status, 0);
+  assert.match(mismatched.stderr, /failed closed/);
+  assert.equal((await readdir(audit)).filter((name) => name.includes('7005-1-installed')).length, 0);
+  for (const [name, body] of Object.entries(old)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
 });

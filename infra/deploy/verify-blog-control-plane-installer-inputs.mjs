@@ -6,6 +6,10 @@ export const blogInstallerContract = Object.freeze({
   repository: 'blankhoney/my_blog',
   repositoryId: 1236581850,
   workflowId: 275301410,
+  runtime: Object.freeze({
+    fullSha: '1667b3c891958c65426d9f3ed7dd0426f012cefc',
+    releaseId: '20260719-201357-1667b3c',
+  }),
   controlPlane: Object.freeze({
     fullSha: '48a12b8cfd4c33a20d0d9ded922e5c8616a4b803',
     workflowRun: 32351611647,
@@ -35,29 +39,32 @@ function validRun(run, expected) {
     run?.head_sha === expected.fullSha;
 }
 
-export function verifyBlogInstallerInputs(controlRun, producerRun, artifact) {
+export function verifyBlogInstallerInputs(controlRun, producerRun, artifact, runtimeCommit) {
   const { controlPlane, operation } = blogInstallerContract;
   if (!validRun(controlRun, controlPlane) || !validRun(producerRun, operation) ||
       artifact?.id !== operation.artifactId || artifact?.expired !== false ||
       artifact?.name !== operation.artifactName || artifact?.digest !== operation.artifactDigest ||
       artifact?.workflow_run?.id !== operation.workflowRun ||
       artifact?.workflow_run?.head_branch !== 'main' ||
-      artifact?.workflow_run?.head_sha !== operation.fullSha) {
+      artifact?.workflow_run?.head_sha !== operation.fullSha ||
+      runtimeCommit?.sha !== blogInstallerContract.runtime.fullSha ||
+      runtimeCommit?.html_url !== `https://github.com/${blogInstallerContract.repository}/commit/${blogInstallerContract.runtime.fullSha}`) {
     throw new Error('Blog control-plane installer identity contract mismatch');
   }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (process.argv.length !== 5) {
-    console.error('usage: verify-blog-control-plane-installer-inputs.mjs <control-run.json> <producer-run.json> <artifact.json>');
+  if (process.argv.length !== 6) {
+    console.error('usage: verify-blog-control-plane-installer-inputs.mjs <control-run.json> <producer-run.json> <artifact.json> <runtime-commit.json>');
     process.exit(64);
   }
   try {
-    const [controlPath, producerPath, artifactPath] = process.argv.slice(2);
+    const [controlPath, producerPath, artifactPath, runtimePath] = process.argv.slice(2);
     verifyBlogInstallerInputs(
       JSON.parse(readFileSync(controlPath, 'utf8')),
       JSON.parse(readFileSync(producerPath, 'utf8')),
       JSON.parse(readFileSync(artifactPath, 'utf8')),
+      JSON.parse(readFileSync(runtimePath, 'utf8')),
     );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

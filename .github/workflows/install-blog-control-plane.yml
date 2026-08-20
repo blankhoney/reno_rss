@@ -120,16 +120,19 @@ jobs:
           PRODUCER_ATTEMPT: '1'
           ARTIFACT_ID: '9396499072'
           ARTIFACT_DIGEST: sha256:d5929e143256f83d9c2cb0d7254d1f1181e02045ac43916795857913aabd8378
+          LEGACY_RUNTIME_SHA: 1667b3c891958c65426d9f3ed7dd0426f012cefc
         run: |
           set -euo pipefail
           control_run="$RUNNER_TEMP/blog-control-plane-run.json"
           producer_run="$RUNNER_TEMP/blog-producer-run.json"
           artifact="$RUNNER_TEMP/blog-producer-artifact.json"
+          runtime_commit="$RUNNER_TEMP/blog-runtime-commit.json"
           gh api "/repos/$BLOG_REPOSITORY/actions/runs/$CONTROL_PLANE_CI_RUN" > "$control_run"
           gh api "/repos/$BLOG_REPOSITORY/actions/runs/$PRODUCER_RUN" > "$producer_run"
           gh api "/repos/$BLOG_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$artifact"
+          gh api "/repos/$BLOG_REPOSITORY/commits/$LEGACY_RUNTIME_SHA" > "$runtime_commit"
           node infra/deploy/verify-blog-control-plane-installer-inputs.mjs \
-            "$control_run" "$producer_run" "$artifact"
+            "$control_run" "$producer_run" "$artifact" "$runtime_commit"
 
       - name: Set up trusted SSH
         env:
@@ -168,6 +171,7 @@ jobs:
           INSTALLER_ATTEMPT: ${{ github.run_attempt }}
           RSS_SOURCE_SHA: 2b29cfafaafa0795401c7b226a159572f9af6729
           RSS_INSTALLER_SHA: ${{ github.sha }}
+          LEGACY_RUNTIME_SHA: 1667b3c891958c65426d9f3ed7dd0426f012cefc
         run: |
           set -euo pipefail
           bundle="$RUNNER_TEMP/trusted-blog-transaction.tar"
@@ -200,7 +204,8 @@ jobs:
             "$PRODUCER_ATTEMPT" "$ARTIFACT_ID" "$ARTIFACT_DIGEST" \
             "$WEB_IMAGE_DIGEST" "$COMPANION_IMAGE_DIGEST" "$INSTALLER_RUN" \
             "$INSTALLER_ATTEMPT" "$RSS_SOURCE_SHA" "$RSS_INSTALLER_SHA" "$wrapper_sha" "$core_sha" \
-            "$transaction_sha" "$probe_sha" "$probe_verifier_sha" "$installer_transaction_sha"
+            "$transaction_sha" "$probe_sha" "$probe_verifier_sha" "$installer_transaction_sha" \
+            "$LEGACY_RUNTIME_SHA"
 
       - name: Upload authenticated Blog installer receipt
         uses: actions/upload-artifact@v4

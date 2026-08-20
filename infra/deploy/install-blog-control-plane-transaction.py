@@ -31,6 +31,8 @@ TARGETS = {
 }
 WRAPPER_SHA = '2cf87eb5d54e626fd96bef70ea7b8543ef721a12bb610b31dd2578fb80c296a5'
 CORE_SHA = 'd54485e473c7729e74628105c0f0ca6f75bcc63e65d4b71c2f14f1e2f3b51429'
+LEGACY_RUNTIME_SHA = '1667b3c891958c65426d9f3ed7dd0426f012cefc'
+LEGACY_RELEASE_ID = '20260719-201357-1667b3c'
 SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^sha256:[a-f0-9]{64}$')
 
@@ -182,15 +184,19 @@ def validate_platform() -> dict:
             'lockMode': '0660', 'auditMode': '0770'}
 
 
-def current_runtime(args: argparse.Namespace) -> str:
+def current_runtime(args: argparse.Namespace) -> tuple[str, str, str]:
     current = APP_ROOT / 'current'
     if not current.is_symlink():
         raise RuntimeError('current_not_symlink')
     resolved = current.resolve(strict=True)
     releases = (APP_ROOT / 'releases').resolve(strict=True)
-    if releases not in resolved.parents:
+    if resolved.parent != releases:
         raise RuntimeError('current_escape')
     provenance = resolved / 'release-provenance.json'
+    if not provenance.exists() and not provenance.is_symlink():
+        if resolved.name != LEGACY_RELEASE_ID or not LEGACY_RUNTIME_SHA.startswith(resolved.name.rsplit('-', 1)[-1]):
+            raise RuntimeError('legacy_runtime_identity')
+        return LEGACY_RUNTIME_SHA, 'legacy-release-id', resolved.name
     provenance_stat = provenance.lstat()
     if not stat.S_ISREG(provenance_stat.st_mode):
         raise RuntimeError('runtime_provenance_unsafe')
@@ -207,7 +213,10 @@ def current_runtime(args: argparse.Namespace) -> str:
             or value['companionImage'] != {'id': args.companion_image_digest,
                 'reference': f'brianstorm-vps-companion:production-{args.operation_sha}'}):
         raise RuntimeError('runtime_identity')
-    return value['candidateSha']
+    release_match = re.fullmatch(r'[A-Za-z0-9._-]+-([a-f0-9]{40})', resolved.name)
+    if release_match is None or release_match.group(1) != value['candidateSha']:
+        raise RuntimeError('runtime_release_identity')
+    return value['candidateSha'], 'release-provenance', resolved.name
 
 
 def extract_bundle(fd: int, directory: pathlib.Path) -> dict[str, pathlib.Path]:
@@ -327,7 +336,8 @@ def main() -> int:
     stage = 'bundle'
     try:
         files = extract_bundle(args.bundle_fd, work)
-        runtime = current_runtime(args)
+        stage = 'runtime'
+        runtime, runtime_evidence, runtime_release_id = current_runtime(args)
         stage = 'before_probe'
         before = work / 'before.json'
         before_digest = run_probe(files['verify-shared-edge.sh'], files['verify-shared-edge-receipt.mjs'],
@@ -353,6 +363,8 @@ def main() -> int:
                 'webImageDigest': args.web_image_digest, 'companionImageDigest': args.companion_image_digest},
             'installer': {'repo': 'blankhoney/reno_rss', 'fullSha': args.rss_installer_sha,
                 'workflowRun': args.installer_run, 'workflowRunAttempt': args.installer_attempt},
+            'runtime': {'fullSha': runtime, 'evidence': runtime_evidence,
+                'releaseId': runtime_release_id},
             'source': {'rssSourceSha': args.rss_source_sha, 'wrapperSha256': WRAPPER_SHA,
                 'installerTransactionSha256': args.installer_transaction_sha256,
                 'coreSha256': CORE_SHA, 'transactionSha256': TARGETS['trusted-blog-remote-transaction.sh'][0],
@@ -365,8 +377,10 @@ def main() -> int:
             'canonical': canonical,
             'lock': {'authority': 'live-flock', 'tokenSha256': token_digest,
                 'audit': metadata['audit'], 'acquiredAt': metadata['acquiredAt']},
-            'probes': {'before': {'phase': 'pre-mutation', 'receiptPath': str(before_path), 'sha256': before_digest},
-                'after': {'phase': 'pre-activation', 'receiptPath': str(after_path), 'sha256': after_digest}},
+            'probes': {'before': {'phase': 'pre-mutation', 'runtimeSha': runtime,
+                'receiptPath': str(before_path), 'sha256': before_digest},
+                'after': {'phase': 'pre-activation', 'runtimeSha': runtime,
+                    'receiptPath': str(after_path), 'sha256': after_digest}},
             'timestamp': timestamp,
         }
         audit_write(f'blog-control-plane-v2-{suffix}-installed.json', receipt)
