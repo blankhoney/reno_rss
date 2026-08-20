@@ -40,6 +40,10 @@ test('installer authenticates RSS parity and executes only the canonical Blog in
   assert.equal((workflow.match(/secrets\.BLOG_REPO_READ_TOKEN/g) ?? []).length, 2);
   assert.doesNotMatch(workflow, /secrets\.GHCR_TOKEN/);
   assert.doesNotMatch(workflow, /ssh-keyscan|StrictHostKeyChecking=no/);
+  const sshSetup = workflow.slice(workflow.indexOf('Set up trusted SSH'), workflow.indexOf('Install Blog control plane'));
+  assert.match(sshSetup, /VPS_HOST: \$\{\{ secrets\.VPS_HOST \}\}/);
+  assert.match(sshSetup, /VPS_PORT: \$\{\{ secrets\.VPS_PORT \}\}/);
+  assert.match(sshSetup, /validate-known-hosts\.sh/);
   assert.doesNotMatch(workflow, /docker (?:compose )?build|release\.tar\.gz/);
 });
 
