@@ -39,6 +39,13 @@ LEGACY_RELEASE_ID = '20260719-201357-1667b3c'
 PROBE_ACCOUNT = 'deploy'
 SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^sha256:[a-f0-9]{64}$')
+NODE_LAYOUTS = ('system_usr_local_bin', 'system_usr_bin', 'nvm', 'asdf', 'mise', 'fnm')
+
+
+class NodeResolutionError(RuntimeError):
+    def __init__(self, message: str, diagnostics: dict[str, dict[str, int]]):
+        super().__init__(message)
+        self.diagnostics = diagnostics
 
 
 def utc_now() -> str:
@@ -268,9 +275,10 @@ def probe_node_version(fd: int, args: argparse.Namespace) -> tuple[int, int, int
     return version
 
 
-def collect_versioned_candidates(home_fd: int, owner: int, layout: tuple[str, ...],
+def collect_versioned_candidates(label: str, home_fd: int, owner: int, layout: tuple[str, ...],
                                 version_pattern: re.Pattern[str],
-                                bin_parts: tuple[str, ...], candidates: list[int]) -> None:
+                                bin_parts: tuple[str, ...], candidates: list[int],
+                                diagnostics: dict[str, int], candidate_labels: dict[int, str]) -> None:
     base_fd = home_fd
     opened: list[int] = []
     try:
@@ -279,10 +287,14 @@ def collect_versioned_candidates(home_fd: int, owner: int, layout: tuple[str, ..
                 base_fd = open_directory_at(base_fd, part, owner)
                 opened.append(base_fd)
         except FileNotFoundError:
+            diagnostics['missing'] += 1
             return
+        diagnostics['layout_present'] += 1
+        versions = 0
         for name in os.listdir(base_fd):
             if version_pattern.fullmatch(name) is None:
                 continue
+            versions += 1
             version_fd = open_directory_at(base_fd, name, owner)
             try:
                 bin_fd = version_fd
@@ -291,12 +303,17 @@ def collect_versioned_candidates(home_fd: int, owner: int, layout: tuple[str, ..
                     for part in bin_parts:
                         bin_fd = open_directory_at(bin_fd, part, owner)
                         bin_opened.append(bin_fd)
-                    candidates.append(open_node_at(bin_fd, owner))
+                    fd = open_node_at(bin_fd, owner)
+                    candidates.append(fd)
+                    candidate_labels[fd] = label
+                    diagnostics['candidate'] += 1
                 finally:
                     for fd in reversed(bin_opened):
                         os.close(fd)
             finally:
                 os.close(version_fd)
+        if versions == 0:
+            diagnostics['no_matching_version'] += 1
     finally:
         for fd in reversed(opened):
             os.close(fd)
@@ -312,15 +329,24 @@ def resolve_probe_node(args: argparse.Namespace,
     if not home.is_absolute() or '..' in home.parts:
         raise RuntimeError('probe_home')
     candidates: list[int] = []
+    candidate_labels: dict[int, str] = {}
+    diagnostics = {name: {'layout_present': 0, 'missing': 0, 'no_matching_version': 0,
+                          'no_node': 0, 'candidate': 0, 'unsupported_version': 0, 'exec_failure': 0}
+                   for name in NODE_LAYOUTS}
     try:
         for parts in system_parts:
             directory_fd = -1
             try:
                 directory_fd = open_directory_chain(parts, 0)
+                label = 'system_usr_local_bin' if parts == ('usr', 'local', 'bin') else 'system_usr_bin'
+                diagnostics[label]['layout_present'] += 1
                 try:
-                    candidates.append(open_node_at(directory_fd, 0))
+                    fd = open_node_at(directory_fd, 0)
+                    candidates.append(fd)
+                    candidate_labels[fd] = label
+                    diagnostics[label]['candidate'] += 1
                 except RuntimeError:
-                    pass
+                    diagnostics[label]['no_node'] += 1
                 except OSError as error:
                     if error.errno not in (errno.ENOENT, errno.ELOOP):
                         raise
@@ -331,14 +357,15 @@ def resolve_probe_node(args: argparse.Namespace,
         home_fd = open_directory_chain(tuple(part for part in home.parts if part != '/'), account.pw_uid)
         try:
             layouts = (
-                (('.nvm', 'versions', 'node'), re.compile(r'v\d+\.\d+\.\d+'), ('bin',)),
-                (('.asdf', 'installs', 'nodejs'), re.compile(r'\d+\.\d+\.\d+'), ('bin',)),
-                (('.local', 'share', 'mise', 'installs', 'node'), re.compile(r'\d+\.\d+\.\d+'), ('bin',)),
-                (('.local', 'share', 'fnm', 'node-versions'), re.compile(r'v\d+\.\d+\.\d+'), ('installation', 'bin')),
+                ('nvm', ('.nvm', 'versions', 'node'), re.compile(r'v\d+\.\d+\.\d+'), ('bin',)),
+                ('asdf', ('.asdf', 'installs', 'nodejs'), re.compile(r'\d+\.\d+\.\d+'), ('bin',)),
+                ('mise', ('.local', 'share', 'mise', 'installs', 'node'), re.compile(r'\d+\.\d+\.\d+'), ('bin',)),
+                ('fnm', ('.local', 'share', 'fnm', 'node-versions'), re.compile(r'v\d+\.\d+\.\d+'), ('installation', 'bin')),
             )
-            for layout, version_pattern, bin_parts in layouts:
-                collect_versioned_candidates(home_fd, account.pw_uid, layout,
-                                             version_pattern, bin_parts, candidates)
+            for label, layout, version_pattern, bin_parts in layouts:
+                collect_versioned_candidates(label, home_fd, account.pw_uid, layout,
+                                             version_pattern, bin_parts, candidates,
+                                             diagnostics[label], candidate_labels)
         finally:
             os.close(home_fd)
 
@@ -346,11 +373,17 @@ def resolve_probe_node(args: argparse.Namespace,
         for fd in candidates:
             value = os.fstat(fd)
             identity = (value.st_dev, value.st_ino)
-            version = probe_node_version(fd, args)
+            try:
+                version = probe_node_version(fd, args)
+            except (OSError, subprocess.SubprocessError, RuntimeError):
+                diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['exec_failure'] += 1
+                continue
             if version[0] >= 18:
                 identified[identity] = (fd, version)
+            else:
+                diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['unsupported_version'] += 1
         if not identified:
-            raise RuntimeError('probe_node_resolution')
+            raise NodeResolutionError('probe_node_resolution', diagnostics)
         best_version = max(version for _, version in identified.values())
         best = [(fd, version) for fd, version in identified.values() if version == best_version]
         if len(best) != 1:
@@ -684,6 +717,8 @@ def main() -> int:
             'controlPlaneSha': args.control_plane_sha, 'operationSha': args.operation_sha,
             'installerRun': args.installer_run, 'installerAttempt': args.installer_attempt,
             'stage': stage, 'error': type(error).__name__, 'timestamp': utc_now()}
+        if isinstance(error, NodeResolutionError):
+            failure['nodeResolution'] = error.diagnostics
         audit_write(f'blog-control-plane-v2-{args.installer_run}-{args.installer_attempt}-failed.json', failure)
         raise
     finally:

@@ -118,3 +118,7 @@
   The locked resolver uses only fixed, descriptor-walked version-manager layouts
   (`.nvm`, `.asdf`, mise, and fnm), validates ownership/mode and real semver,
   then freezes the selected descriptor before running probes.
+- When no acceptable Node candidate exists, the installer failure audit records
+  only bounded layout categories and reason counts (not paths or environment),
+  so a VPS can distinguish missing Node, unsupported versions, and layout drift
+  without weakening the resolver gates.
