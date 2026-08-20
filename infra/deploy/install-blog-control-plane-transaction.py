@@ -9,6 +9,7 @@ import io
 import json
 import os
 import pathlib
+import pwd
 import re
 import shutil
 import stat
@@ -82,14 +83,84 @@ def fsync_dir(path: pathlib.Path) -> None:
         os.close(fd)
 
 
+def chown_as_root(path: pathlib.Path, owner: int, group: int) -> None:
+    if os.geteuid() == 0:
+        os.chown(path, owner, group)
+
+
+def file_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int, int, int]:
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
+            value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def freeze_probe_node(args: argparse.Namespace, work: pathlib.Path) -> tuple[pathlib.Path, str]:
+    source_path = pathlib.Path(args.probe_node)
+    source_fd = os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW)
+    target = work / 'node'
+    target_fd = -1
+    try:
+        before = os.fstat(source_fd)
+        if (not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) & 0o111 == 0
+                or before.st_size <= 0 or before.st_size > 256 * 1024 * 1024):
+            raise RuntimeError('probe_node_permissions')
+        target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o500)
+        while True:
+            block = os.read(source_fd, 1024 * 1024)
+            if not block:
+                break
+            view = memoryview(block)
+            while view:
+                view = view[os.write(target_fd, view):]
+        os.fsync(target_fd)
+        os.fchmod(target_fd, 0o555)
+        if os.geteuid() == 0:
+            os.fchown(target_fd, 0, 0)
+        after = os.fstat(source_fd)
+        current = source_path.lstat()
+        if file_identity(before) != file_identity(after) or file_identity(after) != file_identity(current):
+            raise RuntimeError('probe_node_changed')
+    finally:
+        os.close(source_fd)
+        if target_fd >= 0:
+            os.close(target_fd)
+    return target, sha256_file(target)
+
+
+def freeze_probe_receipt(source: pathlib.Path, target: pathlib.Path,
+                         args: argparse.Namespace) -> None:
+    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != args.probe_uid
+                or before.st_gid != args.probe_gid or stat.S_IMODE(before.st_mode) != 0o600
+                or before.st_size <= 0 or before.st_size > 1024 * 1024):
+            raise RuntimeError('probe_receipt_permissions')
+        payload = b''
+        while True:
+            block = os.read(fd, 64 * 1024)
+            if not block:
+                break
+            payload += block
+        after = os.fstat(fd)
+        current = source.lstat()
+        if file_identity(before) != file_identity(after) or file_identity(after) != file_identity(current):
+            raise RuntimeError('probe_receipt_changed')
+        write_exclusive(target, payload, 0o440)
+        chown_as_root(target, 0, args.probe_gid)
+        os.chmod(target, 0o440)
+    finally:
+        os.close(fd)
+
+
 def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(allow_abbrev=False)
     for name in ('repo', 'control-plane-sha', 'operation-sha', 'rss-source-sha',
                  'rss-installer-sha', 'artifact-digest', 'web-image-digest',
-                 'companion-image-digest', 'installer-transaction-sha256'):
+                 'companion-image-digest', 'installer-transaction-sha256', 'probe-node'):
         value.add_argument(f'--{name}', required=True)
     for name in ('bundle-fd', 'installer-run', 'installer-attempt', 'control-ci-run',
-                 'control-ci-attempt', 'producer-run', 'producer-attempt', 'artifact-id'):
+                 'control-ci-attempt', 'producer-run', 'producer-attempt', 'artifact-id',
+                 'probe-uid', 'probe-gid'):
         value.add_argument(f'--{name}', required=True, type=int)
     return value
 
@@ -115,6 +186,18 @@ def validate_args(args: argparse.Namespace) -> None:
         raise RuntimeError('installer_transaction_digest')
     if args.repo != 'blankhoney/my_blog' or args.rss_source_sha != '2b29cfafaafa0795401c7b226a159572f9af6729':
         raise RuntimeError('frozen_identity')
+    node = pathlib.Path(args.probe_node)
+    if (args.probe_uid <= 0 or args.probe_gid < 0 or not node.is_absolute()
+            or node.resolve(strict=True) != node or node.is_symlink()):
+        raise RuntimeError('probe_identity')
+    node_stat = node.lstat()
+    if not stat.S_ISREG(node_stat.st_mode) or stat.S_IMODE(node_stat.st_mode) & 0o111 == 0:
+        raise RuntimeError('probe_node')
+    account = pwd.getpwuid(args.probe_uid)
+    if (account.pw_gid != args.probe_gid or os.environ.get('SUDO_UID') != str(args.probe_uid)
+            or os.environ.get('SUDO_GID') != str(args.probe_gid)
+            or os.environ.get('SUDO_USER') != account.pw_name):
+        raise RuntimeError('probe_sudo_identity')
 
 
 def read_lock_metadata() -> dict:
@@ -247,15 +330,42 @@ def extract_bundle(fd: int, directory: pathlib.Path) -> dict[str, pathlib.Path]:
 
 
 def run_probe(probe: pathlib.Path, verifier: pathlib.Path, receipt: pathlib.Path,
-              args: argparse.Namespace, runtime: str, phase: str) -> str:
-    subprocess.run(['bash', str(probe), '--owner-project', 'blog', '--owner-repo', args.repo,
-        '--operation-sha', args.operation_sha, '--runtime-sha', runtime,
-        '--workflow-run', str(args.installer_run), '--phase', phase, '--receipt', str(receipt)],
-        check=True, stdout=subprocess.DEVNULL)
-    subprocess.run(['node', str(verifier), str(receipt), 'success', 'blog', args.repo,
-        args.operation_sha, runtime, str(args.installer_run), phase],
-        check=True, stdout=subprocess.DEVNULL)
-    return sha256_file(receipt)
+              args: argparse.Namespace, runtime: str, phase: str,
+              stable_node: pathlib.Path) -> str:
+    account = pwd.getpwuid(args.probe_uid)
+    probe_dir = receipt.parent / f'.{receipt.stem}-probe'
+    probe_dir.mkdir(mode=0o750)
+    chown_as_root(probe_dir, 0, args.probe_gid)
+    output_dir = probe_dir / 'output'
+    output_dir.mkdir(mode=0o700)
+    chown_as_root(output_dir, args.probe_uid, args.probe_gid)
+    probe_copy = probe_dir / 'verify-shared-edge.sh'
+    verifier_copy = probe_dir / 'verify-shared-edge-receipt.mjs'
+    write_exclusive(probe_copy, probe.read_bytes(), 0o550)
+    write_exclusive(verifier_copy, verifier.read_bytes(), 0o440)
+    chown_as_root(probe_copy, 0, args.probe_gid)
+    chown_as_root(verifier_copy, 0, args.probe_gid)
+    actual = output_dir / 'receipt.json'
+    environment = {'HOME': account.pw_dir, 'USER': account.pw_name, 'LOGNAME': account.pw_name,
+        'LANG': 'C.UTF-8', 'PATH': f'{stable_node.parent}:/usr/local/bin:/usr/bin:/bin'}
+    credentials = {}
+    if os.geteuid() == 0:
+        credentials = {'user': args.probe_uid, 'group': args.probe_gid,
+            'extra_groups': os.getgrouplist(account.pw_name, args.probe_gid)}
+    try:
+        subprocess.run(['bash', str(probe_copy), '--owner-project', 'blog', '--owner-repo', args.repo,
+            '--operation-sha', args.operation_sha, '--runtime-sha', runtime,
+            '--workflow-run', str(args.installer_run), '--phase', phase, '--receipt', str(actual)],
+            check=True, stdout=subprocess.DEVNULL, env=environment, **credentials)
+        frozen = probe_dir / 'frozen-receipt.json'
+        freeze_probe_receipt(actual, frozen, args)
+        subprocess.run([str(stable_node), str(verifier_copy), str(frozen), 'success', 'blog',
+            args.repo, args.operation_sha, runtime, str(args.installer_run), phase],
+            check=True, stdout=subprocess.DEVNULL, env=environment, **credentials)
+        os.replace(frozen, receipt)
+        return sha256_file(receipt)
+    finally:
+        shutil.rmtree(probe_dir, ignore_errors=True)
 
 
 def atomic_install(files: dict[str, pathlib.Path]) -> tuple[dict[pathlib.Path, bytes | None], dict[str, str]]:
@@ -332,22 +442,26 @@ def main() -> int:
         raise RuntimeError('lock_inode_drift')
 
     work = pathlib.Path(tempfile.mkdtemp(prefix='.blog-control-plane-v2.', dir=LOCK_ROOT))
+    os.chmod(work, 0o710)
+    chown_as_root(work, 0, args.probe_gid)
     previous = None
     stage = 'bundle'
     try:
         files = extract_bundle(args.bundle_fd, work)
         stage = 'runtime'
         runtime, runtime_evidence, runtime_release_id = current_runtime(args)
+        stage = 'probe_runtime'
+        stable_node, probe_node_sha = freeze_probe_node(args, work)
         stage = 'before_probe'
         before = work / 'before.json'
         before_digest = run_probe(files['verify-shared-edge.sh'], files['verify-shared-edge-receipt.mjs'],
-                                  before, args, runtime, 'pre-mutation')
+                                  before, args, runtime, 'pre-mutation', stable_node)
         stage = 'install'
         previous, installed = atomic_install(files)
         stage = 'after_probe'
         after = work / 'after.json'
         after_digest = run_probe(TARGETS['verify-shared-edge.sh'][1], TARGETS['verify-shared-edge-receipt.mjs'][1],
-                                 after, args, runtime, 'pre-activation')
+                                 after, args, runtime, 'pre-activation', stable_node)
         timestamp = utc_now()
         suffix = f'{args.installer_run}-{args.installer_attempt}'
         before_path = persist_probe(f'blog-control-plane-v2-{suffix}-before.json', before)
@@ -368,6 +482,7 @@ def main() -> int:
             'source': {'rssSourceSha': args.rss_source_sha, 'wrapperSha256': WRAPPER_SHA,
                 'installerTransactionSha256': args.installer_transaction_sha256,
                 'coreSha256': CORE_SHA, 'transactionSha256': TARGETS['trusted-blog-remote-transaction.sh'][0],
+                'probeNodeSha256': probe_node_sha,
                 'probeSha256': TARGETS['verify-shared-edge.sh'][0],
                 'probeVerifierSha256': TARGETS['verify-shared-edge-receipt.mjs'][0]},
             'installed': {'wrapperSha256': WRAPPER_SHA, 'coreSha256': CORE_SHA,

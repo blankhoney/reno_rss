@@ -51,9 +51,15 @@ test('installer authenticates RSS parity and executes only the canonical Blog in
 test('remote installer enters the canonical wrapper before any remote write', () => {
   const remote = readFileSync('infra/deploy/install-blog-control-plane-remote.sh', 'utf8');
   const transaction = readFileSync('infra/deploy/install-blog-control-plane-transaction.py', 'utf8');
-  assert.match(remote, /exec sudo -n bash -c/);
+  assert.match(remote, /exec sudo -n env INSTALLER_PROBE_NODE=/);
   assert.match(remote, /with-shared-release-lock\.sh/);
   assert.match(remote, /exec 8<&0/);
+  assert.match(remote, /probe_node=.*readlink -f --/);
+  assert.match(transaction, /'user': args\.probe_uid, 'group': args\.probe_gid/);
+  assert.match(transaction, /os\.getgrouplist/);
+  assert.match(transaction, /freeze_probe_node/);
+  assert.match(transaction, /os\.open\(source, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
+  assert.match(transaction, /file_identity\(before\) != file_identity\(after\)/);
   const remoteBody = remote.slice(remote.indexOf('remote="'), remote.indexOf('exec ssh'));
   assert.doesNotMatch(remoteBody, /mktemp|mkdir|tar\s+-x|cat\s*>/);
   assert.ok(transaction.indexOf('validate_lock(args)') < transaction.indexOf('tempfile.mkdtemp'));
@@ -134,6 +140,7 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
     installerSha: '4'.repeat(40), wrapperSha: '5'.repeat(64), coreSha: '6'.repeat(64),
     transactionSha: '7'.repeat(64), probeSha: '8'.repeat(64), probeVerifierSha: '9'.repeat(64),
     installerTransactionSha: 'd'.repeat(64),
+    probeNodeSha: 'e'.repeat(64),
     runtimeSha: '1667b3c891958c65426d9f3ed7dd0426f012cefc',
   };
   const receipt = {
@@ -151,6 +158,7 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
     source: { rssSourceSha: expected.rssSourceSha,
       installerTransactionSha256: expected.installerTransactionSha, wrapperSha256: expected.wrapperSha,
       coreSha256: expected.coreSha, transactionSha256: expected.transactionSha,
+      probeNodeSha256: expected.probeNodeSha,
       probeSha256: expected.probeSha, probeVerifierSha256: expected.probeVerifierSha },
     installed: { wrapperSha256: expected.wrapperSha, coreSha256: expected.coreSha,
       transactionSha256: expected.transactionSha, probeSha256: expected.probeSha,
@@ -175,6 +183,7 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
   for (const mutate of [
     (value) => { value.controlPlane.fullSha = value.operation.fullSha; },
     (value) => { value.installed.probeSha256 = '0'.repeat(64); },
+    (value) => { value.source.probeNodeSha256 = 'short'; },
     (value) => { value.canonical.lockPath = '/srv/brianstorm/shared/release-lock-v1/release.lock'; },
     (value) => { value.probes.after.phase = 'post-activation'; },
     (value) => { value.runtime.fullSha = value.operation.fullSha; },
@@ -191,6 +200,11 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   skip: process.platform !== 'linux',
 }, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'rss-blog-installer-v2-'));
+  await chmod(root, 0o755);
+  const probeUid = process.getuid() === 0 ? 1000 : process.getuid();
+  const probeGid = process.getgid() === 0 ? 1000 : process.getgid();
+  const probeGroup = spawnSync('id', ['-gn', String(probeUid)], { encoding: 'utf8' }).stdout.trim();
+  const probeNode = spawnSync('readlink', ['-f', process.execPath], { encoding: 'utf8' }).stdout.trim();
   const lockRoot = path.join(root, 'lock');
   const audit = path.join(lockRoot, 'audit');
   const helper = path.join(root, 'helper');
@@ -200,6 +214,9 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   await mkdir(audit, { recursive: true });
   await mkdir(release, { recursive: true });
   await writeFile(path.join(lockRoot, 'release.lock'), '');
+  await chown(lockRoot, process.getuid(), probeGid);
+  await chown(audit, process.getuid(), probeGid);
+  await chown(path.join(lockRoot, 'release.lock'), process.getuid(), probeGid);
   await chmod(lockRoot, 0o770); await chmod(audit, 0o770);
   await chmod(path.join(lockRoot, 'release.lock'), 0o660); await chmod(helper, 0o755);
   await copyFile('infra/deploy/with-shared-release-lock.sh', path.join(helper, 'with-shared-release-lock.sh'));
@@ -214,14 +231,17 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   const transaction = '#!/usr/bin/env bash\nexit 0\n';
   const probe = `#!/usr/bin/env bash
 set -euo pipefail
-phase=''; receipt=''; runtime=''
-while (($#)); do case "$1" in --phase) phase="$2"; shift 2;; --runtime-sha) runtime="$2"; shift 2;; --receipt) receipt="$2"; shift 2;; *) shift 2;; esac; done
-printf '%s %s\\n' "$phase" "$runtime" >> "$PROBE_LOG"
+phase=''; receipt=''; runtime=''; workflow=''
+while (($#)); do case "$1" in --phase) phase="$2"; shift 2;; --runtime-sha) runtime="$2"; shift 2;; --workflow-run) workflow="$2"; shift 2;; --receipt) receipt="$2"; shift 2;; *) shift 2;; esac; done
 printf 'probe diagnostic on stdout\\n'
-[[ "\${FAIL_AFTER:-0}" != 1 || "$phase" != pre-activation ]] || exit 19
-printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
+[[ "$workflow" != 7002 || "$phase" != pre-activation ]] || exit 19
+if [[ "$workflow" == 7007 ]]; then ln -s /etc/passwd "$receipt"; exit 0; fi
+node_path="$(command -v node)"; node_sha="$(sha256sum "$node_path" | cut -d ' ' -f 1)"
+printf '{"phase":"%s","runtime":"%s","uid":%s,"gid":%s,"groups":"%s","nodePath":"%s","nodeSha256":"%s"}\\n' \
+  "$phase" "$runtime" "$(id -u)" "$(id -g)" "$(id -G)" "$node_path" "$node_sha" > "$receipt"
+chmod 600 "$receipt"
 `;
-  const verifier = '#!/usr/bin/env node\nimport { existsSync } from "node:fs";\nconsole.log("verifier diagnostic on stdout");\nprocess.exit(existsSync(process.argv[2]) ? 0 : 1);\n';
+  const verifier = '#!/usr/bin/env node\nimport { readFileSync } from "node:fs";\nconsole.log("verifier diagnostic on stdout");\nconst value=JSON.parse(readFileSync(process.argv[2],"utf8"));\nprocess.exit(value.runtime===process.argv[7]&&value.phase===process.argv[9]?0:1);\n';
   const values = { 'trusted-blog-remote-transaction.sh': transaction,
     'verify-shared-edge.sh': probe, 'verify-shared-edge-receipt.mjs': verifier };
   for (const [name, body] of Object.entries(values)) await writeFile(path.join(fixture, name), body);
@@ -235,7 +255,7 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
     .replace("HELPER_ROOT = pathlib.Path('/usr/local/lib/reno-shared-vps/release-lock-v1')", `HELPER_ROOT = pathlib.Path('${helper}')`)
     .replace("APP_ROOT = pathlib.Path('/srv/brianstorm')", `APP_ROOT = pathlib.Path('${path.join(root, 'app')}')`)
     .replace("if os.geteuid() != 0 or os.uname().sysname != 'Linux':", "if os.uname().sysname != 'Linux':")
-    .replace("deploy_group = grp.getgrnam('reno-deploy').gr_gid", 'deploy_group = os.getgid()')
+    .replace("deploy_group = grp.getgrnam('reno-deploy').gr_gid", `deploy_group = ${probeGid}`)
     .replace('(HELPER_ROOT, stat.S_IFDIR, 0, 0o755)', '(HELPER_ROOT, stat.S_IFDIR, os.getgid(), 0o755)')
     .replaceAll('value.st_uid != 0', 'value.st_uid != os.getuid()')
     .replaceAll('before.st_uid != 0', 'before.st_uid != os.getuid()')
@@ -255,16 +275,17 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
     '--rss-installer-sha', 'c'.repeat(40), '--control-ci-run', '20', '--control-ci-attempt', '1',
     '--producer-run', '30', '--producer-attempt', '1', '--artifact-id', '40',
     '--artifact-digest', `sha256:${'4'.repeat(64)}`, '--web-image-digest', `sha256:${'5'.repeat(64)}`,
-    '--companion-image-digest', `sha256:${'6'.repeat(64)}`];
-  const run = (workflowRun, failAfter = false) => spawnSync('bash', ['-c',
+    '--companion-image-digest', `sha256:${'6'.repeat(64)}`,
+    '--probe-node', probeNode, '--probe-uid', String(probeUid), '--probe-gid', String(probeGid)];
+  const run = (workflowRun) => spawnSync('bash', ['-c',
     'exec 9>"$1"; flock -n 9; exec 8<"$2"; export SHARED_RELEASE_LOCK_CORE_FD=9 RENO_SHARED_RELEASE_BUNDLE_FD=8; shift 2; exec "$@"',
     '--', path.join(lockRoot, 'release.lock'), tar, core, '--owner', 'blog', '--repo', 'blankhoney/my_blog',
     '--sha', 'a'.repeat(40), '--run', String(workflowRun), '--ttl-seconds', '30', '--',
     'python3', inner, ...baseArgs, '--installer-run', String(workflowRun)], {
-    encoding: 'utf8', env: { ...process.env, FAIL_AFTER: failAfter ? '1' : '0',
-      PROBE_LOG: path.join(root, `probe-${workflowRun}.log`), SHARED_RELEASE_LOCK_ROOT: lockRoot,
+    encoding: 'utf8', env: { ...process.env, SHARED_RELEASE_LOCK_ROOT: lockRoot,
+      SUDO_UID: String(probeUid), SUDO_GID: String(probeGid), SUDO_USER: probeUid === 1000 ? 'node' : os.userInfo().username,
       SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
-      SHARED_RELEASE_LOCK_GROUP: spawnSync('id', ['-gn'], { encoding: 'utf8' }).stdout.trim() },
+      SHARED_RELEASE_LOCK_GROUP: probeGroup },
   });
 
   const success = run(7001);
@@ -272,8 +293,16 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
   const legacyReceipt = JSON.parse(success.stdout);
   assert.deepEqual(legacyReceipt.runtime, { fullSha: '1667b3c891958c65426d9f3ed7dd0426f012cefc',
     evidence: 'legacy-release-id', releaseId: '20260719-201357-1667b3c' });
-  assert.equal(await readFile(path.join(root, 'probe-7001.log'), 'utf8'),
-    `pre-mutation ${legacyReceipt.runtime.fullSha}\npre-activation ${legacyReceipt.runtime.fullSha}\n`);
+  const assertProbeEvidence = async (receiptPath, phase, runtime) => {
+    const value = JSON.parse(await readFile(receiptPath, 'utf8'));
+    assert.equal(value.phase, phase); assert.equal(value.runtime, runtime);
+    assert.equal(value.uid, probeUid); assert.equal(value.gid, probeGid);
+    assert.equal(value.groups, spawnSync('id', ['-G', String(probeUid)], { encoding: 'utf8' }).stdout.trim());
+    assert.match(value.nodePath, /\/node$/); assert.notEqual(value.nodePath, probeNode);
+    assert.equal(value.nodeSha256, digest(probeNode));
+  };
+  await assertProbeEvidence(legacyReceipt.probes.before.receiptPath, 'pre-mutation', legacyReceipt.runtime.fullSha);
+  await assertProbeEvidence(legacyReceipt.probes.after.receiptPath, 'pre-activation', legacyReceipt.runtime.fullSha);
   for (const [name, body] of Object.entries(values)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
   assert.equal((await readdir(audit)).filter((name) => name.endsWith('-installed.json')).length, 1);
 
@@ -293,8 +322,8 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
   const provenanceReceipt = JSON.parse(provenanceSuccess.stdout);
   assert.deepEqual(provenanceReceipt.runtime, { fullSha: 'a'.repeat(40),
     evidence: 'release-provenance', releaseId: `prod-${'a'.repeat(40)}` });
-  assert.equal(await readFile(path.join(root, 'probe-7006.log'), 'utf8'),
-    `pre-mutation ${'a'.repeat(40)}\npre-activation ${'a'.repeat(40)}\n`);
+  await assertProbeEvidence(provenanceReceipt.probes.before.receiptPath, 'pre-mutation', 'a'.repeat(40));
+  await assertProbeEvidence(provenanceReceipt.probes.after.receiptPath, 'pre-activation', 'a'.repeat(40));
   await unlink(path.join(root, 'app', 'current'));
   await symlink(release, path.join(root, 'app', 'current'));
 
@@ -304,7 +333,7 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
     await chmod(path.join(helper, name), 0o755);
     await writeFile(path.join(helper, name), body); await chmod(path.join(helper, name), 0o555);
   }
-  const failed = run(7002, true);
+  const failed = run(7002);
   assert.notEqual(failed.status, 0);
   for (const [name, body] of Object.entries(old)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
   assert.equal((await readdir(audit)).filter((name) => name.includes('7002-1-failed')).length, 1);
@@ -317,9 +346,10 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
     '--sha', 'a'.repeat(40), '--run', '7003', '--ttl-seconds', '30', '--',
     'bash', '-c', 'rm -- "$1"; ln -s "$2" "$1"; shift 2; exec "$@"', 'bash',
     path.join(lockRoot, 'metadata.json'), poison, 'python3', inner, ...baseArgs, '--installer-run', '7003'], {
-    encoding: 'utf8', env: { ...process.env, PROBE_LOG: path.join(root, 'probe-7003.log'),
+    encoding: 'utf8', env: { ...process.env,
+      SUDO_UID: String(probeUid), SUDO_GID: String(probeGid), SUDO_USER: probeUid === 1000 ? 'node' : os.userInfo().username,
       SHARED_RELEASE_LOCK_ROOT: lockRoot, SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
-      SHARED_RELEASE_LOCK_GROUP: spawnSync('id', ['-gn'], { encoding: 'utf8' }).stdout.trim(),
+      SHARED_RELEASE_LOCK_GROUP: probeGroup,
       RENO_SHARED_RELEASE_BUNDLE_FD: '8' },
   });
   assert.notEqual(poisoned.status, 0);
@@ -333,9 +363,10 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
     '--sha', 'a'.repeat(40), '--run', '7004', '--ttl-seconds', '30', '--',
     'bash', '-c', 'rm -- "$1"; cp "$2" "$1"; chmod 0644 "$1"; shift 2; exec "$@"', 'bash',
     path.join(lockRoot, 'metadata.json'), poison, 'python3', inner, ...baseArgs, '--installer-run', '7004'], {
-    encoding: 'utf8', env: { ...process.env, PROBE_LOG: path.join(root, 'probe-7004.log'),
+    encoding: 'utf8', env: { ...process.env,
+      SUDO_UID: String(probeUid), SUDO_GID: String(probeGid), SUDO_USER: probeUid === 1000 ? 'node' : os.userInfo().username,
       SHARED_RELEASE_LOCK_ROOT: lockRoot, SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
-      SHARED_RELEASE_LOCK_GROUP: spawnSync('id', ['-gn'], { encoding: 'utf8' }).stdout.trim(),
+      SHARED_RELEASE_LOCK_GROUP: probeGroup,
       RENO_SHARED_RELEASE_BUNDLE_FD: '8' },
   });
   assert.notEqual(wrongMode.status, 0);
@@ -350,5 +381,13 @@ printf '{"phase":"%s"}\\n' "$phase" > "$receipt"
   assert.notEqual(mismatched.status, 0);
   assert.match(mismatched.stderr, /failed closed/);
   assert.equal((await readdir(audit)).filter((name) => name.includes('7005-1-installed')).length, 0);
+  for (const [name, body] of Object.entries(old)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
+
+  await unlink(path.join(root, 'app', 'current'));
+  await symlink(release, path.join(root, 'app', 'current'));
+  const symlinkReceipt = run(7007);
+  assert.notEqual(symlinkReceipt.status, 0);
+  assert.match(symlinkReceipt.stderr, /failed closed/);
+  assert.equal((await readdir(audit)).filter((name) => name.includes('7007-1-installed')).length, 0);
   for (const [name, body] of Object.entries(old)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
 });
