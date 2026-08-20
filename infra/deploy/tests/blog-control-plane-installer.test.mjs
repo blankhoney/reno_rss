@@ -74,6 +74,8 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   assert.ok(transaction.indexOf('validate_lock(args)') < transaction.indexOf('tempfile.mkdtemp'));
   assert.match(transaction, /WORK_ROOT = pathlib\.Path\('\/run'\)/);
   assert.match(transaction, /tempfile\.mkdtemp\(prefix='\.blog-control-plane-v2\.', dir=WORK_ROOT\)/);
+  assert.match(transaction, /failure\['nodeResolution'\] = error\.diagnostics/);
+  assert.match(transaction, /'system_usr_local_bin'.*'system_usr_bin'.*'nvm'.*'asdf'.*'mise'.*'fnm'/s);
   assert.match(transaction, /os\.open\(METADATA_PATH, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
   assert.match(transaction, /identity_before != identity_after or identity_after != identity_current/);
   assert.ok(transaction.indexOf("'pre-mutation'") < transaction.indexOf('atomic_install(files)'));
@@ -236,6 +238,22 @@ os.close(fd)
   const result = spawnSync(python, ['-c', program], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), `${asdfNode} 100.1.0`);
+  const emptyRoot = await mkdtemp(path.join(os.tmpdir(), '.rss-blog-empty-node-'));
+  const diagnosticProgram = `import importlib.util, json, os, pathlib, types
+spec=importlib.util.spec_from_file_location('installer', 'infra/deploy/install-blog-control-plane-transaction.py')
+module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+uid=os.getuid(); gid=os.getgid(); args=types.SimpleNamespace(probe_uid=uid, probe_gid=gid)
+account=types.SimpleNamespace(pw_dir='${emptyRoot}', pw_name='fixture', pw_uid=uid, pw_gid=gid)
+try: module.resolve_probe_node(args, account, ())
+except Exception as error: print(json.dumps(getattr(error, 'diagnostics', {}), sort_keys=True)); raise SystemExit(0)
+raise SystemExit(1)
+`;
+  const diagnostic = spawnSync(python, ['-c', diagnosticProgram], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
+  assert.equal(diagnostic.status, 0, diagnostic.stderr);
+  const diagnostics = JSON.parse(diagnostic.stdout);
+  assert.equal(diagnostics.nvm.missing, 1);
+  assert.equal(diagnostics.asdf.missing, 1);
+  assert.equal(diagnostics.fnm.missing, 1);
   const unsafeSystemDir = path.join(root, 'unsafe-system');
   await mkdir(unsafeSystemDir); await chmod(unsafeSystemDir, 0o777);
   const unsafeSystemProgram = program.replace('account, ())',
