@@ -37,6 +37,8 @@ test('installer authenticates RSS parity and executes only the canonical Blog in
   assert.match(workflow, /install-blog-control-plane-remote\.sh/);
   assert.match(workflow, /verify-blog-control-plane-install-receipt\.mjs/);
   assert.match(workflow, /blog-trusted-installer-\$\{\{ github\.run_id \}\}/);
+  assert.equal((workflow.match(/secrets\.BLOG_REPO_READ_TOKEN/g) ?? []).length, 2);
+  assert.doesNotMatch(workflow, /secrets\.GHCR_TOKEN/);
   assert.doesNotMatch(workflow, /ssh-keyscan|StrictHostKeyChecking=no/);
   assert.doesNotMatch(workflow, /docker (?:compose )?build|release\.tar\.gz/);
 });

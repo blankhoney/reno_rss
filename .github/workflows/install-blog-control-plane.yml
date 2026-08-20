@@ -75,7 +75,7 @@ jobs:
         with:
           repository: blankhoney/my_blog
           ref: 48a12b8cfd4c33a20d0d9ded922e5c8616a4b803
-          token: ${{ secrets.GHCR_TOKEN }}
+          token: ${{ secrets.BLOG_REPO_READ_TOKEN }}
           path: blog-control-plane
           persist-credentials: false
           fetch-depth: 1
@@ -110,7 +110,7 @@ jobs:
 
       - name: Authenticate the Blog control plane and frozen artifact
         env:
-          GH_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GH_TOKEN: ${{ secrets.BLOG_REPO_READ_TOKEN }}
           BLOG_REPOSITORY: blankhoney/my_blog
           CONTROL_PLANE_SHA: 48a12b8cfd4c33a20d0d9ded922e5c8616a4b803
           CONTROL_PLANE_CI_RUN: '32351611647'
