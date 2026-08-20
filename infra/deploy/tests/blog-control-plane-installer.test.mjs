@@ -238,7 +238,10 @@ os.close(fd)
   const result = spawnSync(python, ['-c', program], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), `${asdfNode} 100.1.0`);
-  const emptyRoot = await mkdtemp(path.join(os.tmpdir(), '.rss-blog-empty-node-'));
+  // Keep the empty home under the already-owned fixture root.  The resolver
+  // intentionally rejects unsafe shared parents such as /tmp before it can
+  // produce nodeResolution diagnostics.
+  const emptyRoot = await mkdtemp(path.join(root, '.rss-blog-empty-node-'));
   const diagnosticProgram = `import importlib.util, json, os, pathlib, types
 spec=importlib.util.spec_from_file_location('installer', 'infra/deploy/install-blog-control-plane-transaction.py')
 module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
