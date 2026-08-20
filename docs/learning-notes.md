@@ -122,3 +122,7 @@
   only bounded layout categories and reason counts (not paths or environment),
   so a VPS can distinguish missing Node, unsupported versions, and layout drift
   without weakening the resolver gates.
+- Those reason counts now separate unsupported versions, `/proc/self/fd` exec
+  failures, and processes that run but emit invalid version output, making
+  kernel/runtime incompatibility observable without weakening descriptor or
+  ownership checks.

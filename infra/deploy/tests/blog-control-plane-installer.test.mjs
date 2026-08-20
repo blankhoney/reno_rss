@@ -257,6 +257,26 @@ raise SystemExit(1)
   assert.equal(diagnostics.nvm.missing, 1);
   assert.equal(diagnostics.asdf.missing, 1);
   assert.equal(diagnostics.fnm.missing, 1);
+  const unsupportedRoot = await mkdtemp(path.join(root, '.rss-blog-unsupported-node-'));
+  const unsupportedNode = path.join(unsupportedRoot, '.nvm', 'versions', 'node', 'v16.20.0', 'bin', 'node');
+  await mkdir(path.dirname(unsupportedNode), { recursive: true });
+  await writeFile(unsupportedNode, '#!/bin/sh\nprintf "v16.20.0\\n"\n');
+  await chmod(unsupportedNode, 0o555);
+  const unsupportedProgram = diagnosticProgram.replace(emptyRoot, unsupportedRoot);
+  const unsupported = spawnSync(python, ['-c', unsupportedProgram], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
+  assert.equal(unsupported.status, 0, unsupported.stderr);
+  const unsupportedDiagnostics = JSON.parse(unsupported.stdout);
+  assert.equal(unsupportedDiagnostics.nvm.unsupported_version, 1);
+  const procFailureRoot = await mkdtemp(path.join(root, '.rss-blog-proc-failure-'));
+  const procFailureNode = path.join(procFailureRoot, '.nvm', 'versions', 'node', 'v20.0.0', 'bin', 'node');
+  await mkdir(path.dirname(procFailureNode), { recursive: true });
+  await writeFile(procFailureNode, '#!/definitely/missing-interpreter\n');
+  await chmod(procFailureNode, 0o555);
+  const procFailureProgram = diagnosticProgram.replace(emptyRoot, procFailureRoot);
+  const procFailure = spawnSync(python, ['-c', procFailureProgram], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
+  assert.equal(procFailure.status, 0, procFailure.stderr);
+  const procFailureDiagnostics = JSON.parse(procFailure.stdout);
+  assert.equal(procFailureDiagnostics.nvm.proc_fd_exec_failure, 1);
   const unsafeSystemDir = path.join(root, 'unsafe-system');
   await mkdir(unsafeSystemDir); await chmod(unsafeSystemDir, 0o777);
   const unsafeSystemProgram = program.replace('account, ())',

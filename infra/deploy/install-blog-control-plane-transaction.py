@@ -331,7 +331,8 @@ def resolve_probe_node(args: argparse.Namespace,
     candidates: list[int] = []
     candidate_labels: dict[int, str] = {}
     diagnostics = {name: {'layout_present': 0, 'missing': 0, 'no_matching_version': 0,
-                          'no_node': 0, 'candidate': 0, 'unsupported_version': 0, 'exec_failure': 0}
+                          'no_node': 0, 'candidate': 0, 'unsupported_version': 0,
+                          'proc_fd_exec_failure': 0, 'version_failure': 0, 'exec_failure': 0}
                    for name in NODE_LAYOUTS}
     try:
         for parts in system_parts:
@@ -375,8 +376,14 @@ def resolve_probe_node(args: argparse.Namespace,
             identity = (value.st_dev, value.st_ino)
             try:
                 version = probe_node_version(fd, args)
-            except (OSError, subprocess.SubprocessError, RuntimeError):
+            except OSError:
+                diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['proc_fd_exec_failure'] += 1
+                continue
+            except subprocess.SubprocessError:
                 diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['exec_failure'] += 1
+                continue
+            except RuntimeError:
+                diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['version_failure'] += 1
                 continue
             if version[0] >= 18:
                 identified[identity] = (fd, version)
