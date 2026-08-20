@@ -54,7 +54,8 @@ test('builder emits one strict secret-free manifest with full-SHA digest referen
   const members = spawnSync('tar', ['-tf', '-'], { input: bundle, encoding: 'utf8' });
   assert.equal(members.status, 0, members.stderr);
   assert.deepEqual(members.stdout.trim().split('\n').sort(), [
-    'ensure-shared-edge.sh', 'manifest.json', 'rollback-state.sh', 'verify-shared-edge.sh',
+    'ensure-shared-edge.sh', 'manifest.json', 'rollback-state.sh', 'verify-shared-edge-receipt.mjs',
+    'verify-shared-edge.sh',
   ]);
 });
 
@@ -169,8 +170,16 @@ printf 'probe %s\n' "$*" >> "$CALL_LOG"
 phase='';receipt=''
 while (($#)); do case "$1" in --phase) phase="$2";shift 2;; --receipt) receipt="$2";shift 2;; *) shift;; esac;done
 [[ "$(tr -d '\n' < "$EDGE_STATE_TEST")" == attached ]] || exit 22
-if [[ "\${FAIL_POST_PROBE_TEST:-0}" == 1 && "$phase" =~ ^post- && "$phase" != post-compensation && ! -e "$FAIL_POST_ONCE_TEST" ]];then : > "$FAIL_POST_ONCE_TEST";exit 23;fi
-[[ -n "$receipt" ]]||exit 2;printf '{}\n' > "$receipt";exit 0
+[[ -n "$receipt" ]]||exit 2
+if [[ "\${FAIL_POST_PROBE_TEST:-0}" == 1 && "$phase" =~ ^post- && "$phase" != post-compensation && ! -e "$FAIL_POST_ONCE_TEST" ]];then
+  : > "$FAIL_POST_ONCE_TEST";printf '{}\n' > "$receipt";exit 23
+fi
+printf '{}\n' > "$receipt";exit 0
+`);
+  await executable(path.join(app, 'infra/deploy/verify-shared-edge-receipt.mjs'), `#!/usr/bin/env node
+import { existsSync } from 'node:fs';
+const [receipt, expectedStatus] = process.argv.slice(2);
+if (!existsSync(receipt) || !['success', 'failure'].includes(expectedStatus)) process.exit(1);
 `);
   await executable(path.join(app, 'infra/deploy/ensure-shared-edge.sh'), `#!/usr/bin/env bash
 set -euo pipefail
@@ -205,12 +214,14 @@ printf 'backup-complete\n' >> "$CALL_LOG"
   // Replace the extracted members rather than relying on root being able to
   // overwrite them, so this fixture behaves the same for an unprivileged CI user.
   await rm(path.join(bundleDir, 'verify-shared-edge.sh'));
+  await rm(path.join(bundleDir, 'verify-shared-edge-receipt.mjs'));
   await rm(path.join(bundleDir, 'ensure-shared-edge.sh'));
   await rm(path.join(bundleDir, 'rollback-state.sh'));
   await writeFile(path.join(bundleDir, 'verify-shared-edge.sh'), await readFile(path.join(app, 'infra/deploy/verify-shared-edge.sh')));
+  await writeFile(path.join(bundleDir, 'verify-shared-edge-receipt.mjs'), await readFile(path.join(app, 'infra/deploy/verify-shared-edge-receipt.mjs')));
   await writeFile(path.join(bundleDir, 'ensure-shared-edge.sh'), await readFile(path.join(app, 'infra/deploy/ensure-shared-edge.sh')));
   await writeFile(path.join(bundleDir, 'rollback-state.sh'), await readFile(path.join(repoRoot, 'infra/deploy/rollback-state.sh')));
-  const packed = spawnSync('tar', ['-cf', '-', 'manifest.json', 'verify-shared-edge.sh', 'ensure-shared-edge.sh', 'rollback-state.sh'], { cwd: bundleDir });
+  const packed = spawnSync('tar', ['-cf', '-', 'manifest.json', 'verify-shared-edge.sh', 'verify-shared-edge-receipt.mjs', 'ensure-shared-edge.sh', 'rollback-state.sh'], { cwd: bundleDir });
   assert.equal(packed.status, 0, packed.stderr.toString());
   const bundle = packed.stdout;
   const transport = Buffer.concat([Buffer.from('GHCR_TOKEN_B64 dG9rZW4=\n'), bundle]);
@@ -311,6 +322,8 @@ test('Linux rollback and failed deploy receipts bind operation and actual runtim
     assert.match(failed.calls, new RegExp(`--phase post-compensation --runtime-sha ${rollbackFrom} .*--rollback-from-sha ${rollbackFrom} --rollback-target-sha ${operationSha}`));
     assert.equal(failedPostProbe.result.status, 23, failedPostProbe.result.stderr);
     assert.equal(failedPostProbe.runtime, rollbackFrom);
+    assert.match(failedPostProbe.result.stdout, /TRUSTED_SHARED_EDGE_RECEIPT post-activation /);
+    assert.match(failedPostProbe.result.stdout, /TRUSTED_SHARED_EDGE_RECEIPT post-compensation /);
     assert.match(failedPostProbe.calls, new RegExp(`--phase post-activation[\\s\\S]*activate ${rollbackFrom}[\\s\\S]*--phase post-compensation`));
   } finally {
     await rm(rollback.root, { recursive: true, force: true });

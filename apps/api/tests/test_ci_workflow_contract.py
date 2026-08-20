@@ -1217,22 +1217,25 @@ def _promotion_receipt(
         "runtime": {
             "fullSha": operation_sha if phase == "post-activation" else pre_runtime_sha
         },
+        "rollback": {"rollbackFrom": None, "target": None},
         "timestamp": "2026-08-20T00:00:00Z",
+        "overallStatus": "success",
         "urls": [
-            {"name": "rss", "configuredURL": "https://ai-reader.blankhoney.xyz/", "status": 200,
-             "finalURL": "https://ai-reader.blankhoney.xyz/", "tls": True,
-             "redirect": {"required": True, "followed": True, "initialStatus": 302,
-                           "initialURL": "https://auth.blankhoney.xyz/login"}},
-            {"name": "blog", "configuredURL": "https://blog.blankhoney.xyz/zh", "status": 200,
-             "finalURL": "https://blog.blankhoney.xyz/zh", "tls": True,
-             "redirect": {"required": False, "followed": False, "initialStatus": 200,
-                           "initialURL": None}},
+            {"name": "blog-public", "configuredURL": "https://blog.blankhoney.xyz/zh",
+             "status": 200, "finalURL": "https://blog.blankhoney.xyz/zh", "tls": True,
+             "redirect": False, "result": "success", "error": None},
+            {"name": "blog-public-status", "configuredURL": "https://blog.blankhoney.xyz/api/status",
+             "status": 200, "finalURL": "https://blog.blankhoney.xyz/api/status", "tls": True,
+             "redirect": False, "result": "success", "error": None},
+            {"name": "rss-production-auth", "configuredURL": "https://ai-reader.blankhoney.xyz/",
+             "status": 200, "finalURL": "https://auth.blankhoney.xyz/", "tls": True,
+             "redirect": True, "result": "success", "error": None},
         ],
         "edge": {
             "caddyContainer": "myrss-edge-caddy-1", "myrssAppAttached": True,
-            "brianstormEdgeAttached": True, "networkDriver": {"myrssApp": "bridge", "brianstormEdge": "bridge"},
+            "brianstormEdgeAttached": True, "networkDriver": "bridge",
             "configLoaded": True, "rssUpstreamReachable": True, "blogUpstreamReachable": True,
-            "productionBlogWebAttachedToProductionEdge": True, "stagingWebAttachedToProductionEdge": False,
+            "result": "success", "error": None,
         },
     }
     if phase in {"post-rollback", "post-compensation"}:

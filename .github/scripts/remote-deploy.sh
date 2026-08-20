@@ -22,7 +22,7 @@ assert_shared_lock_held(){
  [[ -f "$LOCK_METADATA" && ! -L "$LOCK_METADATA" ]]||die 'live shared-lock metadata is missing or unsafe'
  if flock -n "$LOCK_PATH" true 2>/dev/null;then die 'canonical kernel lock is not held by this transaction';fi
 }
-for command in flock python3 docker git base64 tr sha256sum realpath sed;do require "$command";done
+for command in flock python3 node docker git base64 tr sha256sum realpath sed;do require "$command";done
 assert_shared_lock_held
 : "${VPS_APP_DIR:?VPS_APP_DIR is required}";: "${GHCR_USERNAME:?GHCR_USERNAME is required}"
 [[ "$VPS_APP_DIR" == /* && "$VPS_APP_DIR" != *$'\n'* ]]||die 'VPS_APP_DIR must be an absolute single-line path'
@@ -54,7 +54,7 @@ unset RENO_SHARED_RELEASE_BUNDLE_FD bundle_fd
 python3 - "$bundle_path" "$manifest_path" "$contract_dir" <<'PY'
 import os,sys,tarfile
 archive_path,output_path,contract_dir=sys.argv[1:]
-expected={"manifest.json","verify-shared-edge.sh","ensure-shared-edge.sh","rollback-state.sh"}
+expected={"manifest.json","verify-shared-edge.sh","verify-shared-edge-receipt.mjs","ensure-shared-edge.sh","rollback-state.sh"}
 try:
  with tarfile.open(archive_path,mode="r:") as archive:
   members=archive.getmembers()
@@ -109,13 +109,27 @@ export DOCKER_CONFIG="$docker_config_dir"
 repo_script(){ printf '%s/%s' "$VPS_APP_DIR" "$1"; }
 contract_script(){ printf '%s/%s' "$contract_dir" "$1"; }
 run_probe(){
- local phase="$1" runtime="$2" receipt="$receipt_dir/${1}.json" encoded
+ local phase="$1" runtime="$2" receipt="$receipt_dir/${1}.json" encoded probe_status expected_status
+ local rollback_from='' rollback_target=''
  shift 2
- bash "$(contract_script verify-shared-edge.sh)" --owner-project "$owner_project" --owner-repo "$owner_repo" --operation-sha "$operation_sha" --workflow-run "$workflow_run" --phase "$phase" --runtime-sha "$runtime" "$@" --receipt "$receipt"||return
+ if (( $# == 4 )) && [[ "$1" == --rollback-from-sha && "$3" == --rollback-target-sha ]];then
+  rollback_from="$2";rollback_target="$4"
+ elif (( $# != 0 ));then
+  die "shared-edge $phase rollback arguments are invalid"
+ fi
+ if bash "$(contract_script verify-shared-edge.sh)" --owner-project "$owner_project" --owner-repo "$owner_repo" --operation-sha "$operation_sha" --workflow-run "$workflow_run" --phase "$phase" --runtime-sha "$runtime" "$@" --receipt "$receipt";then
+  probe_status=0;expected_status=success
+ else
+  probe_status=$?;expected_status=failure
+ fi
  [[ -f "$receipt" && ! -L "$receipt" ]]||die "shared-edge probe did not write a safe $phase receipt"
+ local verifier=(node "$(contract_script verify-shared-edge-receipt.mjs)" "$receipt" "$expected_status" "$owner_project" "$owner_repo" "$operation_sha" "$runtime" "$workflow_run" "$phase")
+ if [[ -n "$rollback_from" ]];then verifier+=("$rollback_from" "$rollback_target");fi
+ "${verifier[@]}" >/dev/null||die "shared-edge $phase receipt failed contract verification"
  encoded="$(base64 < "$receipt"|tr -d '\n')"
  [[ -n "$encoded" ]]||die "shared-edge $phase receipt is empty"
  printf 'TRUSTED_SHARED_EDGE_RECEIPT %s %s\n' "$phase" "$encoded"
+ return "$probe_status"
 }
 runtime_containers(){ printf '%s\n' "myrss-${deploy_env}-reader-web-1" "myrss-${deploy_env}-ai-reader-api-1" "myrss-${deploy_env}-ai-reader-worker-1"; }
 read_runtime_sha(){ local container revision observed='';while IFS= read -r container;do revision="$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container")"||return;[[ "$revision" =~ ^[0-9a-f]{40}$ ]]||return 1;[[ -z "$observed" || "$observed" == "$revision" ]]||return 1;observed="$revision";done < <(runtime_containers);printf '%s\n' "$observed"; }

@@ -17,7 +17,7 @@ OPERATION_SHA = "a" * 40
 PREVIOUS_SHA = "b" * 40
 
 
-def _receipt(phase: str, runtime: str) -> dict:
+def _receipt(phase: str, runtime: str, status: str = "success") -> dict:
     receipt = {
         "contractVersion": 1,
         "owner": {"project": "rss", "repo": "blankhoney/reno_rss"},
@@ -25,54 +25,65 @@ def _receipt(phase: str, runtime: str) -> dict:
         "workflowRun": 123,
         "phase": phase,
         "runtime": {"fullSha": runtime},
+        "rollback": {"rollbackFrom": None, "target": None},
         "timestamp": "2026-08-20T00:00:00Z",
+        "overallStatus": status,
         "urls": [
             {
-                "name": "rss",
-                "configuredURL": "https://ai-reader.blankhoney.xyz/",
-                "status": 200,
-                "finalURL": "https://auth.blankhoney.xyz/",
-                "tls": True,
-                "redirect": {
-                    "required": True,
-                    "followed": True,
-                    "initialStatus": 302,
-                    "initialURL": "https://auth.blankhoney.xyz/",
-                },
-            },
-            {
-                "name": "blog",
+                "name": "blog-public",
                 "configuredURL": "https://blog.blankhoney.xyz/zh",
                 "status": 200,
                 "finalURL": "https://blog.blankhoney.xyz/zh",
                 "tls": True,
-                "redirect": {
-                    "required": False,
-                    "followed": False,
-                    "initialStatus": 200,
-                    "initialURL": None,
-                },
+                "redirect": False,
+                "result": "success",
+                "error": None,
+            },
+            {
+                "name": "blog-public-status",
+                "configuredURL": "https://blog.blankhoney.xyz/api/status",
+                "status": 200,
+                "finalURL": "https://blog.blankhoney.xyz/api/status",
+                "tls": True,
+                "redirect": False,
+                "result": "success",
+                "error": None,
+            },
+            {
+                "name": "rss-production-auth",
+                "configuredURL": "https://ai-reader.blankhoney.xyz/",
+                "status": 200,
+                "finalURL": "https://auth.blankhoney.xyz/",
+                "tls": True,
+                "redirect": True,
+                "result": "success",
+                "error": None,
             },
         ],
         "edge": {
             "caddyContainer": "myrss-edge-caddy-1",
             "myrssAppAttached": True,
             "brianstormEdgeAttached": True,
-            "networkDriver": {"myrssApp": "bridge", "brianstormEdge": "bridge"},
+            "networkDriver": "bridge",
             "configLoaded": True,
             "rssUpstreamReachable": True,
             "blogUpstreamReachable": True,
-            "productionBlogWebAttachedToProductionEdge": True,
-            "stagingWebAttachedToProductionEdge": False,
+            "result": "success",
+            "error": None,
         },
     }
     if phase in {"post-rollback", "post-compensation"}:
         receipt["rollback"] = {"rollbackFrom": PREVIOUS_SHA, "target": OPERATION_SHA}
+    if status == "failure":
+        receipt["urls"][0].update(
+            {"status": 503, "result": "failure", "error": "unexpected_status"}
+        )
+        receipt["edge"].update({"result": "failure", "error": ["public_probe_failed"]})
     return receipt
 
 
-def _frame(phase: str, runtime: str) -> str:
-    payload = json.dumps(_receipt(phase, runtime), separators=(",", ":")).encode()
+def _frame(phase: str, runtime: str, status: str = "success") -> str:
+    payload = json.dumps(_receipt(phase, runtime, status), separators=(",", ":")).encode()
     return f"TRUSTED_SHARED_EDGE_RECEIPT {phase} {base64.b64encode(payload).decode()}"
 
 
@@ -176,3 +187,11 @@ def test_persists_strict_early_compensation_without_fake_pre_activation(tmp_path
         "post-compensation.json",
         "pre-mutation.json",
     ]
+
+
+def test_persists_authenticated_pre_mutation_failure_without_fake_compensation(tmp_path):
+    stdout = tmp_path / "ssh.stdout"
+    stdout.write_text(_frame("pre-mutation", PREVIOUS_SHA, "failure") + "\n", encoding="utf-8")
+    receipt_dir = tmp_path / "receipts"
+    assert validator.main(_arguments(stdout, receipt_dir, "compensation")) == 0
+    assert [path.name for path in receipt_dir.iterdir()] == ["pre-mutation.json"]
