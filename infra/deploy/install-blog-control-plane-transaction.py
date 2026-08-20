@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import grp
 import hashlib
 import io
@@ -93,9 +94,7 @@ def file_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int, 
             value.st_size, value.st_mtime_ns, value.st_ctime_ns)
 
 
-def freeze_probe_node(args: argparse.Namespace, work: pathlib.Path) -> tuple[pathlib.Path, str]:
-    source_path = pathlib.Path(args.probe_node)
-    source_fd = os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW)
+def freeze_probe_node(source_fd: int, work: pathlib.Path) -> tuple[pathlib.Path, str]:
     target = work / 'node'
     target_fd = -1
     try:
@@ -116,11 +115,9 @@ def freeze_probe_node(args: argparse.Namespace, work: pathlib.Path) -> tuple[pat
         if os.geteuid() == 0:
             os.fchown(target_fd, 0, 0)
         after = os.fstat(source_fd)
-        current = source_path.lstat()
-        if file_identity(before) != file_identity(after) or file_identity(after) != file_identity(current):
+        if file_identity(before) != file_identity(after):
             raise RuntimeError('probe_node_changed')
     finally:
-        os.close(source_fd)
         if target_fd >= 0:
             os.close(target_fd)
     return target, sha256_file(target)
@@ -156,7 +153,7 @@ def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(allow_abbrev=False)
     for name in ('repo', 'control-plane-sha', 'operation-sha', 'rss-source-sha',
                  'rss-installer-sha', 'artifact-digest', 'web-image-digest',
-                 'companion-image-digest', 'installer-transaction-sha256', 'probe-node'):
+                 'companion-image-digest', 'installer-transaction-sha256'):
         value.add_argument(f'--{name}', required=True)
     for name in ('bundle-fd', 'installer-run', 'installer-attempt', 'control-ci-run',
                  'control-ci-attempt', 'producer-run', 'producer-attempt', 'artifact-id',
@@ -186,18 +183,173 @@ def validate_args(args: argparse.Namespace) -> None:
         raise RuntimeError('installer_transaction_digest')
     if args.repo != 'blankhoney/my_blog' or args.rss_source_sha != '2b29cfafaafa0795401c7b226a159572f9af6729':
         raise RuntimeError('frozen_identity')
-    node = pathlib.Path(args.probe_node)
-    if (args.probe_uid <= 0 or args.probe_gid < 0 or not node.is_absolute()
-            or node.resolve(strict=True) != node or node.is_symlink()):
+    if args.probe_uid <= 0 or args.probe_gid < 0:
         raise RuntimeError('probe_identity')
-    node_stat = node.lstat()
-    if not stat.S_ISREG(node_stat.st_mode) or stat.S_IMODE(node_stat.st_mode) & 0o111 == 0:
-        raise RuntimeError('probe_node')
     account = pwd.getpwuid(args.probe_uid)
     if (account.pw_gid != args.probe_gid or os.environ.get('SUDO_UID') != str(args.probe_uid)
             or os.environ.get('SUDO_GID') != str(args.probe_gid)
             or os.environ.get('SUDO_USER') != account.pw_name):
         raise RuntimeError('probe_sudo_identity')
+
+
+def validate_directory_fd(fd: int, owner: int) -> None:
+    value = os.fstat(fd)
+    if (not stat.S_ISDIR(value.st_mode) or value.st_uid != owner
+            or stat.S_IMODE(value.st_mode) & 0o022):
+        raise RuntimeError('probe_node_directory')
+
+
+def open_directory_at(parent_fd: int, name: str, owner: int) -> int:
+    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    try:
+        validate_directory_fd(fd, owner)
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def open_directory_chain(parts: tuple[str, ...], final_owner: int) -> int:
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    validate_directory_fd(fd, 0)
+    current_owner = 0
+    try:
+        for part in parts:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            value = os.fstat(child)
+            if current_owner == 0 and value.st_uid == final_owner:
+                current_owner = final_owner
+            if (not stat.S_ISDIR(value.st_mode) or value.st_uid != current_owner
+                    or stat.S_IMODE(value.st_mode) & 0o022):
+                os.close(child)
+                raise RuntimeError('probe_node_directory')
+            os.close(fd)
+            fd = child
+        if current_owner != final_owner:
+            raise RuntimeError('probe_node_directory')
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def open_node_at(parent_fd: int, owner: int) -> int:
+    fd = os.open('node', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    try:
+        value = os.fstat(fd)
+        if (not stat.S_ISREG(value.st_mode) or value.st_uid != owner
+                or stat.S_IMODE(value.st_mode) & 0o111 == 0
+                or stat.S_IMODE(value.st_mode) & 0o022
+                or value.st_size <= 0 or value.st_size > 256 * 1024 * 1024):
+            raise RuntimeError('probe_node_permissions')
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def probe_node_version(fd: int, args: argparse.Namespace) -> tuple[int, int, int]:
+    account = pwd.getpwuid(args.probe_uid)
+    environment = {'HOME': account.pw_dir, 'USER': account.pw_name, 'LOGNAME': account.pw_name,
+        'LANG': 'C.UTF-8', 'PATH': '/usr/local/bin:/usr/bin:/bin'}
+    credentials = {}
+    if os.geteuid() == 0:
+        credentials = {'user': args.probe_uid, 'group': args.probe_gid,
+            'extra_groups': os.getgrouplist(account.pw_name, args.probe_gid)}
+    result = subprocess.run([f'/proc/self/fd/{fd}', '--version'], check=False, text=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        timeout=5, env=environment, pass_fds=(fd,), **credentials)
+    match = re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)\s*', result.stdout)
+    if result.returncode != 0 or match is None:
+        raise RuntimeError('probe_node_version')
+    version = tuple(map(int, match.groups()))
+    return version
+
+
+def resolve_probe_node(args: argparse.Namespace,
+                       account: pwd.struct_passwd | None = None,
+                       system_parts: tuple[tuple[str, ...], ...] = (
+                           ('usr', 'local', 'bin'), ('usr', 'bin'),
+                       )) -> tuple[int, tuple[int, int, int]]:
+    account = account or pwd.getpwuid(args.probe_uid)
+    home = pathlib.PurePosixPath(account.pw_dir)
+    if not home.is_absolute() or '..' in home.parts:
+        raise RuntimeError('probe_home')
+    candidates: list[int] = []
+    try:
+        for parts in system_parts:
+            directory_fd = -1
+            try:
+                directory_fd = open_directory_chain(parts, 0)
+                try:
+                    candidates.append(open_node_at(directory_fd, 0))
+                except RuntimeError:
+                    pass
+                except OSError as error:
+                    if error.errno not in (errno.ENOENT, errno.ELOOP):
+                        raise
+            finally:
+                if directory_fd >= 0:
+                    os.close(directory_fd)
+
+        home_fd = open_directory_chain(tuple(part for part in home.parts if part != '/'), account.pw_uid)
+        try:
+            try:
+                nvm_fd = open_directory_at(home_fd, '.nvm', account.pw_uid)
+            except FileNotFoundError:
+                nvm_fd = -1
+            if nvm_fd >= 0:
+                try:
+                    versions_fd = open_directory_at(nvm_fd, 'versions', account.pw_uid)
+                    try:
+                        node_versions_fd = open_directory_at(versions_fd, 'node', account.pw_uid)
+                        try:
+                            for name in os.listdir(node_versions_fd):
+                                if re.fullmatch(r'v\d+\.\d+\.\d+', name) is None:
+                                    continue
+                                version_fd = open_directory_at(node_versions_fd, name, account.pw_uid)
+                                try:
+                                    bin_fd = open_directory_at(version_fd, 'bin', account.pw_uid)
+                                    try:
+                                        candidates.append(open_node_at(bin_fd, account.pw_uid))
+                                    finally:
+                                        os.close(bin_fd)
+                                finally:
+                                    os.close(version_fd)
+                        finally:
+                            os.close(node_versions_fd)
+                    finally:
+                        os.close(versions_fd)
+                finally:
+                    os.close(nvm_fd)
+        finally:
+            os.close(home_fd)
+
+        identified: dict[tuple[int, int], tuple[int, tuple[int, int, int]]] = {}
+        for fd in candidates:
+            value = os.fstat(fd)
+            identity = (value.st_dev, value.st_ino)
+            version = probe_node_version(fd, args)
+            if version[0] >= 18:
+                identified[identity] = (fd, version)
+        if not identified:
+            raise RuntimeError('probe_node_resolution')
+        best_version = max(version for _, version in identified.values())
+        best = [(fd, version) for fd, version in identified.values() if version == best_version]
+        if len(best) != 1:
+            raise RuntimeError('probe_node_ambiguous')
+        selected = best[0]
+        for fd in candidates:
+            if fd != selected[0]:
+                os.close(fd)
+        return selected
+    except Exception:
+        for fd in candidates:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        raise
 
 
 def read_lock_metadata() -> dict:
@@ -451,7 +603,11 @@ def main() -> int:
         stage = 'runtime'
         runtime, runtime_evidence, runtime_release_id = current_runtime(args)
         stage = 'probe_runtime'
-        stable_node, probe_node_sha = freeze_probe_node(args, work)
+        probe_node_fd, _ = resolve_probe_node(args)
+        try:
+            stable_node, probe_node_sha = freeze_probe_node(probe_node_fd, work)
+        finally:
+            os.close(probe_node_fd)
         stage = 'before_probe'
         before = work / 'before.json'
         before_digest = run_probe(files['verify-shared-edge.sh'], files['verify-shared-edge-receipt.mjs'],

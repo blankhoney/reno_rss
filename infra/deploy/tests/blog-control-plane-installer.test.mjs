@@ -51,13 +51,17 @@ test('installer authenticates RSS parity and executes only the canonical Blog in
 test('remote installer enters the canonical wrapper before any remote write', () => {
   const remote = readFileSync('infra/deploy/install-blog-control-plane-remote.sh', 'utf8');
   const transaction = readFileSync('infra/deploy/install-blog-control-plane-transaction.py', 'utf8');
-  assert.match(remote, /exec sudo -n env INSTALLER_PROBE_NODE=/);
+  assert.match(remote, /exec sudo -n env INSTALLER_PROBE_UID=/);
+  assert.doesNotMatch(remote, /command -v node|INSTALLER_PROBE_NODE|--probe-node/);
   assert.match(remote, /with-shared-release-lock\.sh/);
   assert.match(remote, /exec 8<&0/);
-  assert.match(remote, /probe_node=.*readlink -f --/);
   assert.match(transaction, /'user': args\.probe_uid, 'group': args\.probe_gid/);
   assert.match(transaction, /os\.getgrouplist/);
   assert.match(transaction, /freeze_probe_node/);
+  assert.match(transaction, /open_directory_at/);
+  assert.match(transaction, /os\.O_DIRECTORY \| os\.O_NOFOLLOW/);
+  assert.match(transaction, /pass_fds=\(fd,\)/);
+  assert.doesNotMatch(transaction, /-lic|\.pw_shell/);
   assert.match(transaction, /os\.open\(source, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
   assert.match(transaction, /file_identity\(before\) != file_identity\(after\)/);
   const remoteBody = remote.slice(remote.indexOf('remote="'), remote.indexOf('exec ssh'));
@@ -196,6 +200,44 @@ test('strict v2 receipt binds dual identity, lock inode, hashes, and both probe 
   }
 });
 
+test('Linux deploy runtime resolver uses only fixed install roots and the highest supported version', {
+  skip: process.platform !== 'linux',
+}, async () => {
+  const root = await mkdtemp(path.join(os.homedir(), '.rss-blog-node-resolver-'));
+  const fakeNode = path.join(root, '.nvm', 'versions', 'node', 'v99.14.0', 'bin', 'node');
+  const olderNode = path.join(root, '.nvm', 'versions', 'node', 'v20.19.0', 'bin', 'node');
+  await mkdir(path.dirname(fakeNode), { recursive: true });
+  await mkdir(path.dirname(olderNode), { recursive: true });
+  await writeFile(fakeNode, '#!/bin/sh\nprintf "v99.14.0\\n"\n');
+  await writeFile(olderNode, '#!/bin/sh\nprintf "v20.19.0\\n"\n');
+  await chmod(fakeNode, 0o555);
+  await chmod(olderNode, 0o555);
+  const python = spawnSync('sh', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim();
+  const program = `import importlib.util, os, pathlib, types
+spec=importlib.util.spec_from_file_location('installer', 'infra/deploy/install-blog-control-plane-transaction.py')
+module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+account=types.SimpleNamespace(pw_dir='${root}', pw_name='fixture', pw_uid=${process.getuid()})
+args=types.SimpleNamespace(probe_uid=${process.getuid()}, probe_gid=${process.getgid()})
+fd,version=module.resolve_probe_node(args, account, ())
+print(os.readlink(f'/proc/self/fd/{fd}'), '.'.join(map(str, version)))
+os.close(fd)
+`;
+  const result = spawnSync(python, ['-c', program], { encoding: 'utf8', env: { ...process.env, PATH: '/caller-path-without-node' } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), `${fakeNode} 99.14.0`);
+  const unsafeSystemDir = path.join(root, 'unsafe-system');
+  await mkdir(unsafeSystemDir); await chmod(unsafeSystemDir, 0o777);
+  const unsafeSystemProgram = program.replace('account, ())',
+    `account, (tuple(part for part in pathlib.PurePosixPath('${unsafeSystemDir}').parts if part != '/'),))`);
+  const unsafeSystem = spawnSync(python, ['-c', unsafeSystemProgram], { encoding: 'utf8' });
+  assert.notEqual(unsafeSystem.status, 0);
+  assert.match(unsafeSystem.stderr, /probe_node_directory/);
+  const unsafe = path.join(root, '.nvm', 'versions', 'node', 'v99.0.0');
+  await symlink(root, unsafe);
+  const rejected = spawnSync(python, ['-c', program], { encoding: 'utf8' });
+  assert.notEqual(rejected.status, 0);
+});
+
 test('Linux lock-held transaction runs both probes and restores every old byte on post-probe failure', {
   skip: process.platform !== 'linux',
 }, async () => {
@@ -265,7 +307,8 @@ chmod 600 "$receipt"
     .replaceAll('os.chown(stage, 0, 0)', 'os.chown(stage, os.getuid(), os.getgid())')
     .replace('45c326fdd266311df5ac1114c4c47207429efc6b47bd795db4d6f06b0f602892', digest(path.join(fixture, 'trusted-blog-remote-transaction.sh')))
     .replace('8ad9f32344ab8007c503850a7c3b0f680ccf13cd3b06d95fa673221ac5d73766', digest(path.join(fixture, 'verify-shared-edge.sh')))
-    .replace('6102cf625a0b604c0d1ab52226139727fa287811928e4b33dc53f527dd75262c', digest(path.join(fixture, 'verify-shared-edge-receipt.mjs')));
+    .replace('6102cf625a0b604c0d1ab52226139727fa287811928e4b33dc53f527dd75262c', digest(path.join(fixture, 'verify-shared-edge-receipt.mjs')))
+    .replace('probe_node_fd, _ = resolve_probe_node(args)', `probe_node_fd = os.open('${probeNode}', os.O_RDONLY | os.O_NOFOLLOW)`);
   const inner = path.join(root, 'inner.py'); await writeFile(inner, source);
   const core = path.resolve('infra/deploy/internal/shared-release-lock-core.sh');
   const baseArgs = ['--bundle-fd', '8', '--repo', 'blankhoney/my_blog',
@@ -276,7 +319,7 @@ chmod 600 "$receipt"
     '--producer-run', '30', '--producer-attempt', '1', '--artifact-id', '40',
     '--artifact-digest', `sha256:${'4'.repeat(64)}`, '--web-image-digest', `sha256:${'5'.repeat(64)}`,
     '--companion-image-digest', `sha256:${'6'.repeat(64)}`,
-    '--probe-node', probeNode, '--probe-uid', String(probeUid), '--probe-gid', String(probeGid)];
+    '--probe-uid', String(probeUid), '--probe-gid', String(probeGid)];
   const run = (workflowRun) => spawnSync('bash', ['-c',
     'exec 9>"$1"; flock -n 9; exec 8<"$2"; export SHARED_RELEASE_LOCK_CORE_FD=9 RENO_SHARED_RELEASE_BUNDLE_FD=8; shift 2; exec "$@"',
     '--', path.join(lockRoot, 'release.lock'), tar, core, '--owner', 'blog', '--repo', 'blankhoney/my_blog',
