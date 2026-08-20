@@ -75,6 +75,7 @@ manifest = {
 payload = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
 contract_sources = {
     "verify-shared-edge.sh": os.path.join(root, "infra/deploy/verify-shared-edge.sh"),
+    "verify-shared-edge-receipt.mjs": os.path.join(root, "infra/deploy/verify-shared-edge-receipt.mjs"),
     "ensure-shared-edge.sh": os.path.join(root, "infra/deploy/ensure-shared-edge.sh"),
     "rollback-state.sh": os.path.join(root, "infra/deploy/rollback-state.sh"),
 }

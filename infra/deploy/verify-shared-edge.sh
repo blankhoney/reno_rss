@@ -1,469 +1,328 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MIT
-#
-# Shared-VPS edge contract v1. This script is deliberately self-contained so
-# RSS and Blog release transactions can call the same probe at every boundary.
-# It never accepts caller-provided URLs: doing so would turn a release probe
-# into an SSRF primitive.
-
 set -euo pipefail
 
-readonly CONTRACT_VERSION=1
-readonly CADDY_CONTAINER='myrss-edge-caddy-1'
-readonly MYRSS_NETWORK='myrss-app'
-readonly BRIANSTORM_NETWORK='brianstorm-edge'
-readonly BRIANSTORM_PRODUCTION_WEB='brianstorm-web'
-readonly BRIANSTORM_STAGING_WEB='brianstorm-staging-web'
-readonly RSS_URL='https://ai-reader.blankhoney.xyz/'
-readonly BLOG_URL='https://blog.blankhoney.xyz/zh'
-readonly CURL_CONNECT_TIMEOUT_SECONDS=10
-readonly CURL_MAX_TIME_SECONDS=20
-readonly CURL_MAX_REDIRECTS=5
-
-owner_project=''
-owner_repo=''
-operation_sha=''
-workflow_run=''
-phase=''
-runtime_sha=''
-rollback_from_sha=''
-rollback_target_sha=''
-receipt_path=''
+CONTRACT_VERSION=1
+CADDY_CONTAINER='myrss-edge-caddy-1'
+BLOG_URL='https://blog.blankhoney.xyz/zh'
+BLOG_STATUS_URL='https://blog.blankhoney.xyz/api/status'
+RSS_URL='https://ai-reader.blankhoney.xyz/'
+OWNER_PROJECT=''
+OWNER_REPO=''
+OPERATION_SHA=''
+RUNTIME_SHA=''
+WORKFLOW_RUN=''
+PHASE=''
+RECEIPT=''
+ROLLBACK_FROM_SHA=''
+ROLLBACK_TARGET_SHA=''
 
 usage() {
-    cat >&2 <<'EOF'
-Usage:
-  verify-shared-edge.sh \
-    --owner-project <project> \
-    --owner-repo <owner/repo> \
-    --operation-sha <40-lowercase-hex> \
-    --workflow-run <positive-integer> \
-    --phase <pre-mutation|pre-activation|post-activation|post-rollback|post-compensation> \
-    --runtime-sha <40-lowercase-hex> \
-    [--rollback-from-sha <40-lowercase-hex> --rollback-target-sha <40-lowercase-hex>] \
-    --receipt <path>
-EOF
+  echo 'usage: verify-shared-edge.sh --owner-project NAME --owner-repo OWNER/REPO --operation-sha FULL_SHA --runtime-sha FULL_SHA --workflow-run RUN --phase PHASE --receipt ABSOLUTE_PATH [--rollback-from-sha FULL_SHA --rollback-target-sha FULL_SHA]' >&2
+  exit 64
 }
 
-die() {
-    echo "shared-edge contract v${CONTRACT_VERSION}: $*" >&2
-    exit 1
-}
-
-require_value() {
-    local option="$1"
-    local value="${2:-}"
-    [[ -n "$value" ]] || die "$option requires a value"
-}
-
-while (( $# > 0 )); do
-    case "$1" in
-        --owner-project)
-            require_value "$1" "${2:-}"
-            owner_project="$2"
-            shift 2
-            ;;
-        --owner-repo)
-            require_value "$1" "${2:-}"
-            owner_repo="$2"
-            shift 2
-            ;;
-        --operation-sha)
-            require_value "$1" "${2:-}"
-            operation_sha="$2"
-            shift 2
-            ;;
-        --workflow-run)
-            require_value "$1" "${2:-}"
-            workflow_run="$2"
-            shift 2
-            ;;
-        --phase)
-            require_value "$1" "${2:-}"
-            phase="$2"
-            shift 2
-            ;;
-        --runtime-sha)
-            require_value "$1" "${2:-}"
-            runtime_sha="$2"
-            shift 2
-            ;;
-        --rollback-from-sha)
-            require_value "$1" "${2:-}"
-            rollback_from_sha="$2"
-            shift 2
-            ;;
-        --rollback-target-sha)
-            require_value "$1" "${2:-}"
-            rollback_target_sha="$2"
-            shift 2
-            ;;
-        --receipt)
-            require_value "$1" "${2:-}"
-            receipt_path="$2"
-            shift 2
-            ;;
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        *)
-            usage
-            die "unknown argument: $1"
-            ;;
-    esac
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --owner-project) [[ "$#" -ge 2 ]] || usage; OWNER_PROJECT="$2"; shift 2 ;;
+    --owner-repo) [[ "$#" -ge 2 ]] || usage; OWNER_REPO="$2"; shift 2 ;;
+    --operation-sha) [[ "$#" -ge 2 ]] || usage; OPERATION_SHA="$2"; shift 2 ;;
+    --runtime-sha) [[ "$#" -ge 2 ]] || usage; RUNTIME_SHA="$2"; shift 2 ;;
+    --workflow-run) [[ "$#" -ge 2 ]] || usage; WORKFLOW_RUN="$2"; shift 2 ;;
+    --phase) [[ "$#" -ge 2 ]] || usage; PHASE="$2"; shift 2 ;;
+    --receipt) [[ "$#" -ge 2 ]] || usage; RECEIPT="$2"; shift 2 ;;
+    --rollback-from-sha) [[ "$#" -ge 2 ]] || usage; ROLLBACK_FROM_SHA="$2"; shift 2 ;;
+    --rollback-target-sha) [[ "$#" -ge 2 ]] || usage; ROLLBACK_TARGET_SHA="$2"; shift 2 ;;
+    *) usage ;;
+  esac
 done
 
-[[ "$owner_project" =~ ^[a-z][a-z0-9-]{1,63}$ ]] || die 'owner.project must be a lowercase project name'
-[[ "$owner_repo" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$ ]] || die 'owner.repo must be a GitHub owner/repository pair'
-[[ "$operation_sha" =~ ^[0-9a-f]{40}$ ]] || die 'operation.fullSha must be 40 lowercase hexadecimal characters'
-[[ "$workflow_run" =~ ^[1-9][0-9]*$ ]] || die 'workflowRun must be a positive integer'
-[[ "$runtime_sha" =~ ^[0-9a-f]{40}$ ]] || die 'runtime.fullSha must be 40 lowercase hexadecimal characters'
-case "$phase" in
-    pre-mutation|pre-activation)
-        [[ -z "$rollback_from_sha" && -z "$rollback_target_sha" ]] || die 'rollback SHA fields are only valid for post-rollback or post-compensation'
-        ;;
-    post-activation)
-        [[ -z "$rollback_from_sha" && -z "$rollback_target_sha" ]] || die 'rollback SHA fields are only valid for post-rollback or post-compensation'
-        [[ "$runtime_sha" == "$operation_sha" ]] || die 'post-activation runtime.fullSha must equal operation.fullSha'
-        ;;
-    post-rollback|post-compensation)
-        [[ "$rollback_from_sha" =~ ^[0-9a-f]{40}$ ]] || die 'rollback.rollbackFrom must be 40 lowercase hexadecimal characters'
-        [[ "$rollback_target_sha" =~ ^[0-9a-f]{40}$ ]] || die 'rollback.target must be 40 lowercase hexadecimal characters'
-        [[ "$rollback_from_sha" != "$rollback_target_sha" ]] || die 'rollback.rollbackFrom and rollback.target must differ'
-        if [[ "$phase" == 'post-rollback' ]]; then
-            [[ "$runtime_sha" == "$rollback_target_sha" ]] || die 'post-rollback runtime.fullSha must equal rollback.target'
-        else
-            [[ "$runtime_sha" == "$rollback_from_sha" ]] || die 'post-compensation runtime.fullSha must equal rollback.rollbackFrom'
-        fi
-        ;;
-    *) die 'phase must be pre-mutation, pre-activation, post-activation, post-rollback, or post-compensation' ;;
-esac
-[[ -n "$receipt_path" ]] || die 'receipt path is required'
-
-command -v curl >/dev/null 2>&1 || die 'curl is required'
-command -v docker >/dev/null 2>&1 || die 'docker is required'
-command -v node >/dev/null 2>&1 || die 'node is required for JSON-safe Docker inspect parsing'
-
-is_allowed_https_url() {
-    local candidate="$1"
-    node -e '
-const value = process.argv[1];
-try {
-  const url = new URL(value);
-  const allowed = new Set([
-    "ai-reader.blankhoney.xyz",
-    "auth.blankhoney.xyz",
-    "blog.blankhoney.xyz",
-  ]);
-  const defaultHttpsPort = url.port === "" || url.port === "443";
-  const noUserInfo = url.username === "" && url.password === "";
-  process.exit(
-    url.protocol === "https:"
-      && allowed.has(url.hostname)
-      && defaultHttpsPort
-      && noUserInfo
-      ? 0
-      : 1
-  );
-} catch { process.exit(1); }
-' "$candidate"
-}
-
-resolve_and_validate_redirect() {
-    local current_url="$1"
-    local redirect_url="$2"
-    local resolved
-    resolved="$(node -e '
-const [base, value] = process.argv.slice(1);
-try { process.stdout.write(new URL(value, base).toString()); }
-catch { process.exit(1); }
-' "$current_url" "$redirect_url")" || die 'redirect URL is malformed'
-    is_allowed_https_url "$resolved" || die "redirect target is outside the fixed HTTPS allowlist: $resolved"
-    printf '%s' "$resolved"
-}
-
-# The probe manually follows a small redirect chain rather than handing curl an
-# unrestricted -L flow. Every target is validated against the fixed HTTPS
-# allowlist before it is requested.
-probe_https_get() {
-    local name="$1"
-    local configured_url="$2"
-    local require_redirect="$3"
-    local current_url="$configured_url"
-    local redirects=0
-    local initial_status=''
-    local initial_redirect_url=''
-    local status=''
-    local redirect_url=''
-    local tls_result=''
-    local effective_url=''
-    local response=''
-    local final_url=''
-
-    is_allowed_https_url "$configured_url" || die "internal error: configured $name URL is not allowlisted"
-
-    while :; do
-        response="$(curl \
-            --silent \
-            --show-error \
-            --request GET \
-            --proto '=https' \
-            --connect-timeout "$CURL_CONNECT_TIMEOUT_SECONDS" \
-            --max-time "$CURL_MAX_TIME_SECONDS" \
-            --output /dev/null \
-            --write-out '%{http_code}\n%{redirect_url}\n%{ssl_verify_result}\n%{url_effective}' \
-            "$current_url")" || die "$name HTTPS GET failed for $current_url"
-        status="${response%%$'\n'*}"
-        response="${response#*$'\n'}"
-        redirect_url="${response%%$'\n'*}"
-        response="${response#*$'\n'}"
-        tls_result="${response%%$'\n'*}"
-        effective_url="${response#*$'\n'}"
-        [[ "$status" =~ ^[1-5][0-9][0-9]$ ]] || die "$name returned an invalid HTTP status"
-        [[ "$tls_result" == '0' ]] || die "$name TLS verification failed"
-
-        if [[ -z "$initial_status" ]]; then
-            initial_status="$status"
-            initial_redirect_url="$redirect_url"
-        fi
-
-        if [[ "$status" =~ ^3[0-9][0-9]$ ]]; then
-            (( redirects += 1 ))
-            (( redirects <= CURL_MAX_REDIRECTS )) || die "$name exceeded the redirect limit"
-            [[ -n "$redirect_url" ]] || die "$name returned a redirect without a Location target"
-            current_url="$(resolve_and_validate_redirect "$current_url" "$redirect_url")"
-            continue
-        fi
-
-        final_url="$effective_url"
-        [[ -n "$final_url" ]] || die "$name did not report an effective HTTPS URL"
-        is_allowed_https_url "$final_url" || die "$name final URL is outside the fixed HTTPS allowlist"
-        break
-    done
-
-    if [[ "$name" == 'rss' ]]; then
-        [[ "$initial_status" =~ ^3[0-9][0-9]$ ]] || die 'RSS must begin with an authentication redirect'
-        (( redirects > 0 )) || die 'RSS authentication redirect was not followed'
-        [[ "$status" == '200' ]] || die "RSS authentication destination returned HTTP $status, expected 200"
-    else
-        [[ "$require_redirect" == 'false' ]] || die 'internal error: Blog redirect contract must be false'
-        [[ "$status" == '200' ]] || die "Blog public route returned HTTP $status, expected 200"
-    fi
-
-    NAME="$name" CONFIGURED_URL="$configured_url" STATUS="$status" FINAL_URL="$final_url" \
-        REDIRECT_REQUIRED="$require_redirect" REDIRECT_FOLLOWED="$([[ "$redirects" -gt 0 ]] && echo true || echo false)" \
-        INITIAL_STATUS="$initial_status" INITIAL_REDIRECT_URL="$initial_redirect_url" \
-        node -e '
-const redirect = {
-  required: process.env.REDIRECT_REQUIRED === "true",
-  followed: process.env.REDIRECT_FOLLOWED === "true",
-  initialStatus: Number(process.env.INITIAL_STATUS),
-  initialURL: process.env.INITIAL_REDIRECT_URL || null,
-};
-process.stdout.write(JSON.stringify({
-  name: process.env.NAME,
-  configuredURL: process.env.CONFIGURED_URL,
-  status: Number(process.env.STATUS),
-  finalURL: process.env.FINAL_URL,
-  tls: true,
-  redirect,
-}));
-'
-}
-
-parse_caddy_networks() {
-    node -e '
-let raw = "";
-process.stdin.on("data", (chunk) => { raw += chunk; });
-process.stdin.on("end", () => {
-  try {
-    const inspect = JSON.parse(raw);
-    if (!Array.isArray(inspect) || inspect.length !== 1) throw new Error("expected exactly one inspect record");
-    const networks = inspect[0]?.NetworkSettings?.Networks;
-    if (!networks || typeof networks !== "object" || Array.isArray(networks)) throw new Error("missing network map");
-    process.stdout.write(`${Boolean(networks["myrss-app"])}\t${Boolean(networks["brianstorm-edge"])}\n`);
-  } catch (error) {
-    console.error(`invalid Caddy docker inspect JSON: ${error.message}`);
-    process.exit(1);
+[[ "$OWNER_PROJECT" =~ ^[a-z][a-z0-9_-]{1,31}$ ]] || { echo 'probe owner project is invalid' >&2; exit 64; }
+[[ "$OWNER_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo 'probe owner repository is invalid' >&2; exit 64; }
+[[ "$OPERATION_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'probe operation SHA must be 40 lowercase hex characters' >&2; exit 64; }
+[[ "$RUNTIME_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'probe runtime SHA must be 40 lowercase hex characters' >&2; exit 64; }
+[[ "$WORKFLOW_RUN" =~ ^[1-9][0-9]*$ ]] || { echo 'probe workflow run is invalid' >&2; exit 64; }
+case "$PHASE" in pre-mutation|pre-activation|post-activation|post-rollback|post-compensation) ;; *) echo 'probe phase is invalid' >&2; exit 64 ;; esac
+if [[ -n "$ROLLBACK_FROM_SHA$ROLLBACK_TARGET_SHA" ]]; then
+  [[ "$ROLLBACK_FROM_SHA" =~ ^[a-f0-9]{40}$ \
+    && "$ROLLBACK_TARGET_SHA" =~ ^[a-f0-9]{40}$ ]] || {
+    echo 'rollback probe metadata is invalid' >&2
+    exit 64
   }
-});
-'
-}
-
-parse_network_driver() {
-    node -e '
-let raw = "";
-process.stdin.on("data", (chunk) => { raw += chunk; });
-process.stdin.on("end", () => {
-  try {
-    const inspect = JSON.parse(raw);
-    if (!Array.isArray(inspect) || inspect.length !== 1 || typeof inspect[0]?.Driver !== "string") throw new Error("missing Driver");
-    process.stdout.write(inspect[0].Driver);
-  } catch (error) {
-    console.error(`invalid Docker network inspect JSON: ${error.message}`);
-    process.exit(1);
+  [[ "$PHASE" == post-rollback || "$PHASE" == post-compensation ]] || {
+    echo 'rollback metadata is forbidden for this probe phase' >&2
+    exit 64
   }
-});
-'
-}
-
-parse_member_of_production_edge() {
-    node -e '
-let raw = "";
-process.stdin.on("data", (chunk) => { raw += chunk; });
-process.stdin.on("end", () => {
-  try {
-    const inspect = JSON.parse(raw);
-    if (!Array.isArray(inspect) || inspect.length !== 1) throw new Error("expected exactly one inspect record");
-    const networks = inspect[0]?.NetworkSettings?.Networks;
-    if (!networks || typeof networks !== "object" || Array.isArray(networks)) throw new Error("missing network map");
-    process.stdout.write(String(Boolean(networks["brianstorm-edge"])));
-  } catch (error) {
-    console.error(`invalid container docker inspect JSON: ${error.message}`);
-    process.exit(1);
+else
+  [[ "$PHASE" != post-rollback && "$PHASE" != post-compensation ]] || {
+    echo 'rollback probe metadata is required' >&2
+    exit 64
   }
-});
-'
-}
-
-validate_active_caddy_config() {
-    node -e '
-let raw = "";
-process.stdin.on("data", (chunk) => { raw += chunk; });
-process.stdin.on("end", () => {
-  const reverseProxyDials = (value, output = []) => {
-    if (Array.isArray(value)) value.forEach((item) => reverseProxyDials(item, output));
-    else if (value && typeof value === "object") {
-      if (value.handler === "reverse_proxy") {
-        if (!Array.isArray(value.upstreams) || value.upstreams.length === 0) {
-          throw new Error("reverse_proxy handler has no upstreams");
-        }
-        for (const upstream of value.upstreams) {
-          if (!upstream || typeof upstream !== "object" || typeof upstream.dial !== "string") {
-            throw new Error("reverse_proxy upstream has no exact dial");
-          }
-          output.push(upstream.dial);
-        }
-      }
-      Object.values(value).forEach((item) => reverseProxyDials(item, output));
-    }
-    return output;
-  };
-  const hostMatches = (route, host) => Array.isArray(route?.match)
-    && route.match.some((matcher) => Array.isArray(matcher?.host) && matcher.host.includes(host));
-  try {
-    const config = JSON.parse(raw);
-    if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("configuration root is not an object");
-    const routes = [];
-    const visit = (value) => {
-      if (Array.isArray(value)) value.forEach(visit);
-      else if (value && typeof value === "object") {
-        if (Array.isArray(value.match) && Array.isArray(value.handle)) routes.push(value);
-        Object.values(value).forEach(visit);
-      }
-    };
-    visit(config);
-    const requireProductionRoute = (host, expectedUpstream, forbiddenUpstream) => {
-      const candidates = routes.filter((route) => hostMatches(route, host));
-      if (candidates.length === 0) throw new Error(`no active route matches ${host}`);
-      const dials = candidates.flatMap((route) => reverseProxyDials(route.handle));
-      if (dials.length === 0 || !dials.includes(expectedUpstream)) throw new Error(`${host} does not reverse_proxy to ${expectedUpstream}`);
-      if (dials.includes(forbiddenUpstream)) throw new Error(`${host} reverse_proxies to forbidden ${forbiddenUpstream}`);
-      if (dials.some((dial) => dial !== expectedUpstream)) throw new Error(`${host} has an unexpected reverse_proxy upstream`);
-    };
-    requireProductionRoute("ai-reader.blankhoney.xyz", "api-prod:8000", "api-staging:8000");
-    requireProductionRoute("blog.blankhoney.xyz", "brianstorm-web:3000", "brianstorm-staging-web:3000");
-    const allRouteDials = routes.flatMap((route) => reverseProxyDials(route.handle));
-    if (allRouteDials.includes("brianstorm-staging-web:3000")) {
-      throw new Error("active Caddy configuration exposes the staging Blog web upstream");
-    }
-  } catch (error) {
-    console.error(`invalid active Caddy configuration: ${error.message}`);
-    process.exit(1);
-  }
-});
-'
-}
-
-caddy_inspect="$(docker inspect "$CADDY_CONTAINER")" || die "cannot inspect fixed Caddy container $CADDY_CONTAINER"
-read -r myrss_app_attached brianstorm_edge_attached < <(printf '%s' "$caddy_inspect" | parse_caddy_networks) || die 'cannot parse Caddy network membership'
-[[ "$myrss_app_attached" == 'true' ]] || die "Caddy is not attached to $MYRSS_NETWORK"
-[[ "$brianstorm_edge_attached" == 'true' ]] || die "Caddy is not attached to $BRIANSTORM_NETWORK"
-
-myrss_driver="$(docker network inspect "$MYRSS_NETWORK" | parse_network_driver)" || die "cannot parse $MYRSS_NETWORK driver"
-brianstorm_driver="$(docker network inspect "$BRIANSTORM_NETWORK" | parse_network_driver)" || die "cannot parse $BRIANSTORM_NETWORK driver"
-[[ "$myrss_driver" == 'bridge' ]] || die "$MYRSS_NETWORK must use the bridge driver"
-[[ "$brianstorm_driver" == 'bridge' ]] || die "$BRIANSTORM_NETWORK must use the bridge driver"
-
-production_blog_inspect="$(docker inspect "$BRIANSTORM_PRODUCTION_WEB")" || die "cannot inspect production Blog web container $BRIANSTORM_PRODUCTION_WEB"
-production_blog_attached="$(printf '%s' "$production_blog_inspect" | parse_member_of_production_edge)" || die 'cannot parse production Blog network membership'
-[[ "$production_blog_attached" == 'true' ]] || die "production Blog web is not attached to $BRIANSTORM_NETWORK"
-
-staging_web_attached='false'
-if staging_web_inspect="$(docker inspect "$BRIANSTORM_STAGING_WEB" 2>/dev/null)"; then
-    staging_web_attached="$(printf '%s' "$staging_web_inspect" | parse_member_of_production_edge)" || die 'cannot parse staging Blog network membership'
 fi
-[[ "$staging_web_attached" == 'false' ]] || die "staging Blog web must never join production $BRIANSTORM_NETWORK"
+case "$PHASE" in
+  post-activation)
+    [[ "$RUNTIME_SHA" == "$OPERATION_SHA" ]] || { echo 'post-activation runtime SHA must equal operation SHA' >&2; exit 64; }
+    ;;
+  post-rollback)
+    [[ "$ROLLBACK_FROM_SHA" != "$ROLLBACK_TARGET_SHA" && "$RUNTIME_SHA" == "$ROLLBACK_TARGET_SHA" ]] \
+      || { echo 'post-rollback runtime or rollback metadata is inconsistent' >&2; exit 64; }
+    ;;
+  post-compensation)
+    [[ "$ROLLBACK_FROM_SHA" != "$ROLLBACK_TARGET_SHA" && "$RUNTIME_SHA" == "$ROLLBACK_FROM_SHA" ]] \
+      || { echo 'post-compensation runtime or rollback metadata is inconsistent' >&2; exit 64; }
+    ;;
+esac
+[[ "$RECEIPT" == /* && "$RECEIPT" != *$'\n'* ]] || { echo 'probe receipt path must be absolute' >&2; exit 64; }
+[[ ! -e "$RECEIPT" ]] || { echo 'probe receipt already exists' >&2; exit 73; }
+command -v node >/dev/null 2>&1 || { echo 'probe requires node' >&2; exit 69; }
 
-docker exec "$CADDY_CONTAINER" caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null || die 'Caddyfile is not loadable in the fixed Caddy container'
-active_caddy_config="$(docker exec "$CADDY_CONTAINER" sh -ec "wget -q -T $CURL_CONNECT_TIMEOUT_SECONDS -O - http://127.0.0.1:2019/config/")" || die 'cannot read the active Caddy Admin configuration'
-printf '%s' "$active_caddy_config" | validate_active_caddy_config || die 'active Caddy configuration does not preserve production RSS and Blog routes'
-docker exec "$CADDY_CONTAINER" sh -ec "wget -q -T $CURL_CONNECT_TIMEOUT_SECONDS -O /dev/null http://api-prod:8000/healthz" || die 'RSS production upstream is not reachable from Caddy'
-docker exec "$CADDY_CONTAINER" sh -ec "wget -q -T $CURL_CONNECT_TIMEOUT_SECONDS -O /dev/null http://brianstorm-web:3000/zh" || die 'Blog production upstream is not reachable from Caddy'
+TEMP_DIR="$(mktemp -d)"
+cleanup() { rm -rf "$TEMP_DIR"; }
+trap cleanup EXIT
 
-rss_url_result="$(probe_https_get rss "$RSS_URL" true)"
-blog_url_result="$(probe_https_get blog "$BLOG_URL" false)"
-timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+validate_probe_url() {
+  local url="$1" allowed_hosts="$2"
+  PROBE_URL="$url" ALLOWED_HOSTS="$allowed_hosts" node --input-type=module <<'NODE'
+import { isIP } from 'node:net';
+const url = new URL(process.env.PROBE_URL);
+const allowed = new Set(process.env.ALLOWED_HOSTS.split(','));
+if (url.protocol !== 'https:' || url.username || url.password || url.port) process.exit(1);
+if (isIP(url.hostname) || !allowed.has(url.hostname)) process.exit(1);
+process.stdout.write(url.href);
+NODE
+}
 
-receipt_dir="$(dirname "$receipt_path")"
-[[ -d "$receipt_dir" ]] || die "receipt directory does not exist: $receipt_dir"
-umask 077
-receipt_tmp="$(mktemp "${receipt_path}.tmp.XXXXXX")"
-cleanup_receipt_tmp() { rm -f -- "$receipt_tmp"; }
-trap cleanup_receipt_tmp EXIT
+resolve_probe_redirect() {
+  local current_url="$1" location="$2" allowed_hosts="$3"
+  CURRENT_URL="$current_url" LOCATION="$location" ALLOWED_HOSTS="$allowed_hosts" node --input-type=module <<'NODE'
+import { isIP } from 'node:net';
+const url = new URL(process.env.LOCATION, process.env.CURRENT_URL);
+const allowed = new Set(process.env.ALLOWED_HOSTS.split(','));
+if (url.protocol !== 'https:' || url.username || url.password || url.port) process.exit(1);
+if (isIP(url.hostname) || !allowed.has(url.hostname)) process.exit(1);
+process.stdout.write(url.href);
+NODE
+}
 
-RECEIPT_CONTRACT_VERSION="$CONTRACT_VERSION" OWNER_PROJECT="$owner_project" OWNER_REPO="$owner_repo" OPERATION_SHA="$operation_sha" \
-    WORKFLOW_RUN="$workflow_run" PHASE="$phase" RUNTIME_SHA="$runtime_sha" \
-    ROLLBACK_FROM_SHA="$rollback_from_sha" ROLLBACK_TARGET_SHA="$rollback_target_sha" TIMESTAMP="$timestamp" RSS_URL_RESULT="$rss_url_result" \
-    BLOG_URL_RESULT="$blog_url_result" RECEIPT_CADDY_CONTAINER="$CADDY_CONTAINER" MYRSS_ATTACHED="$myrss_app_attached" \
-    BRIANSTORM_ATTACHED="$brianstorm_edge_attached" MYRSS_DRIVER="$myrss_driver" BRIANSTORM_DRIVER="$brianstorm_driver" \
-    PRODUCTION_BLOG_ATTACHED="$production_blog_attached" STAGING_WEB_ATTACHED="$staging_web_attached" \
-    node -e '
-const urlResults = [JSON.parse(process.env.RSS_URL_RESULT), JSON.parse(process.env.BLOG_URL_RESULT)];
+probe_url() {
+  local name="$1" url="$2" allowed_hosts="$3" current_url status effective scheme
+  local redirects=0 header_file location metadata
+  current_url="$(validate_probe_url "$url" "$allowed_hosts")" || {
+    printf 'failure\tconfigured_url_not_allowed\n'
+    return 1
+  }
+  while (( redirects <= 5 )); do
+    header_file="$TEMP_DIR/${name}-${redirects}.headers"
+    # Each hop is an explicit GET; body, upload and HEAD flags are contractually forbidden.
+    metadata="$(curl --silent --show-error --request GET --proto '=https' \
+      --connect-timeout 5 --max-time 15 --output /dev/null --dump-header "$header_file" \
+      --write-out '%{http_code}\t%{url_effective}\t%{scheme}' "$current_url" 2>/dev/null)" || {
+      printf 'failure\thttps_request_failed\n'
+      return 1
+    }
+    IFS=$'\t' read -r status effective scheme <<< "$metadata"
+    [[ "$status" =~ ^[0-9]{3}$ && "$scheme" == https ]] || {
+      printf 'failure\tinvalid_https_metadata\n'
+      return 1
+    }
+    effective="$(validate_probe_url "$effective" "$allowed_hosts")" || {
+      printf 'failure\teffective_url_not_allowed\n'
+      return 1
+    }
+    if [[ "$status" =~ ^30[12378]$ ]]; then
+      location="$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/\r$/, ""); sub(/^[^:]+:[[:space:]]*/, ""); value=$0 } END { print value }' "$header_file")"
+      [[ -n "$location" ]] || { printf 'failure\tredirect_location_missing\n'; return 1; }
+      current_url="$(resolve_probe_redirect "$effective" "$location" "$allowed_hosts")" || {
+        printf 'failure\tredirect_target_not_allowed\n'
+        return 1
+      }
+      redirects=$((redirects + 1))
+      continue
+    fi
+    [[ "$status" == 200 ]] || { printf 'failure\thttp_status_%s\n' "$status"; return 1; }
+    printf 'success\t%s\t%s\t%s\thttps\n' "$status" "$effective" "$redirects"
+    return 0
+  done
+  printf 'failure\tredirect_budget_exceeded\n'
+  return 1
+}
+
+if BLOG_RESULT="$(probe_url blog-public "$BLOG_URL" 'blog.blankhoney.xyz')"; then :; else :; fi
+if BLOG_STATUS_RESULT="$(probe_url blog-public-status "$BLOG_STATUS_URL" 'blog.blankhoney.xyz')"; then :; else :; fi
+if RSS_RESULT="$(probe_url rss-production-auth "$RSS_URL" 'ai-reader.blankhoney.xyz,auth.blankhoney.xyz')"; then :; else :; fi
+
+capture_check() {
+  local status_name="$1" error_code="$2"
+  shift 2
+  if "$@" >/dev/null 2>&1; then
+    printf -v "$status_name" '%s' success
+  else
+    printf -v "$status_name" '%s' "$error_code"
+  fi
+}
+
+if docker inspect "$CADDY_CONTAINER" > "$TEMP_DIR/caddy.json" 2>/dev/null; then
+  CADDY_INSPECT_STATUS=success
+else
+  CADDY_INSPECT_STATUS=caddy_inspect_failed
+fi
+if docker network inspect myrss-app > "$TEMP_DIR/myrss-app.json" 2>/dev/null; then
+  MYRSS_NETWORK_STATUS=success
+else
+  MYRSS_NETWORK_STATUS=myrss_network_inspect_failed
+fi
+if docker network inspect brianstorm-edge > "$TEMP_DIR/brianstorm-edge.json" 2>/dev/null; then
+  BLOG_NETWORK_STATUS=success
+else
+  BLOG_NETWORK_STATUS=blog_network_inspect_failed
+fi
+capture_check CADDY_VALIDATE_STATUS caddy_config_validation_failed \
+  docker exec "$CADDY_CONTAINER" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+if docker exec "$CADDY_CONTAINER" /bin/sh -ec \
+  'wget -q -T 5 -O - http://127.0.0.1:2019/config/' > "$TEMP_DIR/active-caddy.json" 2>/dev/null; then
+  ACTIVE_CONFIG_STATUS=success
+else
+  ACTIVE_CONFIG_STATUS=active_caddy_config_unavailable
+fi
+capture_check RSS_UPSTREAM_STATUS rss_upstream_unreachable \
+  docker exec "$CADDY_CONTAINER" /bin/sh -ec 'wget -q -T 5 -O /dev/null http://web-prod:3000/'
+capture_check BLOG_UPSTREAM_STATUS blog_upstream_unreachable \
+  docker exec "$CADDY_CONTAINER" /bin/sh -ec 'wget -q -T 5 -O /dev/null http://brianstorm-web:3000/api/status'
+
+mkdir -p "$(dirname "$RECEIPT")"
+RECEIPT_TEMP="$(dirname "$RECEIPT")/.receipt-$$.tmp"
+CONTRACT_VERSION="$CONTRACT_VERSION" OWNER_PROJECT="$OWNER_PROJECT" OWNER_REPO="$OWNER_REPO" \
+OPERATION_SHA="$OPERATION_SHA" RUNTIME_SHA="$RUNTIME_SHA" WORKFLOW_RUN="$WORKFLOW_RUN" PHASE="$PHASE" \
+ROLLBACK_FROM_SHA="$ROLLBACK_FROM_SHA" BLOG_URL="$BLOG_URL" \
+ROLLBACK_TARGET_SHA="$ROLLBACK_TARGET_SHA" \
+BLOG_STATUS_URL="$BLOG_STATUS_URL" RSS_URL="$RSS_URL" BLOG_RESULT="$BLOG_RESULT" \
+BLOG_STATUS_RESULT="$BLOG_STATUS_RESULT" RSS_RESULT="$RSS_RESULT" \
+CADDY_CONTAINER="$CADDY_CONTAINER" TEMP_DIR="$TEMP_DIR" \
+CADDY_INSPECT_STATUS="$CADDY_INSPECT_STATUS" MYRSS_NETWORK_STATUS="$MYRSS_NETWORK_STATUS" \
+BLOG_NETWORK_STATUS="$BLOG_NETWORK_STATUS" CADDY_VALIDATE_STATUS="$CADDY_VALIDATE_STATUS" \
+ACTIVE_CONFIG_STATUS="$ACTIVE_CONFIG_STATUS" RSS_UPSTREAM_STATUS="$RSS_UPSTREAM_STATUS" \
+BLOG_UPSTREAM_STATUS="$BLOG_UPSTREAM_STATUS" node --input-type=module > "$RECEIPT_TEMP" <<'NODE'
+import { readFileSync } from 'node:fs';
+
+function exactKeys(value, expected, label) {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(wanted)) throw new Error(`${label}_shape_invalid`);
+}
+function parseCurl(name, configuredURL, raw) {
+  const [result, statusRaw, finalURL, redirectsRaw, scheme] = raw.split('\t');
+  if (result === 'failure') {
+    const error = statusRaw;
+    if (!/^[a-z0-9_]+$/.test(error)) throw new Error(`${name}_error_invalid`);
+    return { name, configuredURL, status: null, finalURL: null, tls: false, redirect: false, result, error };
+  }
+  if (result !== 'success') throw new Error(`${name}_curl_result_invalid`);
+  const status = Number(statusRaw);
+  const redirects = Number(redirectsRaw);
+  if (!Number.isSafeInteger(status) || !Number.isSafeInteger(redirects)) throw new Error(`${name}_curl_result_invalid`);
+  const parsed = new URL(finalURL);
+  if (parsed.protocol !== 'https:' || scheme !== 'https') throw new Error(`${name}_tls_invalid`);
+  if (name.startsWith('blog-public') && (status !== 200 || redirects !== 0 || parsed.hostname !== 'blog.blankhoney.xyz')) {
+    return { name, configuredURL, status, finalURL, tls: true, redirect: redirects > 0, result: 'failure', error: 'blog_public_contract_failed' };
+  }
+  if (!name.startsWith('blog-public') && (status !== 200 || redirects < 1 || parsed.hostname !== 'auth.blankhoney.xyz')) {
+    return { name, configuredURL, status, finalURL, tls: true, redirect: redirects > 0, result: 'failure', error: 'rss_auth_redirect_contract_failed' };
+  }
+  return { name, configuredURL, status, finalURL, tls: true, redirect: redirects > 0, result, error: null };
+}
+const errors = [];
+const check = (name) => {
+  const value = process.env[name];
+  if (value !== 'success') errors.push(value);
+  return value === 'success';
+};
+const caddyInspectOk = check('CADDY_INSPECT_STATUS');
+let networks = null;
+if (caddyInspectOk) {
+  try {
+    const caddyList = JSON.parse(readFileSync(`${process.env.TEMP_DIR}/caddy.json`, 'utf8'));
+    if (!Array.isArray(caddyList) || caddyList.length !== 1) throw new Error();
+    networks = caddyList[0]?.NetworkSettings?.Networks;
+    if (!networks || typeof networks !== 'object') throw new Error();
+  } catch {
+    errors.push('caddy_inspect_invalid');
+  }
+}
+const readNetwork = (name) => {
+  try {
+    const value = JSON.parse(readFileSync(`${process.env.TEMP_DIR}/${name}.json`, 'utf8'));
+    if (!Array.isArray(value) || value.length !== 1 || value[0].Name !== name) throw new Error();
+    return value[0].Driver;
+  } catch {
+    errors.push(`${name.replaceAll('-', '_')}_inspect_invalid`);
+    return null;
+  }
+};
+const myrssDriver = check('MYRSS_NETWORK_STATUS') ? readNetwork('myrss-app') : null;
+const blogDriver = check('BLOG_NETWORK_STATUS') ? readNetwork('brianstorm-edge') : null;
+if ((myrssDriver && myrssDriver !== 'bridge') || (blogDriver && blogDriver !== 'bridge')) errors.push('shared_edge_driver_invalid');
+const myrssAttached = Boolean(networks && Object.hasOwn(networks, 'myrss-app'));
+const blogAttached = Boolean(networks && Object.hasOwn(networks, 'brianstorm-edge'));
+if (networks && (!myrssAttached || !blogAttached)) errors.push('caddy_membership_invalid');
+const configValidated = check('CADDY_VALIDATE_STATUS');
+let configLoaded = false;
+if (check('ACTIVE_CONFIG_STATUS')) {
+  try {
+    const activeConfig = JSON.stringify(JSON.parse(readFileSync(`${process.env.TEMP_DIR}/active-caddy.json`, 'utf8')));
+    configLoaded = ['blog.blankhoney.xyz', 'brianstorm-web:3000', 'web-prod:3000'].every((value) => activeConfig.includes(value));
+    if (!configLoaded) errors.push('active_caddy_config_invalid');
+  } catch {
+    errors.push('active_caddy_config_invalid');
+  }
+}
+const rssUpstreamReachable = check('RSS_UPSTREAM_STATUS');
+const blogUpstreamReachable = check('BLOG_UPSTREAM_STATUS');
+const urls = [
+  parseCurl('blog-public', process.env.BLOG_URL, process.env.BLOG_RESULT),
+  parseCurl('blog-public-status', process.env.BLOG_STATUS_URL, process.env.BLOG_STATUS_RESULT),
+  parseCurl('rss-production-auth', process.env.RSS_URL, process.env.RSS_RESULT),
+];
+for (const url of urls) if (url.result !== 'success') errors.push(url.error);
+const overallStatus = errors.length === 0 ? 'success' : 'failure';
 const receipt = {
-  contractVersion: Number(process.env.RECEIPT_CONTRACT_VERSION),
+  contractVersion: Number(process.env.CONTRACT_VERSION),
   owner: { project: process.env.OWNER_PROJECT, repo: process.env.OWNER_REPO },
   operation: { fullSha: process.env.OPERATION_SHA },
   workflowRun: Number(process.env.WORKFLOW_RUN),
-  phase: process.env.PHASE,
   runtime: { fullSha: process.env.RUNTIME_SHA },
-  timestamp: process.env.TIMESTAMP,
-  urls: urlResults,
+  rollback: {
+    rollbackFrom: process.env.ROLLBACK_FROM_SHA || null,
+    target: process.env.ROLLBACK_TARGET_SHA || null,
+  },
+  phase: process.env.PHASE,
+  timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  overallStatus,
+  urls,
   edge: {
-    caddyContainer: process.env.RECEIPT_CADDY_CONTAINER,
-    myrssAppAttached: process.env.MYRSS_ATTACHED === "true",
-    brianstormEdgeAttached: process.env.BRIANSTORM_ATTACHED === "true",
-    networkDriver: {
-      myrssApp: process.env.MYRSS_DRIVER,
-      brianstormEdge: process.env.BRIANSTORM_DRIVER,
-    },
-    configLoaded: true,
-    rssUpstreamReachable: true,
-    blogUpstreamReachable: true,
-    productionBlogWebAttachedToProductionEdge: process.env.PRODUCTION_BLOG_ATTACHED === "true",
-    stagingWebAttachedToProductionEdge: process.env.STAGING_WEB_ATTACHED === "true",
+    caddyContainer: process.env.CADDY_CONTAINER,
+    myrssAppAttached: myrssAttached,
+    brianstormEdgeAttached: blogAttached,
+    networkDriver: blogDriver,
+    configLoaded: configValidated && configLoaded,
+    rssUpstreamReachable,
+    blogUpstreamReachable,
+    result: overallStatus,
+    error: errors.length ? [...new Set(errors)] : null,
   },
 };
-if (process.env.PHASE === "post-rollback" || process.env.PHASE === "post-compensation") {
-  receipt.rollback = {
-    rollbackFrom: process.env.ROLLBACK_FROM_SHA,
-    target: process.env.ROLLBACK_TARGET_SHA,
-  };
-}
-process.stdout.write(`${JSON.stringify(receipt)}\n`);
-' > "$receipt_tmp"
-
-mv -f -- "$receipt_tmp" "$receipt_path"
-trap - EXIT
-echo "shared-edge contract v${CONTRACT_VERSION} passed: $phase ($receipt_path)"
+exactKeys(receipt, ['contractVersion', 'owner', 'operation', 'workflowRun', 'runtime', 'rollback', 'phase', 'timestamp', 'overallStatus', 'urls', 'edge'], 'receipt');
+process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
+NODE
+chmod 600 "$RECEIPT_TEMP"
+mv "$RECEIPT_TEMP" "$RECEIPT"
+RECEIPT_STATUS="$(RECEIPT="$RECEIPT" node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+const receipt = JSON.parse(readFileSync(process.env.RECEIPT, 'utf8'));
+if (!['success', 'failure'].includes(receipt.overallStatus)) process.exit(1);
+process.stdout.write(receipt.overallStatus);
+NODE
+)" || { echo 'shared edge receipt verification failed' >&2; exit 1; }
+if [[ "$RECEIPT_STATUS" != success ]]; then
+  printf 'shared edge contract v1 failure recorded for %s\n' "$PHASE" >&2
+  exit 1
+fi
+printf 'shared edge contract v1 verified for %s\n' "$PHASE"

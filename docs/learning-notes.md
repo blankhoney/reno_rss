@@ -98,3 +98,8 @@
   and then run serially under a second timeout. This keeps signal/flock timing
   deterministic and prevents an implicit Docker Hub pull from looking like a
   hung lock implementation.
+- The RSS and Blog locked transactions consume byte-identical shared-edge probe
+  and receipt-verifier sources. Operational probe failures write and verify a
+  strict `overallStatus=failure` receipt before returning nonzero; invalid
+  identity or phase input writes no receipt. This preserves failure evidence
+  without weakening the fail-closed activation and compensation gates.
