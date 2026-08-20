@@ -516,11 +516,13 @@ jobs:
             .github/scripts/build-trusted-deploy-bundle.sh \
             .github/scripts/remote-deploy.sh \
             infra/deploy/bootstrap-shared-release-v1.sh \
+            infra/deploy/install-blog-control-plane-remote.sh \
             infra/deploy/with-shared-release-lock.sh \
             infra/deploy/internal/shared-release-lock-core.sh \
             infra/deploy/ensure-shared-edge.sh \
             infra/deploy/verify-shared-edge.sh \
             infra/deploy/rollback-state.sh
+          python3 -m py_compile infra/deploy/install-blog-control-plane-transaction.py
           for test_file in \
             infra/deploy/tests/shared-release-lock.test.mjs \
             infra/deploy/tests/shared-release-bootstrap.test.mjs \
@@ -530,7 +532,8 @@ jobs:
             infra/deploy/tests/trusted-remote-transaction.test.mjs \
             infra/deploy/tests/shared-edge-compose.test.mjs \
             infra/deploy/tests/production-backup-order.test.mjs \
-            infra/deploy/tests/known-hosts-contract.test.mjs
+            infra/deploy/tests/known-hosts-contract.test.mjs \
+            infra/deploy/tests/blog-control-plane-installer.test.mjs
           do
             printf 'Running bounded shared-contract fixture: %s\n' "$test_file"
             timeout --signal=TERM --kill-after=10s 2m \
