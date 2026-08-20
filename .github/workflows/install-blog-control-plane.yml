@@ -41,6 +41,27 @@ jobs:
       - name: Verify canonical RSS checkout identity
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Authenticate current RSS main CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RSS_REPOSITORY: blankhoney/reno_rss
+          RSS_INSTALLER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          runs="$RUNNER_TEMP/rss-installer-main-runs.json"
+          gh api "/repos/$RSS_REPOSITORY/actions/runs?head_sha=$RSS_INSTALLER_SHA&event=push&per_page=100" > "$runs"
+          RUNS="$runs" RSS_REPOSITORY="$RSS_REPOSITORY" RSS_INSTALLER_SHA="$RSS_INSTALLER_SHA" \
+            node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const value = JSON.parse(readFileSync(process.env.RUNS, 'utf8'));
+          const matching = value.workflow_runs.filter((run) => run.name === 'ci'
+            && run.path === '.github/workflows/ci.yml' && run.event === 'push'
+            && run.head_branch === 'main' && run.head_sha === process.env.RSS_INSTALLER_SHA
+            && run.head_repository?.full_name === process.env.RSS_REPOSITORY);
+          if (matching.length !== 1 || matching[0].status !== 'completed'
+              || matching[0].conclusion !== 'success') process.exit(1);
+          NODE
+
       - name: Checkout the canonical RSS shared-contract source
         uses: actions/checkout@v4
         with:
@@ -145,6 +166,7 @@ jobs:
           INSTALLER_RUN: ${{ github.run_id }}
           INSTALLER_ATTEMPT: ${{ github.run_attempt }}
           RSS_SOURCE_SHA: 2b29cfafaafa0795401c7b226a159572f9af6729
+          RSS_INSTALLER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           bundle="$RUNNER_TEMP/trusted-blog-transaction.tar"
@@ -153,9 +175,10 @@ jobs:
             trusted-blog-remote-transaction.sh verify-shared-edge.sh verify-shared-edge-receipt.mjs
           DEPLOY_SSH_KEY_PATH="$HOME/.ssh/id_ed25519" \
           DEPLOY_KNOWN_HOSTS_PATH="$HOME/.ssh/known_hosts" \
-          blog-control-plane/infra/deploy/install-trusted-blog-transaction-remote.sh \
+          bash infra/deploy/install-blog-control-plane-remote.sh \
             "$bundle" "$CONTROL_PLANE_SHA" "$OPERATION_SHA" "$BLOG_REPOSITORY" \
             "$INSTALLER_RUN" "$INSTALLER_ATTEMPT" "$RSS_SOURCE_SHA" \
+            "$RSS_INSTALLER_SHA" \
             "$CONTROL_PLANE_CI_RUN" "$CONTROL_PLANE_CI_ATTEMPT" \
             "$PRODUCER_RUN" "$PRODUCER_ATTEMPT" "$ARTIFACT_ID" \
             "$ARTIFACT_DIGEST" "$WEB_IMAGE_DIGEST" "$COMPANION_IMAGE_DIGEST" > "$receipt"
@@ -164,13 +187,19 @@ jobs:
           transaction_sha="$(sha256sum blog-control-plane/infra/deploy/trusted-blog-remote-transaction.sh | cut -d ' ' -f 1)"
           probe_sha="$(sha256sum blog-control-plane/infra/deploy/verify-shared-edge.sh | cut -d ' ' -f 1)"
           probe_verifier_sha="$(sha256sum blog-control-plane/infra/deploy/verify-shared-edge-receipt.mjs | cut -d ' ' -f 1)"
-          node blog-control-plane/infra/deploy/verify-trusted-blog-install-receipt.mjs \
+          installer_transaction_sha="$(python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          print(hashlib.sha256(Path('infra/deploy/install-blog-control-plane-transaction.py').read_bytes().rstrip(b'\n')).hexdigest())
+          PY
+          )"
+          node infra/deploy/verify-blog-control-plane-install-receipt.mjs \
             "$receipt" "$BLOG_REPOSITORY" "$CONTROL_PLANE_SHA" "$CONTROL_PLANE_CI_RUN" \
             "$CONTROL_PLANE_CI_ATTEMPT" "$OPERATION_SHA" "$PRODUCER_RUN" \
             "$PRODUCER_ATTEMPT" "$ARTIFACT_ID" "$ARTIFACT_DIGEST" \
             "$WEB_IMAGE_DIGEST" "$COMPANION_IMAGE_DIGEST" "$INSTALLER_RUN" \
-            "$INSTALLER_ATTEMPT" "$RSS_SOURCE_SHA" "$wrapper_sha" "$core_sha" \
-            "$transaction_sha" "$probe_sha" "$probe_verifier_sha"
+            "$INSTALLER_ATTEMPT" "$RSS_SOURCE_SHA" "$RSS_INSTALLER_SHA" "$wrapper_sha" "$core_sha" \
+            "$transaction_sha" "$probe_sha" "$probe_verifier_sha" "$installer_transaction_sha"
 
       - name: Upload authenticated Blog installer receipt
         uses: actions/upload-artifact@v4
