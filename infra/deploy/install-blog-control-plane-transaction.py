@@ -279,6 +279,8 @@ def resolve_probe_node(args: argparse.Namespace,
             try:
                 directory_fd = open_directory_chain(parts, 0)
                 candidates.append(open_node_at(directory_fd, 0))
+            except RuntimeError:
+                pass
             except OSError as error:
                 if error.errno not in (errno.ENOENT, errno.ELOOP):
                     raise
