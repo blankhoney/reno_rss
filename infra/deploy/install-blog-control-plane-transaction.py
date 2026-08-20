@@ -25,6 +25,7 @@ LOCK_PATH = LOCK_ROOT / 'release.lock'
 METADATA_PATH = LOCK_ROOT / 'metadata.json'
 AUDIT_DIR = LOCK_ROOT / 'audit'
 HELPER_ROOT = pathlib.Path('/usr/local/lib/reno-shared-vps/release-lock-v1')
+WORK_ROOT = pathlib.Path('/run')
 APP_ROOT = pathlib.Path('/srv/brianstorm')
 TARGETS = {
     'trusted-blog-remote-transaction.sh': ('45c326fdd266311df5ac1114c4c47207429efc6b47bd795db4d6f06b0f602892', HELPER_ROOT / 'trusted-blog-remote-transaction.sh'),
@@ -187,9 +188,7 @@ def validate_args(args: argparse.Namespace) -> None:
         if name in os.environ:
             raise RuntimeError('probe_identity_override')
     account = pwd.getpwnam(PROBE_ACCOUNT)
-    deploy_group = grp.getgrnam('reno-deploy').gr_gid
-    if (account.pw_uid <= 0 or account.pw_gid < 0
-            or deploy_group not in os.getgrouplist(account.pw_name, account.pw_gid)):
+    if account.pw_uid <= 0 or account.pw_gid < 0:
         raise RuntimeError('probe_identity')
     args.probe_uid = account.pw_uid
     args.probe_gid = account.pw_gid
@@ -403,7 +402,8 @@ def validate_platform() -> dict:
     expected = [(LOCK_ROOT, stat.S_IFDIR, deploy_group, 0o770),
                 (LOCK_PATH, stat.S_IFREG, deploy_group, 0o660),
                 (AUDIT_DIR, stat.S_IFDIR, deploy_group, 0o770),
-                (HELPER_ROOT, stat.S_IFDIR, 0, 0o755)]
+                (HELPER_ROOT, stat.S_IFDIR, 0, 0o755),
+                (WORK_ROOT, stat.S_IFDIR, 0, 0o755)]
     for path, kind, group, mode in expected:
         value = path.lstat()
         if (stat.S_IFMT(value.st_mode) != kind or value.st_uid != 0 or value.st_gid != group
@@ -596,7 +596,7 @@ def main() -> int:
     if canonical['lockDeviceInode'] != inode:
         raise RuntimeError('lock_inode_drift')
 
-    work = pathlib.Path(tempfile.mkdtemp(prefix='.blog-control-plane-v2.', dir=LOCK_ROOT))
+    work = pathlib.Path(tempfile.mkdtemp(prefix='.blog-control-plane-v2.', dir=WORK_ROOT))
     os.chmod(work, 0o710)
     chown_as_root(work, 0, args.probe_gid)
     previous = None
