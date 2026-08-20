@@ -1,8 +1,10 @@
+import re
 from typing import Literal, assert_never
 
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, Header, Path, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import (
@@ -22,6 +24,7 @@ from app.domain.export_project import (
 from app.domain.annotations_meta import decode_annotation_content
 from app.db.auth_store import UserRecord
 from app.db.repositories.articles import (
+    AnnotationCreateResultKind,
     AnnotationDeleteResult,
     AnnotationRecord,
     ArticleFeedbackRecord,
@@ -46,6 +49,16 @@ class ArticleStateRequest(BaseModel):
     saved: bool | None = None
     project: bool | None = None
     read_progress: float | None = Field(default=None, ge=0, le=1)
+
+
+class ApiErrorBody(BaseModel):
+    code: str
+    message: str
+    details: dict[str, object]
+
+
+class ApiErrorResponse(BaseModel):
+    error: ApiErrorBody
 
 
 class FetchContentJobResponse(BaseModel):
@@ -75,6 +88,8 @@ class ArticleFeedbackRequest(BaseModel):
 
 
 class ArticleAnnotationAnchor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["text-quote"]
     version: Literal[1]
     exact: str = Field(min_length=1, max_length=4000)
@@ -91,12 +106,67 @@ class ArticleAnnotationAnchor(BaseModel):
 
 
 class ArticleAnnotationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     content: str = Field(min_length=1, max_length=4000)
     selected_text: str | None = Field(default=None, max_length=4000)
     type: str = Field(default="annotation", pattern="^(annotation|comment|review)$")
-    color: str | None = Field(default=None, max_length=20)
-    tags: list[str] | None = Field(default=None, max_length=12)
+    color: str | None = None
+    tags: list[str] = Field(default_factory=list, max_length=12)
     anchor: ArticleAnnotationAnchor | None = None
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def normalize_content(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("selected_text", mode="before")
+    @classmethod
+    def normalize_selected_text(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return value.strip() or None
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def normalize_annotation_color(cls, value: object) -> str | None:
+        from app.domain.annotations_meta import normalize_color
+
+        return normalize_color(value)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_annotation_tags(cls, value: object) -> list[str]:
+        from app.domain.annotations_meta import normalize_tags
+
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("tags must be a list")
+        if any(not isinstance(item, str) for item in value):
+            raise ValueError("tags items must be strings")
+        return normalize_tags(value)
+
+
+class ArticleAnnotationResponse(BaseModel):
+    id: int
+    article_id: int
+    type: str
+    selected_text: str | None
+    content: str
+    color: str | None
+    tags: list[str]
+    anchor: dict[str, object] | None
+    created_at: str | None
+    updated_at: str | None
+    next_review_at: str | None
+    interval_days: int
+    review_count: int
+
+
+class ArticleAnnotationCreateResponse(BaseModel):
+    annotation: ArticleAnnotationResponse
+    replayed: bool
 
 
 class ArticleAnnotationUpdateRequest(BaseModel):
@@ -131,6 +201,32 @@ def article_feedback_public(feedback: ArticleFeedbackRecord) -> dict[str, object
         "created_at": feedback.created_at.isoformat() if feedback.created_at else None,
         "updated_at": feedback.updated_at.isoformat() if feedback.updated_at else None,
     }
+
+
+_IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{16,128}$")
+
+
+def _annotation_create_idempotency_key(request: Request) -> str | None:
+    raw_values = [
+        value
+        for name, value in request.headers.raw
+        if name.lower() == b"idempotency-key"
+    ]
+    if not raw_values:
+        return None
+    if len(raw_values) != 1:
+        raise RequestValidationError(
+            [{"type": "value_error", "loc": ("header", "Idempotency-Key"), "msg": "Value error, invalid idempotency key", "input": None, "ctx": {"error": "invalid idempotency key"}}]
+        )
+    try:
+        value = raw_values[0].decode("ascii")
+    except UnicodeDecodeError:
+        value = ""
+    if value != value.strip() or "," in value or _IDEMPOTENCY_KEY_RE.fullmatch(value) is None:
+        raise RequestValidationError(
+            [{"type": "value_error", "loc": ("header", "Idempotency-Key"), "msg": "Value error, invalid idempotency key", "input": value, "ctx": {"error": "invalid idempotency key"}}]
+        )
+    return value
 
 
 def annotation_public(annotation: AnnotationRecord) -> dict[str, object]:
@@ -634,40 +730,89 @@ def review_annotation(
     }
 
 
-@router.post("/articles/{article_id}/annotations", status_code=201)
+@router.post(
+    "/articles/{article_id}/annotations",
+    status_code=201,
+    response_model=ArticleAnnotationCreateResponse,
+    responses={
+        200: {"model": ArticleAnnotationCreateResponse, "description": "Idempotent replay"},
+        404: {"model": ApiErrorResponse, "description": "Article not found"},
+        409: {"model": ApiErrorResponse, "description": "Idempotency key conflict"},
+        422: {"model": ApiErrorResponse, "description": "Validation error"},
+    },
+)
 @limiter.limit(write_rate_limit)
 def create_article_annotation(
     payload: ArticleAnnotationRequest,
     request: Request,
     article_id: int = Path(gt=0),
+    idempotency_key_header: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="Optional in Release A; when provided, retries are owner-scoped and idempotent.",
+    ),
     current_user: UserRecord = Depends(require_user),
     article_repository: ArticleStore = Depends(get_article_repository),
-) -> dict[str, object]:
-    from app.domain.annotations_meta import encode_annotation_content
+) -> ArticleAnnotationCreateResponse | JSONResponse:
+    from app.domain.annotation_create import prepare_annotation_create
 
-    content = payload.content.strip()
-    selected = payload.selected_text.strip() if payload.selected_text else None
-    if not content:
-        raise ApiError(400, "invalid_request", "content is required")
-    try:
-        stored_content = encode_annotation_content(
-            content,
-            color=payload.color,
-            tags=payload.tags,
-            anchor=payload.anchor.model_dump(mode="json") if payload.anchor else None,
-        )
+    idempotency_key = _annotation_create_idempotency_key(request)
+    if idempotency_key_header is not None and idempotency_key is None:
+        raise RuntimeError("validated idempotency header disappeared")
+    prepared = prepare_annotation_create(
+        content=payload.content,
+        selected_text=payload.selected_text,
+        annotation_type=payload.type,
+        color=payload.color,
+        tags=payload.tags,
+        anchor=payload.anchor.model_dump(mode="json") if payload.anchor else None,
+    )
+    if idempotency_key is None:
         annotation = article_repository.create_annotation(
             current_user.id,
             article_id,
-            content=stored_content,
-            selected_text=selected or None,
-            annotation_type=payload.type,
+            content=prepared.stored_content,
+            selected_text=prepared.selected_text,
+            annotation_type=prepared.annotation_type,
         )
-    except ValueError as error:
-        raise ApiError(400, "invalid_request", str(error)) from None
-    if annotation is None:
+        if annotation is None:
+            raise ApiError(404, "not_found", "Article not found")
+        return ArticleAnnotationCreateResponse(
+            annotation=ArticleAnnotationResponse.model_validate(annotation_public(annotation)),
+            replayed=False,
+        )
+
+    result = article_repository.create_annotation_idempotent(
+        current_user.id,
+        article_id,
+        idempotency_key=idempotency_key,
+        request_fingerprint=prepared.request_fingerprint,
+        content=prepared.stored_content,
+        selected_text=prepared.selected_text,
+        annotation_type=prepared.annotation_type,
+    )
+    if result.kind is AnnotationCreateResultKind.MISSING_ARTICLE:
         raise ApiError(404, "not_found", "Article not found")
-    return {"annotation": annotation_public(annotation)}
+    if result.kind is AnnotationCreateResultKind.CONFLICT:
+        raise ApiError(
+            409,
+            "idempotency_conflict",
+            "Idempotency key cannot be reused for this request",
+        )
+    if result.kind not in {
+        AnnotationCreateResultKind.CREATED,
+        AnnotationCreateResultKind.REPLAYED,
+    }:
+        raise RuntimeError(f"unsupported annotation create result: {result.kind}")
+    if result.annotation is None:
+        raise RuntimeError("annotation create result omitted its annotation")
+    response = ArticleAnnotationCreateResponse(
+        annotation=ArticleAnnotationResponse.model_validate(annotation_public(result.annotation)),
+        replayed=result.kind is AnnotationCreateResultKind.REPLAYED,
+    )
+    if result.kind is AnnotationCreateResultKind.REPLAYED:
+        return JSONResponse(status_code=200, content=response.model_dump(mode="json"))
+    return response
 
 
 @router.post(

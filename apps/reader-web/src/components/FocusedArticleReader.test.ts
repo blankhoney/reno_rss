@@ -199,6 +199,33 @@ test("FocusedArticleReader renders a pending translation alert", () => {
   assert.match(html, /focusTranslationSpinner/);
 });
 
+test("FocusedArticleReader preserves edit and selection retry contracts", () => {
+  const source = readFileSync(new URL("./FocusedArticleReader.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /annotationEditDraftRef\.current\.trim\(\)/);
+  assert.match(source, /annotationEditColorRef\.current \|\| null/);
+  assert.match(source, /annotationEditTagsRef\.current/);
+  assert.match(source, /retryAnnotationMutationRef\.current = \(\) => void saveAnnotationEdit\(annotation\)/);
+  assert.match(source, /window\.confirm\("删除这条私人标注/);
+  assert.match(source, /async function submitConfirmedAnnotationDelete/);
+  assert.match(source, /retryAnnotationMutationRef\.current = \(\) =>\s+void submitConfirmedAnnotationDelete\(annotation, requestArticleId\)/);
+  const confirmedDeleteSource = source.slice(
+    source.indexOf("async function submitConfirmedAnnotationDelete"),
+    source.indexOf("function removeAnnotation"),
+  );
+  assert.doesNotMatch(confirmedDeleteSource, /window\.confirm/);
+  assert.match(source, /setAnnotations\(\(current\) => current\.filter\(\(item\) => item\.id !== annotation\.id\)\)/);
+  assert.match(source, /标注更新失败|标注删除失败/);
+  assert.match(source, /重试标注操作/);
+  assert.match(source, /anchor: settledAnchorRef\.current/);
+  assert.match(source, /color: highlightColorRef\.current \|\| null/);
+  assert.match(source, /retryAnnotationSaveRef\.current = desiredMetadata == null/);
+  assert.match(source, /retrySelectionCreateWithCurrentMetadata\(snapshot\)/);
+  assert.match(source, /annotationCreateMetadataChanged\(snapshot\.payload, desiredMetadata\)/);
+  assert.match(source, /await updateArticleAnnotation\(created\.id/);
+  assert.match(source, /annotationArticleIdRef\.current !== requestArticleId/);
+});
+
 test("FocusedArticleReader note submission uses immutable ownership snapshots", () => {
   const source = readFileSync(new URL("./FocusedArticleReader.tsx", import.meta.url), "utf8");
   const submitStart = source.indexOf("async function submitNoteSnapshot");
@@ -229,5 +256,32 @@ test("FocusedArticleReader invalidates note ownership on selection, article chan
 
   assert.match(source, /setRetryNoteSubmission\(\(current\) =>[\s\S]*current\.selectionRevision !== selectionRevision \? null : current/);
   assert.match(source, /noteRequestSeqRef\.current \+= 1;\s+pendingNoteRequestRef\.current = null;\s+setPendingNoteRequestSeq\(null\);\s+setRetryNoteSubmission\(null\);\s+setNoteSaveError\(null\);\s+setNoteDraft\(""\);/);
-  assert.match(source, /noteOwnerMountedRef\.current = true;\s+return \(\) => \{\s+noteOwnerMountedRef\.current = false;\s+noteRequestSeqRef\.current \+= 1;\s+pendingNoteRequestRef\.current = null;/);
+  assert.match(source, /noteOwnerMountedRef\.current = true;[\s\S]*return \(\) => \{\s+noteOwnerMountedRef\.current = false;[\s\S]*noteRequestSeqRef\.current \+= 1;\s+pendingNoteRequestRef\.current = null;/);
+});
+
+test("FocusedArticleReader uses load sequence, mutation epoch, and exact selection ownership", () => {
+  const source = readFileSync(new URL("./FocusedArticleReader.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /requestSeq: \+\+annotationLoadSeqRef\.current/);
+  assert.match(source, /mutationEpoch: annotationMutationEpochRef\.current/);
+  assert.match(source, /ownsAnnotationLoad\(attempt/);
+  assert.equal((source.match(/annotationMutationEpochRef\.current \+= 1;/g) ?? []).length, 4);
+  assert.match(source, /pendingSelectionCreateRef\.current = attempt;\s+setPendingSelectionCreateSeq\(attempt\.seq\);/);
+  assert.match(source, /beforeSelectionRevisionChangeRef\.current = \(nextRevision\) => \{\s+cancelSelectionCreateAttempt\(nextRevision\);\s+selectionRevisionRef\.current = nextRevision;/);
+  assert.match(source, /if \(!ownsSelectionCreateAttempt\(attempt\)\) return;/);
+  assert.match(source, /setPendingSelectionCreateSeq\(\(current\) => clearExactPendingSeq\(current, attempt\.seq\)\)/);
+  assert.match(source, /disabled=\{pendingSelectionCreateSeq != null\}/);
+  assert.match(source, /pendingSelectionCreateSeq != null \? "保存中…" : "保存划线"/);
+});
+
+test("FocusedArticleReader keeps annotation lifecycle guards independent from note ownership", () => {
+  const source = readFileSync(new URL("./FocusedArticleReader.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /setAnnotationSaveError\(null\);\s+retryAnnotationSaveRef\.current = null;/);
+  assert.match(source, /retryAnnotationSelectionRevisionRef\.current = null;\s+clearSelection\(\);/);
+  assert.match(source, /selectedTextRef\.current = "";\s+settledAnchorRef\.current = null;/);
+  assert.match(source, /annotationArticleIdRef\.current = article\.id;/);
+  assert.match(source, /setAnnotations\(\[\]\);/);
+  assert.match(source, /item\.articleId === article\.id/);
+  assert.match(source, /annotation\.articleId !== requestArticleId/);
 });

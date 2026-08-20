@@ -5,7 +5,7 @@
 Claude Code's official feature is the session command `/goal`; it does **not** define a repository `goal.md` format. The official repository entry in this package is the Project Skill:
 
 ```text
-.claude/skills/frontend-excellence-goal/SKILL.md
+.agents/skills/frontend-excellence-goal/SKILL.md
 ```
 
 The neighboring Markdown files are project-defined support contracts that the Skill explicitly loads.
@@ -16,12 +16,14 @@ Use Claude Code v2.1.139 or newer, because `/goal` requires that version or late
 
 ## Native discovery proof
 
-Project skill discovery is a Claude Code runtime behavior, not a repository-side static registry. The maintained project packages live under `.claude/skills/<directory>/SKILL.md`; the directory names provide `/frontend-excellence-goal` and `/reader-web-audit`.
+The maintained project packages live under `.agents/skills/<directory>/SKILL.md`.
+Claude-compatible entrypoints under `.claude/skills` only forward to these
+canonical packages.
 
 Run the repository-only structural check before testing discovery:
 
 ```bash
-node .claude/skills/validate-project-skills.mjs
+node .agents/skills/validate-project-skills.mjs
 ```
 
 Then open a fresh native Claude Code session from the repository root and confirm each command appears in the slash-command picker. Cancel the command rather than running it when only discovery is being tested. `/reload-skills` can refresh an already-open native session after editing an existing skill, but it is not proof that a fresh session discovered the package. An API harness with a separate static Skill registry may report these commands as unknown; that result is not evidence against native Claude Code discovery.
@@ -44,7 +46,7 @@ Then invoke the manually gated Skill:
 After the Skill has loaded the package and summarized the baseline, set the session goal by pasting this condition:
 
 ```text
-/goal Complete the manually invoked frontend-excellence-goal package on the current repository. Completion requires every MUST item FEX-01 through FEX-32 in acceptance.md to be demonstrated in evidence.md and summarized in this transcript; reader-web npm test and npm run build must pass; git diff --check must pass; required browser checks must cover service-worker session isolation and queued-to-terminal freshness, mobile layers at the listed breakpoints, keyboard and modal behavior, article return context, search race and partial failure, research recovery, annotation selection, light/dark and reduced motion; root GOAL.md and CLAUDE.md invariants must remain true; no unrun check may be claimed as passed; no secret, production action, real LLM spend, commit, push, PR, merge, or deploy is allowed without explicit user permission. If a required item is blocked, record the exact blocker and next action and keep the goal incomplete. Stop after 80 turns if still incomplete and provide a precise handoff.
+/goal Complete the manually invoked frontend-excellence-goal package on the current repository. Completion requires every MUST item FEX-01 through FEX-32 in acceptance.md to be demonstrated in evidence.md and summarized in this transcript; reader-web npm test and npm run build must pass; git diff --check must pass; required browser checks must cover service-worker session isolation and queued-to-terminal freshness, mobile layers at the listed breakpoints, keyboard and modal behavior, article return context, search race and partial failure, research recovery, annotation selection, light/dark and reduced motion; root GOAL.md and AGENTS.md invariants must remain true; no unrun check may be claimed as passed; no secret, production action, real LLM spend, commit, push, PR, merge, or deploy is allowed without explicit user permission. If a required item is blocked, record the exact blocker and next action and keep the goal incomplete. Stop after 80 turns if still incomplete and provide a precise handoff.
 ```
 
 The Skill must be invoked first because the `/goal` evaluator only sees evidence already placed in the session transcript; it does not independently open these files or run commands.

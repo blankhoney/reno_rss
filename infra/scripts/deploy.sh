@@ -118,63 +118,80 @@ EOF
     done
 }
 
-# Production migrations are gated by a fresh backup artifact and its checksum evidence.
+# Production activation consumes the single backup created and verified by the
+# outer trusted transaction before any edge mutation or image pull.  This script
+# revalidates the immutable evidence instead of creating a collision-prone second
+# backup. Direct production invocation without trusted evidence fails closed.
 run_prod_migration_backup() {
     if [[ "$ENV" != "prod" ]]; then
         echo "💾 $ENV 非生产环境：跳过迁移前备份 gate"
         return
     fi
 
-    local backup_output
+    local evidence_file="${TRUSTED_PRODUCTION_BACKUP_EVIDENCE:-}"
+    local workflow_operation="${TRUSTED_DEPLOY_OPERATION_SHA:-}"
     local backup_dir
-    local backup_path
     local backup_sha256_file
+    local expected_checksum_digest
+    local actual_checksum_digest
 
-    echo "💾 prod 迁移前备份数据库..."
-    if ! backup_output="$(cd "$REPO_ROOT" && "$SCRIPT_DIR/backup.sh" prod 2>&1)"; then
-        echo "$backup_output"
-        echo "❌ prod 数据库备份失败，停止迁移和部署"
+    [[ "$evidence_file" == /* && -f "$evidence_file" && ! -L "$evidence_file" ]] || {
+        echo "❌ production deployment requires safe trusted backup evidence" >&2
+        exit 1
+    }
+    [[ "$workflow_operation" =~ ^[0-9a-f]{40}$ ]] || {
+        echo "❌ trusted deployment operation SHA is invalid" >&2
+        exit 1
+    }
+    [[ "$(stat -c '%a:%u' "$evidence_file")" == "600:$(id -u)" ]] || {
+        echo "❌ trusted backup evidence ownership or mode is unsafe" >&2
+        exit 1
+    }
+    mapfile -d '' evidence_fields < <(python3 - "$evidence_file" "$workflow_operation" <<'PY'
+import json,re,sys
+path,operation=sys.argv[1:]
+with open(path,encoding="utf-8") as source:item=json.load(source)
+keys={"contractVersion","workflowOperationSha","environment","backupDir","checksumFile","checksumDigest"}
+if type(item)is not dict or set(item)!=keys:raise SystemExit("trusted backup evidence schema mismatch")
+if item["contractVersion"]!="trusted-production-backup/v1" or item["environment"]!="prod" or item["workflowOperationSha"]!=operation:raise SystemExit("trusted backup evidence identity mismatch")
+for key in ("backupDir","checksumFile"):
+ if type(item[key])is not str or not item[key].startswith("/") or "\n" in item[key]:raise SystemExit(f"trusted backup evidence {key} is invalid")
+if type(item["checksumDigest"])is not str or re.fullmatch(r"sha256:[0-9a-f]{64}",item["checksumDigest"])is None:raise SystemExit("trusted backup evidence checksum digest is invalid")
+for value in (item["backupDir"],item["checksumFile"],item["checksumDigest"]):sys.stdout.write(value+"\0")
+PY
+    )
+    (( ${#evidence_fields[@]} == 3 )) || {
+        echo "❌ trusted backup evidence validation failed" >&2
+        exit 1
+    }
+    backup_dir="${evidence_fields[0]}"
+    backup_sha256_file="${evidence_fields[1]}"
+    expected_checksum_digest="${evidence_fields[2]#sha256:}"
+    [[ -d "$backup_dir" && ! -L "$backup_dir" && -f "$backup_sha256_file" && ! -L "$backup_sha256_file" ]] || {
+        echo "❌ trusted backup artifact is missing or unsafe" >&2
+        exit 1
+    }
+    [[ "$(realpath -e "$backup_dir")" == "$(realpath -e "$REPO_ROOT/backup")/"* ]] || {
+        echo "❌ trusted backup directory escaped the repository backup root" >&2
+        exit 1
+    }
+    [[ "$(realpath -e "$backup_sha256_file")" == "$(realpath -e "$backup_dir")/"* ]] || {
+        echo "❌ trusted backup checksum escaped its backup directory" >&2
+        exit 1
+    }
+    read -r actual_checksum_digest _ < <(sha256sum "$backup_sha256_file")
+    [[ "$actual_checksum_digest" == "$expected_checksum_digest" ]] || {
+        echo "❌ trusted backup checksum evidence changed after verification" >&2
+        exit 1
+    }
+    if ! (cd "$backup_dir" && sha256sum -c "$backup_sha256_file"); then
+        echo "❌ prod 数据库备份校验失败，停止部署"
         exit 1
     fi
-    echo "$backup_output"
 
-    backup_dir="$(printf '%s\n' "$backup_output" | sed -n 's/^BACKUP_DIR=//p' | tail -n 1)"
-    if [[ -z "$backup_dir" ]]; then
-        echo "❌ 无法从 backup.sh 输出中解析 BACKUP_DIR，停止迁移"
-        exit 1
-    fi
-    backup_sha256_file="$(printf '%s\n' "$backup_output" | sed -n 's/^BACKUP_SHA256_FILE=//p' | tail -n 1)"
-    if [[ -z "$backup_sha256_file" ]]; then
-        echo "❌ 无法从 backup.sh 输出中解析 BACKUP_SHA256_FILE，停止迁移"
-        exit 1
-    fi
-    backup_path="$backup_dir"
-    if [[ "$backup_path" != /* ]]; then
-        backup_path="$REPO_ROOT/${backup_path#./}"
-    fi
-    if [[ "$backup_sha256_file" != /* ]]; then
-        backup_sha256_file="$REPO_ROOT/${backup_sha256_file#./}"
-    fi
-    if [[ ! -f "$backup_sha256_file" ]]; then
-        echo "❌ 备份校验文件不存在：$backup_sha256_file"
-        exit 1
-    fi
-
-    echo "   backup artifact: $backup_path"
+    echo "   trusted backup artifact: $backup_dir"
     echo "   sha256:"
     sed 's/^/     /' "$backup_sha256_file"
-
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        {
-            echo "### Production database backup"
-            echo ""
-            echo "- Artifact: \`$backup_path\`"
-            echo ""
-            echo "\`\`\`"
-            cat "$backup_sha256_file"
-            echo "\`\`\`"
-        } >> "$GITHUB_STEP_SUMMARY"
-    fi
 }
 
 # Alembic must run only after the API container can connect to the target database.
@@ -205,6 +222,12 @@ else
     echo "   镜像模式：local build"
 fi
 
+# These named markers are asserted by check-deploy-migrations.sh.
+# PROD_MIGRATION_BACKUP_GATE
+# Complete the production backup before starting any new edge/backend revision.
+# Staging remains an explicit no-op inside the gate.
+run_prod_migration_backup
+
 # Regenerate edge-auth assets before Caddy validates its mounted configuration.
 mkdir -p "$AUTHELIA_ASSETS_DIR"
 if [[ "$ENV" == "staging" ]]; then
@@ -225,7 +248,12 @@ IMAGE_TAG="$TAG" docker compose \
     -p "myrss-edge" \
     --env-file "$REPO_ROOT/.env" \
     -f "$REPO_ROOT/infra/compose/docker-compose.edge.yml" \
-    up -d --force-recreate --remove-orphans
+    up -d --remove-orphans
+
+# Compose declares both production edge networks, and this recovery closes any
+# attachment drift caused by an interrupted recreate without touching Blog
+# containers or creating a competing network lifecycle.
+bash "$REPO_ROOT/infra/deploy/ensure-shared-edge.sh"
 
 echo "🔁 校验并重载 Caddy 配置..."
 docker compose \
@@ -256,10 +284,6 @@ if [[ "$USE_REMOTE_IMAGES" == "1" ]]; then
 else
     IMAGE_TAG="$TAG" "${BACKEND_COMPOSE[@]}" up -d --build --remove-orphans
 fi
-
-# These named markers are asserted by check-deploy-migrations.sh.
-# PROD_MIGRATION_BACKUP_GATE
-run_prod_migration_backup
 
 # API_MIGRATION_READY_GATE
 wait_for_api_migration_ready

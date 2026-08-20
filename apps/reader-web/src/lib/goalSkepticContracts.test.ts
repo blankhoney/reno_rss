@@ -60,4 +60,10 @@ test("focus reader supports dual-pane notes/article, tags, bilingual, citations"
   assert.match(focus, /bilingual|原文\/译文对照/);
   assert.match(focus, /findCitationTarget|scrollToCitation/);
   assert.match(focus, /dualPane|dualArticle|笔记双栏|对照/);
+  assert.match(focus, /编辑标注|保存修改/);
+  assert.match(focus, /删除标注|删除这条私人标注/);
+  assert.match(focus, /标注更新失败|标注删除失败/);
+  assert.match(focus, /重试保存/);
+  assert.match(focus, /annotation\.color \?\? ""/);
+  assert.match(focus, /<option value="">无颜色<\/option>/);
 });

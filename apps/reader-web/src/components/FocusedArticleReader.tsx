@@ -10,9 +10,11 @@ import { findCitationTarget, type SummaryLangId } from "@/lib/articles/service";
 import { useTypewriterStream } from "@/lib/agent/typewriter";
 import {
   createArticleAnnotation,
+  deleteArticleAnnotation,
   getArticle,
   listArticleAnnotations,
   saveArticleFeedback,
+  updateArticleAnnotation,
   type ArticleAnnotation,
 } from "@/lib/api/articles";
 import { streamArticleAsk, type ArticleAskCitation } from "@/lib/api/client";
@@ -23,8 +25,22 @@ import {
   type ThemeItem,
 } from "@/lib/api/intel";
 import { applyHighlightMarksWithResolution } from "@/lib/articles/highlights";
+import {
+  clearExactPendingSeq,
+  ownsAnnotationLoad,
+  ownsSelectionCreateAttempt as ownsSelectionCreateAttemptPredicate,
+  type SelectionCreateAttempt,
+} from "@/lib/articles/annotationAsync";
 import type { ArticleAnnotationAnchor } from "@/lib/articles/annotationAnchor";
+import {
+  annotationCreateMetadataChanged,
+  loadAnnotationCreateJournalEntries,
+  persistAnnotationCreateJournalEntry,
+  removeAnnotationCreateJournalEntry,
+  type AnnotationCreatePayload,
+} from "@/lib/articles/annotationCreateJournal";
 import { selectionPreview, useArticleSelection } from "@/lib/articles/selection";
+import { fetchSessionUser, readCachedSessionUser } from "@/lib/auth/sessionCache";
 import { readCraftPreferences } from "@/lib/craft/preferences";
 import { moveCommandIndex } from "@/lib/commandPalette";
 import { AgentMarkdown } from "./AgentMarkdown";
@@ -124,18 +140,28 @@ type RelatedItem = { kind: RelatedKind; label: string; href: string };
 type RelatedErrors = Record<RelatedKind, string | null>;
 type RelatedLoading = Record<RelatedKind, boolean>;
 
-type NoteSubmissionSnapshot = {
+type SelectionCreateSnapshot = {
+  storageVersion: 1;
+  operationKind: "selection";
+  idempotencyKey: string;
+  ownerId: string;
   articleId: number;
+  createdAtEpochMs: number;
+  selectionRevision: number;
+  payload: AnnotationCreatePayload;
+};
+
+type NoteSubmissionSnapshot = {
+  storageVersion: 1;
+  operationKind: "note";
+  idempotencyKey: string;
+  ownerId: string;
+  articleId: number;
+  createdAtEpochMs: number;
   selectionRevision: number;
   draftRevision: number;
   rawDraft: string;
-  payload: {
-    content: string;
-    selectedText: string | null;
-    color: string | null;
-    tags: string[];
-    anchor?: ArticleAnnotationAnchor;
-  };
+  payload: AnnotationCreatePayload;
 };
 
 function relatedItemsForArticle(articleId: number, themes: ThemeItem[], clusters: ClusterItem[]): RelatedItem[] {
@@ -206,14 +232,35 @@ export function FocusedArticleReader({
   const [annotations, setAnnotations] = useState<ArticleAnnotation[]>([]);
   const [annotationsError, setAnnotationsError] = useState<string | null>(null);
   const [annotationSaveError, setAnnotationSaveError] = useState<string | null>(null);
+  const [annotationEditError, setAnnotationEditError] = useState<string | null>(null);
+  const [editingAnnotationId, setEditingAnnotationId] = useState<number | null>(null);
+  const [annotationEditDraft, setAnnotationEditDraft] = useState("");
+  const [annotationEditColor, setAnnotationEditColor] = useState("");
+  const [annotationEditTags, setAnnotationEditTags] = useState("");
+  const [annotationMutationId, setAnnotationMutationId] = useState<number | null>(null);
+  const [pendingSelectionCreateSeq, setPendingSelectionCreateSeq] = useState<number | null>(null);
+  const [retrySelectionSubmission, setRetrySelectionSubmission] = useState<SelectionCreateSnapshot | null>(null);
   const noteRequestSeqRef = useRef(0);
   const pendingNoteRequestRef = useRef<{ seq: number; snapshot: NoteSubmissionSnapshot } | null>(null);
   const noteDraftRevisionRef = useRef(0);
   const noteOwnerMountedRef = useRef(false);
+  const annotationOwnerMountedRef = useRef(false);
+  const annotationLoadSeqRef = useRef(0);
+  const annotationMutationEpochRef = useRef(0);
+  const selectionCreateSeqRef = useRef(0);
+  const pendingSelectionCreateRef = useRef<SelectionCreateAttempt | null>(null);
+  const beforeSelectionRevisionChangeRef = useRef<((nextRevision: number) => void) | null>(null);
   const retryAnnotationSaveRef = useRef<(() => void) | null>(null);
+  const retryAnnotationMutationRef = useRef<(() => void) | null>(null);
+  const annotationEditDraftRef = useRef("");
+  const annotationEditColorRef = useRef("");
+  const annotationEditTagsRef = useRef("");
   const retryAnnotationSelectionRevisionRef = useRef<number | null>(null);
   const annotationArticleIdRef = useRef(article.id);
   annotationArticleIdRef.current = article.id;
+  annotationEditDraftRef.current = annotationEditDraft;
+  annotationEditColorRef.current = annotationEditColor;
+  annotationEditTagsRef.current = annotationEditTags;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState<string | null>(article.contentZh ?? null);
   const [showTranslation, setShowTranslation] = useState(false);
@@ -248,7 +295,7 @@ export function FocusedArticleReader({
     settledAnchor,
     selectionRevision,
     clearSelection,
-  } = useArticleSelection(articleRef, focusContentRef);
+  } = useArticleSelection(articleRef, focusContentRef, beforeSelectionRevisionChangeRef);
   const selectionRevisionRef = useRef(selectionRevision);
   const noteDraftRef = useRef(noteDraft);
   const highlightColorRef = useRef(highlightColor);
@@ -261,6 +308,20 @@ export function FocusedArticleReader({
   highlightTagsRef.current = highlightTags;
   selectedTextRef.current = selectedText;
   settledAnchorRef.current = settledAnchor;
+
+  function cancelSelectionCreateAttempt(nextRevision?: number) {
+    const pending = pendingSelectionCreateRef.current;
+    if (pending == null || (nextRevision != null && pending.selectionRevision === nextRevision)) return;
+    pendingSelectionCreateRef.current = null;
+    selectionCreateSeqRef.current += 1;
+    setPendingSelectionCreateSeq((current) => clearExactPendingSeq(current, pending.seq));
+  }
+
+  beforeSelectionRevisionChangeRef.current = (nextRevision) => {
+    cancelSelectionCreateAttempt(nextRevision);
+    selectionRevisionRef.current = nextRevision;
+  };
+
   useEffect(() => {
     if (
       retryAnnotationSelectionRevisionRef.current != null &&
@@ -268,6 +329,7 @@ export function FocusedArticleReader({
     ) {
       retryAnnotationSelectionRevisionRef.current = null;
       retryAnnotationSaveRef.current = null;
+      setRetrySelectionSubmission(null);
       setAnnotationSaveError(null);
     }
     setRetryNoteSubmission((current) =>
@@ -367,21 +429,148 @@ export function FocusedArticleReader({
   useEffect(() => reloadDualArticle(), [reloadDualArticle]);
 
   const reloadAnnotations = useCallback(() => {
-    let active = true;
+    const attempt = {
+      articleId: article.id,
+      requestSeq: ++annotationLoadSeqRef.current,
+      mutationEpoch: annotationMutationEpochRef.current,
+    };
+    const ownsAttempt = () => ownsAnnotationLoad(attempt, {
+      mounted: annotationOwnerMountedRef.current,
+      articleId: annotationArticleIdRef.current,
+      requestSeq: annotationLoadSeqRef.current,
+      mutationEpoch: annotationMutationEpochRef.current,
+    });
     setAnnotationsError(null);
-    listArticleAnnotations(article.id)
+    listArticleAnnotations(attempt.articleId)
       .then((items) => {
-        if (active) setAnnotations(items);
+        if (ownsAttempt()) setAnnotations(items);
       })
       .catch((caught) => {
-        if (active) setAnnotationsError(caught instanceof Error ? caught.message : "加载划线失败");
+        if (ownsAttempt()) {
+          setAnnotationsError(caught instanceof Error ? caught.message : "加载划线失败");
+        }
       });
-    return () => {
-      active = false;
-    };
   }, [article.id]);
 
   useEffect(() => reloadAnnotations(), [reloadAnnotations]);
+
+  function beginAnnotationEdit(annotation: ArticleAnnotation) {
+    if (annotation.articleId !== article.id) return;
+    setEditingAnnotationId(annotation.id);
+    const nextDraft = annotation.content;
+    const nextColor = annotation.color ?? "";
+    const nextTags = annotation.tags.join(", ");
+    setAnnotationEditDraft(nextDraft);
+    setAnnotationEditColor(nextColor);
+    setAnnotationEditTags(nextTags);
+    annotationEditDraftRef.current = nextDraft;
+    annotationEditColorRef.current = nextColor;
+    annotationEditTagsRef.current = nextTags;
+    setAnnotationEditError(null);
+    retryAnnotationMutationRef.current = null;
+  }
+
+  function cancelAnnotationEdit() {
+    if (annotationMutationId != null) return;
+    setEditingAnnotationId(null);
+    setAnnotationEditDraft("");
+    setAnnotationEditTags("");
+    annotationEditDraftRef.current = "";
+    annotationEditColorRef.current = "";
+    annotationEditTagsRef.current = "";
+    setAnnotationEditError(null);
+    retryAnnotationMutationRef.current = null;
+  }
+
+  async function saveAnnotationEdit(annotation: ArticleAnnotation) {
+    const requestArticleId = article.id;
+    if (annotationArticleIdRef.current !== requestArticleId || annotation.articleId !== requestArticleId) return;
+    const content = annotationEditDraftRef.current.trim();
+    if (!content) {
+      setAnnotationEditError("笔记内容不能为空");
+      return;
+    }
+    const color = annotationEditColorRef.current || null;
+    const tags = annotationEditTagsRef.current
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setAnnotationMutationId(annotation.id);
+    setAnnotationEditError(null);
+    try {
+      const updated = await updateArticleAnnotation(annotation.id, {
+        content,
+        color,
+        tags,
+      });
+      if (!annotationOwnerMountedRef.current || annotationArticleIdRef.current !== requestArticleId) return;
+      annotationMutationEpochRef.current += 1;
+      setAnnotations((current) =>
+        current.map((item) => (item.id === annotation.id ? updated : item)),
+      );
+      setEditingAnnotationId(null);
+      setAnnotationEditDraft("");
+      setAnnotationEditColor("");
+      setAnnotationEditTags("");
+      setAnnotationEditError(null);
+      retryAnnotationMutationRef.current = null;
+      emitToast({ title: "标注已更新", variant: "success" });
+    } catch (caught) {
+      if (annotationArticleIdRef.current !== requestArticleId) return;
+      setAnnotationEditError(caught instanceof Error ? caught.message : "标注更新失败");
+      retryAnnotationMutationRef.current = () => void saveAnnotationEdit(annotation);
+      emitToast({ title: "标注更新失败", variant: "error" });
+    } finally {
+      if (annotationArticleIdRef.current === requestArticleId) {
+        setAnnotationMutationId(null);
+      }
+    }
+  }
+
+  async function submitConfirmedAnnotationDelete(
+    annotation: ArticleAnnotation,
+    requestArticleId: number,
+  ) {
+    if (annotationMutationId != null) return;
+    if (annotationArticleIdRef.current !== requestArticleId || annotation.articleId !== requestArticleId) return;
+    setAnnotationMutationId(annotation.id);
+    setAnnotationEditError(null);
+    try {
+      await deleteArticleAnnotation(annotation.id);
+      if (!annotationOwnerMountedRef.current || annotationArticleIdRef.current !== requestArticleId) return;
+      annotationMutationEpochRef.current += 1;
+      setAnnotations((current) => current.filter((item) => item.id !== annotation.id));
+      if (editingAnnotationId === annotation.id) {
+        setEditingAnnotationId(null);
+        setAnnotationEditDraft("");
+        setAnnotationEditColor("");
+        setAnnotationEditTags("");
+      }
+      setAnnotationEditError(null);
+      retryAnnotationMutationRef.current = null;
+      emitToast({ title: "标注已删除", variant: "success" });
+    } catch (caught) {
+      if (annotationArticleIdRef.current !== requestArticleId) return;
+      setAnnotationEditError(caught instanceof Error ? caught.message : "标注删除失败");
+      retryAnnotationMutationRef.current = () =>
+        void submitConfirmedAnnotationDelete(annotation, requestArticleId);
+      emitToast({ title: "标注删除失败", variant: "error" });
+    } finally {
+      if (annotationArticleIdRef.current === requestArticleId) {
+        setAnnotationMutationId(null);
+      }
+    }
+  }
+
+  function removeAnnotation(annotation: ArticleAnnotation) {
+    if (annotationMutationId != null) return;
+    const requestArticleId = article.id;
+    if (annotationArticleIdRef.current !== requestArticleId || annotation.articleId !== requestArticleId) return;
+    if (!window.confirm("删除这条私人标注？原始记录会保留，但不会再出现在阅读、搜索或复习中。")) {
+      return;
+    }
+    void submitConfirmedAnnotationDelete(annotation, requestArticleId);
+  }
 
   function ownsNoteAttempt(seq: number, snapshot: NoteSubmissionSnapshot): boolean {
     return (
@@ -406,9 +595,14 @@ export function FocusedArticleReader({
     setPendingNoteRequestSeq(seq);
 
     try {
-      const created = await createArticleAnnotation(snapshot.articleId, snapshot.payload);
+      const created = await createArticleAnnotation(snapshot.articleId, {
+        idempotencyKey: snapshot.idempotencyKey,
+        patch: snapshot.payload,
+      });
       if (!ownsNoteAttempt(seq, snapshot)) return;
-      setAnnotations((current) => [created, ...current]);
+      annotationMutationEpochRef.current += 1;
+      setAnnotations((current) => current.some((item) => item.id === created.id) ? current : [created, ...current]);
+      removeAnnotationCreateJournalEntry(snapshot);
       setNoteSaveError(null);
       setRetryNoteSubmission(null);
       if (noteDraftRevisionRef.current === snapshot.draftRevision) {
@@ -433,7 +627,7 @@ export function FocusedArticleReader({
     }
   }
 
-  function saveNoteAnnotation() {
+  async function saveNoteAnnotation() {
     if (!noteOwnerMountedRef.current || pendingNoteRequestRef.current != null) return;
     const rawDraft = noteDraftRef.current;
     const content = rawDraft.trim();
@@ -442,15 +636,26 @@ export function FocusedArticleReader({
       setRetryNoteSubmission(null);
       return;
     }
+    const owner = readCachedSessionUser() ?? await fetchSessionUser();
+    if (owner == null || !noteOwnerMountedRef.current) {
+      setNoteSaveError("请先登录后保存笔记");
+      return;
+    }
     const anchor = settledAnchorRef.current;
     const snapshot: NoteSubmissionSnapshot = {
+      storageVersion: 1,
+      operationKind: "note",
+      idempotencyKey: crypto.randomUUID(),
+      ownerId: owner.id,
       articleId: article.id,
+      createdAtEpochMs: Date.now(),
       selectionRevision: selectionRevisionRef.current,
       draftRevision: noteDraftRevisionRef.current,
       rawDraft,
       payload: {
         content,
         selectedText: selectedTextRef.current.trim() || null,
+        type: "annotation",
         color: highlightColorRef.current || null,
         tags: highlightTagsRef.current
           .split(",")
@@ -459,6 +664,9 @@ export function FocusedArticleReader({
         anchor: anchor == null ? undefined : { ...anchor },
       },
     };
+    if (!persistAnnotationCreateJournalEntry(snapshot)) {
+      emitToast({ title: "本次提交只能在当前页面重试", variant: "error" });
+    }
     setNoteSaveError(null);
     setRetryNoteSubmission(null);
     void submitNoteSnapshot(snapshot);
@@ -474,6 +682,126 @@ export function FocusedArticleReader({
       return;
     }
     void submitNoteSnapshot(snapshot);
+  }
+
+  function ownsSelectionCreateAttempt(attempt: SelectionCreateAttempt): boolean {
+    return ownsSelectionCreateAttemptPredicate(attempt, {
+      mounted: annotationOwnerMountedRef.current,
+      articleId: annotationArticleIdRef.current,
+      selectionRevision: selectionRevisionRef.current,
+      pending: pendingSelectionCreateRef.current,
+    });
+  }
+
+  async function submitSelectionCreate(
+    snapshot: SelectionCreateSnapshot,
+    desiredMetadata?: { color: string | null; tags: string[] },
+  ) {
+    if (
+      !annotationOwnerMountedRef.current ||
+      pendingSelectionCreateRef.current != null ||
+      annotationArticleIdRef.current !== snapshot.articleId ||
+      selectionRevisionRef.current !== snapshot.selectionRevision
+    ) {
+      return;
+    }
+    const attempt: SelectionCreateAttempt = {
+      seq: ++selectionCreateSeqRef.current,
+      articleId: snapshot.articleId,
+      selectionRevision: snapshot.selectionRevision,
+    };
+    pendingSelectionCreateRef.current = attempt;
+    setPendingSelectionCreateSeq(attempt.seq);
+    try {
+      let created = await createArticleAnnotation(snapshot.articleId, {
+        idempotencyKey: snapshot.idempotencyKey,
+        patch: snapshot.payload,
+      });
+      if (
+        annotationOwnerMountedRef.current &&
+        annotationArticleIdRef.current === snapshot.articleId
+      ) {
+        annotationMutationEpochRef.current += 1;
+      }
+      if (
+        desiredMetadata != null &&
+        annotationCreateMetadataChanged(snapshot.payload, desiredMetadata)
+      ) {
+        created = await updateArticleAnnotation(created.id, {
+          content: snapshot.payload.content,
+          color: desiredMetadata.color,
+          tags: desiredMetadata.tags,
+        });
+      }
+      if (!ownsSelectionCreateAttempt(attempt)) return;
+      setAnnotations((current) => current.some((item) => item.id === created.id) ? current : [created, ...current]);
+      removeAnnotationCreateJournalEntry(snapshot);
+      setAnnotationSaveError(null);
+      retryAnnotationSaveRef.current = null;
+      setRetrySelectionSubmission(null);
+      retryAnnotationSelectionRevisionRef.current = null;
+      emitToast({ title: "已保存划线", variant: "success" });
+      clearSelection();
+    } catch (error) {
+      if (!ownsSelectionCreateAttempt(attempt)) return;
+      const message = error instanceof Error ? error.message : "划线保存失败";
+      setAnnotationSaveError(message);
+      retryAnnotationSaveRef.current = desiredMetadata == null
+        ? () => retrySelectionCreateWithCurrentMetadata(snapshot)
+        : () => void submitSelectionCreate(snapshot, desiredMetadata);
+      setRetrySelectionSubmission(snapshot);
+      retryAnnotationSelectionRevisionRef.current = snapshot.selectionRevision;
+      emitToast({ title: "划线保存失败", body: message, variant: "error" });
+    } finally {
+      if (!ownsSelectionCreateAttempt(attempt)) return;
+      pendingSelectionCreateRef.current = null;
+      setPendingSelectionCreateSeq((current) => clearExactPendingSeq(current, attempt.seq));
+    }
+  }
+
+  function retrySelectionCreateWithCurrentMetadata(snapshot: SelectionCreateSnapshot) {
+    void submitSelectionCreate(snapshot, {
+      color: highlightColorRef.current || null,
+      tags: highlightTagsRef.current
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    });
+  }
+
+  async function saveSelectedTextAnnotation() {
+    if (pendingSelectionCreateRef.current != null) return;
+    const text = selectedTextRef.current.trim();
+    if (!text) return;
+    const owner = readCachedSessionUser() ?? await fetchSessionUser();
+    if (owner == null || !annotationOwnerMountedRef.current) {
+      setAnnotationSaveError("请先登录后保存划线");
+      return;
+    }
+    const anchor = settledAnchorRef.current;
+    // The immutable snapshot captures anchor: settledAnchorRef.current once.
+    const payload: AnnotationCreatePayload = {
+      content: text,
+      selectedText: text,
+      type: "annotation",
+      color: highlightColorRef.current || null,
+      tags: highlightTagsRef.current.split(",").map((item) => item.trim()).filter(Boolean),
+      anchor: anchor == null ? undefined : { ...anchor },
+    };
+    const snapshot: SelectionCreateSnapshot = {
+      storageVersion: 1,
+      operationKind: "selection",
+      idempotencyKey: crypto.randomUUID(),
+      ownerId: owner.id,
+      articleId: article.id,
+      createdAtEpochMs: Date.now(),
+      selectionRevision: selectionRevisionRef.current,
+      payload,
+    };
+    if (!persistAnnotationCreateJournalEntry(snapshot)) {
+      emitToast({ title: "本次提交只能在当前页面重试", variant: "error" });
+    }
+    void submitSelectionCreate(snapshot);
   }
 
   const related = useMemo(
@@ -540,6 +868,26 @@ export function FocusedArticleReader({
     setFeedbackReason(article.myFeedback?.reason ?? "");
     setFeedbackError(null);
     setIsSavingFeedback(false);
+    setAnnotations([]);
+    setAnnotationsError(null);
+    cancelSelectionCreateAttempt();
+    setAnnotationSaveError(null);
+    retryAnnotationSaveRef.current = null;
+    setRetrySelectionSubmission(null);
+    retryAnnotationSelectionRevisionRef.current = null;
+    clearSelection();
+    selectedTextRef.current = "";
+    settledAnchorRef.current = null;
+    setEditingAnnotationId(null);
+    setAnnotationEditDraft("");
+    setAnnotationEditColor("");
+    setAnnotationEditTags("");
+    annotationEditDraftRef.current = "";
+    annotationEditColorRef.current = "";
+    annotationEditTagsRef.current = "";
+    setAnnotationEditError(null);
+    setAnnotationMutationId(null);
+    retryAnnotationMutationRef.current = null;
   }, [article.id]);
 
   useEffect(() => {
@@ -555,13 +903,45 @@ export function FocusedArticleReader({
 
   useEffect(() => {
     noteOwnerMountedRef.current = true;
+    annotationOwnerMountedRef.current = true;
     return () => {
       noteOwnerMountedRef.current = false;
+      annotationOwnerMountedRef.current = false;
+      annotationLoadSeqRef.current += 1;
       noteRequestSeqRef.current += 1;
       pendingNoteRequestRef.current = null;
+      cancelSelectionCreateAttempt();
+      beforeSelectionRevisionChangeRef.current = null;
       askAbortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const recover = async () => {
+      const owner = readCachedSessionUser() ?? await fetchSessionUser();
+      if (!active || owner == null || annotationArticleIdRef.current !== article.id) return;
+      const entries = loadAnnotationCreateJournalEntries(owner.id, article.id);
+      const note = entries.find((entry) => entry.operationKind === "note") as NoteSubmissionSnapshot | undefined;
+      if (note != null) {
+        const recovered = { ...note, selectionRevision: selectionRevisionRef.current };
+        setRetryNoteSubmission(recovered);
+        setNoteSaveError("上次保存结果未知，可重试原提交或放弃。");
+      }
+      const selection = entries.find((entry) => entry.operationKind === "selection") as SelectionCreateSnapshot | undefined;
+      if (selection != null) {
+        const recovered = { ...selection, selectionRevision: selectionRevisionRef.current };
+        retryAnnotationSelectionRevisionRef.current = recovered.selectionRevision;
+        retryAnnotationSaveRef.current = () => void submitSelectionCreate(recovered);
+        setRetrySelectionSubmission(recovered);
+        setAnnotationSaveError("上次划线保存结果未知，可重试原提交或放弃。");
+      }
+    };
+    void recover();
+    return () => {
+      active = false;
+    };
+  }, [article.id]);
 
   useEffect(() => {
     const markdown = answerRef.current?.querySelector<HTMLElement>(".agentMarkdown");
@@ -748,21 +1128,25 @@ export function FocusedArticleReader({
   const contentNotice = articleContentNotice(article);
   const agentNotice = articleAgentNotice(article);
   const baseHtml = showTranslation && translatedHtml ? translatedHtml : article.contentHtml;
+  const visibleAnnotations = useMemo(
+    () => annotations.filter((item) => item.articleId === article.id),
+    [annotations, article.id],
+  );
   const highlightApplication = useMemo(
     () =>
       applyHighlightMarksWithResolution(
         baseHtml,
-        annotations.map((item) => ({
+        visibleAnnotations.map((item) => ({
           id: item.id,
           selectedText: item.selectedText || item.content,
           color: item.color,
           anchor: item.anchor,
         })),
       ),
-    [annotations, baseHtml],
+    [visibleAnnotations, baseHtml],
   );
   const displayedHtml = highlightApplication.html;
-  const unresolvedAnnotations = annotations.filter((item) =>
+  const unresolvedAnnotations = visibleAnnotations.filter((item) =>
     highlightApplication.unresolvedAnnotationIds.includes(item.id),
   );
   const scoreStatusStyle: TierStatusStyle | undefined = score
@@ -1161,7 +1545,7 @@ export function FocusedArticleReader({
               type="button"
               className="readerToolbarBtn readerToolbarBtnPrimary"
               disabled={noteDraft.trim().length === 0 || pendingNoteRequestSeq != null}
-              onClick={saveNoteAnnotation}
+              onClick={() => void saveNoteAnnotation()}
             >
               {pendingNoteRequestSeq != null ? "保存中…" : "保存笔记"}
             </button>
@@ -1178,7 +1562,130 @@ export function FocusedArticleReader({
                     {pendingNoteRequestSeq != null ? "保存中…" : "重试原提交"}
                   </button>
                 ) : null}
+                {retryNoteSubmission ? (
+                  <button
+                    type="button"
+                    className="readerToolbarBtn"
+                    onClick={() => {
+                      removeAnnotationCreateJournalEntry(retryNoteSubmission);
+                      setRetryNoteSubmission(null);
+                      setNoteSaveError(null);
+                    }}
+                  >
+                    放弃原提交
+                  </button>
+                ) : null}
               </p>
+            ) : null}
+            {visibleAnnotations.length > 0 ? (
+              <section aria-label="已保存标注">
+                <h3>已保存标注</h3>
+                {annotationEditError ? (
+                  <p className="adminConsoleError" role="alert">
+                    {annotationEditError}
+                    <button
+                      type="button"
+                      className="readerToolbarBtn"
+                      disabled={annotationMutationId != null}
+                      onClick={() => retryAnnotationMutationRef.current?.()}
+                    >
+                      重试标注操作
+                    </button>
+                  </p>
+                ) : null}
+                <ul>
+                  {visibleAnnotations.map((annotation) => {
+                    const editing = editingAnnotationId === annotation.id;
+                    const unresolved = highlightApplication.unresolvedAnnotationIds.includes(annotation.id);
+                    const mutationPending = annotationMutationId != null;
+                    return (
+                      <li key={annotation.id}>
+                        {editing ? (
+                          <>
+                            {annotation.selectedText ? <p>原选区：{annotation.selectedText}</p> : null}
+                            <label>
+                              笔记内容
+                              <textarea
+                                value={annotationEditDraft}
+                                rows={4}
+                                disabled={mutationPending}
+                                onChange={(event) => setAnnotationEditDraft(event.target.value)}
+                              />
+                            </label>
+                            <label>
+                              颜色
+                              <select
+                                value={annotationEditColor}
+                                disabled={mutationPending}
+                                onChange={(event) => setAnnotationEditColor(event.target.value)}
+                              >
+                                <option value="">无颜色</option>
+                                <option value="yellow">黄</option>
+                                <option value="green">绿</option>
+                                <option value="blue">蓝</option>
+                                <option value="pink">粉</option>
+                                <option value="orange">橙</option>
+                                <option value="purple">紫</option>
+                              </select>
+                            </label>
+                            <label>
+                              标签
+                              <input
+                                value={annotationEditTags}
+                                disabled={mutationPending}
+                                onChange={(event) => setAnnotationEditTags(event.target.value)}
+                                placeholder="标签,逗号分隔"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="readerToolbarBtn readerToolbarBtnPrimary"
+                              disabled={mutationPending}
+                              onClick={() => void saveAnnotationEdit(annotation)}
+                            >
+                              {mutationPending ? "保存中" : "保存修改"}
+                            </button>
+                            <button
+                              type="button"
+                              className="readerToolbarBtn"
+                              disabled={mutationPending}
+                              onClick={cancelAnnotationEdit}
+                            >
+                              取消编辑
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {annotation.selectedText ? <p>原选区：{annotation.selectedText}</p> : null}
+                            <p>{annotation.content}</p>
+                            <p className="workbenchRibbonMuted">
+                              {annotation.color ? `颜色：${annotation.color}` : "无颜色"}
+                              {annotation.tags.length > 0 ? ` · 标签：${annotation.tags.join(", ")}` : ""}
+                              {unresolved ? " · 未定位" : ""}
+                            </p>
+                            <button
+                              type="button"
+                              className="readerToolbarBtn"
+                              disabled={mutationPending}
+                              onClick={() => beginAnnotationEdit(annotation)}
+                            >
+                              编辑标注
+                            </button>
+                            <button
+                              type="button"
+                              className="readerToolbarBtn"
+                              disabled={mutationPending}
+                              onClick={() => void removeAnnotation(annotation)}
+                            >
+                              删除标注
+                            </button>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             ) : null}
           </aside>
         ) : null}
@@ -1255,48 +1762,10 @@ export function FocusedArticleReader({
             type="button"
             onMouseDown={(event) => event.preventDefault()}
             onPointerDown={(event) => event.preventDefault()}
-            onClick={() => {
-              const text = selectedText.trim();
-              if (!text) return;
-              const tags = highlightTags
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean);
-              const saveRevision = selectionRevision;
-              const save = () => {
-                void createArticleAnnotation(article.id, {
-                  content: text,
-                  selectedText: text,
-                  type: "annotation",
-                  color: highlightColor,
-                  tags,
-                  anchor: settledAnchor ?? undefined,
-                })
-                  .then((created) => {
-                    // A server response can outlive the selection that created it;
-                    // only the still-current revision may update the rendered article
-                    // and selection-owned UI; the persisted result returns on reload.
-                    if (selectionRevisionRef.current !== saveRevision) return;
-                    setAnnotations((current) => [created, ...current]);
-                    setAnnotationSaveError(null);
-                    retryAnnotationSaveRef.current = null;
-                    retryAnnotationSelectionRevisionRef.current = null;
-                    emitToast({ title: "已保存划线", variant: "success" });
-                    clearSelection();
-                  })
-                  .catch((error: unknown) => {
-                    if (selectionRevisionRef.current !== saveRevision) return;
-                    const message = error instanceof Error ? error.message : "划线保存失败";
-                    setAnnotationSaveError(message);
-                    retryAnnotationSaveRef.current = save;
-                    retryAnnotationSelectionRevisionRef.current = saveRevision;
-                    emitToast({ title: "划线保存失败", body: message, variant: "error" });
-                  });
-              };
-              save();
-            }}
+            disabled={pendingSelectionCreateSeq != null}
+            onClick={() => void saveSelectedTextAnnotation()}
           >
-            保存划线
+            {pendingSelectionCreateSeq != null ? "保存中…" : "保存划线"}
           </button>
           {annotationSaveError ? (
             <p className="adminConsoleError" role="alert">
@@ -1306,10 +1775,25 @@ export function FocusedArticleReader({
                 className="readerToolbarBtn"
                 onMouseDown={(event) => event.preventDefault()}
                 onPointerDown={(event) => event.preventDefault()}
+                disabled={pendingSelectionCreateSeq != null}
                 onClick={() => retryAnnotationSaveRef.current?.()}
               >
-                重试保存
+                {pendingSelectionCreateSeq != null ? "保存中…" : "重试保存"}
               </button>
+              {retrySelectionSubmission ? (
+                <button
+                  type="button"
+                  className="readerToolbarBtn"
+                  onClick={() => {
+                    removeAnnotationCreateJournalEntry(retrySelectionSubmission);
+                    setRetrySelectionSubmission(null);
+                    retryAnnotationSaveRef.current = null;
+                    setAnnotationSaveError(null);
+                  }}
+                >
+                  放弃原提交
+                </button>
+              ) : null}
             </p>
           ) : null}
         </div>

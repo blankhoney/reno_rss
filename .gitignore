@@ -14,8 +14,6 @@ backup/
 .vscode/
 .understand-anything/
 .superpowers/
-AGENTS.md
-docs/
 blog-drafts/
 
 .DS_Store
@@ -34,4 +32,5 @@ playwright-report/
 test-results/
 
 # Local skill evaluation artifacts
+.agents/skills/*-workspace/
 .claude/skills/*-workspace/

@@ -203,15 +203,16 @@ git diff --check
 
 ## Deployment
 
-The current manual deployment workflows are request-only. GitHub loads their workflow YAML from the user-selected dispatch ref, but the request job does not checkout or execute target repository code, read deployment secrets, request an environment approval, SSH to a VPS, or execute `infra/scripts/deploy.sh` / `rollback.sh`. The trusted orchestrator that would consume these artifacts and perform secret-bearing deployment is not enabled, so creating a request does not deploy or roll back an environment; any future orchestrator must verify workflow-run/ref/artifact provenance first.
+The manual request workflows are request-only: they do not checkout target code, read deployment secrets, request an Environment approval, or SSH to a VPS. Their completed runs trigger `trusted-deploy.yml`, whose read-only verifier checks the allowlisted workflow/run/artifact, canonical image publication, and pinned current-main control plane before the Environment-gated job may execute one locked remote transaction. A request artifact or successful verify job alone is not runtime evidence.
 
-The normal staging path remains the `ci.yml` main-push path after checks and image publication. Do not use direct SSH or `infra/scripts/deploy.sh` / `rollback.sh` commands as a routine substitute for a request. Those commands are archived break-glass knowledge only and require separate incident authorization.
+The normal staging path is a manual `deploy-staging.yml` request for a full SHA already published by canonical main CI; a main push publishes but does not deploy. Do not use direct SSH or `infra/scripts/deploy.sh` / `rollback.sh` commands as a routine substitute. Those commands are archived break-glass knowledge only and require separate incident authorization.
 
 Manual request inputs:
 
-- `deploy-staging.yml` and `deploy-prod.yml`: `image_tag` plus the matching full 40-character lowercase `deploy_sha`.
+- `deploy-staging.yml`: `image_tag` plus the matching full 40-character lowercase `deploy_sha`.
+- `deploy-prod.yml`: those candidate fields plus three staging run IDs, rollback target, pinned control-plane SHA, and the exact release-record ref/digest.
 - `rollback.yml`: `env` (`staging` or `prod`), `image_tag`, and the matching full `deploy_sha`.
-- `image_tag` must be `sha-<7 lowercase hexadecimal characters>` and match the first seven characters of `deploy_sha`. `git_ref` is not accepted.
+- `image_tag` must be `sha-<full 40 lowercase hexadecimal characters>` and equal `sha-` plus the complete `deploy_sha`. `git_ref` is not accepted.
 
 Each request artifact uses the fixed `trusted-deploy-request/v1` schema with exactly `schema_version`, `request_type`, `environment`, `image_tag`, and `deploy_sha`. Fixed artifact names are `trusted-staging-deploy-request`, `trusted-production-deploy-request`, and `trusted-rollback-request`. The artifact is data and must not be executed.
 

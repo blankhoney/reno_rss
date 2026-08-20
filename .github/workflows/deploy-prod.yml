@@ -4,11 +4,39 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Immutable GHCR image tag, for example sha-abc1234"
+        description: "Immutable GHCR image tag, sha-<full 40-character commit SHA>"
         required: true
         type: string
       deploy_sha:
         description: "Full 40-character lowercase commit SHA for the image"
+        required: true
+        type: string
+      staging_receipt_run:
+        description: "Successful trusted staging receipt run for this SHA"
+        required: true
+        type: string
+      rollback_receipt_run:
+        description: "Successful rollback drill receipt run"
+        required: true
+        type: string
+      forward_receipt_run:
+        description: "Successful forward-after-rollback receipt run for this SHA"
+        required: true
+        type: string
+      rollback_target_sha:
+        description: "Full SHA restored during the rollback/forward drill"
+        required: true
+        type: string
+      release_record_ref:
+        description: "Pushed release record ref in the form <full SHA>:<path>"
+        required: true
+        type: string
+      release_record_digest:
+        description: "sha256 digest recorded for the pushed release record"
+        required: true
+        type: string
+      control_plane_sha:
+        description: "Pinned current-main control-plane SHA used by trusted verify"
         required: true
         type: string
 
@@ -26,6 +54,13 @@ jobs:
           DEPLOY_ENV: prod
           IMAGE_TAG: ${{ inputs.image_tag }}
           DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          STAGING_RECEIPT_RUN: ${{ inputs.staging_receipt_run }}
+          ROLLBACK_RECEIPT_RUN: ${{ inputs.rollback_receipt_run }}
+          FORWARD_RECEIPT_RUN: ${{ inputs.forward_receipt_run }}
+          ROLLBACK_TARGET_SHA: ${{ inputs.rollback_target_sha }}
+          RELEASE_RECORD_REF: ${{ inputs.release_record_ref }}
+          RELEASE_RECORD_DIGEST: ${{ inputs.release_record_digest }}
+          CONTROL_PLANE_SHA: ${{ inputs.control_plane_sha }}
         run: |
           set -euo pipefail
 
@@ -33,13 +68,38 @@ jobs:
             echo "deploy_sha must be a full 40-character lowercase commit SHA" >&2
             exit 1
           }
-          [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{7}$ ]] || {
-            echo "image_tag must match the immutable sha-<7 lowercase hex> format" >&2
+          [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{40}$ ]] || {
+            echo "image_tag must match the immutable sha-<40 lowercase hex> format" >&2
             exit 1
           }
-          expected_tag="sha-${DEPLOY_SHA:0:7}"
+          expected_tag="sha-${DEPLOY_SHA}"
           [[ "$IMAGE_TAG" == "$expected_tag" ]] || {
-            echo "image_tag must match the first seven characters of deploy_sha" >&2
+            echo "image_tag must equal deploy_sha" >&2
+            exit 1
+          }
+
+          [[ "$STAGING_RECEIPT_RUN" =~ ^[1-9][0-9]*$ ]] || {
+            echo "staging_receipt_run must be a positive workflow run ID" >&2
+            exit 1
+          }
+          [[ "$ROLLBACK_RECEIPT_RUN" =~ ^[1-9][0-9]*$ && "$FORWARD_RECEIPT_RUN" =~ ^[1-9][0-9]*$ ]] || {
+            echo "rollback/forward receipt runs must be positive workflow run IDs" >&2
+            exit 1
+          }
+          [[ "$ROLLBACK_TARGET_SHA" =~ ^[0-9a-f]{40}$ && "$ROLLBACK_TARGET_SHA" != "$DEPLOY_SHA" ]] || {
+            echo "rollback_target_sha must be a different full SHA" >&2
+            exit 1
+          }
+          [[ "$RELEASE_RECORD_REF" =~ ^[0-9a-f]{40}:[A-Za-z0-9._/-]+$ ]] || {
+            echo "release_record_ref must bind a full SHA to a repository path" >&2
+            exit 1
+          }
+          [[ "$RELEASE_RECORD_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "release_record_digest must be a sha256 digest" >&2
+            exit 1
+          }
+          [[ "$CONTROL_PLANE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "control_plane_sha must be a full SHA" >&2
             exit 1
           }
 
@@ -58,10 +118,36 @@ jobs:
               deploy_sha: $deploy_sha
             }' > "$request_file"
 
+          jq -n \
+            --arg schema_version "trusted-production-promotion/v1" \
+            --arg operation_sha "$DEPLOY_SHA" \
+            --arg staging_run "$STAGING_RECEIPT_RUN" \
+            --arg rollback_run "$ROLLBACK_RECEIPT_RUN" \
+            --arg forward_run "$FORWARD_RECEIPT_RUN" \
+            --arg rollback_target "$ROLLBACK_TARGET_SHA" \
+            --arg release_ref "$RELEASE_RECORD_REF" \
+            --arg release_digest "$RELEASE_RECORD_DIGEST" \
+            --arg control_plane "$CONTROL_PLANE_SHA" \
+            '{schema_version: $schema_version, operation_sha: $operation_sha, control_plane_sha: $control_plane,
+              staging_receipt: {workflow_run: ($staging_run|tonumber), status: "success"},
+              rollback_receipt: {workflow_run: ($rollback_run|tonumber), status: "success"},
+              forward_receipt: {workflow_run: ($forward_run|tonumber), status: "success"},
+              rollback_target_sha: $rollback_target,
+              release_record: {ref: $release_ref, digest: $release_digest, provenance: true}}' \
+            > trusted-production-promotion-proof.json
+
       - name: Upload trusted deploy request
         uses: actions/upload-artifact@v4
         with:
           name: trusted-production-deploy-request
           path: trusted-deploy-request.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload trusted production promotion proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusted-production-promotion-proof
+          path: trusted-production-promotion-proof.json
           if-no-files-found: error
           retention-days: 7

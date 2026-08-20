@@ -1,14 +1,14 @@
 """Static regression locks for the GitHub Actions CI delivery boundary."""
 
-import base64
 import copy
+import base64
+import hashlib
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
 import re
-import shutil
 import stat
 import struct
 import subprocess
@@ -21,12 +21,6 @@ import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 CI_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/ci.yml"
-REMOTE_DEPLOY_SCRIPT = REPOSITORY_ROOT / ".github/scripts/remote-deploy.sh"
-VALIDATE_DEPLOY_ENV_SCRIPT = REPOSITORY_ROOT / ".github/scripts/validate-deploy-env.sh"
-MAIN_1_SHA = "1" * 40
-MAIN_2_SHA = "2" * 40
-FORK_SHA = "f" * 40
-MISSING_SHA = "9" * 40
 
 
 def _load_workflow(path: Path) -> dict[str, Any]:
@@ -53,210 +47,6 @@ def _load_workflow(path: Path) -> dict[str, Any]:
     return document
 
 
-def _write_executable(path: Path, source: str) -> None:
-    path.write_text(source, encoding="utf-8")
-    path.chmod(0o700)
-
-
-def _remote_deploy_harness(
-    tmp_path: Path,
-    *,
-    deploy_ref: str = "main",
-    deploy_sha: str = MAIN_2_SHA,
-    main_tip: str = MAIN_2_SHA,
-    shallow_repository: str = "false",
-    dirty_output: str = "",
-    merge_base_exit: int | None = None,
-    fetch_exit: int = 0,
-    fetch_creates_grafts: bool = False,
-    docker_exit: int = 0,
-    chmod_exit: int = 0,
-    image_tag: str | None = None,
-    grafts_content: str = "",
-) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path, list[str]]:
-    case_dir = tmp_path / f"remote-{docker_exit}-{chmod_exit}-{fetch_exit}"
-    case_dir.mkdir()
-    fake_bin = case_dir / "bin"
-    fake_bin.mkdir()
-    docker_log = case_dir / "docker-log"
-    gate_log = case_dir / "gate-log"
-    git_log = case_dir / "git-log"
-    mktemp_log = case_dir / "mktemp-log"
-    app_dir = case_dir / "app"
-    grafts_path = app_dir / ".git/info/grafts"
-    grafts_path.parent.mkdir(parents=True)
-    if grafts_content:
-        grafts_path.write_text(grafts_content, encoding="utf-8")
-    (app_dir / "infra/scripts").mkdir(parents=True)
-    _write_executable(
-        app_dir / "infra/scripts/deploy.sh",
-        "#!/usr/bin/env bash\nprintf '%s\\n' deploy >> \"$GATE_LOG\"\nexit 0\n",
-    )
-    _write_executable(
-        app_dir / "infra/scripts/smoke-test.sh",
-        "#!/usr/bin/env bash\nprintf '%s\\n' smoke >> \"$GATE_LOG\"\nexit 0\n",
-    )
-
-    real_mktemp = shutil.which("mktemp")
-    real_chmod = shutil.which("chmod")
-    assert real_mktemp is not None
-    assert real_chmod is not None
-    _write_executable(
-        fake_bin / "mktemp",
-        """#!/usr/bin/env bash
-set -euo pipefail
-path="$($REAL_MKTEMP \"$@\")"
-printf '%s\\n' \"$path\" >> \"$MKTEMP_LOG\"
-printf '%s\\n' \"$path\"
-""",
-    )
-    _write_executable(
-        fake_bin / "chmod",
-        """#!/usr/bin/env bash
-set -euo pipefail
-if [[ \"${FAKE_CHMOD_EXIT:-0}\" != 0 ]]; then
-    exit \"$FAKE_CHMOD_EXIT\"
-fi
-exec \"$REAL_CHMOD\" \"$@\"
-""",
-    )
-    _write_executable(
-        fake_bin / "docker",
-        """#!/usr/bin/env bash
-set -euo pipefail
-if [[ -n "${GHCR_TOKEN_B64+x}" || -n "${ghcr_token_b64+x}" ]]; then
-    exit 97
-fi
-mode="$(python3 -c 'import os,sys; print(format(os.stat(sys.argv[1]).st_mode & 0o777, "03o"))' "$DOCKER_CONFIG")"
-token="$(cat)"
-[[ "$token" == "$EXPECTED_DOCKER_TOKEN" ]] || exit 98
-printf '%s\\n%s\\n' "$DOCKER_CONFIG" "$mode" > "$DOCKER_LOG"
-printf '{"auths":{}}\\n' > "$DOCKER_CONFIG/config.json"
-exit "${DOCKER_EXIT:-0}"
-""",
-    )
-    _write_executable(
-        fake_bin / "git",
-        """#!/usr/bin/env bash
-set -euo pipefail
-token_state=absent
-docker_auth_state=absent
-if [[ -n "${GHCR_TOKEN_B64+x}" || -n "${ghcr_token_b64+x}" ]]; then
-    token_state=present
-fi
-if [[ -e "$DOCKER_CONFIG/config.json" ]]; then
-    docker_auth_state=present
-fi
-[[ "$token_state" == absent ]]
-[[ "$docker_auth_state" == absent ]]
-[[ "${GIT_NO_REPLACE_OBJECTS:-}" == 1 ]]
-printf 'token=%s docker-auth=%s no-replace=%s | %s\\n' \
-    "$token_state" "$docker_auth_state" "${GIT_NO_REPLACE_OBJECTS:-unset}" "$*" >> "$GIT_LOG"
-if [[ "${1:-}" == "--no-replace-objects" ]]; then
-    shift
-fi
-case "$1" in
-    status)
-        printf '%s' "$DIRTY_OUTPUT"
-        ;;
-    fetch)
-        if [[ "$FETCH_EXIT" != 0 ]]; then
-            exit "$FETCH_EXIT"
-        fi
-        if [[ "$FETCH_CREATES_GRAFTS" == 1 ]]; then
-            printf '%s %s\\n' "$MAIN_TIP" "$FORK_SHA" > "$GRAFTS_PATH"
-        fi
-        ;;
-    rev-parse)
-        case "${2:-}" in
-            --git-path)
-                [[ "${3:-}" == "info/grafts" ]] || exit 1
-                printf '%s\\n' "$GRAFTS_PATH"
-                ;;
-            --is-shallow-repository) printf '%s\\n' "$SHALLOW_REPOSITORY" ;;
-            --verify)
-                [[ "${3:-}" == "refs/remotes/origin/main^{commit}" ]] || exit 1
-                printf '%s\\n' "$MAIN_TIP"
-                ;;
-            *) exit 1 ;;
-        esac
-        ;;
-    cat-file)
-        [[ "${2:-}" == "-e" ]] || exit 1
-        requested="${3:0:40}"
-        [[ "${3:-}" == "$requested^{commit}" ]] || exit 1
-        case "$requested" in
-            "$MAIN_1_SHA"|"$MAIN_2_SHA"|"$FORK_SHA") exit 0 ;;
-            *) exit 1 ;;
-        esac
-        ;;
-    merge-base)
-        if [[ -n "$MERGE_BASE_EXIT" ]]; then
-            exit "$MERGE_BASE_EXIT"
-        fi
-        if [[ "${3:-}" == "${4:-}" ]]; then
-            exit 0
-        fi
-        if [[ "${3:-}" == "$MAIN_1_SHA" && "${4:-}" == "$MAIN_2_SHA" ]]; then
-            exit 0
-        fi
-        exit 1
-        ;;
-    checkout)
-        case "${3:-}" in
-            "$MAIN_1_SHA"|"$MAIN_2_SHA"|"$FORK_SHA") exit 0 ;;
-            *) exit 1 ;;
-        esac
-        ;;
-    *) exit 1 ;;
-esac
-""",
-    )
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "PATH": f"{fake_bin}:{env['PATH']}",
-            "REAL_MKTEMP": real_mktemp,
-            "REAL_CHMOD": real_chmod,
-            "MKTEMP_LOG": str(mktemp_log),
-            "DOCKER_LOG": str(docker_log),
-            "DOCKER_EXIT": str(docker_exit),
-            "EXPECTED_DOCKER_TOKEN": "test-ghcr-token",
-            "FAKE_CHMOD_EXIT": str(chmod_exit),
-            "DEPLOY_ENV": "staging",
-            "DEPLOY_REF": deploy_ref,
-            "DEPLOY_SHA": deploy_sha,
-            "MAIN_TIP": main_tip,
-            "MAIN_1_SHA": MAIN_1_SHA,
-            "MAIN_2_SHA": MAIN_2_SHA,
-            "FORK_SHA": FORK_SHA,
-            "MERGE_BASE_EXIT": "" if merge_base_exit is None else str(merge_base_exit),
-            "SHALLOW_REPOSITORY": shallow_repository,
-            "DIRTY_OUTPUT": dirty_output,
-            "FETCH_EXIT": str(fetch_exit),
-            "FETCH_CREATES_GRAFTS": "1" if fetch_creates_grafts else "0",
-            "GRAFTS_PATH": str(grafts_path),
-            "GIT_LOG": str(git_log),
-            "GATE_LOG": str(gate_log),
-            "IMAGE_REGISTRY": "ghcr.io/example/project",
-            "IMAGE_TAG": image_tag or f"sha-{deploy_sha[:7]}",
-            "VPS_APP_DIR": str(app_dir),
-            "GHCR_USERNAME": "ghcr-user",
-            "GHCR_TOKEN_B64": base64.b64encode(b"test-ghcr-token").decode("ascii"),
-            "ghcr_token_b64": "must-not-remain-exported",
-        }
-    )
-    result = subprocess.run(
-        ["bash", str(REMOTE_DEPLOY_SCRIPT)],
-        cwd=REPOSITORY_ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    config_paths = mktemp_log.read_text(encoding="utf-8").splitlines()
-    return result, docker_log, gate_log, git_log, config_paths
 
 
 def _workflow_source() -> str:
@@ -292,17 +82,17 @@ def _paths_ignore_entries(source: str, event_name: str) -> list[str]:
     return [line.removeprefix("      - ").rstrip() for line in paths_match.group("entries").splitlines()]
 
 
-def test_pr_runs_checks_only_and_main_is_the_only_publish_deploy_boundary():
+def test_pr_runs_checks_only_and_ci_never_mutates_the_vps():
     source = _workflow_source()
 
     assert _job_condition(source, "images") == (
         "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     )
-    assert _job_condition(source, "deploy-staging") == (
-        "github.event_name == 'push' && github.ref == 'refs/heads/main'"
-    )
-    assert "github.event.pull_request.head.repo.full_name == github.repository" not in (
-        _job_block(source, "images") + _job_block(source, "deploy-staging")
+    assert "deploy-staging:" not in source
+    assert "ssh " not in source
+    assert "VPS_SSH_KEY" not in source
+    assert "github.event.pull_request.head.repo.full_name == github.repository" not in _job_block(
+        source, "images"
     )
 
 
@@ -319,9 +109,52 @@ def test_ci_concurrency_cancels_only_superseded_pr_runs():
 def test_ci_ignores_only_root_plans_and_docs_for_prs_and_main_pushes():
     source = _workflow_source()
 
-    assert _paths_ignore_entries(source, "pull_request") == ["PLANS.md", "docs/**"]
-    assert _paths_ignore_entries(source, "push") == ["PLANS.md", "docs/**"]
+    assert _paths_ignore_entries(source, "pull_request") == ["PLANS.md"]
+    assert _paths_ignore_entries(source, "push") == ["PLANS.md"]
+    assert "docs/**" not in source
+
+
+def test_release_record_commit_cannot_be_excluded_from_canonical_ci():
+    source = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "docs/**" not in source
+    assert "docs/releases" not in _paths_ignore_entries(source, "push")
     assert "**/*.md" not in source
+
+
+def test_playwright_matrix_install_is_bounded_diagnostic_and_complete():
+    workflow = _load_workflow(CI_WORKFLOW)
+    steps = workflow["jobs"]["checks"]["steps"]
+    dependencies = next(step for step in steps if step.get("name") == "Install Playwright system dependencies")
+    browsers = next(step for step in steps if step.get("name") == "Install Playwright browser matrix")
+    assert dependencies["timeout-minutes"] == 10
+    assert dependencies["run"] == "npx playwright install-deps chromium firefox webkit"
+    assert browsers["timeout-minutes"] == 20
+    assert browsers["env"]["PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT"] == "120000"
+    assert "timeout --signal=TERM --kill-after=30s 8m" in browsers["run"]
+    assert "npx playwright install chromium firefox webkit" in browsers["run"]
+    assert "for attempt in 1 2" in browsers["run"]
+    assert "exit 1" in browsers["run"]
+
+
+def test_shared_contract_linux_fixtures_are_prepared_bounded_and_serial():
+    workflow = _load_workflow(CI_WORKFLOW)
+    steps = workflow["jobs"]["checks"]["steps"]
+    prepare = next(
+        step for step in steps if step.get("name") == "Prepare shared-contract Linux fixture image"
+    )
+    contract = next(step for step in steps if step.get("name") == "Test shared VPS contract")
+    assert prepare["timeout-minutes"] == 6
+    assert prepare["run"] == (
+        "timeout --signal=TERM --kill-after=30s 5m docker pull node:22-bookworm"
+    )
+    assert contract["timeout-minutes"] == 15
+    assert "for test_file in" in contract["run"]
+    assert "Running bounded shared-contract fixture" in contract["run"]
+    assert "timeout --signal=TERM --kill-after=10s 2m" in contract["run"]
+    assert "node --test --test-concurrency=1" in contract["run"]
+    assert "shared-release-lock.test.mjs" in contract["run"]
+    assert "shared-release-bootstrap.test.mjs" in contract["run"]
+    assert "trusted-remote-transaction.test.mjs" in contract["run"]
 
 
 def test_request_workflows_have_strict_dispatch_inputs_and_no_target_ref():
@@ -335,6 +168,10 @@ def test_request_workflows_have_strict_dispatch_inputs_and_no_target_ref():
         inputs = dispatch["inputs"]
 
         expected_inputs = {"image_tag", "deploy_sha"}
+        if workflow_path.name == "deploy-prod.yml":
+            expected_inputs.update(
+                {"staging_receipt_run", "rollback_receipt_run", "forward_receipt_run", "rollback_target_sha", "release_record_ref", "release_record_digest", "control_plane_sha"}
+            )
         if workflow_path.name == "rollback.yml":
             expected_inputs.add("env")
         assert set(inputs) == expected_inputs
@@ -372,7 +209,12 @@ def test_request_workflows_emit_one_stable_data_schema():
         assert upload["uses"] == "actions/upload-artifact@v4"
         assert upload["with"]["if-no-files-found"] == "error"
         assert upload["with"]["retention-days"] == 7
-        assert set(validation["env"]) == {"REQUEST_TYPE", "DEPLOY_ENV", "IMAGE_TAG", "DEPLOY_SHA"}
+        expected_env = {"REQUEST_TYPE", "DEPLOY_ENV", "IMAGE_TAG", "DEPLOY_SHA"}
+        if workflow_path.name == "deploy-prod.yml":
+            expected_env.update(
+                {"STAGING_RECEIPT_RUN", "ROLLBACK_RECEIPT_RUN", "FORWARD_RECEIPT_RUN", "ROLLBACK_TARGET_SHA", "RELEASE_RECORD_REF", "RELEASE_RECORD_DIGEST", "CONTROL_PLANE_SHA"}
+            )
+        assert set(validation["env"]) == expected_env
         assert validation["env"]["IMAGE_TAG"] == "${{ inputs.image_tag }}"
         assert validation["env"]["DEPLOY_SHA"] == "${{ inputs.deploy_sha }}"
         assert "trusted-deploy-request/v1" in validation["run"]
@@ -413,7 +255,8 @@ def test_request_workflows_validate_inputs_without_shell_expression_injection():
         run_block = validation["run"]
         assert "${{ inputs." not in run_block
         assert '[[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]' in run_block
-        assert '[[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{7}$ ]]' in run_block
+        assert '[[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{40}$ ]]' in run_block
+        assert 'expected_tag="sha-${DEPLOY_SHA}"' in run_block
         assert '"$IMAGE_TAG" == "$expected_tag"' in run_block
         assert 'jq -n' in run_block
         assert '"$request_file"' in run_block
@@ -443,10 +286,10 @@ def test_request_workflows_have_no_privileged_steps_on_any_dispatch_ref():
         assert "environment" not in workflow
         job = workflow["jobs"]["request"]
         assert "environment" not in job
-        assert [step.get("uses") for step in job["steps"]] == [
-            None,
-            "actions/upload-artifact@v4",
-        ]
+        expected_uses = [None, "actions/upload-artifact@v4"]
+        if workflow_path.name == "deploy-prod.yml":
+            expected_uses.append("actions/upload-artifact@v4")
+        assert [step.get("uses") for step in job["steps"]] == expected_uses
         assert all(step.get("uses") not in forbidden_actions for step in job["steps"])
         source = workflow_path.read_text(encoding="utf-8")
         assert "packages: write" not in source
@@ -482,186 +325,15 @@ def test_request_jobs_do_not_gate_or_execute_target_branch_code():
         assert "if" not in job
         assert "environment" not in job
         assert job["runs-on"] == "ubuntu-latest"
-        assert [step["name"] for step in job["steps"]] == [
+        expected_steps = [
             "Validate request inputs",
             "Upload trusted deploy request"
             if workflow_path.name != "rollback.yml"
             else "Upload trusted rollback request",
         ]
-
-
-def test_remote_deploy_preserves_credential_and_git_boundary_contracts():
-    source = REMOTE_DEPLOY_SCRIPT.read_text(encoding="utf-8")
-
-    assert 'GHCR_TOKEN_B64:?GHCR_TOKEN_B64 is required' in source
-    assert 'ghcr_token_b64="$GHCR_TOKEN_B64"' in source
-    assert 'unset GHCR_TOKEN_B64' in source
-    assert 'export -n ghcr_token_b64' in source
-    assert 'printf \'%s\' "$ghcr_token_b64" | base64 --decode | docker login ghcr.io' in source
-    assert 'unset ghcr_token_b64' in source
-    assert 'GHCR_TOKEN"' not in source
-    assert 'docker_config_dir=""' in source
-    assert 'docker_config_dir="$(mktemp -d)"' in source
-    assert 'chmod 700 "$docker_config_dir"' in source
-    assert 'export DOCKER_CONFIG="$docker_config_dir"' in source
-    assert 'trap cleanup_docker_config EXIT' in source
-    assert "trap 'exit 129' HUP" in source
-    assert "trap 'exit 130' INT" in source
-    assert "trap 'exit 143' TERM" in source
-    assert 'trap - EXIT HUP INT TERM' in source
-    assert 'readonly DEPLOY_REF="refs/heads/main"' in source
-    assert 'readonly DEPLOY_REMOTE_REF="refs/remotes/origin/main"' in source
-    assert 'export GIT_NO_REPLACE_OBJECTS=1' in source
-    assert 'git --no-replace-objects rev-parse --git-path info/grafts' in source
-    assert '[[ -s "$grafts_path" ]]' in source
-    assert 'git --no-replace-objects fetch --no-tags origin "$DEPLOY_REF:$DEPLOY_REMOTE_REF"' in source
-    assert 'main_tip="$(git --no-replace-objects rev-parse --verify "$DEPLOY_REMOTE_REF^{commit}")"' in source
-    assert 'git --no-replace-objects cat-file -e "$DEPLOY_SHA^{commit}"' in source
-    assert 'git --no-replace-objects merge-base --is-ancestor "$DEPLOY_SHA" "$main_tip"' in source
-    assert 'git --no-replace-objects checkout --detach "$DEPLOY_SHA"' in source
-    assert "git rev-parse 'FETCH_HEAD^{commit}'" not in source
-    assert "refs/tags/release-" not in source
-    assert '[[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]' in source
-    assert '[[ ! "$IMAGE_TAG" =~ ^sha-[0-9a-f]{7}$ ]]' in source
-    assert 'expected_image_tag="sha-${DEPLOY_SHA:0:7}"' in source
-    assert '[[ "$IMAGE_TAG" != "$expected_image_tag" ]]' in source
-    assert source.index('unset GHCR_TOKEN_B64') < source.index(
-        'git --no-replace-objects status --porcelain'
-    )
-    assert source.index('git --no-replace-objects merge-base --is-ancestor') < source.index(
-        'git --no-replace-objects checkout --detach'
-    )
-    assert source.index('git --no-replace-objects checkout --detach') < source.index(
-        'docker login ghcr.io'
-    )
-    assert source.index('docker login ghcr.io') < source.index('run_gate "deploy')
-
-
-@pytest.mark.parametrize(
-    ("docker_exit", "chmod_exit", "expected_returncode"),
-    ((0, 0, 0), (23, 0, 23), (0, 23, 23)),
-)
-def test_remote_deploy_cleans_docker_config_on_success_and_failures(
-    tmp_path, docker_exit, chmod_exit, expected_returncode
-):
-    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
-        tmp_path,
-        docker_exit=docker_exit,
-        chmod_exit=chmod_exit,
-    )
-
-    assert result.returncode == expected_returncode
-    assert len(config_paths) == 1
-    assert not Path(config_paths[0]).exists()
-    if chmod_exit == 0:
-        docker_log_lines = docker_log.read_text(encoding="utf-8").splitlines()
-        assert docker_log_lines == [config_paths[0], "700"]
-        git_log_lines = git_log.read_text(encoding="utf-8").splitlines()
-        assert git_log_lines[-1].endswith(f"checkout --detach {MAIN_2_SHA}")
-        assert all(
-            line.startswith("token=absent docker-auth=absent no-replace=1 | ")
-            for line in git_log_lines
-        )
-    else:
-        assert not docker_log.exists()
-        assert not git_log.exists()
-
-    if docker_exit == 0 and chmod_exit == 0:
-        assert gate_log.read_text(encoding="utf-8").splitlines() == ["deploy", "smoke"]
-    else:
-        assert not gate_log.exists()
-
-
-def test_remote_deploy_uses_canonical_main_ref_and_accepts_main_tip(tmp_path):
-    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
-        tmp_path,
-        deploy_ref="refs/tags/release-attacker-selected",
-        deploy_sha=MAIN_2_SHA,
-        main_tip=MAIN_2_SHA,
-    )
-
-    assert result.returncode == 0
-    assert docker_log.exists()
-    assert gate_log.read_text(encoding="utf-8").splitlines() == ["deploy", "smoke"]
-    security_prefix = "token=absent docker-auth=absent no-replace=1 | "
-    git_prefix = "--no-replace-objects "
-    assert git_log.read_text(encoding="utf-8").splitlines() == [
-        security_prefix + git_prefix + "status --porcelain --untracked-files=all",
-        security_prefix + git_prefix + "rev-parse --git-path info/grafts",
-        security_prefix + git_prefix + "rev-parse --is-shallow-repository",
-        security_prefix
-        + git_prefix
-        + "fetch --no-tags origin refs/heads/main:refs/remotes/origin/main",
-        security_prefix + git_prefix + "rev-parse --git-path info/grafts",
-        security_prefix
-        + git_prefix
-        + "rev-parse --verify refs/remotes/origin/main^{commit}",
-        security_prefix + git_prefix + f"cat-file -e {MAIN_2_SHA}^{{commit}}",
-        security_prefix
-        + git_prefix
-        + f"merge-base --is-ancestor {MAIN_2_SHA} {MAIN_2_SHA}",
-        security_prefix + git_prefix + f"checkout --detach {MAIN_2_SHA}",
-    ]
-    assert all(not Path(path).exists() for path in config_paths)
-
-
-def test_remote_deploy_accepts_an_old_main_ancestor_for_rollback(tmp_path):
-    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
-        tmp_path,
-        deploy_sha=MAIN_1_SHA,
-        main_tip=MAIN_2_SHA,
-    )
-
-    assert result.returncode == 0
-    assert docker_log.exists()
-    assert gate_log.read_text(encoding="utf-8").splitlines() == ["deploy", "smoke"]
-    git_commands = git_log.read_text(encoding="utf-8").splitlines()
-    assert any(
-        command.endswith(f"merge-base --is-ancestor {MAIN_1_SHA} {MAIN_2_SHA}")
-        for command in git_commands
-    )
-    assert any(command.endswith(f"checkout --detach {MAIN_1_SHA}") for command in git_commands)
-    assert all(not Path(path).exists() for path in config_paths)
-
-
-@pytest.mark.parametrize(
-    ("options", "message"),
-    (
-        ({"dirty_output": " M infra/scripts/deploy.sh\\n"}, "worktree is dirty"),
-        ({"shallow_repository": "true"}, "shallow VPS repository"),
-        ({"deploy_sha": MISSING_SHA}, "commit object is missing"),
-        ({"deploy_sha": FORK_SHA}, "not an ancestor"),
-        (
-            {"deploy_sha": FORK_SHA, "merge_base_exit": 128},
-            "unable to verify DEPLOY_SHA ancestry",
-        ),
-        ({"fetch_exit": 23}, ""),
-        (
-            {"grafts_content": f"{MAIN_2_SHA} {FORK_SHA}\\n"},
-            "legacy Git grafts are not allowed",
-        ),
-        (
-            {"fetch_creates_grafts": True},
-            "legacy Git grafts are not allowed",
-        ),
-    ),
-)
-def test_remote_deploy_rejects_untrusted_git_states_before_login_or_deploy(
-    tmp_path, options, message
-):
-    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
-        tmp_path,
-        main_tip=MAIN_2_SHA,
-        **options,
-    )
-
-    assert result.returncode != 0
-    if message:
-        assert message in result.stdout
-    assert not docker_log.exists()
-    assert not gate_log.exists()
-    assert "checkout --detach" not in git_log.read_text(encoding="utf-8")
-    assert all(not Path(path).exists() for path in config_paths)
+        if workflow_path.name == "deploy-prod.yml":
+            expected_steps.append("Upload trusted production promotion proof")
+        assert [step["name"] for step in job["steps"]] == expected_steps
 
 
 def test_git_replace_and_legacy_grafts_can_rewrite_ancestry_without_remote_gates(
@@ -740,49 +412,6 @@ def test_git_replace_and_legacy_grafts_can_rewrite_ancestry_without_remote_gates
     )
 
 
-@pytest.mark.parametrize(
-    "image_tag",
-    ("latest", "prod-current", "sha-bbbbbbb", "main-aaaaaaa"),
-)
-def test_remote_deploy_rejects_mutable_or_mismatched_image_tags_before_git_or_login(
-    tmp_path, image_tag
-):
-    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
-        tmp_path,
-        deploy_sha="a" * 40,
-        image_tag=image_tag,
-    )
-
-    assert result.returncode != 0
-    assert "IMAGE_TAG" in result.stdout
-    assert not docker_log.exists()
-    assert not gate_log.exists()
-    assert not git_log.exists()
-    assert all(not Path(path).exists() for path in config_paths)
-
-
-@pytest.mark.parametrize("deploy_sha", ("a" * 39, "A" * 40, "g" * 40))
-def test_remote_deploy_rejects_invalid_deploy_sha_before_git_or_login(tmp_path, deploy_sha):
-    result, docker_log, gate_log, git_log, config_paths = _remote_deploy_harness(
-        tmp_path,
-        deploy_sha=deploy_sha,
-        image_tag="sha-aaaaaaa",
-    )
-
-    assert result.returncode != 0
-    assert "40-character lowercase commit SHA" in result.stdout
-    assert not docker_log.exists()
-    assert not gate_log.exists()
-    assert not git_log.exists()
-    assert all(not Path(path).exists() for path in config_paths)
-
-
-def test_deploy_validation_requires_known_hosts_secret():
-    source = VALIDATE_DEPLOY_ENV_SCRIPT.read_text(encoding="utf-8")
-
-    assert '"VPS_KNOWN_HOSTS:VPS_KNOWN_HOSTS"' in source
-
-
 VALIDATE_TRUSTED_REQUEST_SCRIPT = (
     REPOSITORY_ROOT / ".github/scripts/validate-trusted-deploy-request.py"
 )
@@ -803,7 +432,7 @@ def _valid_trusted_request(
         "schema_version": "trusted-deploy-request/v1",
         "request_type": request_type,
         "environment": environment or ("staging" if request_type == "deploy" else "prod"),
-        "image_tag": "sha-aaaaaaa",
+        "image_tag": f"sha-{deploy_sha}",
         "deploy_sha": deploy_sha,
     }
 
@@ -932,12 +561,12 @@ def test_trusted_request_validator_accepts_deploy_and_rollback_and_normalizes_ou
         (
             "bad-tag",
             {**_valid_trusted_request(), "image_tag": "sha-zzzzzzz"},
-            "image_tag must use the sha-<7 lowercase hexadecimal> format",
+            "image_tag must use the sha-<40 lowercase hexadecimal> format",
         ),
         (
             "mismatch",
             {**_valid_trusted_request(), "deploy_sha": "b" * 40},
-            "image_tag must match the deploy_sha prefix",
+            "image_tag must equal deploy_sha",
         ),
         (
             "control-character",
@@ -1296,7 +925,7 @@ def _valid_image_publication(*, run_attempt: str = "1") -> dict[str, Any]:
     }
 
 
-def test_ci_publishes_full_sha_and_legacy_alias_without_switching_staging():
+def test_ci_publishes_full_sha_and_never_executes_a_deployment():
     workflow = _load_workflow(CI_WORKFLOW)
     images = workflow["jobs"]["images"]
     meta = next(step for step in images["steps"] if step.get("id") == "meta")
@@ -1315,11 +944,7 @@ def test_ci_publishes_full_sha_and_legacy_alias_without_switching_staging():
     assert images["outputs"]["canonical_image_tag"] == (
         "${{ steps.meta.outputs.canonical_image_tag }}"
     )
-    deploy = workflow["jobs"]["deploy-staging"]
-    deploy_step = next(step for step in deploy["steps"] if step.get("name") == "Deploy staging on VPS")
-    assert deploy_step["env"]["IMAGE_TAG"] == "${{ needs.images.outputs.image_tag }}"
-    assert "canonical_image_tag" not in deploy_step["env"]
-    assert not any(key.endswith("DIGEST") for key in deploy_step["env"])
+    assert "deploy-staging" not in workflow["jobs"]
 
 
 def test_ci_publication_uses_push_digests_and_checks_oci_revision_before_upload():
@@ -1575,8 +1200,136 @@ TRUSTED_REQUEST_RUN_ID = 8001
 TRUSTED_REQUEST_WORKFLOW_ID = 8101
 TRUSTED_CI_WORKFLOW_ID = 8199
 TRUSTED_CI_RUN_ID = 8201
+TRUSTED_CI_RUN_ATTEMPT = 2
 TRUSTED_TARGET_SHA = "a" * 40
 TRUSTED_REQUEST_HEAD_SHA = "b" * 40
+
+
+def _promotion_receipt(
+    phase: str, operation_sha: str, workflow_run: int, pre_runtime_sha: str
+) -> dict[str, Any]:
+    receipt: dict[str, Any] = {
+        "contractVersion": 1,
+        "owner": {"project": "rss", "repo": "blankhoney/reno_rss"},
+        "operation": {"fullSha": operation_sha},
+        "workflowRun": workflow_run,
+        "phase": phase,
+        "runtime": {
+            "fullSha": operation_sha if phase == "post-activation" else pre_runtime_sha
+        },
+        "timestamp": "2026-08-20T00:00:00Z",
+        "urls": [
+            {"name": "rss", "configuredURL": "https://ai-reader.blankhoney.xyz/", "status": 200,
+             "finalURL": "https://ai-reader.blankhoney.xyz/", "tls": True,
+             "redirect": {"required": True, "followed": True, "initialStatus": 302,
+                           "initialURL": "https://auth.blankhoney.xyz/login"}},
+            {"name": "blog", "configuredURL": "https://blog.blankhoney.xyz/zh", "status": 200,
+             "finalURL": "https://blog.blankhoney.xyz/zh", "tls": True,
+             "redirect": {"required": False, "followed": False, "initialStatus": 200,
+                           "initialURL": None}},
+        ],
+        "edge": {
+            "caddyContainer": "myrss-edge-caddy-1", "myrssAppAttached": True,
+            "brianstormEdgeAttached": True, "networkDriver": {"myrssApp": "bridge", "brianstormEdge": "bridge"},
+            "configLoaded": True, "rssUpstreamReachable": True, "blogUpstreamReachable": True,
+            "productionBlogWebAttachedToProductionEdge": True, "stagingWebAttachedToProductionEdge": False,
+        },
+    }
+    if phase in {"post-rollback", "post-compensation"}:
+        receipt["rollback"] = {
+            "rollbackFrom": pre_runtime_sha,
+            "target": operation_sha,
+        }
+        receipt["runtime"] = {
+            "fullSha": operation_sha if phase == "post-rollback" else pre_runtime_sha
+        }
+    return receipt
+
+
+def _promotion_receipt_zip(
+    operation_sha: str,
+    workflow_run: int,
+    *,
+    pre_runtime_sha: str,
+    rollback: bool = False,
+) -> bytes:
+    phases = (
+        ("pre-mutation", "pre-activation", "post-rollback")
+        if rollback
+        else ("pre-mutation", "pre-activation", "post-activation")
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for phase in phases:
+            archive.writestr(
+                f"{phase}.json",
+                json.dumps(
+                    _promotion_receipt(
+                        phase, operation_sha, workflow_run, pre_runtime_sha
+                    )
+                ),
+            )
+    return output.getvalue()
+
+
+def _production_release_record(
+    *,
+    operation_sha: str,
+    rollback_target_sha: str,
+    staging_run: int,
+    rollback_run: int,
+    forward_run: int,
+    publication_artifact_digest: str,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": "rss-production-release/v1",
+        "repository": TRUSTED_REPOSITORY,
+        "operationSha": operation_sha,
+        "canonicalCi": {
+            "workflowId": TRUSTED_CI_WORKFLOW_ID,
+            "runId": TRUSTED_CI_RUN_ID,
+            "runAttempt": TRUSTED_CI_RUN_ATTEMPT,
+            "publicationArtifactId": 8401,
+            "publicationArtifactDigest": publication_artifact_digest,
+            "imageTag": f"sha-{operation_sha}",
+            "images": copy.deepcopy(PUBLICATION_DIGESTS),
+        },
+        "staging": {"workflowRun": staging_run},
+        "rollback": {
+            "workflowRun": rollback_run,
+            "rollbackTargetSha": rollback_target_sha,
+        },
+        "forward": {"workflowRun": forward_run},
+        "plan": {
+            "backup": {
+                "required": True,
+                "timing": "before-compose-or-activation",
+                "verification": "sha256sum",
+            },
+            "migration": {
+                "strategy": "forward-only",
+                "gate": "verified-production-backup",
+            },
+            "rollback": {
+                "strategy": "runtime-state-guarded",
+                "probe": "post-rollback-or-compensation",
+            },
+        },
+    }
+
+
+def _trusted_image_publication() -> dict[str, Any]:
+    publication = _valid_image_publication(run_attempt=str(TRUSTED_CI_RUN_ATTEMPT))
+    publication.update(
+        {
+            "repository": TRUSTED_REPOSITORY,
+            "workflow_id": str(TRUSTED_CI_WORKFLOW_ID),
+            "run_id": str(TRUSTED_CI_RUN_ID),
+            "deploy_sha": TRUSTED_TARGET_SHA,
+            "image_tag": f"sha-{TRUSTED_TARGET_SHA}",
+        }
+    )
+    return publication
 
 
 def _trusted_workflow_allowlist(
@@ -1601,6 +1354,7 @@ def _trusted_workflow_allowlist(
                 "name": "deploy-prod",
                 "id": request_workflow_id,
                 "artifact": "trusted-production-deploy-request",
+                "promotion_artifact": "trusted-production-promotion-proof",
                 "request_type": "deploy",
                 "environment": "prod",
             },
@@ -1658,6 +1412,7 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
     }
     ci_run = {
         "id": TRUSTED_CI_RUN_ID,
+        "run_attempt": TRUSTED_CI_RUN_ATTEMPT,
         "workflow_id": TRUSTED_CI_WORKFLOW_ID,
         "path": ".github/workflows/ci.yml",
         "name": "ci",
@@ -1669,6 +1424,22 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
         "ref": "refs/heads/main",
         "repository": copy.deepcopy(repository),
         "head_repository": copy.deepcopy(repository),
+    }
+    publication_artifact = {
+        "id": 8401,
+        "name": (
+            f"trusted-image-publication-{TRUSTED_CI_RUN_ID}"
+            f"-attempt-{TRUSTED_CI_RUN_ATTEMPT}"
+        ),
+        "digest": f"sha256:{'e' * 64}",
+        "expired": False,
+        "workflow_run": {
+            "id": TRUSTED_CI_RUN_ID,
+            "repository_id": TRUSTED_REPOSITORY_ID,
+            "head_repository_id": TRUSTED_REPOSITORY_ID,
+            "head_branch": "main",
+            "head_sha": TRUSTED_TARGET_SHA,
+        },
     }
     workflows = {
         ".github/workflows/deploy-staging.yml": {
@@ -1699,6 +1470,7 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
             self.artifact = copy.deepcopy(artifact)
             self.workflows = copy.deepcopy(workflows)
             self.ci_run = copy.deepcopy(ci_run)
+            self.publication_artifact = copy.deepcopy(publication_artifact)
             self.jobs = [
                 {
                     "name": "build / push GHCR images",
@@ -1732,13 +1504,19 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
 
         def workflow_run_artifacts(self, repository_name, run_id):
             assert repository_name == TRUSTED_REPOSITORY
-            assert run_id == TRUSTED_REQUEST_RUN_ID
-            return {"artifacts": [copy.deepcopy(self.artifact)]}
+            if run_id == TRUSTED_REQUEST_RUN_ID:
+                return {"artifacts": [copy.deepcopy(self.artifact)]}
+            assert run_id == TRUSTED_CI_RUN_ID
+            return {"artifacts": [copy.deepcopy(self.publication_artifact)]}
 
         def artifact_zip(self, repository_name, artifact_id):
             assert repository_name == TRUSTED_REPOSITORY
-            assert artifact_id == self.artifact["id"]
-            return _trusted_request_zip(request)
+            if artifact_id == self.artifact["id"]:
+                return _trusted_request_zip(request)
+            assert artifact_id == self.publication_artifact["id"]
+            return _trusted_request_zip(
+                _trusted_image_publication(), member_name="trusted-image-publication.json"
+            )
 
         def workflow_runs(self, repository_name, workflow_id, head_sha):
             assert repository_name == TRUSTED_REPOSITORY
@@ -1751,10 +1529,14 @@ def _trusted_workflow_run_fixture() -> tuple[dict[str, Any], dict[str, Any], Any
             assert run_id == TRUSTED_CI_RUN_ID
             return {"jobs": copy.deepcopy(self.jobs)}
 
+        def main_tip(self, repository_name):
+            assert repository_name == TRUSTED_REPOSITORY
+            return TRUSTED_TARGET_SHA
+
     return event, _trusted_workflow_allowlist(), FakeApi()
 
 
-def test_trusted_verify_workflow_is_workflow_run_only_and_read_only():
+def test_trusted_workflow_verifies_read_only_then_executes_one_locked_transaction():
     workflow_path = REPOSITORY_ROOT / ".github/workflows/trusted-deploy.yml"
     workflow = _load_workflow(workflow_path)
     assert workflow["on"]["workflow_run"]["types"] == ["completed"]
@@ -1764,20 +1546,420 @@ def test_trusted_verify_workflow_is_workflow_run_only_and_read_only():
         "rollback",
     ]
     assert workflow["permissions"] == {"actions": "read", "contents": "read"}
-    job = workflow["jobs"]["verify"]
-    assert "environment" not in job
+    verify = workflow["jobs"]["verify"]
+    assert "environment" not in verify
+    assert verify["outputs"]["canonical_image_tag"] == (
+        "${{ steps.provenance.outputs.canonical_image_tag }}"
+    )
     source = workflow_path.read_text(encoding="utf-8")
     assert "workflow_dispatch" not in source
-    assert "secrets." not in source
-    assert "ssh " not in source
-    assert "docker login" not in source
-    checkout = job["steps"][0]
+    verify_source = "\\n".join(
+        step.get("run", "") for step in verify["steps"] if isinstance(step, dict)
+    )
+    assert "secrets." not in verify_source
+    assert "ssh " not in verify_source
+    assert "docker login" not in verify_source
+    checkout = verify["steps"][0]
     assert checkout["uses"] == "actions/checkout@v4"
     assert checkout["with"] == {
         "ref": "refs/heads/main",
         "persist-credentials": False,
         "fetch-depth": 1,
     }
+    execute = workflow["jobs"]["execute"]
+    assert execute["needs"] == "verify"
+    assert execute["environment"]["name"] == (
+        "${{ needs.verify.outputs.environment == 'prod' && 'production' || 'staging' }}"
+    )
+    transaction = next(
+        step for step in execute["steps"] if step.get("name") == "Execute one locked VPS transaction"
+    )
+    execute_env = transaction["env"]
+    shared_lock_env = {
+        key: value for key, value in execute_env.items() if key.startswith("SHARED_RELEASE_LOCK_")
+    }
+    assert shared_lock_env == {
+        "SHARED_RELEASE_LOCK_WRAPPER_SHA256": "${{ vars.SHARED_RELEASE_LOCK_WRAPPER_SHA256 }}",
+        "SHARED_RELEASE_LOCK_CORE_SHA256": "${{ vars.SHARED_RELEASE_LOCK_CORE_SHA256 }}",
+        "SHARED_RELEASE_LOCK_TRANSACTION_SHA256": (
+            "${{ vars.SHARED_RELEASE_LOCK_TRANSACTION_SHA256 }}"
+        ),
+    }
+    assert not any(
+        forbidden in execute_env
+        for forbidden in (
+            "SHARED_RELEASE_LOCK_ROOT",
+            "SHARED_RELEASE_LOCK_PATH",
+            "SHARED_RELEASE_LOCK_OWNER",
+            "SHARED_RELEASE_LOCK_GROUP",
+            "SHARED_RELEASE_LOCK_INHERITED_FD",
+            "SHARED_RELEASE_LOCK_CORE_FD",
+            "SHARED_RELEASE_LOCK_TOKEN",
+        )
+    )
+    run = transaction["run"]
+    assert "validate-known-hosts.sh" in run
+    assert "ssh-keyscan" not in run
+    assert ' -p "$VPS_PORT"' in run
+    assert "/usr/local/lib/reno-shared-vps/release-lock-v1/with-shared-release-lock.sh" in run
+    assert "trusted-remote-deploy.sh" in run
+    assert "build-trusted-deploy-bundle.sh" in run
+    assert '--request-type "$REQUEST_TYPE"' in run
+    assert 'CONTROL_PLANE_SHA="${{ needs.verify.outputs.control_plane_sha }}"' in run
+    assert '[[ "$CONTROL_PLANE_SHA" =~ ^[0-9a-f]{40}$ ]]' in run
+    assert '--control-plane-sha "$CONTROL_PLANE_SHA"' in run
+    assert 'tee "$ssh_stdout_file"' in run
+    assert "validate-trusted-shared-edge-receipts.py" in run
+    assert 'pipeline_status=("${PIPESTATUS[@]}")' in run
+    assert "receipt_expect=compensation" in run
+    assert 'chmod 600 "$ssh_stdout_file"' in run
+    assert 'mkdir -p "$(dirname "$receipt_dir")"' in run
+    assert 'remote_command="bash -c $(quote "$remote_preflight")"' in run
+    assert ' "$remote_command" | tee "$ssh_stdout_file"' in run
+    assert "SHARED_RELEASE_LOCK_INHERITED_FD" not in run
+    assert "SHARED_RELEASE_LOCK_ROOT" not in run
+    assert "flock " not in run
+    assert "scp " not in run
+    assert " bash -s" not in run
+    assert "/srv/brianstorm/" not in run
+    assert "/var/lib/reno-shared-vps/release.lock" not in run
+    upload = next(
+        step for step in execute["steps"] if step.get("name") == "Upload verified shared-edge receipts"
+    )
+    assert upload["uses"] == "actions/upload-artifact@v4"
+    assert upload["if"] == "always()"
+    assert upload["with"]["path"] == "output/evidence/trusted-shared-edge-receipts/"
+    assert upload["with"]["if-no-files-found"] == "warn"
+    assert upload["with"]["retention-days"] == 30
+    assert "ssh_stdout_file" not in upload["with"]["path"]
+
+
+def test_trusted_workflow_binds_execution_to_verified_control_plane_sha():
+    workflow_path = REPOSITORY_ROOT / ".github/workflows/trusted-deploy.yml"
+    workflow = _load_workflow(workflow_path)
+    verify = workflow["jobs"]["verify"]
+    execute = workflow["jobs"]["execute"]
+    assert verify["outputs"]["control_plane_sha"] == (
+        "${{ steps.provenance.outputs.control_plane_sha }}"
+    )
+    checkout = execute["steps"][0]
+    assert checkout["with"]["ref"] == "${{ needs.verify.outputs.control_plane_sha }}"
+    run = next(
+        step for step in execute["steps"] if step.get("name") == "Execute one locked VPS transaction"
+    )["run"]
+    assert 'CONTROL_PLANE_SHA="${{ needs.verify.outputs.control_plane_sha }}"' in run
+    assert 'CONTROL_PLANE_SHA="$(git rev-parse HEAD)"' not in run
+    assert '[[ "$(git rev-parse HEAD)" == "$CONTROL_PLANE_SHA" ]]' in run
+
+
+def test_production_request_requires_current_sha_promotion_evidence():
+    workflow = _load_workflow(REPOSITORY_ROOT / ".github/workflows/deploy-prod.yml")
+    inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+    for name in (
+        "staging_receipt_run",
+        "rollback_receipt_run",
+        "forward_receipt_run",
+        "rollback_target_sha",
+        "release_record_ref",
+        "release_record_digest",
+        "control_plane_sha",
+    ):
+        assert inputs[name]["required"] is True
+    source = (REPOSITORY_ROOT / ".github/workflows/deploy-prod.yml").read_text(encoding="utf-8")
+    assert "trusted-production-promotion/v1" in source
+    assert "staging_receipt_run" in source
+    assert "rollback_receipt_run" in source
+    assert "forward_receipt_run" in source
+    assert "release_record_ref" in source
+
+
+def _promotion_validation_fixture() -> tuple[dict[str, Any], Any, dict[str, Any]]:
+    operation = TRUSTED_TARGET_SHA
+    rollback_target = "b" * 40
+    control_plane = "c" * 40
+    runs = {"staging": 8302, "rollback": 8303, "forward": 8304}
+    artifact_ids = {8302: 8702, 8303: 8703, 8304: 8704}
+    publication_digest = f"sha256:{'e' * 64}"
+    record_object = _production_release_record(
+        operation_sha=operation,
+        rollback_target_sha=rollback_target,
+        staging_run=runs["staging"],
+        rollback_run=runs["rollback"],
+        forward_run=runs["forward"],
+        publication_artifact_digest=publication_digest,
+    )
+
+    class PromotionApi:
+        def __init__(self):
+            self.bad_path_run: int | None = None
+            self.failed_run: int | None = None
+            self.bad_archive_run: int | None = None
+            self.bad_head_sha_run: int | None = None
+            self.failed_control_plane_ci = False
+            self.record = copy.deepcopy(record_object)
+
+        def workflow_run(self, repository, run_id):
+            assert repository == TRUSTED_REPOSITORY
+            return {
+                "id": run_id,
+                "path": (
+                    "other.yml"
+                    if run_id == self.bad_path_run
+                    else ".github/workflows/trusted-deploy.yml"
+                ),
+                "name": "trusted-deploy",
+                "event": "workflow_run",
+                "head_branch": "main",
+                "head_sha": (
+                    "not-a-full-sha" if run_id == self.bad_head_sha_run else control_plane
+                ),
+                "status": "completed",
+                "conclusion": "failure" if run_id == self.failed_run else "success",
+                "repository": _trusted_repository_identity(),
+                "head_repository": _trusted_repository_identity(),
+            }
+
+        def workflow_run_artifacts(self, repository, run_id):
+            expected_operation = rollback_target if run_id == runs["rollback"] else operation
+            request_type = "rollback" if run_id == runs["rollback"] else "deploy"
+            return {
+                "artifacts": [
+                    {
+                        "id": artifact_ids[run_id],
+                        "name": (
+                            "trusted-shared-edge-receipts-staging-"
+                            f"{request_type}-{run_id}-{expected_operation}"
+                        ),
+                        "expired": False,
+                        "workflow_run": {
+                            "id": run_id,
+                            "head_sha": control_plane,
+                        },
+                    }
+                ]
+            }
+
+        def workflow_runs(self, repository, workflow_id, head_sha):
+            assert repository == TRUSTED_REPOSITORY
+            assert workflow_id == TRUSTED_CI_WORKFLOW_ID
+            assert head_sha == control_plane
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 8801,
+                        "workflow_id": TRUSTED_CI_WORKFLOW_ID,
+                        "path": ".github/workflows/ci.yml",
+                        "name": "ci",
+                        "event": "push",
+                        "head_branch": "main",
+                        "head_sha": control_plane,
+                        "status": "completed",
+                        "conclusion": "failure" if self.failed_control_plane_ci else "success",
+                        "repository": _trusted_repository_identity(),
+                        "head_repository": _trusted_repository_identity(),
+                    }
+                ]
+            }
+
+        def workflow_run_jobs(self, repository, run_id):
+            assert repository == TRUSTED_REPOSITORY
+            assert run_id == 8801
+            return {
+                "jobs": [
+                    {
+                        "name": "build / push GHCR images",
+                        "run_id": run_id,
+                        "workflow_name": "ci",
+                        "head_branch": "main",
+                        "head_sha": control_plane,
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ]
+            }
+
+        def artifact_zip(self, repository, artifact_id):
+            run_id = {value: key for key, value in artifact_ids.items()}[artifact_id]
+            if run_id == self.bad_archive_run:
+                return b"not-a-zip"
+            if run_id == runs["rollback"]:
+                return _promotion_receipt_zip(
+                    rollback_target,
+                    run_id,
+                    pre_runtime_sha=operation,
+                    rollback=True,
+                )
+            return _promotion_receipt_zip(
+                operation,
+                run_id,
+                pre_runtime_sha=rollback_target,
+            )
+
+        def repository_content(self, repository, path, ref):
+            assert repository == TRUSTED_REPOSITORY
+            assert path == f"docs/releases/{operation}.json"
+            assert ref == control_plane
+            record = json.dumps(self.record, sort_keys=True).encode()
+            return {"content": base64.b64encode(record).decode()}
+
+    api = PromotionApi()
+    record_bytes = json.dumps(api.record, sort_keys=True).encode()
+    proof = {
+        "schema_version": "trusted-production-promotion/v1",
+        "operation_sha": operation,
+        "control_plane_sha": control_plane,
+        "rollback_target_sha": rollback_target,
+        "staging_receipt": {"workflow_run": runs["staging"], "status": "success"},
+        "rollback_receipt": {"workflow_run": runs["rollback"], "status": "success"},
+        "forward_receipt": {"workflow_run": runs["forward"], "status": "success"},
+        "release_record": {
+            "ref": f"{control_plane}:docs/releases/{operation}.json",
+            "digest": f"sha256:{hashlib.sha256(record_bytes).hexdigest()}",
+            "provenance": True,
+        },
+    }
+    kwargs = {
+        "operation_sha": operation,
+        "control_plane_sha": control_plane,
+        "publication": _trusted_image_publication(),
+        "publication_run_id": TRUSTED_CI_RUN_ID,
+        "publication_run_attempt": TRUSTED_CI_RUN_ATTEMPT,
+        "publication_artifact_id": 8401,
+        "publication_artifact_digest": publication_digest,
+        "ci_workflow_id": TRUSTED_CI_WORKFLOW_ID,
+        "ci_workflow_path": ".github/workflows/ci.yml",
+        "ci_workflow_name": "ci",
+        "repository_id": TRUSTED_REPOSITORY_ID,
+        "api": api,
+        "repository": TRUSTED_REPOSITORY,
+    }
+    return proof, api, kwargs
+
+
+def _promotion_proof_zip(proof: dict[str, Any], *, extra_member: bool = False) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("trusted-production-promotion-proof.json", json.dumps(proof))
+        if extra_member:
+            archive.writestr("unexpected.json", "{}")
+    return output.getvalue()
+
+
+def test_production_promotion_validator_accepts_real_receipts_and_record():
+    proof, _, kwargs = _promotion_validation_fixture()
+    result = trusted_workflow_run_validator._promotion_proof(
+        _promotion_proof_zip(proof), **kwargs
+    )
+    assert result["operation_sha"] == TRUSTED_TARGET_SHA
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "duplicate-run",
+        "path",
+        "conclusion",
+        "receipt",
+        "receipt-runtime",
+        "record-digest",
+        "record-ci",
+        "record-plan",
+        "record-self-reference",
+        "record-ref",
+        "receipt-head-sha",
+        "receipt-control-plane-ci",
+        "extra-proof-member",
+    ),
+)
+def test_production_promotion_validator_rejects_tampered_evidence(mutation):
+    proof, api, kwargs = _promotion_validation_fixture()
+    extra_member = False
+    if mutation == "duplicate-run":
+        proof["forward_receipt"]["workflow_run"] = proof["staging_receipt"]["workflow_run"]
+    elif mutation == "path":
+        api.bad_path_run = proof["staging_receipt"]["workflow_run"]
+    elif mutation == "conclusion":
+        api.failed_run = proof["rollback_receipt"]["workflow_run"]
+    elif mutation == "receipt-head-sha":
+        api.bad_head_sha_run = proof["staging_receipt"]["workflow_run"]
+    elif mutation == "receipt-control-plane-ci":
+        api.failed_control_plane_ci = True
+    elif mutation == "receipt":
+        api.bad_archive_run = proof["forward_receipt"]["workflow_run"]
+    elif mutation == "receipt-runtime":
+        original = api.artifact_zip
+
+        def bad_receipt(repository, artifact_id):
+            if artifact_id == 8704:
+                return _promotion_receipt_zip(
+                    TRUSTED_TARGET_SHA,
+                    8304,
+                    pre_runtime_sha="d" * 40,
+                )
+            return original(repository, artifact_id)
+
+        api.artifact_zip = bad_receipt
+    elif mutation == "record-digest":
+        proof["release_record"]["digest"] = f"sha256:{'0' * 64}"
+    elif mutation == "record-ci":
+        api.record["canonicalCi"]["runId"] += 1
+        record_bytes = json.dumps(api.record, sort_keys=True).encode()
+        proof["release_record"]["digest"] = f"sha256:{hashlib.sha256(record_bytes).hexdigest()}"
+    elif mutation == "record-plan":
+        api.record["plan"]["backup"]["required"] = False
+        record_bytes = json.dumps(api.record, sort_keys=True).encode()
+        proof["release_record"]["digest"] = f"sha256:{hashlib.sha256(record_bytes).hexdigest()}"
+    elif mutation == "record-self-reference":
+        api.record["controlPlaneSha"] = "c" * 40
+        record_bytes = json.dumps(api.record, sort_keys=True).encode()
+        proof["release_record"]["digest"] = f"sha256:{hashlib.sha256(record_bytes).hexdigest()}"
+    elif mutation == "record-ref":
+        proof["release_record"]["ref"] = (
+            f"{'c' * 40}:docs/releases/not-the-candidate.json"
+        )
+    elif mutation == "extra-proof-member":
+        extra_member = True
+    with pytest.raises(trusted_workflow_run_validator.ProvenanceValidationError):
+        trusted_workflow_run_validator._promotion_proof(
+            _promotion_proof_zip(proof, extra_member=extra_member), **kwargs
+        )
+
+
+def test_shared_release_bootstrap_is_approved_bounded_and_has_no_remote_landing_zone():
+    workflow_path = REPOSITORY_ROOT / ".github/workflows/bootstrap-shared-release.yml"
+    workflow = _load_workflow(workflow_path)
+    assert workflow["permissions"] == {"contents": "read"}
+    dispatch = workflow["on"]["workflow_dispatch"]
+    assert dispatch["inputs"]["confirmation"]["required"] is True
+    job = workflow["jobs"]["install"]
+    assert job["environment"] == {"name": "production"}
+    validation = job["steps"][0]
+    assert validation["name"] == "Validate approved main invocation"
+    assert "refs/heads/main" in validation["run"]
+    assert "BOOTSTRAP_SHARED_RELEASE_V1" in validation["run"]
+    checkout = job["steps"][1]
+    assert checkout["with"] == {
+        "ref": "refs/heads/main",
+        "persist-credentials": False,
+        "fetch-depth": 1,
+    }
+    install = next(
+        step for step in job["steps"] if step.get("name") == "Install the canonical shared release helpers"
+    )
+    run = install["run"]
+    assert "bootstrap-shared-release-v1.sh" in run
+    assert "--bundle-stdin --create-group --add-sudo-user" in run
+    assert "with-shared-release-lock.sh" in run
+    assert "internal/shared-release-lock-core.sh" in run
+    assert "trusted-remote-deploy.sh" in run
+    assert ' -p "$VPS_PORT"' in run
+    assert "validate-known-hosts.sh" in run
+    assert "StrictHostKeyChecking=yes" in run
+    assert "ssh-keyscan" not in run
+    assert "scp " not in run
+    assert "/srv/brianstorm/" not in run
+    assert "/var/lib/reno-shared-vps/release.lock" not in run
+    assert "mktemp" not in run.split('remote_preflight="', 1)[1].split('"\n', 1)[0]
 
 
 def test_trusted_workflow_id_allowlist_fails_closed_when_ids_are_unregistered(tmp_path):
@@ -1816,11 +1998,21 @@ def test_trusted_provenance_accepts_bound_request_and_ci_publication():
         "verified": True,
         "request_type": "deploy",
         "environment": "staging",
-        "image_tag": "sha-aaaaaaa",
+        "image_tag": f"sha-{TRUSTED_TARGET_SHA}",
+        "canonical_image_tag": f"sha-{TRUSTED_TARGET_SHA}",
+        "control_plane_sha": TRUSTED_TARGET_SHA,
         "deploy_sha": TRUSTED_TARGET_SHA,
         "request_run_id": TRUSTED_REQUEST_RUN_ID,
         "artifact_id": 8301,
         "ci_run_id": TRUSTED_CI_RUN_ID,
+        "ci_run_attempt": TRUSTED_CI_RUN_ATTEMPT,
+        "publication_artifact_id": 8401,
+        "web_image_repository": "ghcr.io/example/project/ai-reader-web",
+        "web_image_digest": PUBLICATION_DIGESTS["web"],
+        "api_image_repository": "ghcr.io/example/project/ai-reader-api",
+        "api_image_digest": PUBLICATION_DIGESTS["api"],
+        "worker_image_repository": "ghcr.io/example/project/ai-reader-worker",
+        "worker_image_digest": PUBLICATION_DIGESTS["worker"],
     }
 
 
@@ -1836,6 +2028,31 @@ def test_trusted_provenance_allows_event_payload_without_optional_path():
         api=api,
     )
     assert result["verified"] is True
+
+
+def test_trusted_provenance_writes_canonical_image_and_digest_outputs(tmp_path):
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    result = trusted_workflow_run_validator.validate_provenance(
+        event=event,
+        allowlist=allowlist,
+        expected_repository=TRUSTED_REPOSITORY,
+        expected_repository_id=TRUSTED_REPOSITORY_ID,
+        orchestrator_ref="refs/heads/main",
+        api=api,
+    )
+    output_path = tmp_path / "github-output"
+    trusted_workflow_run_validator._write_outputs(output_path, result)
+    outputs = dict(
+        line.split("=", 1) for line in output_path.read_text(encoding="utf-8").splitlines()
+    )
+    assert outputs["deploy_sha"] == TRUSTED_TARGET_SHA
+    assert outputs["canonical_image_tag"] == f"sha-{TRUSTED_TARGET_SHA}"
+    assert outputs["ci_run_attempt"] == str(TRUSTED_CI_RUN_ATTEMPT)
+    for image_name in ("web", "api", "worker"):
+        assert outputs[f"{image_name}_image_repository"] == (
+            f"ghcr.io/example/project/ai-reader-{image_name}"
+        )
+        assert outputs[f"{image_name}_image_digest"] == PUBLICATION_DIGESTS[image_name]
 
 
 @pytest.mark.parametrize(
@@ -1901,6 +2118,22 @@ def _trusted_request_variant(
             },
         }
     )
+    api.promotion_artifact = {
+        "id": 8501,
+        "name": "trusted-production-promotion-proof",
+        "expired": False,
+        "workflow_run": {
+            "id": TRUSTED_REQUEST_RUN_ID,
+            "repository_id": TRUSTED_REPOSITORY_ID,
+            "head_repository_id": TRUSTED_REPOSITORY_ID,
+            "head_branch": "main",
+            "head_sha": TRUSTED_REQUEST_HEAD_SHA,
+        },
+    }
+    if workflow_name == "deploy-prod":
+        api.artifacts_for_request = [copy.deepcopy(api.artifact), copy.deepcopy(api.promotion_artifact)]
+    else:
+        api.artifacts_for_request = [copy.deepcopy(api.artifact)]
     request_workflow = {
         "id": TRUSTED_REQUEST_WORKFLOW_ID,
         "path": workflow_path,
@@ -1920,14 +2153,80 @@ def _trusted_request_variant(
             "name": "ci",
         },
     }
-    api.artifact_zip = lambda repository_name, artifact_id: _trusted_request_zip(
-        request,
-        member_name=(
-            "trusted-rollback-request.json"
-            if request_type == "rollback"
-            else "trusted-deploy-request.json"
-        ),
-    )
+    promotion_proof = None
+    promotion_api = None
+    if workflow_name == "deploy-prod":
+        promotion_proof, promotion_api, _ = _promotion_validation_fixture()
+
+    def artifact_zip(repository_name, artifact_id):
+        assert repository_name == TRUSTED_REPOSITORY
+        if artifact_id == api.artifact["id"]:
+            return _trusted_request_zip(
+                request,
+                member_name=(
+                    "trusted-rollback-request.json"
+                    if request_type == "rollback"
+                    else "trusted-deploy-request.json"
+                ),
+            )
+        if artifact_id == api.promotion_artifact["id"]:
+            assert promotion_proof is not None
+            return _promotion_proof_zip(promotion_proof)
+        if artifact_id in {8702, 8703, 8704}:
+            assert promotion_api is not None
+            return promotion_api.artifact_zip(repository_name, artifact_id)
+        assert artifact_id == api.publication_artifact["id"]
+        return _trusted_request_zip(
+            _trusted_image_publication(), member_name="trusted-image-publication.json"
+        )
+
+    api.artifact_zip = artifact_zip
+    def workflow_run_artifacts(repository_name, run_id):
+        assert repository_name == TRUSTED_REPOSITORY
+        if run_id == TRUSTED_REQUEST_RUN_ID:
+            return {"artifacts": copy.deepcopy(api.artifacts_for_request)}
+        if run_id == TRUSTED_CI_RUN_ID:
+            return {"artifacts": [copy.deepcopy(api.publication_artifact)]}
+        if run_id in {8302, 8303, 8304}:
+            assert promotion_api is not None
+            return promotion_api.workflow_run_artifacts(repository_name, run_id)
+        raise AssertionError(run_id)
+    api.workflow_run_artifacts = workflow_run_artifacts
+
+    if workflow_name == "deploy-prod":
+        assert promotion_api is not None
+        original_workflow_run = api.workflow_run
+        original_workflow_runs = api.workflow_runs
+        original_workflow_run_jobs = api.workflow_run_jobs
+        control_plane_sha = "c" * 40
+        control_plane_run_id = TRUSTED_CI_RUN_ID + 1
+
+        def workflow_run(repository_name, run_id):
+            if run_id in {8302, 8303, 8304}:
+                return promotion_api.workflow_run(repository_name, run_id)
+            return original_workflow_run(repository_name, run_id)
+
+        def workflow_runs(repository_name, workflow_id, head_sha):
+            if head_sha == control_plane_sha:
+                control_plane_run = copy.deepcopy(api.ci_run)
+                control_plane_run.update({"id": control_plane_run_id, "head_sha": control_plane_sha})
+                return {"workflow_runs": [control_plane_run]}
+            return original_workflow_runs(repository_name, workflow_id, head_sha)
+
+        def workflow_run_jobs(repository_name, run_id):
+            if run_id == control_plane_run_id:
+                control_plane_job = copy.deepcopy(api.jobs[0])
+                control_plane_job.update(
+                    {"run_id": control_plane_run_id, "head_sha": control_plane_sha}
+                )
+                return {"jobs": [control_plane_job]}
+            return original_workflow_run_jobs(repository_name, run_id)
+
+        api.main_tip = lambda repository_name: control_plane_sha
+        api.workflow_run = workflow_run
+        api.workflow_runs = workflow_runs
+        api.workflow_run_jobs = workflow_run_jobs
+        api.repository_content = promotion_api.repository_content
     return event, allowlist, api
 
 
@@ -2012,6 +2311,92 @@ def test_trusted_provenance_rejects_provenance_and_publication_failures(mutation
         api.jobs[0]["head_sha"] = "c" * 40
     elif mutation == "ci-job-status":
         api.jobs[0]["status"] = "in_progress"
+    with pytest.raises(trusted_workflow_run_validator.ProvenanceValidationError, match=message):
+        trusted_workflow_run_validator.validate_provenance(
+            event=event,
+            allowlist=allowlist,
+            expected_repository=TRUSTED_REPOSITORY,
+            expected_repository_id=TRUSTED_REPOSITORY_ID,
+            orchestrator_ref="refs/heads/main",
+            api=api,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("expired", "ci publication artifact must not be expired"),
+        ("wrong-artifact-run", "publication artifact.workflow_run.id mismatch"),
+        (
+            "duplicate",
+            "ci publication artifacts do not contain exactly one expected publication artifact",
+        ),
+        (
+            "different-attempt-artifact",
+            "ci publication artifacts do not contain exactly one expected publication artifact",
+        ),
+        ("workflow", "publication.workflow_id mismatch"),
+        ("run", "publication.run_id mismatch"),
+        ("attempt", "publication.run_attempt mismatch"),
+        ("sha", "publication.deploy_sha mismatch"),
+        ("tag", "ci publication artifact failed schema validation"),
+        ("digest", "ci publication artifact failed schema validation"),
+        ("archive-digest", "ci publication artifact digest is invalid"),
+    ),
+)
+def test_trusted_provenance_rejects_unbound_or_unsafe_ci_publication(
+    mutation, message
+):
+    event, allowlist, api = _trusted_workflow_run_fixture()
+    if mutation == "expired":
+        api.publication_artifact["expired"] = True
+    elif mutation == "wrong-artifact-run":
+        api.publication_artifact["workflow_run"]["id"] = TRUSTED_CI_RUN_ID + 1
+    elif mutation == "duplicate":
+        original_artifacts = api.workflow_run_artifacts
+        api.workflow_run_artifacts = lambda repository_name, run_id: (
+            {
+                "artifacts": [
+                    copy.deepcopy(api.publication_artifact),
+                    copy.deepcopy(api.publication_artifact),
+                ]
+            }
+            if run_id == TRUSTED_CI_RUN_ID
+            else original_artifacts(repository_name, run_id)
+        )
+    elif mutation == "different-attempt-artifact":
+        api.publication_artifact["name"] = (
+            f"trusted-image-publication-{TRUSTED_CI_RUN_ID}"
+            f"-attempt-{TRUSTED_CI_RUN_ATTEMPT + 1}"
+        )
+    elif mutation == "archive-digest":
+        api.publication_artifact["digest"] = "sha256:1234"
+    else:
+        publication = _trusted_image_publication()
+        if mutation == "workflow":
+            publication["workflow_id"] = str(TRUSTED_CI_WORKFLOW_ID + 1)
+        elif mutation == "run":
+            publication["run_id"] = str(TRUSTED_CI_RUN_ID + 1)
+        elif mutation == "attempt":
+            publication["run_attempt"] = str(TRUSTED_CI_RUN_ATTEMPT + 1)
+        elif mutation == "sha":
+            publication["deploy_sha"] = "b" * 40
+            publication["image_tag"] = f"sha-{'b' * 40}"
+        elif mutation == "tag":
+            publication["image_tag"] = f"sha-{'b' * 40}"
+        elif mutation == "digest":
+            publication["images"]["worker"]["digest"] = f"sha256:{'B' * 64}"
+        else:
+            raise AssertionError(f"unhandled mutation: {mutation}")
+        original_artifact_zip = api.artifact_zip
+        api.artifact_zip = lambda repository_name, artifact_id: (
+            _trusted_request_zip(
+                publication, member_name="trusted-image-publication.json"
+            )
+            if artifact_id == api.publication_artifact["id"]
+            else original_artifact_zip(repository_name, artifact_id)
+        )
+
     with pytest.raises(trusted_workflow_run_validator.ProvenanceValidationError, match=message):
         trusted_workflow_run_validator.validate_provenance(
             event=event,

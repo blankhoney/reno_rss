@@ -1174,6 +1174,7 @@ test("annotation selection retry uses current color and tags without changing it
   await resetFixtures(page);
   let postCount = 0;
   let submitted: Record<string, unknown> | null = null;
+  let updated: Record<string, unknown> | null = null;
   await page.route("**/api/articles/7/annotations", async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
@@ -1210,6 +1211,34 @@ test("annotation selection retry uses current color and tags without changing it
       }),
     });
   });
+  await page.route("**/api/annotations/65", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.fallback();
+      return;
+    }
+    updated = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        annotation: {
+          id: 65,
+          article_id: 7,
+          type: "annotation",
+          selected_text: submitted?.selected_text,
+          content: updated.content,
+          color: updated.color,
+          tags: updated.tags,
+          anchor: submitted?.anchor,
+          created_at: "2026-07-27T00:00:00Z",
+          updated_at: "2026-07-27T00:00:01Z",
+          next_review_at: null,
+          interval_days: 1,
+          review_count: 0,
+        },
+      }),
+    });
+  });
 
   await page.goto("/read/7?module=all&sort=default&lang=zh");
   await expect(page.locator('mark[data-annotation-id="41"]')).toBeVisible();
@@ -1231,8 +1260,10 @@ test("annotation selection retry uses current color and tags without changing it
   expect(postCount).toBe(2);
   expect(submitted?.content).toBe("Evidence persists.");
   expect(submitted?.selected_text).toBe("Evidence persists.");
-  expect(submitted?.color).toBe("green");
-  expect(submitted?.tags).toEqual(["latest", "retry"]);
+  expect(submitted?.color).toBe("yellow");
+  expect(submitted?.tags).toEqual(["old"]);
+  expect(updated?.color).toBe("green");
+  expect(updated?.tags).toEqual(["latest", "retry"]);
   expect((submitted?.anchor as Record<string, unknown>).exact).toBe("Evidence persists.");
   await expect(page.locator('mark[data-annotation-id="65"]')).toBeVisible();
 });
@@ -1623,7 +1654,12 @@ test("selection callbacks from an unmounted article cannot contaminate the next 
   await expect.poll(() => postStarted).toBe(true);
 
   await page.getByRole("link", { name: "返回工作台" }).click();
-  await expect(page).toHaveURL(/module=search.*q=fast/);
+  await expect(page).toHaveURL((url) => (
+    url.pathname === "/" &&
+    url.searchParams.get("module") === "search" &&
+    url.searchParams.get("q") === "fast"
+  ));
+  await expect(page.getByText("文章 1 · 划线/笔记 1", { exact: true })).toBeVisible();
   const fastResult = page.getByRole("link", { name: "Fast search result" }).first();
   await expect(fastResult).toBeVisible();
   await fastResult.click();

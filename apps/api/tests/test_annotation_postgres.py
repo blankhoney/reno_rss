@@ -242,3 +242,63 @@ def test_postgres_concurrent_annotation_delete_uses_read_committed():
         assert repository.list_annotations(owner.id, article_id) == []
     finally:
         engine.dispose()
+
+
+@pytest.mark.skipif(POSTGRES_URL is None, reason="ARTICLE_POSTGRES_TEST_URL is not configured")
+def test_postgres_annotation_create_idempotency_replays_conflicts_and_scopes_owner():
+    from sqlalchemy import create_engine
+
+    from app.core.config import normalize_database_url
+    from app.db.auth_store import DatabaseAuthStore
+    from app.db.models import articles
+    from app.db.repositories.articles import AnnotationCreateResultKind, DatabaseArticleRepository
+    from app.domain.annotation_create import prepare_annotation_create
+
+    assert POSTGRES_URL is not None
+    database_url = normalize_database_url(POSTGRES_URL)
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        auth_store = DatabaseAuthStore(database_url, engine=engine)
+        owner, _, _ = auth_store.create_user(f"annotation-idem-owner-{uuid4()}")
+        other, _, _ = auth_store.create_user(f"annotation-idem-other-{uuid4()}")
+        with engine.begin() as connection:
+            article_id = connection.execute(
+                articles.insert().values(
+                    title="Annotation idempotency",
+                    url=f"https://example.test/annotation-idem/{uuid4()}",
+                    dedup_key=f"annotation-idem-{uuid4()}",
+                ).returning(articles.c.id)
+            ).scalar_one()
+        repository = DatabaseArticleRepository(database_url, engine=engine)
+        prepared = prepare_annotation_create(
+            content="same note", selected_text="quote", annotation_type="comment",
+            color="yellow", tags=["ai"], anchor=None,
+        )
+        first = repository.create_annotation_idempotent(
+            owner.id, article_id, idempotency_key="postgres-key-001",
+            request_fingerprint=prepared.request_fingerprint, content=prepared.stored_content,
+            selected_text=prepared.selected_text, annotation_type=prepared.annotation_type,
+        )
+        replay = repository.create_annotation_idempotent(
+            owner.id, article_id, idempotency_key="postgres-key-001",
+            request_fingerprint=prepared.request_fingerprint, content=prepared.stored_content,
+            selected_text=prepared.selected_text, annotation_type=prepared.annotation_type,
+        )
+        conflict = repository.create_annotation_idempotent(
+            owner.id, article_id, idempotency_key="postgres-key-001",
+            request_fingerprint="0" * 64, content=prepared.stored_content,
+            selected_text=prepared.selected_text, annotation_type=prepared.annotation_type,
+        )
+        other_result = repository.create_annotation_idempotent(
+            other.id, article_id, idempotency_key="postgres-key-001",
+            request_fingerprint=prepared.request_fingerprint, content=prepared.stored_content,
+            selected_text=prepared.selected_text, annotation_type=prepared.annotation_type,
+        )
+        assert first.kind is AnnotationCreateResultKind.CREATED
+        assert replay.kind is AnnotationCreateResultKind.REPLAYED
+        assert replay.annotation is not None and first.annotation is not None
+        assert replay.annotation.id == first.annotation.id
+        assert conflict.kind is AnnotationCreateResultKind.CONFLICT
+        assert other_result.kind is AnnotationCreateResultKind.CREATED
+    finally:
+        engine.dispose()

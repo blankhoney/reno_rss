@@ -15,6 +15,7 @@
       "name": "deploy-prod",
       "id": 274785174,
       "artifact": "trusted-production-deploy-request",
+      "promotion_artifact": "trusted-production-promotion-proof",
       "request_type": "deploy",
       "environment": "prod"
     },

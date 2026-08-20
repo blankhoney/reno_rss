@@ -119,7 +119,8 @@ The existing Node test glob runs `src/**/*.test.ts`. It does not by itself catch
 - `docs/spec/FRONTEND.md` is historical and still describes Tailwind/shadcn aspirations; it is not the implementation source of truth.
 - `docs/goal-completion-evidence.md` records the 2026-07-18 completion claim, but this Goal intentionally re-tests fragile browser behavior rather than treating that evidence as perpetual.
 - The root Goal's current-state gap table contains stale statements for some features. Do not remove working functionality because a narrative table says it is absent.
-- The repository ignores new files under `docs/`; this tracked Skill package lives under `.claude/skills/` so it can be shared.
+- Durable project notes under `docs/` are tracked. This canonical Skill package
+  lives under `.agents/skills/` so it can be shared across compatible agents.
 
 ## Required first observation set
 

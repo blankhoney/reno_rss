@@ -11,7 +11,7 @@ on:
           - staging
           - prod
       image_tag:
-        description: "Immutable previous GHCR image tag, for example sha-abc1234"
+        description: "Immutable previous GHCR image tag, sha-<full 40-character commit SHA>"
         required: true
         type: string
       deploy_sha:
@@ -47,13 +47,13 @@ jobs:
             echo "deploy_sha must be a full 40-character lowercase commit SHA" >&2
             exit 1
           }
-          [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{7}$ ]] || {
-            echo "image_tag must match the immutable sha-<7 lowercase hex> format" >&2
+          [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{40}$ ]] || {
+            echo "image_tag must match the immutable sha-<40 lowercase hex> format" >&2
             exit 1
           }
-          expected_tag="sha-${DEPLOY_SHA:0:7}"
+          expected_tag="sha-${DEPLOY_SHA}"
           [[ "$IMAGE_TAG" == "$expected_tag" ]] || {
-            echo "image_tag must match the first seven characters of deploy_sha" >&2
+            echo "image_tag must equal deploy_sha" >&2
             exit 1
           }
 

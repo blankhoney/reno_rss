@@ -1,13 +1,13 @@
 # DEPLOYMENT — AI Reader v0.4
 
-> **历史规划文档，不可作为现行 runbook，也禁止按本文命令或 workflow 参数执行**：当前部署与 staging 边界以根目录 `SPEC-CICD.md`、`SPEC-CICD.zh-CN.md`、`docs/runbooks/deploy.md`、`docs/runbooks/rollback.md` 和现行 workflow 为准。当前三个手工 workflow 是 request-only；trusted orchestrator 尚未启用，request 不会自动部署或回滚。
+> **历史规划文档，不可作为现行 runbook，也禁止按本文命令或 workflow 参数执行**：当前部署与 staging 边界以根目录 `SPEC-CICD.md`、`SPEC-CICD.zh-CN.md`、`docs/runbooks/deploy.md`、`docs/runbooks/rollback.md` 和现行 workflow 为准。三个手工 workflow 仍是 request-only，但 completed request 会触发已启用的 `trusted-deploy.yml`；只有 provenance、Environment、shared-lock 与 runtime gates 全部通过后才会执行。
 
 > Compose 分层、Caddy 路由、GHCR 镜像、CI/CD、备份回滚。扩展现有 `infra/*` 与 `.github/workflows/ci.yml` 为 **web/api/worker 三镜像**。
 
 ## Current status (2026-08)
 
 - **ARCHIVED / DO NOT EXECUTE:** this document is a historical v0.4 plan. Its old production environment, SSH, image, migration, and rollback steps are design history only.
-- `deploy-staging.yml`, `deploy-prod.yml`, and `rollback.yml` remain request-only and upload `trusted-deploy-request/v1` data artifacts. `trusted-deploy.yml` now performs a verify-only provenance check from the default main checkout; it does not declare an environment, read deployment secrets, SSH, deploy, or roll back. Secret-bearing execution is not enabled, so a verified request still does not deploy or roll back an environment.
+- `deploy-staging.yml`, `deploy-prod.yml`, and `rollback.yml` remain request-only and upload `trusted-deploy-request/v1` data artifacts. `trusted-deploy.yml` is now the actual trusted execution path: it verifies provenance and a pinned control plane before its Environment-gated job reads scoped secrets and executes one canonical-lock remote transaction. A request or verify result alone still does not prove runtime change.
 - Main branch protection, workflow-ID registration, Environment policies, and secret scope are not verified in this repository. Existing documentation records earlier control-plane observations, but those observations are not current API evidence. Do not treat the old `PASS` claims or execution examples below as current evidence.
 - Use `SPEC-CICD.md`, `SPEC-CICD.zh-CN.md`, `docs/runbooks/deploy.md`, and `docs/runbooks/rollback.md` for the current boundary and inputs.
 
@@ -71,14 +71,14 @@ ghcr.io/<owner>/ai-reader-worker:sha-<short_sha>
 | 阶段 | 步骤 |
 |---|---|
 | **PR** | lint（ruff/eslint）、typecheck、pytest（api+worker）、前端 `npm test`+`npm run build`、**Alembic migration check**（`upgrade head` 在干净库可重放 + 无未生成迁移）、**API schema check**（OpenAPI 可导出）、`docker build` check、compose config validate、Trivy（CRITICAL/HIGH 失败） |
-| **main** | 跑测试 → build web/api/worker 镜像 → push GHCR → **deploy staging** → smoke test → mini benchmark（Mock，不产生 LLM 成本） |
-| **production (ARCHIVED / DO NOT EXECUTE)** | 旧设计曾描述 `workflow_dispatch` + `production` 环境审批 → 备份 PostgreSQL → 拉精确 image SHA → migration dry-run/upgrade → `compose up` → healthcheck/smoke → 失败回滚；production environment 已有 required reviewer，但 deployment branch policy 未配置；当前 request-only `deploy-prod.yml` 不绑定或触发该 environment，trusted orchestrator 尚未启用。 |
+| **main** | 跑测试 → build web/api/worker 镜像 → push GHCR 与 publication evidence；不自动部署 staging |
+| **production (ARCHIVED DESIGN)** | 旧步骤不可执行；现行 production 由 request artifact 触发 `trusted-deploy.yml`，在 provenance/promotion proof、`production` Environment、canonical shared lock、备份和双站探针全部通过后执行。 |
 
-- 自动 staging：main push 的 CI 路径；**fork PR 不部署、不读 secrets**。
+- 手动 staging request：main push 只发布；**fork PR 不部署、不读 secrets**。
 - 失败可分类：checks / image build / SSH-secret / VPS dirty worktree / deploy / smoke。
-- **ARCHIVED / DO NOT EXECUTE:** 旧远程部署设计曾让 `remote-deploy.sh` SSH 到 `VPS_APP_DIR`，校验 tracked worktree 干净，checkout `DEPLOY_SHA`，登录 GHCR，运行 `deploy.sh`。这段 dirty-worktree guard 只可由未来启用的 trusted orchestrator 复用；当前 request workflow 不执行它。
+- **ARCHIVED / DO NOT EXECUTE:** 下文旧远程部署命令仍不可执行。现行 trusted orchestrator 使用固定 control-plane bundle 与 canonical shared-lock wrapper；不得恢复旧的任意 checkout/direct-SSH 接线。
 
-production DB 规则（历史设计；trusted orchestrator 启用并完成独立审批前不可执行）：
+production DB 规则（历史设计说明；现行 gate 以 runbook 与脚本为准）：
 - migration 前必须 `backup.sh prod` 成功并输出备份 artifact 路径 + sha256。
 - M0 clean cutover 可以创建新 schema/库，但必须保留旧库备份；禁止在未备份情况下 drop/overwrite。
 - 常规迁移必须优先 expand/contract；若 migration 不可自动 downgrade，rollback runbook 必须写明从备份恢复。
