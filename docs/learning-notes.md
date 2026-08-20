@@ -108,3 +108,9 @@
   strict `overallStatus=failure` receipt before returning nonzero; invalid
   identity or phase input writes no receipt. This preserves failure evidence
   without weakening the fail-closed activation and compensation gates.
+- A root-capable control-plane installer must keep the non-root probe account
+  separate from the canonical lock group. The wrapper owns the root:reno-deploy
+  flock; the fixed `deploy` account only needs a safe UID/GID and receives a
+  root-owned 0555 Node snapshot in a root-owned `/run` work directory. Requiring
+  probe membership in the lock group incorrectly blocks hosts where lock access
+  and application runtime access are intentionally separated.

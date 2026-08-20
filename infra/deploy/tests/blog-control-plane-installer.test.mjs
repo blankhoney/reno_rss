@@ -63,7 +63,8 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   assert.match(transaction, /pass_fds=\(fd,\)/);
   assert.match(transaction, /PROBE_ACCOUNT = 'deploy'/);
   assert.match(transaction, /pwd\.getpwnam\(PROBE_ACCOUNT\)/);
-  assert.match(transaction, /deploy_group not in os\.getgrouplist/);
+  assert.match(transaction, /account\.pw_uid <= 0 or account\.pw_gid < 0/);
+  assert.doesNotMatch(transaction, /deploy_group not in os\.getgrouplist/);
   assert.match(transaction, /probe_identity_override/);
   assert.doesNotMatch(transaction, /-lic|\.pw_shell/);
   assert.match(transaction, /os\.open\(source, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
@@ -71,6 +72,8 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   const remoteBody = remote.slice(remote.indexOf('remote="'), remote.indexOf('exec ssh'));
   assert.doesNotMatch(remoteBody, /mktemp|mkdir|tar\s+-x|cat\s*>/);
   assert.ok(transaction.indexOf('validate_lock(args)') < transaction.indexOf('tempfile.mkdtemp'));
+  assert.match(transaction, /WORK_ROOT = pathlib\.Path\('\/run'\)/);
+  assert.match(transaction, /tempfile\.mkdtemp\(prefix='\.blog-control-plane-v2\.', dir=WORK_ROOT\)/);
   assert.match(transaction, /os\.open\(METADATA_PATH, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
   assert.match(transaction, /identity_before != identity_after or identity_after != identity_current/);
   assert.ok(transaction.indexOf("'pre-mutation'") < transaction.indexOf('atomic_install(files)'));
@@ -249,7 +252,8 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   await chmod(root, 0o755);
   const probeUid = process.getuid() === 0 ? 1000 : process.getuid();
   const probeGid = process.getgid() === 0 ? 1000 : process.getgid();
-  const probeGroup = spawnSync('id', ['-gn', String(probeUid)], { encoding: 'utf8' }).stdout.trim();
+  const lockGid = process.getuid() === 0 ? 65534 : probeGid;
+  const lockGroup = spawnSync('id', ['-gn', String(lockGid)], { encoding: 'utf8' }).stdout.trim();
   const probeNode = spawnSync('readlink', ['-f', process.execPath], { encoding: 'utf8' }).stdout.trim();
   const lockRoot = path.join(root, 'lock');
   const audit = path.join(lockRoot, 'audit');
@@ -260,9 +264,9 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   await mkdir(audit, { recursive: true });
   await mkdir(release, { recursive: true });
   await writeFile(path.join(lockRoot, 'release.lock'), '');
-  await chown(lockRoot, process.getuid(), probeGid);
-  await chown(audit, process.getuid(), probeGid);
-  await chown(path.join(lockRoot, 'release.lock'), process.getuid(), probeGid);
+  await chown(lockRoot, process.getuid(), lockGid);
+  await chown(audit, process.getuid(), lockGid);
+  await chown(path.join(lockRoot, 'release.lock'), process.getuid(), lockGid);
   await chmod(lockRoot, 0o770); await chmod(audit, 0o770);
   await chmod(path.join(lockRoot, 'release.lock'), 0o660); await chmod(helper, 0o755);
   await copyFile('infra/deploy/with-shared-release-lock.sh', path.join(helper, 'with-shared-release-lock.sh'));
@@ -299,11 +303,13 @@ chmod 600 "$receipt"
   source = source
     .replace("LOCK_ROOT = pathlib.Path('/var/lib/reno-shared-vps/release-lock-v1')", `LOCK_ROOT = pathlib.Path('${lockRoot}')`)
     .replace("HELPER_ROOT = pathlib.Path('/usr/local/lib/reno-shared-vps/release-lock-v1')", `HELPER_ROOT = pathlib.Path('${helper}')`)
+    .replace("WORK_ROOT = pathlib.Path('/run')", `WORK_ROOT = pathlib.Path('${root}')`)
     .replace("APP_ROOT = pathlib.Path('/srv/brianstorm')", `APP_ROOT = pathlib.Path('${path.join(root, 'app')}')`)
     .replace("PROBE_ACCOUNT = 'deploy'", `PROBE_ACCOUNT = '${probeUid === 1000 ? 'node' : os.userInfo().username}'`)
     .replace("if os.geteuid() != 0 or os.uname().sysname != 'Linux':", "if os.uname().sysname != 'Linux':")
-    .replaceAll("deploy_group = grp.getgrnam('reno-deploy').gr_gid", `deploy_group = ${probeGid}`)
+    .replaceAll("deploy_group = grp.getgrnam('reno-deploy').gr_gid", `deploy_group = ${lockGid}`)
     .replace('(HELPER_ROOT, stat.S_IFDIR, 0, 0o755)', '(HELPER_ROOT, stat.S_IFDIR, os.getgid(), 0o755)')
+    .replace('(WORK_ROOT, stat.S_IFDIR, 0, 0o755)', '(WORK_ROOT, stat.S_IFDIR, os.getgid(), 0o755)')
     .replaceAll('value.st_uid != 0', 'value.st_uid != os.getuid()')
     .replaceAll('before.st_uid != 0', 'before.st_uid != os.getuid()')
     .replaceAll('before.st_gid != 0', 'before.st_gid != os.getgid()')
@@ -331,7 +337,7 @@ chmod 600 "$receipt"
     'python3', inner, ...baseArgs, '--installer-run', String(workflowRun)], {
     encoding: 'utf8', env: { ...process.env, SHARED_RELEASE_LOCK_ROOT: lockRoot,
       SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
-      SHARED_RELEASE_LOCK_GROUP: probeGroup, ...extraEnv },
+      SHARED_RELEASE_LOCK_GROUP: lockGroup, ...extraEnv },
   });
 
   const success = run(7001);
@@ -346,6 +352,7 @@ chmod 600 "$receipt"
     const normalizeGroups = (groups) => groups.trim().split(/\s+/).map(Number).sort((a, b) => a - b);
     const expectedGroups = spawnSync('id', ['-G', String(probeUid)], { encoding: 'utf8' }).stdout;
     assert.deepEqual(normalizeGroups(value.groups), normalizeGroups(expectedGroups));
+    if (process.getuid() === 0) assert.ok(!normalizeGroups(value.groups).includes(lockGid));
     assert.match(value.nodePath, /\/node$/); assert.notEqual(value.nodePath, probeNode);
     assert.equal(value.nodeSha256, digest(probeNode));
   };
@@ -401,7 +408,7 @@ chmod 600 "$receipt"
     path.join(lockRoot, 'metadata.json'), poison, 'python3', inner, ...baseArgs, '--installer-run', '7003'], {
     encoding: 'utf8', env: { ...process.env,
       SHARED_RELEASE_LOCK_ROOT: lockRoot, SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
-      SHARED_RELEASE_LOCK_GROUP: probeGroup,
+      SHARED_RELEASE_LOCK_GROUP: lockGroup,
       RENO_SHARED_RELEASE_BUNDLE_FD: '8' },
   });
   assert.notEqual(poisoned.status, 0);
@@ -417,7 +424,7 @@ chmod 600 "$receipt"
     path.join(lockRoot, 'metadata.json'), poison, 'python3', inner, ...baseArgs, '--installer-run', '7004'], {
     encoding: 'utf8', env: { ...process.env,
       SHARED_RELEASE_LOCK_ROOT: lockRoot, SHARED_RELEASE_LOCK_OWNER: os.userInfo().username,
-      SHARED_RELEASE_LOCK_GROUP: probeGroup,
+      SHARED_RELEASE_LOCK_GROUP: lockGroup,
       RENO_SHARED_RELEASE_BUNDLE_FD: '8' },
   });
   assert.notEqual(wrongMode.status, 0);
