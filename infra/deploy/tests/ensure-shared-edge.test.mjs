@@ -15,6 +15,8 @@ async function fixture({
   brianstormNetworkExists = true,
   productionBlogNetworks = ['brianstorm-edge'],
   stagingBlogNetworks = [],
+  rssUpstream = true,
+  blogUpstream = true,
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ensure-shared-edge-'));
   const bin = path.join(root, 'bin');
@@ -69,6 +71,13 @@ process.stdout.write(JSON.stringify([{NetworkSettings:{Networks:Object.fromEntri
       *) exit 1 ;;
     esac
     ;;
+  exec)
+    case "$*" in
+      *web-prod*) [[ "$FAKE_RSS_UPSTREAM" == 1 ]] ;;
+      *brianstorm-web*) [[ "$FAKE_BLOG_UPSTREAM" == 1 ]] ;;
+      *) exit 1 ;;
+    esac
+    ;;
   *) exit 1 ;;
 esac
 `);
@@ -84,6 +93,8 @@ esac
     FAKE_BRIANSTORM_NETWORK_EXISTS: brianstormNetworkExists ? '1' : '0',
     FAKE_PRODUCTION_BLOG_NETWORKS: productionBlogNetworks.join(','),
     FAKE_STAGING_BLOG_NETWORKS: stagingBlogNetworks.join(','),
+    FAKE_RSS_UPSTREAM: rssUpstream ? '1' : '0',
+    FAKE_BLOG_UPSTREAM: blogUpstream ? '1' : '0',
   };
 
   return {
@@ -91,7 +102,7 @@ esac
     calls,
     state,
     run() {
-      return spawnSync('bash', [ensure], { cwd: repoRoot, env, encoding: 'utf8' });
+      return spawnSync('python3', [ensure], { cwd: repoRoot, env, encoding: 'utf8' });
     },
     async cleanup() { await rm(root, { recursive: true, force: true }); },
   };
@@ -110,6 +121,7 @@ test('idempotently restores only the fixed Caddy membership on both shared bridg
     assert.equal(calls.includes('network connect brianstorm-edge brianstorm-web'), false);
     assert.equal(calls.includes('network connect brianstorm-edge brianstorm-staging-web'), false);
     assert.deepEqual((await readFile(item.state, 'utf8')).trim().split('\n').sort(), ['brianstorm-edge', 'myrss-app']);
+    assert.doesNotMatch(await readFile(ensure, 'utf8'), /\bnode\b/);
   } finally { await item.cleanup(); }
 });
 
@@ -118,12 +130,16 @@ test('fails closed before connection when either network is missing or has the w
     { brianstormNetworkExists: false },
     { myrssDriver: 'overlay' },
     { brianstormDriver: 'overlay' },
+    { rssUpstream: false },
+    { blogUpstream: false },
   ]) {
     const item = await fixture(options);
     try {
       const result = item.run();
       assert.notEqual(result.status, 0);
-      assert.equal((await readFile(item.calls, 'utf8')).includes('network connect'), false);
+      if (options.rssUpstream !== false && options.blogUpstream !== false) {
+        assert.equal((await readFile(item.calls, 'utf8')).includes('network connect'), false);
+      }
     } finally { await item.cleanup(); }
   }
 });

@@ -1,118 +1,96 @@
-#!/usr/bin/env bash
-# SPDX-License-Identifier: MIT
-#
-# Idempotently restore the fixed shared Caddy container's membership on the RSS
-# and Blog production edge networks. This script never creates networks and
-# never connects or disconnects an application container; those lifecycles stay
-# owned by their respective projects.
+#!/usr/bin/env python3
+"""Idempotently restore only the fixed shared Caddy edge memberships."""
+from __future__ import annotations
 
-set -euo pipefail
+import json
+import subprocess
+import sys
 
-readonly CADDY_CONTAINER='myrss-edge-caddy-1'
-readonly MYRSS_NETWORK='myrss-app'
-readonly BRIANSTORM_NETWORK='brianstorm-edge'
-readonly BRIANSTORM_PRODUCTION_WEB='brianstorm-web'
-readonly BRIANSTORM_STAGING_WEB='brianstorm-staging-web'
+CADDY = 'myrss-edge-caddy-1'
+MYRSS = 'myrss-app'
+BLOG_EDGE = 'brianstorm-edge'
+BLOG_WEB = 'brianstorm-web'
+STAGING_WEB = 'brianstorm-staging-web'
 
-die() {
-    printf '%s\n' "shared-edge recovery: $*" >&2
-    exit 1
-}
 
-(( $# == 0 )) || die 'this fixed contract accepts no arguments'
-command -v docker >/dev/null 2>&1 || die 'docker is required'
-command -v node >/dev/null 2>&1 || die 'node is required for strict inspect parsing'
+def die(message: str) -> 'None':
+    print(f'shared-edge recovery: {message}', file=sys.stderr)
+    raise SystemExit(1)
 
-parse_network_driver() {
-    node -e '
-let raw = "";
-process.stdin.on("data", (chunk) => { raw += chunk; });
-process.stdin.on("end", () => {
-  try {
-    const value = JSON.parse(raw);
-    if (!Array.isArray(value) || value.length !== 1 || typeof value[0]?.Driver !== "string") {
-      throw new Error("expected one network inspect record with Driver");
-    }
-    process.stdout.write(value[0].Driver);
-  } catch (error) {
-    console.error(`invalid network inspect JSON: ${error.message}`);
-    process.exit(1);
-  }
-});
-'
-}
 
-container_has_network() {
-    local network="$1"
-    node -e '
-const network = process.argv[1];
-let raw = "";
-process.stdin.on("data", (chunk) => { raw += chunk; });
-process.stdin.on("end", () => {
-  try {
-    const value = JSON.parse(raw);
-    if (!Array.isArray(value) || value.length !== 1) throw new Error("expected one container inspect record");
-    const networks = value[0]?.NetworkSettings?.Networks;
-    if (!networks || typeof networks !== "object" || Array.isArray(networks)) throw new Error("missing network map");
-    process.stdout.write(String(Object.hasOwn(networks, network)));
-  } catch (error) {
-    console.error(`invalid container inspect JSON: ${error.message}`);
-    process.exit(1);
-  }
-});
-' "$network"
-}
+def docker(*args: str, capture: bool = True) -> str:
+    try:
+        result = subprocess.run(['docker', *args], check=True, text=True,
+            stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=15)
+    except (OSError, subprocess.SubprocessError) as error:
+        die(f'docker command failed: {type(error).__name__}')
+    return result.stdout if capture else ''
 
-network_driver() {
-    local network="$1"
-    local inspect
-    inspect="$(docker network inspect "$network")" || die "required network does not exist: $network"
-    printf '%s' "$inspect" | parse_network_driver || die "cannot parse network driver: $network"
-}
 
-inspect_membership() {
-    local container="$1"
-    local network="$2"
-    local inspect
-    inspect="$(docker inspect "$container")" || die "required container does not exist: $container"
-    printf '%s' "$inspect" | container_has_network "$network" || die "cannot parse $container network membership"
-}
+def inspect_container(name: str) -> dict:
+    try:
+        value = json.loads(docker('inspect', name))
+        if type(value) is not list or len(value) != 1:
+            raise ValueError()
+        networks = value[0].get('NetworkSettings', {}).get('Networks')
+        if type(networks) is not dict:
+            raise ValueError()
+        return networks
+    except (ValueError, json.JSONDecodeError):
+        die(f'invalid container inspect: {name}')
 
-myrss_driver="$(network_driver "$MYRSS_NETWORK")"
-brianstorm_driver="$(network_driver "$BRIANSTORM_NETWORK")"
-[[ "$myrss_driver" == 'bridge' ]] || die "$MYRSS_NETWORK must use the bridge driver"
-[[ "$brianstorm_driver" == 'bridge' ]] || die "$BRIANSTORM_NETWORK must use the bridge driver"
 
-production_blog_attached="$(inspect_membership "$BRIANSTORM_PRODUCTION_WEB" "$BRIANSTORM_NETWORK")"
-[[ "$production_blog_attached" == 'true' ]] || die "production Blog web is not attached to $BRIANSTORM_NETWORK"
+def network_driver(name: str) -> str:
+    try:
+        value = json.loads(docker('network', 'inspect', name))
+        if type(value) is not list or len(value) != 1 or type(value[0].get('Driver')) is not str:
+            raise ValueError()
+        return value[0]['Driver']
+    except (ValueError, json.JSONDecodeError):
+        die(f'invalid network inspect: {name}')
 
-if staging_inspect="$(docker inspect "$BRIANSTORM_STAGING_WEB" 2>/dev/null)"; then
-    staging_blog_attached="$(printf '%s' "$staging_inspect" | container_has_network "$BRIANSTORM_NETWORK")" \
-        || die 'cannot parse staging Blog network membership'
-    [[ "$staging_blog_attached" == 'false' ]] \
-        || die "staging Blog web must never join production $BRIANSTORM_NETWORK"
-fi
 
-ensure_caddy_membership() {
-    local network="$1"
-    local attached
-    attached="$(inspect_membership "$CADDY_CONTAINER" "$network")"
-    if [[ "$attached" == 'true' ]]; then
-        return 0
-    fi
+def ensure_membership(network: str) -> None:
+    if network in inspect_container(CADDY):
+        return
+    try:
+        docker('network', 'connect', network, CADDY, capture=False)
+    except SystemExit:
+        if network not in inspect_container(CADDY):
+            die(f'cannot attach {CADDY} to {network}')
+        return
+    if network not in inspect_container(CADDY):
+        die(f'{CADDY} is still detached from {network}')
 
-    if ! docker network connect "$network" "$CADDY_CONTAINER"; then
-        # Another idempotent recovery may have won the race. Re-inspect before
-        # deciding whether the transaction must fail closed.
-        attached="$(inspect_membership "$CADDY_CONTAINER" "$network")"
-        [[ "$attached" == 'true' ]] || die "cannot attach $CADDY_CONTAINER to $network"
-    fi
 
-    attached="$(inspect_membership "$CADDY_CONTAINER" "$network")"
-    [[ "$attached" == 'true' ]] || die "$CADDY_CONTAINER is still detached from $network"
-}
+def require_upstream(url: str, label: str) -> None:
+    try:
+        docker('exec', CADDY, '/bin/sh', '-ec', f'wget -q -T 5 -O /dev/null {url}', capture=False)
+    except SystemExit:
+        die(f'{label} upstream is unreachable')
 
-ensure_caddy_membership "$MYRSS_NETWORK"
-ensure_caddy_membership "$BRIANSTORM_NETWORK"
 
-echo "shared-edge recovery passed: $CADDY_CONTAINER is attached to $MYRSS_NETWORK and $BRIANSTORM_NETWORK"
+def main() -> int:
+    if len(sys.argv) != 1:
+        die('this fixed contract accepts no arguments')
+    if network_driver(MYRSS) != 'bridge' or network_driver(BLOG_EDGE) != 'bridge':
+        die('required networks must use the bridge driver')
+    if BLOG_EDGE not in inspect_container(BLOG_WEB):
+        die('production Blog web is not attached to brianstorm-edge')
+    try:
+        staging = inspect_container(STAGING_WEB)
+    except SystemExit:
+        staging = None
+    if staging is not None and BLOG_EDGE in staging:
+        die('staging Blog web must never join production brianstorm-edge')
+    ensure_membership(MYRSS)
+    ensure_membership(BLOG_EDGE)
+    require_upstream('http://web-prod:3000/', 'RSS')
+    require_upstream('http://brianstorm-web:3000/api/status', 'Blog')
+    print(f'shared-edge recovery passed: {CADDY} is attached to {MYRSS} and {BLOG_EDGE}')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
