@@ -217,7 +217,12 @@ test('Linux lock-held transaction runs both probes and restores every old byte o
   const probeGid = process.getgid() === 0 ? 1000 : process.getgid();
   const lockGid = process.getuid() === 0 ? 65534 : probeGid;
   const lockGroup = spawnSync('id', ['-gn', String(lockGid)], { encoding: 'utf8' }).stdout.trim();
-  const probePython = spawnSync('sh', ['-c', 'readlink -f "$(command -v python3)"'], { encoding: 'utf8' }).stdout.trim();
+  const systemPython = spawnSync('sh', ['-c', 'readlink -f "$(command -v python3)"'], { encoding: 'utf8' }).stdout.trim();
+  assert.ok(systemPython, 'Linux fixture requires python3');
+  const probePython = path.join(root, 'fixture-python3');
+  await copyFile(systemPython, probePython);
+  await chmod(probePython, 0o555);
+  await chown(probePython, process.getuid(), process.getgid());
   const lockRoot = path.join(root, 'lock');
   const audit = path.join(lockRoot, 'audit');
   const helper = path.join(root, 'helper');
