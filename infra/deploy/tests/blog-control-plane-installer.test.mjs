@@ -75,6 +75,8 @@ test('remote installer enters the canonical wrapper before any remote write', ()
   assert.match(transaction, /tempfile\.mkdtemp\(prefix='\.blog-control-plane-v2\.', dir=WORK_ROOT\)/);
   assert.match(transaction, /verify-shared-edge\.py/);
   assert.match(transaction, /verify-shared-edge-receipt\.py/);
+  assert.match(transaction, /failure\['probeFailure'\] = error\.diagnostics/);
+  assert.match(transaction, /receiptSha256/);
   assert.match(transaction, /os\.open\(METADATA_PATH, os\.O_RDONLY \| os\.O_NOFOLLOW\)/);
   assert.match(transaction, /identity_before != identity_after or identity_after != identity_current/);
   assert.ok(transaction.indexOf("'pre-mutation'") < transaction.indexOf('atomic_install(files)'));
@@ -253,7 +255,8 @@ p=argparse.ArgumentParser()
 for name in ('owner-project','owner-repo','operation-sha','runtime-sha','workflow-run','phase','receipt'): p.add_argument('--'+name, required=True)
 a=p.parse_args()
 print('probe diagnostic on stdout')
-if a.workflow_run == '7002' and a.phase == 'pre-activation': raise SystemExit(19)
+if a.workflow_run == '7002' and a.phase == 'pre-activation':
+ pathlib.Path(a.receipt).write_text(json.dumps({'overallStatus':'failure','urls':[{'name':'blog-public','status':503,'finalURL':None,'result':'failure','error':'http_status_503'}],'edge':{'caddyContainer':'myrss-edge-caddy-1','myrssAppAttached':True,'brianstormEdgeAttached':False,'networkDriver':'bridge','configLoaded':True,'rssUpstreamReachable':True,'blogUpstreamReachable':False,'result':'failure','error':['blog_upstream_unreachable']}})+'\\n'); os.chmod(a.receipt,0o600); raise SystemExit(1)
 if a.workflow_run == '7007': pathlib.Path(a.receipt).symlink_to('/etc/passwd'); raise SystemExit(0)
 binary=pathlib.Path(sys.executable).resolve(); digest=hashlib.sha256(binary.read_bytes()).hexdigest()
 pathlib.Path(a.receipt).write_text(json.dumps({'phase':a.phase,'runtime':a.runtime_sha,'uid':os.getuid(),'gid':os.getgid(),'groups':' '.join(map(str,os.getgroups())),'pythonPath':str(binary),'pythonSha256':digest})+'\\n')
@@ -365,6 +368,10 @@ os.chmod(a.receipt,0o600)
   }
   const failed = run(7002);
   assert.notEqual(failed.status, 0);
+  const failedAudit = JSON.parse(await readFile(path.join(audit, 'blog-control-plane-v2-7002-1-failed.json'), 'utf8'));
+  assert.equal(failedAudit.probeFailure.overallStatus, 'failure');
+  assert.equal(failedAudit.probeFailure.urls[0].status, 503);
+  assert.deepEqual(failedAudit.probeFailure.edge.error, ['blog_upstream_unreachable']);
   for (const [name, body] of Object.entries(old)) assert.equal(await readFile(path.join(helper, name), 'utf8'), body);
   assert.equal((await readdir(audit)).filter((name) => name.includes('7002-1-failed')).length, 1);
 

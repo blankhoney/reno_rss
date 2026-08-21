@@ -38,6 +38,22 @@ LEGACY_RELEASE_ID = '20260719-201357-1667b3c'
 PROBE_ACCOUNT = 'deploy'
 SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^sha256:[a-f0-9]{64}$')
+
+
+class ProbeFailure(RuntimeError):
+    def __init__(self, phase: str, receipt: dict, digest: str):
+        super().__init__(f'probe_failure:{phase}')
+        self.diagnostics = {
+            'phase': phase,
+            'receiptSha256': digest,
+            'overallStatus': receipt.get('overallStatus'),
+            'urls': [{key: item.get(key) for key in ('name', 'status', 'finalURL', 'result', 'error')}
+                     for item in receipt.get('urls', []) if isinstance(item, dict)],
+            'edge': {key: receipt.get('edge', {}).get(key) for key in (
+                'caddyContainer', 'myrssAppAttached', 'brianstormEdgeAttached', 'networkDriver',
+                'configLoaded', 'rssUpstreamReachable', 'blogUpstreamReachable', 'result', 'error')}
+            if isinstance(receipt.get('edge'), dict) else None,
+        }
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
@@ -316,10 +332,19 @@ def run_probe(probe: pathlib.Path, verifier: pathlib.Path, receipt: pathlib.Path
         credentials = {'user': args.probe_uid, 'group': args.probe_gid,
             'extra_groups': os.getgrouplist(account.pw_name, args.probe_gid)}
     try:
-        subprocess.run([str(stable_python), str(probe_copy), '--owner-project', 'blog', '--owner-repo', args.repo,
-            '--operation-sha', args.operation_sha, '--runtime-sha', runtime,
-            '--workflow-run', str(args.installer_run), '--phase', phase, '--receipt', str(actual)],
-            check=True, stdout=subprocess.DEVNULL, env=environment, **credentials)
+        try:
+            subprocess.run([str(stable_python), str(probe_copy), '--owner-project', 'blog', '--owner-repo', args.repo,
+                '--operation-sha', args.operation_sha, '--runtime-sha', runtime,
+                '--workflow-run', str(args.installer_run), '--phase', phase, '--receipt', str(actual)],
+                check=True, stdout=subprocess.DEVNULL, env=environment, **credentials)
+        except subprocess.CalledProcessError as error:
+            if actual.exists() and not actual.is_symlink():
+                try:
+                    receipt = json.loads(actual.read_text())
+                    raise ProbeFailure(phase, receipt, sha256_file(actual)) from error
+                except (OSError, json.JSONDecodeError, TypeError):
+                    pass
+            raise
         frozen = probe_dir / 'frozen-receipt.json'
         freeze_probe_receipt(actual, frozen, args)
         subprocess.run([str(stable_python), str(verifier_copy), str(frozen), 'success', 'blog',
@@ -485,6 +510,8 @@ def main() -> int:
             'controlPlaneSha': args.control_plane_sha, 'operationSha': args.operation_sha,
             'installerRun': args.installer_run, 'installerAttempt': args.installer_attempt,
             'stage': stage, 'error': type(error).__name__, 'timestamp': utc_now()}
+        if isinstance(error, ProbeFailure):
+            failure['probeFailure'] = error.diagnostics
         audit_write(f'blog-control-plane-v2-{args.installer_run}-{args.installer_attempt}-failed.json', failure)
         raise
     finally:
@@ -497,5 +524,7 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except Exception as error:
-        print(f'Blog control-plane installer failed closed: {type(error).__name__}:{error}', file=sys.stderr)
+        detail = ':' + json.dumps(error.diagnostics, sort_keys=True, separators=(',', ':')) \
+            if isinstance(error, ProbeFailure) else ''
+        print(f'Blog control-plane installer failed closed: {type(error).__name__}:{error}{detail}', file=sys.stderr)
         raise SystemExit(64)
