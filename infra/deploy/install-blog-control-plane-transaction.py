@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import errno
 import grp
 import hashlib
 import io
@@ -29,8 +28,8 @@ WORK_ROOT = pathlib.Path('/run')
 APP_ROOT = pathlib.Path('/srv/brianstorm')
 TARGETS = {
     'trusted-blog-remote-transaction.sh': ('45c326fdd266311df5ac1114c4c47207429efc6b47bd795db4d6f06b0f602892', HELPER_ROOT / 'trusted-blog-remote-transaction.sh'),
-    'verify-shared-edge.sh': ('8ad9f32344ab8007c503850a7c3b0f680ccf13cd3b06d95fa673221ac5d73766', HELPER_ROOT / 'verify-shared-edge.sh'),
-    'verify-shared-edge-receipt.mjs': ('6102cf625a0b604c0d1ab52226139727fa287811928e4b33dc53f527dd75262c', HELPER_ROOT / 'verify-shared-edge-receipt.mjs'),
+    'verify-shared-edge.py': ('a40dfa790be224d43a2054e1c972476d605a62d0b49154b7e0e8b87e3c39e712', HELPER_ROOT / 'verify-shared-edge.py'),
+    'verify-shared-edge-receipt.py': ('d6c988c14399d8562a4ad79ced3f9dcac500316f21e97cca41bfd98463be8926', HELPER_ROOT / 'verify-shared-edge-receipt.py'),
 }
 WRAPPER_SHA = '2cf87eb5d54e626fd96bef70ea7b8543ef721a12bb610b31dd2578fb80c296a5'
 CORE_SHA = 'd54485e473c7729e74628105c0f0ca6f75bcc63e65d4b71c2f14f1e2f3b51429'
@@ -39,15 +38,6 @@ LEGACY_RELEASE_ID = '20260719-201357-1667b3c'
 PROBE_ACCOUNT = 'deploy'
 SHA = re.compile(r'^[a-f0-9]{40}$')
 DIGEST = re.compile(r'^sha256:[a-f0-9]{64}$')
-NODE_LAYOUTS = ('system_usr_local_bin', 'system_usr_bin', 'nvm', 'asdf', 'mise', 'fnm')
-
-
-class NodeResolutionError(RuntimeError):
-    def __init__(self, message: str, diagnostics: dict[str, dict[str, int]]):
-        super().__init__(message)
-        self.diagnostics = diagnostics
-
-
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
@@ -101,35 +91,6 @@ def chown_as_root(path: pathlib.Path, owner: int, group: int) -> None:
 def file_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int, int, int]:
     return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
             value.st_size, value.st_mtime_ns, value.st_ctime_ns)
-
-
-def freeze_probe_node(source_fd: int, work: pathlib.Path) -> tuple[pathlib.Path, str]:
-    target = work / 'node'
-    target_fd = -1
-    try:
-        before = os.fstat(source_fd)
-        if (not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) & 0o111 == 0
-                or before.st_size <= 0 or before.st_size > 256 * 1024 * 1024):
-            raise RuntimeError('probe_node_permissions')
-        target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o500)
-        while True:
-            block = os.read(source_fd, 1024 * 1024)
-            if not block:
-                break
-            view = memoryview(block)
-            while view:
-                view = view[os.write(target_fd, view):]
-        os.fsync(target_fd)
-        os.fchmod(target_fd, 0o555)
-        if os.geteuid() == 0:
-            os.fchown(target_fd, 0, 0)
-        after = os.fstat(source_fd)
-        if file_identity(before) != file_identity(after):
-            raise RuntimeError('probe_node_changed')
-    finally:
-        if target_fd >= 0:
-            os.close(target_fd)
-    return target, sha256_file(target)
 
 
 def freeze_probe_receipt(source: pathlib.Path, target: pathlib.Path,
@@ -199,214 +160,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise RuntimeError('probe_identity')
     args.probe_uid = account.pw_uid
     args.probe_gid = account.pw_gid
-
-
-def validate_directory_fd(fd: int, owner: int) -> None:
-    value = os.fstat(fd)
-    if (not stat.S_ISDIR(value.st_mode) or value.st_uid != owner
-            or stat.S_IMODE(value.st_mode) & 0o022):
-        raise RuntimeError('probe_node_directory')
-
-
-def open_directory_at(parent_fd: int, name: str, owner: int) -> int:
-    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
-    try:
-        validate_directory_fd(fd, owner)
-        return fd
-    except Exception:
-        os.close(fd)
-        raise
-
-
-def open_directory_chain(parts: tuple[str, ...], final_owner: int) -> int:
-    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    validate_directory_fd(fd, 0)
-    current_owner = 0
-    try:
-        for part in parts:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-            value = os.fstat(child)
-            if current_owner == 0 and value.st_uid == final_owner:
-                current_owner = final_owner
-            if (not stat.S_ISDIR(value.st_mode) or value.st_uid != current_owner
-                    or stat.S_IMODE(value.st_mode) & 0o022):
-                os.close(child)
-                raise RuntimeError('probe_node_directory')
-            os.close(fd)
-            fd = child
-        if current_owner != final_owner:
-            raise RuntimeError('probe_node_directory')
-        return fd
-    except Exception:
-        os.close(fd)
-        raise
-
-
-def open_node_at(parent_fd: int, owner: int) -> int:
-    fd = os.open('node', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
-    try:
-        value = os.fstat(fd)
-        if (not stat.S_ISREG(value.st_mode) or value.st_uid != owner
-                or stat.S_IMODE(value.st_mode) & 0o111 == 0
-                or stat.S_IMODE(value.st_mode) & 0o022
-                or value.st_size <= 0 or value.st_size > 256 * 1024 * 1024):
-            raise RuntimeError('probe_node_permissions')
-        return fd
-    except Exception:
-        os.close(fd)
-        raise
-
-
-def probe_node_version(fd: int, args: argparse.Namespace) -> tuple[int, int, int]:
-    account = pwd.getpwuid(args.probe_uid)
-    environment = {'HOME': account.pw_dir, 'USER': account.pw_name, 'LOGNAME': account.pw_name,
-        'LANG': 'C.UTF-8', 'PATH': '/usr/local/bin:/usr/bin:/bin'}
-    credentials = {}
-    if os.geteuid() == 0:
-        credentials = {'user': args.probe_uid, 'group': args.probe_gid,
-            'extra_groups': os.getgrouplist(account.pw_name, args.probe_gid)}
-    result = subprocess.run([f'/proc/self/fd/{fd}', '--version'], check=False, text=True,
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        timeout=5, env=environment, pass_fds=(fd,), **credentials)
-    match = re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)\s*', result.stdout)
-    if result.returncode != 0 or match is None:
-        raise RuntimeError('probe_node_version')
-    version = tuple(map(int, match.groups()))
-    return version
-
-
-def collect_versioned_candidates(label: str, home_fd: int, owner: int, layout: tuple[str, ...],
-                                version_pattern: re.Pattern[str],
-                                bin_parts: tuple[str, ...], candidates: list[int],
-                                diagnostics: dict[str, int], candidate_labels: dict[int, str]) -> None:
-    base_fd = home_fd
-    opened: list[int] = []
-    try:
-        try:
-            for part in layout:
-                base_fd = open_directory_at(base_fd, part, owner)
-                opened.append(base_fd)
-        except FileNotFoundError:
-            diagnostics['missing'] += 1
-            return
-        diagnostics['layout_present'] += 1
-        versions = 0
-        for name in os.listdir(base_fd):
-            if version_pattern.fullmatch(name) is None:
-                continue
-            versions += 1
-            version_fd = open_directory_at(base_fd, name, owner)
-            try:
-                bin_fd = version_fd
-                bin_opened: list[int] = []
-                try:
-                    for part in bin_parts:
-                        bin_fd = open_directory_at(bin_fd, part, owner)
-                        bin_opened.append(bin_fd)
-                    fd = open_node_at(bin_fd, owner)
-                    candidates.append(fd)
-                    candidate_labels[fd] = label
-                    diagnostics['candidate'] += 1
-                finally:
-                    for fd in reversed(bin_opened):
-                        os.close(fd)
-            finally:
-                os.close(version_fd)
-        if versions == 0:
-            diagnostics['no_matching_version'] += 1
-    finally:
-        for fd in reversed(opened):
-            os.close(fd)
-
-
-def resolve_probe_node(args: argparse.Namespace,
-                       account: pwd.struct_passwd | None = None,
-                       system_parts: tuple[tuple[str, ...], ...] = (
-                           ('usr', 'local', 'bin'), ('usr', 'bin'),
-                       )) -> tuple[int, tuple[int, int, int]]:
-    account = account or pwd.getpwuid(args.probe_uid)
-    home = pathlib.PurePosixPath(account.pw_dir)
-    if not home.is_absolute() or '..' in home.parts:
-        raise RuntimeError('probe_home')
-    candidates: list[int] = []
-    candidate_labels: dict[int, str] = {}
-    diagnostics = {name: {'layout_present': 0, 'missing': 0, 'no_matching_version': 0,
-                          'no_node': 0, 'candidate': 0, 'unsupported_version': 0,
-                          'proc_fd_exec_failure': 0, 'version_failure': 0, 'exec_failure': 0}
-                   for name in NODE_LAYOUTS}
-    try:
-        for parts in system_parts:
-            directory_fd = -1
-            try:
-                directory_fd = open_directory_chain(parts, 0)
-                label = 'system_usr_local_bin' if parts == ('usr', 'local', 'bin') else 'system_usr_bin'
-                diagnostics[label]['layout_present'] += 1
-                try:
-                    fd = open_node_at(directory_fd, 0)
-                    candidates.append(fd)
-                    candidate_labels[fd] = label
-                    diagnostics[label]['candidate'] += 1
-                except RuntimeError:
-                    diagnostics[label]['no_node'] += 1
-                except OSError as error:
-                    if error.errno not in (errno.ENOENT, errno.ELOOP):
-                        raise
-            finally:
-                if directory_fd >= 0:
-                    os.close(directory_fd)
-
-        home_fd = open_directory_chain(tuple(part for part in home.parts if part != '/'), account.pw_uid)
-        try:
-            layouts = (
-                ('nvm', ('.nvm', 'versions', 'node'), re.compile(r'v\d+\.\d+\.\d+'), ('bin',)),
-                ('asdf', ('.asdf', 'installs', 'nodejs'), re.compile(r'\d+\.\d+\.\d+'), ('bin',)),
-                ('mise', ('.local', 'share', 'mise', 'installs', 'node'), re.compile(r'\d+\.\d+\.\d+'), ('bin',)),
-                ('fnm', ('.local', 'share', 'fnm', 'node-versions'), re.compile(r'v\d+\.\d+\.\d+'), ('installation', 'bin')),
-            )
-            for label, layout, version_pattern, bin_parts in layouts:
-                collect_versioned_candidates(label, home_fd, account.pw_uid, layout,
-                                             version_pattern, bin_parts, candidates,
-                                             diagnostics[label], candidate_labels)
-        finally:
-            os.close(home_fd)
-
-        identified: dict[tuple[int, int], tuple[int, tuple[int, int, int]]] = {}
-        for fd in candidates:
-            value = os.fstat(fd)
-            identity = (value.st_dev, value.st_ino)
-            try:
-                version = probe_node_version(fd, args)
-            except OSError:
-                diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['proc_fd_exec_failure'] += 1
-                continue
-            except subprocess.SubprocessError:
-                diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['exec_failure'] += 1
-                continue
-            except RuntimeError:
-                diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['version_failure'] += 1
-                continue
-            if version[0] >= 18:
-                identified[identity] = (fd, version)
-            else:
-                diagnostics[candidate_labels.get(fd, 'system_usr_bin')]['unsupported_version'] += 1
-        if not identified:
-            raise NodeResolutionError('probe_node_resolution', diagnostics)
-        best_version = max(version for _, version in identified.values())
-        best = [(fd, version) for fd, version in identified.values() if version == best_version]
-        if len(best) != 1:
-            raise RuntimeError('probe_node_ambiguous')
-        selected = best[0]
-        for fd in candidates:
-            if fd != selected[0]:
-                os.close(fd)
-        return selected
-    except Exception:
-        for fd in candidates:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        raise
 
 
 def read_lock_metadata() -> dict:
@@ -541,7 +294,7 @@ def extract_bundle(fd: int, directory: pathlib.Path) -> dict[str, pathlib.Path]:
 
 def run_probe(probe: pathlib.Path, verifier: pathlib.Path, receipt: pathlib.Path,
               args: argparse.Namespace, runtime: str, phase: str,
-              stable_node: pathlib.Path) -> str:
+              stable_python: pathlib.Path) -> str:
     account = pwd.getpwuid(args.probe_uid)
     probe_dir = receipt.parent / f'.{receipt.stem}-probe'
     probe_dir.mkdir(mode=0o750)
@@ -549,27 +302,27 @@ def run_probe(probe: pathlib.Path, verifier: pathlib.Path, receipt: pathlib.Path
     output_dir = probe_dir / 'output'
     output_dir.mkdir(mode=0o700)
     chown_as_root(output_dir, args.probe_uid, args.probe_gid)
-    probe_copy = probe_dir / 'verify-shared-edge.sh'
-    verifier_copy = probe_dir / 'verify-shared-edge-receipt.mjs'
+    probe_copy = probe_dir / 'verify-shared-edge.py'
+    verifier_copy = probe_dir / 'verify-shared-edge-receipt.py'
     write_exclusive(probe_copy, probe.read_bytes(), 0o550)
     write_exclusive(verifier_copy, verifier.read_bytes(), 0o440)
     chown_as_root(probe_copy, 0, args.probe_gid)
     chown_as_root(verifier_copy, 0, args.probe_gid)
     actual = output_dir / 'receipt.json'
     environment = {'HOME': account.pw_dir, 'USER': account.pw_name, 'LOGNAME': account.pw_name,
-        'LANG': 'C.UTF-8', 'PATH': f'{stable_node.parent}:/usr/local/bin:/usr/bin:/bin'}
+        'LANG': 'C.UTF-8', 'PATH': '/usr/local/bin:/usr/bin:/bin'}
     credentials = {}
     if os.geteuid() == 0:
         credentials = {'user': args.probe_uid, 'group': args.probe_gid,
             'extra_groups': os.getgrouplist(account.pw_name, args.probe_gid)}
     try:
-        subprocess.run(['bash', str(probe_copy), '--owner-project', 'blog', '--owner-repo', args.repo,
+        subprocess.run([str(stable_python), str(probe_copy), '--owner-project', 'blog', '--owner-repo', args.repo,
             '--operation-sha', args.operation_sha, '--runtime-sha', runtime,
             '--workflow-run', str(args.installer_run), '--phase', phase, '--receipt', str(actual)],
             check=True, stdout=subprocess.DEVNULL, env=environment, **credentials)
         frozen = probe_dir / 'frozen-receipt.json'
         freeze_probe_receipt(actual, frozen, args)
-        subprocess.run([str(stable_node), str(verifier_copy), str(frozen), 'success', 'blog',
+        subprocess.run([str(stable_python), str(verifier_copy), str(frozen), 'success', 'blog',
             args.repo, args.operation_sha, runtime, str(args.installer_run), phase],
             check=True, stdout=subprocess.DEVNULL, env=environment, **credentials)
         os.replace(frozen, receipt)
@@ -655,27 +408,35 @@ def main() -> int:
     os.chmod(work, 0o710)
     chown_as_root(work, 0, args.probe_gid)
     previous = None
+    python_fd = -1
     stage = 'bundle'
     try:
         files = extract_bundle(args.bundle_fd, work)
         stage = 'runtime'
         runtime, runtime_evidence, runtime_release_id = current_runtime(args)
         stage = 'probe_runtime'
-        probe_node_fd, _ = resolve_probe_node(args)
-        try:
-            stable_node, probe_node_sha = freeze_probe_node(probe_node_fd, work)
-        finally:
-            os.close(probe_node_fd)
+        python_path = pathlib.Path('/proc/self/exe').resolve(strict=True)
+        python_fd = os.open(python_path, os.O_RDONLY | os.O_NOFOLLOW)
+        python_before = os.fstat(python_fd)
+        if (not stat.S_ISREG(python_before.st_mode) or python_before.st_uid != 0
+                or python_before.st_gid != 0 or stat.S_IMODE(python_before.st_mode) & 0o022
+                or stat.S_IMODE(python_before.st_mode) & 0o111 == 0):
+            raise RuntimeError('probe_python_permissions')
+        probe_python_sha = sha256_file(pathlib.Path(f'/proc/self/fd/{python_fd}'))
         stage = 'before_probe'
         before = work / 'before.json'
-        before_digest = run_probe(files['verify-shared-edge.sh'], files['verify-shared-edge-receipt.mjs'],
-                                  before, args, runtime, 'pre-mutation', stable_node)
+        before_digest = run_probe(files['verify-shared-edge.py'], files['verify-shared-edge-receipt.py'],
+                                  before, args, runtime, 'pre-mutation', python_path)
         stage = 'install'
         previous, installed = atomic_install(files)
         stage = 'after_probe'
         after = work / 'after.json'
-        after_digest = run_probe(TARGETS['verify-shared-edge.sh'][1], TARGETS['verify-shared-edge-receipt.mjs'][1],
-                                 after, args, runtime, 'pre-activation', stable_node)
+        after_digest = run_probe(TARGETS['verify-shared-edge.py'][1], TARGETS['verify-shared-edge-receipt.py'][1],
+                                 after, args, runtime, 'pre-activation', python_path)
+        python_after = os.fstat(python_fd)
+        python_current = python_path.stat()
+        if file_identity(python_before) != file_identity(python_after) or file_identity(python_after) != file_identity(python_current):
+            raise RuntimeError('probe_python_drift')
         timestamp = utc_now()
         suffix = f'{args.installer_run}-{args.installer_attempt}'
         before_path = persist_probe(f'blog-control-plane-v2-{suffix}-before.json', before)
@@ -696,13 +457,13 @@ def main() -> int:
             'source': {'rssSourceSha': args.rss_source_sha, 'wrapperSha256': WRAPPER_SHA,
                 'installerTransactionSha256': args.installer_transaction_sha256,
                 'coreSha256': CORE_SHA, 'transactionSha256': TARGETS['trusted-blog-remote-transaction.sh'][0],
-                'probeNodeSha256': probe_node_sha,
-                'probeSha256': TARGETS['verify-shared-edge.sh'][0],
-                'probeVerifierSha256': TARGETS['verify-shared-edge-receipt.mjs'][0]},
+                'probePythonSha256': probe_python_sha,
+                'probeSha256': TARGETS['verify-shared-edge.py'][0],
+                'probeVerifierSha256': TARGETS['verify-shared-edge-receipt.py'][0]},
             'installed': {'wrapperSha256': WRAPPER_SHA, 'coreSha256': CORE_SHA,
                 'transactionSha256': installed['trusted-blog-remote-transaction.sh'],
-                'probeSha256': installed['verify-shared-edge.sh'],
-                'probeVerifierSha256': installed['verify-shared-edge-receipt.mjs']},
+                'probeSha256': installed['verify-shared-edge.py'],
+                'probeVerifierSha256': installed['verify-shared-edge-receipt.py']},
             'canonical': canonical,
             'lock': {'authority': 'live-flock', 'tokenSha256': token_digest,
                 'audit': metadata['audit'], 'acquiredAt': metadata['acquiredAt']},
@@ -724,11 +485,11 @@ def main() -> int:
             'controlPlaneSha': args.control_plane_sha, 'operationSha': args.operation_sha,
             'installerRun': args.installer_run, 'installerAttempt': args.installer_attempt,
             'stage': stage, 'error': type(error).__name__, 'timestamp': utc_now()}
-        if isinstance(error, NodeResolutionError):
-            failure['nodeResolution'] = error.diagnostics
         audit_write(f'blog-control-plane-v2-{args.installer_run}-{args.installer_attempt}-failed.json', failure)
         raise
     finally:
+        if python_fd >= 0:
+            os.close(python_fd)
         shutil.rmtree(work, ignore_errors=True)
 
 
@@ -736,8 +497,5 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except Exception as error:
-        detail = ''
-        if isinstance(error, NodeResolutionError):
-            detail = ':' + json.dumps(error.diagnostics, sort_keys=True, separators=(',', ':'))
-        print(f'Blog control-plane installer failed closed: {type(error).__name__}:{error}{detail}', file=sys.stderr)
+        print(f'Blog control-plane installer failed closed: {type(error).__name__}:{error}', file=sys.stderr)
         raise SystemExit(64)

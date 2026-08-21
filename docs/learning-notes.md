@@ -126,3 +126,9 @@
   failures, and processes that run but emit invalid version output, making
   kernel/runtime incompatibility observable without weakening descriptor or
   ownership checks.
+- The RSS-owned control-plane installer's remote shared-edge probe and receipt
+  verifier use Python 3's standard library rather than requiring Node on the
+  VPS. The installer binds
+  the already-running root-owned Python executable by owner, mode, digest and
+  inode before and after both non-root probes; the MJS verifier remains a
+  GitHub-runner-only consumer of the final installer receipt.
